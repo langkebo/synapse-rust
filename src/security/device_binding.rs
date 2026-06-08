@@ -24,6 +24,8 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+use crate::common::crypto::{decode_hex, encode_hex};
+
 type HmacSha256 = Hmac<Sha256>;
 
 /// Domain-separated payload. Bump the `v1|` prefix on any change to keep
@@ -42,7 +44,7 @@ pub fn sign_device_binding(
 ) -> String {
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");
     mac.update(&build_binding_payload(user_id, device_id, key_type, added_ts));
-    hex::encode(mac.finalize().into_bytes())
+    encode_hex(mac.finalize().into_bytes())
 }
 
 /// Constant-time verify a binding token against the row's claimed fields.
@@ -54,7 +56,7 @@ pub fn verify_device_binding(
     added_ts: i64,
     provided_hex: &str,
 ) -> bool {
-    let Ok(provided) = hex::decode(provided_hex) else {
+    let Ok(provided) = decode_hex(provided_hex) else {
         return false;
     };
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");

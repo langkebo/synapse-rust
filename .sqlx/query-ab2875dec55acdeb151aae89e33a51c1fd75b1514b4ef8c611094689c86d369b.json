@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM room_tags WHERE user_id = $1 AND room_id = $2 AND tag = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab2875dec55acdeb151aae89e33a51c1fd75b1514b4ef8c611094689c86d369b"
+}

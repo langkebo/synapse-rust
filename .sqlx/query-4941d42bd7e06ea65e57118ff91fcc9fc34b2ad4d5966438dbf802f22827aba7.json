@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO notification_templates (\n                name, title_template, content_template, notification_type, variables\n            )\n            VALUES ($1, $2, $3, $4, $5)\n            RETURNING id as \"id!\", name as \"name!\", title_template as \"title_template!\",\n                      content_template as \"content_template!\", notification_type as \"notification_type!\",\n                      variables as \"variables!\", is_enabled as \"is_enabled!\",\n                      created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "title_template!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "content_template!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "notification_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "variables!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4941d42bd7e06ea65e57118ff91fcc9fc34b2ad4d5966438dbf802f22827aba7"
+}

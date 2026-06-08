@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE registration_captcha SET status = 'expired' WHERE captcha_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "65d601ae39afe0332084d9d77633050484a1fb8191d5156ca7626b48d7495d42"
+}

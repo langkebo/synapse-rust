@@ -9,7 +9,7 @@ use crate::federation::KeyRotationManager;
 use crate::services::RoomService;
 use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
 use serde_json::{json, Map, Value};
-use sqlx::Row;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -415,17 +415,15 @@ impl FriendRoomService {
     }
 
     pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
-        let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'")
-            .bind(user_id)
+        let row = sqlx::query!("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'", user_id)
             .fetch_optional(&*self.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load m.direct account data", &e))?;
 
         match row {
-            Some(row) => match row.get::<Option<Value>, _>("content") {
-                Some(Value::Object(map)) => Ok(map),
-                Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
-                None => Ok(Map::new()),
+            Some(row) => match row.content {
+                Value::Object(map) => Ok(map),
+                _ => Err(ApiError::internal("Invalid m.direct account data format")),
             },
             None => Ok(Map::new()),
         }
@@ -433,17 +431,17 @@ impl FriendRoomService {
 
     pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
             VALUES ($1, 'm.direct', $2, $3, $3)
             ON CONFLICT (user_id, data_type) DO UPDATE
             SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            user_id,
+            Value::Object(direct_map.clone()),
+            now
         )
-        .bind(user_id)
-        .bind(Value::Object(direct_map.clone()))
-        .bind(now)
         .execute(&*self.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
@@ -456,9 +454,9 @@ impl FriendRoomService {
         merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
 
         if direct_map.is_empty() {
-            let rows = sqlx::query(
-                r"
-                SELECT rm_other.user_id AS other_user_id, rm_user.room_id
+            let rows = sqlx::query!(
+                r#"
+                SELECT rm_other.user_id AS "other_user_id!", rm_user.room_id AS "room_id!"
                 FROM room_memberships rm_user
                 JOIN room_summaries rs
                   ON rs.room_id = rm_user.room_id
@@ -475,9 +473,9 @@ impl FriendRoomService {
                     WHERE rm_count.room_id = rm_user.room_id
                       AND rm_count.membership IN ('join', 'invite')
                   ) = 2
-                ",
+                "#,
+                user_id
             )
-            .bind(user_id)
             .fetch_all(&*self.user_storage.pool)
             .await
             .map_err(|e| ApiError::database_with_log("Failed to build effective direct map", &e))?;
@@ -485,8 +483,8 @@ impl FriendRoomService {
             for row in rows {
                 ensure_room_in_direct_map(
                     &mut direct_map,
-                    &row.get::<String, _>("other_user_id"),
-                    &row.get::<String, _>("room_id"),
+                    &row.other_user_id,
+                    &row.room_id,
                 );
             }
         }
@@ -608,9 +606,9 @@ impl FriendRoomService {
             }
         }
 
-        let row = sqlx::query(
-            r"
-            SELECT m1.room_id
+        let row = sqlx::query!(
+            r#"
+            SELECT m1.room_id AS "room_id!"
             FROM room_memberships m1
             JOIN room_memberships m2 ON m1.room_id = m2.room_id
             JOIN room_summaries rs ON m1.room_id = rs.room_id
@@ -620,15 +618,15 @@ impl FriendRoomService {
               AND m2.membership IN ('join', 'invite')
               AND rs.is_direct = true
             LIMIT 1
-            ",
+            "#,
+            user_id,
+            friend_id
         )
-        .bind(user_id)
-        .bind(friend_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
         .map_err(|e| ApiError::database_with_log("Failed to query existing DM room", &e))?;
 
-        Ok(row.map(|value| value.get::<String, _>("room_id")))
+        Ok(row.map(|value| value.room_id))
     }
 
     pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
@@ -655,12 +653,12 @@ impl FriendRoomService {
             }));
         }
 
-        let row = sqlx::query(
-            r"
+        let row = sqlx::query!(
+            r#"
             SELECT
-                rm.user_id,
-                COALESCE(rm.display_name, u.displayname, u.username, '') AS display_name,
-                COALESCE(rm.avatar_url, u.avatar_url, '') AS avatar_url
+                rm.user_id AS "user_id!",
+                COALESCE(rm.display_name, u.displayname, u.username, '') AS "display_name!",
+                COALESCE(rm.avatar_url, u.avatar_url, '') AS "avatar_url!"
             FROM room_memberships rm
             LEFT JOIN users u ON u.user_id = rm.user_id
             WHERE rm.room_id = $1
@@ -668,18 +666,18 @@ impl FriendRoomService {
               AND rm.membership IN ('join', 'invite')
             ORDER BY CASE WHEN rm.membership = 'join' THEN 0 ELSE 1 END, rm.updated_ts DESC NULLS LAST
             LIMIT 1
-            ",
+            "#,
+            room_id,
+            user_id
         )
-        .bind(room_id)
-        .bind(user_id)
         .fetch_optional(&*self.user_storage.pool)
         .await
         .map_err(|e| ApiError::database_with_log("Failed to load DM partner from membership", &e))?;
 
         Ok(row.map(|row| DmPartnerInfo {
-            user_id: row.get::<String, _>("user_id"),
-            display_name: row.get::<String, _>("display_name"),
-            avatar_url: row.get::<String, _>("avatar_url"),
+            user_id: row.user_id,
+            display_name: row.display_name,
+            avatar_url: row.avatar_url,
         }))
     }
 
@@ -1090,9 +1088,9 @@ impl FriendRoomService {
                     .or_else(|| profile.and_then(|value| value.displayname.clone()));
                 let username = profile.map(|value| value.username.clone());
                 let fallback_name = displayname.clone().or(username.clone()).unwrap_or_else(|| user_id.clone());
-                let presence = presence_map
+                let presence_state = presence_map
                     .get(&user_id)
-                    .map_or_else(|| "offline".to_string(), |snapshot| snapshot.presence.clone());
+                    .map_or(crate::common::PresenceState::Offline, |snapshot| crate::common::PresenceState::from(snapshot.presence.as_str()));
                 let last_active_ts = presence_map.get(&user_id).and_then(|snapshot| snapshot.last_active_ts);
 
                 Some(FriendListEntry {
@@ -1102,8 +1100,8 @@ impl FriendRoomService {
                     avatar_url: profile.and_then(|value| value.avatar_url.clone()),
                     note: friend.get("note").and_then(|value| value.as_str()).map(ToOwned::to_owned),
                     status: friend.get("status").and_then(|value| value.as_str()).unwrap_or("normal").to_string(),
-                    online: presence == "online",
-                    presence,
+                    online: presence_state == crate::common::PresenceState::Online,
+                    presence: presence_state.to_string(),
                     last_active_ts,
                     last_seen_ts: last_active_ts,
                     added_ts: friend.get("added_at").and_then(|value| value.as_i64()),

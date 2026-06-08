@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT room_id, name, topic, avatar_url, is_public\n        FROM rooms\n        WHERE\n            (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)\n            AND (\n                is_public = true\n                OR EXISTS (\n                    SELECT 1\n                    FROM room_memberships\n                    WHERE room_memberships.room_id = rooms.room_id\n                      AND room_memberships.user_id = $2\n                      AND room_memberships.membership = 'join'\n                )\n            )\n        ORDER BY name\n        LIMIT $3\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "topic",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_public",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6a78c23de7974c13a4ff55fe553261ca25ecd5de7529437a49a515e4f006760f"
+}

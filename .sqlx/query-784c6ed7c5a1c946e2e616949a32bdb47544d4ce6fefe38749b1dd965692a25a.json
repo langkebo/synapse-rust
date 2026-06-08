@@ -14,8 +14,8 @@
         "Text",
         "Text",
         "Int8",
-        "Timestamptz",
-        "Timestamptz"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": []

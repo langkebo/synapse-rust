@@ -90,8 +90,6 @@ fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
             })),
             created_ts: Utc::now(),
             updated_ts: Utc::now(),
-            binding_token: None,
-            binding_ts: None,
         };
 
         storage.create_cross_signing_key(&key).await.unwrap();

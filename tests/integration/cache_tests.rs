@@ -18,8 +18,6 @@ mod cache_integration_tests {
             device_id: Some("DEVICE123".to_string()),
             exp: now + 3600,
             iat: now,
-            iss: None,
-            aud: None,
         }
     }
 

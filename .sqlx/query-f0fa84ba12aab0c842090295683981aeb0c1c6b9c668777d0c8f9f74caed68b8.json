@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM to_device_messages\n            WHERE recipient_user_id = $1\n              AND recipient_device_id IN (\n                  SELECT device_id FROM dehydrated_devices WHERE user_id = $1\n              )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f0fa84ba12aab0c842090295683981aeb0c1c6b9c668777d0c8f9f74caed68b8"
+}

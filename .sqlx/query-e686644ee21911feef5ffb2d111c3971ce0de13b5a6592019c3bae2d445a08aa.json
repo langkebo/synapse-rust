@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(xact_commit, 0)::BIGINT AS \"xact_commit!\", COALESCE(xact_rollback, 0)::BIGINT AS \"xact_rollback!\",\n                      COALESCE(blks_hit, 0)::BIGINT AS \"blks_hit!\", COALESCE(blks_read, 0)::BIGINT AS \"blks_read!\",\n                      COALESCE(deadlocks, 0)::BIGINT AS \"deadlocks!\", stats_reset\n               FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "xact_commit!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "xact_rollback!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "blks_hit!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "blks_read!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "deadlocks!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "stats_reset",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "e686644ee21911feef5ffb2d111c3971ce0de13b5a6592019c3bae2d445a08aa"
+}

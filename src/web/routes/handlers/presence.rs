@@ -1,28 +1,16 @@
-use crate::common::{ApiError, MAX_MESSAGE_LENGTH};
+use crate::common::{ApiError, MAX_MESSAGE_LENGTH, PresenceState};
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
-use crate::web::routes::{validate_presence_status, validate_user_id, AppState, AuthenticatedUser};
+use crate::web::routes::{validate_user_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-/// Matrix 规范中，`currently_active` 为 true 时表示用户"最近活跃"。
-/// 这里使用 5 分钟作为阈值（与上游 python-synapse 行为对齐）。
-const CURRENTLY_ACTIVE_THRESHOLD_MS: i64 = 5 * 60 * 1000;
-
 /// 把 `last_active_ts`（绝对时间戳，ms）换算为：
 /// - `last_active_ago`：距离现在的毫秒数（presence != offline 时有意义）
 /// - `currently_active`：是否在近 5 分钟内有活动（presence 为 online 时才可能 true）
-fn derive_activity(presence: &str, last_active_ts: Option<i64>) -> (Option<i64>, Option<bool>) {
-    if presence == "offline" {
-        return (None, None);
-    }
+fn derive_activity(presence: &PresenceState, last_active_ts: Option<i64>) -> (Option<i64>, Option<bool>) {
     let now = chrono::Utc::now().timestamp_millis();
-    let last_active_ago = last_active_ts.map(|ts| (now - ts).max(0));
-    let currently_active = match presence {
-        "online" => Some(last_active_ts.is_some_and(|ts| (now - ts) <= CURRENTLY_ACTIVE_THRESHOLD_MS)),
-        _ => Some(false),
-    };
-    (last_active_ago, currently_active)
+    presence.derive_activity(last_active_ts, now)
 }
 
 fn ensure_presence_access(auth_user: &AuthenticatedUser, target_user_id: &str) -> Result<(), ApiError> {
@@ -89,17 +77,18 @@ pub(crate) async fn get_presence(
         .map_err(|e| ApiError::internal_with_log("Failed to get presence", &e))?;
 
     match presence {
-        Some((presence, status_msg, last_active_ts)) => {
-            let (last_active_ago, currently_active) = derive_activity(&presence, last_active_ts);
+        Some((presence_state, status_msg, last_active_ts)) => {
+            let presence_enum = PresenceState::from(presence_state.as_str());
+            let (last_active_ago, currently_active) = derive_activity(&presence_enum, last_active_ts);
             Ok(Json(json!({
-                "presence": presence,
+                "presence": presence_state.to_string(),
                 "status_msg": status_msg,
                 "last_active_ago": last_active_ago,
                 "currently_active": currently_active,
             })))
         }
         _ => Ok(Json(json!({
-            "presence": "offline",
+            "presence": PresenceState::Offline.to_string(),
             "status_msg": Option::<String>::None,
             "last_active_ago": Option::<i64>::None,
             "currently_active": Option::<bool>::None,
@@ -116,12 +105,16 @@ pub(crate) async fn set_presence(
     validate_user_id(&user_id)?;
     ensure_presence_access(&auth_user, &user_id)?;
 
-    let presence = body
+    let presence_str = body
         .get("presence")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Presence required".to_string()))?;
 
-    validate_presence_status(presence)?;
+    let presence_state = PresenceState::from_str_opt(presence_str)
+        .ok_or_else(|| ApiError::invalid_input(format!(
+            "Invalid presence status. Must be one of: {}",
+            PresenceState::valid_strs().join(", ")
+        )))?;
 
     let status_msg = body.get("status_msg").and_then(|v| v.as_str());
 
@@ -136,7 +129,7 @@ pub(crate) async fn set_presence(
     state
         .services
         .presence_storage
-        .set_presence(&user_id, presence, status_msg)
+        .set_presence(&user_id, presence_state, status_msg)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set presence", &e))?;
 
@@ -197,12 +190,13 @@ pub(crate) async fn presence_list(
 
     let mut presences = Vec::new();
 
-    for (target_id, presence, status_msg, last_active_ts) in presence_batch {
-        let (last_active_ago, currently_active) = derive_activity(&presence, last_active_ts);
+    for (target_id, presence_state, status_msg, last_active_ts) in presence_batch {
+        let presence_enum = PresenceState::from(presence_state.as_str());
+        let (last_active_ago, currently_active) = derive_activity(&presence_enum, last_active_ts);
 
         presences.push(json!({
             "user_id": target_id,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "status_msg": status_msg,
             "last_active_ago": last_active_ago,
             "currently_active": currently_active,
@@ -213,7 +207,7 @@ pub(crate) async fn presence_list(
         if !presences.iter().any(|p| p["user_id"] == *target_id) {
             presences.push(json!({
                 "user_id": target_id,
-                "presence": "offline",
+                "presence": PresenceState::Offline.to_string(),
                 "status_msg": None::<String>,
                 "last_active_ago": None::<i64>,
                 "currently_active": None::<bool>,
@@ -249,11 +243,12 @@ pub(crate) async fn get_presence_list_no_path(
 
     let mut presences = Vec::new();
 
-    for (target_id, presence, status_msg, last_active_ts) in presence_batch {
-        let (last_active_ago, currently_active) = derive_activity(&presence, last_active_ts);
+    for (target_id, presence_state, status_msg, last_active_ts) in presence_batch {
+        let presence_enum = PresenceState::from(presence_state.as_str());
+        let (last_active_ago, currently_active) = derive_activity(&presence_enum, last_active_ts);
         presences.push(json!({
             "user_id": target_id,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "status_msg": status_msg,
             "last_active_ago": last_active_ago,
             "currently_active": currently_active,
@@ -264,7 +259,7 @@ pub(crate) async fn get_presence_list_no_path(
         if !presences.iter().any(|p| p["user_id"] == *target_id) {
             presences.push(json!({
                 "user_id": target_id,
-                "presence": "offline",
+                "presence": PresenceState::Offline.to_string(),
                 "status_msg": None::<String>,
                 "last_active_ago": None::<i64>,
                 "currently_active": None::<bool>,
@@ -302,12 +297,13 @@ pub(crate) async fn get_presence_list(
 
     let mut presences = Vec::new();
 
-    for (target_id, presence, status_msg, last_active_ts) in presence_batch {
-        let (last_active_ago, currently_active) = derive_activity(&presence, last_active_ts);
+    for (target_id, presence_state, status_msg, last_active_ts) in presence_batch {
+        let presence_enum = PresenceState::from(presence_state.as_str());
+        let (last_active_ago, currently_active) = derive_activity(&presence_enum, last_active_ts);
 
         presences.push(json!({
             "user_id": target_id,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "status_msg": status_msg,
             "last_active_ago": last_active_ago,
             "currently_active": currently_active,
@@ -318,7 +314,7 @@ pub(crate) async fn get_presence_list(
         if !presences.iter().any(|p| p["user_id"] == *target_id) {
             presences.push(json!({
                 "user_id": target_id,
-                "presence": "offline",
+                "presence": PresenceState::Offline.to_string(),
                 "status_msg": None::<String>,
                 "last_active_ago": None::<i64>,
                 "currently_active": None::<bool>,

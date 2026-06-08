@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO user_notification_status (user_id, notification_id, is_read, read_ts)\n            VALUES ($1, $2, TRUE, $3)\n            ON CONFLICT (user_id, notification_id)\n            DO UPDATE SET is_read = TRUE, read_ts = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "580db08c515ff4af68bdbd2cf8be16dc32493a087af45e6a4975fbf3ce9651bc"
+}

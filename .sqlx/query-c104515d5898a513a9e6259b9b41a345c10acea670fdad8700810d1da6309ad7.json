@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id AS \"id!\",\n                server_name AS \"server_name!\",\n                'blacklist' AS \"block_type!\",\n                reason AS \"reason?\",\n                COALESCE(added_by, 'system') AS \"blocked_by!\",\n                added_ts AS \"created_ts!\",\n                COALESCE(updated_ts, added_ts) AS \"updated_ts!\",\n                NULL::BIGINT AS \"expires_at?\",\n                TRUE AS \"is_enabled!\",\n                '{}'::jsonb AS \"metadata!\"\n            FROM federation_blacklist\n            WHERE server_name = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "block_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "blocked_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      null,
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "c104515d5898a513a9e6259b9b41a345c10acea670fdad8700810d1da6309ad7"
+}

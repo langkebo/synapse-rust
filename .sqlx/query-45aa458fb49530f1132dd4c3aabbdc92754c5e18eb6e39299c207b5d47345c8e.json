@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO event_relations (\n                room_id, event_id, relates_to_event_id, relation_type,\n                sender, origin_server_ts, content, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            ON CONFLICT (event_id, relation_type, sender) DO UPDATE SET\n                content = EXCLUDED.content,\n                origin_server_ts = EXCLUDED.origin_server_ts,\n                is_redacted = FALSE\n            RETURNING id, room_id, event_id, relates_to_event_id, relation_type,\n                      sender, origin_server_ts, content, is_redacted AS \"is_redacted!\",\n                      created_ts AS \"created_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "relates_to_event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "relation_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "origin_server_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "content",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_redacted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "45aa458fb49530f1132dd4c3aabbdc92754c5e18eb6e39299c207b5d47345c8e"
+}

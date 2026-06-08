@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id AS \"user_id!\",\n                device_id AS \"device_id!\",\n                target_user_id AS \"target_user_id!\",\n                target_device_id AS \"target_device_id!\",\n                algorithm AS \"algorithm!\",\n                signature AS \"signature!\",\n                created_ts AS \"created_ts!\"\n            FROM device_signatures\n            WHERE user_id = ANY($1)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "target_device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "algorithm!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signature!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "25deba16f6e2b89e605c4efdeea05c99833b0e7e2b36a69428985475e3763025"
+}

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pushkey as \"pushkey!\", kind as \"kind!\", app_id as \"app_id!\", app_display_name, device_display_name, profile_tag, lang, data FROM pushers WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pushkey!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "app_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "app_display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "device_display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "profile_tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "lang",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6920b38b6cb3a30cd1922adea4deb7d875211f783f9aaa9debc8d4dba319bbcc"
+}

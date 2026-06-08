@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT rm.room_id as \"room_id!\", rm.user_id as \"user_id!\", rm.sender, rm.membership as \"membership!\", rm.event_id, rm.event_type,\n                   rm.display_name, rm.avatar_url, rm.is_banned, rm.invite_token, rm.updated_ts,\n                   rm.joined_ts, rm.left_ts, rm.reason, rm.banned_by, rm.ban_reason, rm.banned_ts, rm.join_reason,\n                   u.displayname as user_displayname, u.avatar_url as user_avatar_url\n            FROM room_memberships rm\n            LEFT JOIN users u ON rm.user_id = u.user_id\n            WHERE rm.room_id = $1 AND rm.membership = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sender",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "membership!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "event_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "avatar_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_banned",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "invite_token",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "joined_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "left_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "banned_by",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "ban_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "banned_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "join_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "user_displayname",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "user_avatar_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "c5060ccded37156021dc8465a57db740bf66c4f1af3367056b04b97d3deadbf5"
+}

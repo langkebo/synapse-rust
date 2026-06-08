@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                kb.user_id,\n                COALESCE(kb.backup_id_text, kb.version::text) AS \"backup_id!\",\n                bk.room_id,\n                bk.session_id,\n                bk.first_message_index AS \"first_message_index!\",\n                bk.forwarded_count AS \"forwarded_count!\",\n                bk.is_verified AS \"is_verified!\",\n                bk.session_data\n            FROM backup_keys bk\n            JOIN key_backups kb ON kb.backup_id = bk.backup_id\n            WHERE kb.user_id = $1 AND bk.room_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "backup_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "session_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "first_message_index!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "forwarded_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_verified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "session_data",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "20bcbd54de1928e0e5b93dbb49a61911ed1889ebaa61291eb3cc3f67a9b1c228"
+}

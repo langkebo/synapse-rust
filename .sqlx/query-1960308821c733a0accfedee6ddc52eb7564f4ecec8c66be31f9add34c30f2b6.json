@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM rooms WHERE created_ts < $1 AND NOT EXISTS (SELECT 1 FROM room_memberships WHERE room_memberships.room_id = rooms.room_id AND membership = 'join')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1960308821c733a0accfedee6ddc52eb7564f4ecec8c66be31f9add34c30f2b6"
+}

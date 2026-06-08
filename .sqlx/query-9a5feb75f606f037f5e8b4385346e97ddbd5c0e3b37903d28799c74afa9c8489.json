@@ -1,0 +1,103 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", event_id AS \"event_id!\", room_id AS \"room_id!\", reporter_user_id AS \"reporter_user_id!\", reported_user_id AS \"reported_user_id?\", event_json AS \"event_json?\", reason AS \"reason?\", description AS \"description?\", status AS \"status!\", score AS \"score!\", received_ts AS \"received_ts!\", resolved_at AS \"resolved_ts?\", resolved_by AS \"resolved_by?\", resolution_reason AS \"resolution_reason?\" FROM event_reports WHERE room_id = $1 AND (received_ts < $3 OR (received_ts = $3 AND id < $4)) ORDER BY received_ts DESC, id DESC LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reporter_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "reported_user_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "event_json?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "score!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "received_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "resolved_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "resolved_by?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "resolution_reason?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "9a5feb75f606f037f5e8b4385346e97ddbd5c0e3b37903d28799c74afa9c8489"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM typing WHERE user_id = $1 AND room_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a80aa0fab91235e267aa34885b35d0b75f2db0f497eceaa547af5ec2250b73a"
+}

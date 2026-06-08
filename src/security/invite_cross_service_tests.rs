@@ -166,7 +166,7 @@ fn field_reordering_resilience() {
         type H = Hmac<Sha256>;
         let mut mac = H::new_from_slice(TEST_SECRET).unwrap();
         mac.update(wrong_payload.as_bytes());
-        hex::encode(mac.finalize().into_bytes())
+        crate::common::crypto::encode_hex(mac.finalize().into_bytes())
     };
 
     // Even if the bytes happen to collides with the right signature,

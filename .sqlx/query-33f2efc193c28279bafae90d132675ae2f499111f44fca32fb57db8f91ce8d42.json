@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id AS \"user_id!\",\n                device_id AS \"device_id!\",\n                identity_key AS \"identity_key!\",\n                serialized_account AS \"serialized_account!\",\n                is_one_time_keys_published AS \"is_one_time_keys_published?\",\n                is_fallback_key_published AS \"is_fallback_key_published?\"\n            FROM olm_accounts\n            WHERE user_id = $1 AND device_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "identity_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "serialized_account!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_one_time_keys_published?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_fallback_key_published?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "33f2efc193c28279bafae90d132675ae2f499111f44fca32fb57db8f91ce8d42"
+}

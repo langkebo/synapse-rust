@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO rate_limits (user_id, messages_per_second, burst_count) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET messages_per_second = $2, burst_count = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dab610618d7f5db4226fc2d1737822252843412f89b8f6c7ef94427cda87fb1a"
+}

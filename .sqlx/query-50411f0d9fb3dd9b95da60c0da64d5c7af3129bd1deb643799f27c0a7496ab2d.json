@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", rule_id AS \"rule_id!\", server_id AS \"server_id?\",\n                rule_type AS \"rule_type!\", pattern AS \"pattern!\", action AS \"action!\",\n                reason AS \"reason?\", created_by AS \"created_by!\", created_ts AS \"created_ts!\",\n                updated_ts AS \"updated_ts!\", is_active AS \"is_active!\", priority AS \"priority!\"\n            FROM moderation_rules\n            WHERE rule_type = $1 AND is_active = true\n            ORDER BY priority DESC, created_ts ASC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "rule_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "server_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "rule_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "pattern!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "action!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_active!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "priority!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "50411f0d9fb3dd9b95da60c0da64d5c7af3129bd1deb643799f27c0a7496ab2d"
+}

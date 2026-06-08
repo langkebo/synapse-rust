@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, call_id, room_id, caller_id, callee_id, state, offer_sdp, answer_sdp, lifetime, created_ts, updated_ts, ended_ts\n            FROM call_sessions\n            WHERE call_id = $1 AND room_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "call_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "caller_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "callee_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "offer_sdp",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "answer_sdp",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "lifetime",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "ended_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "188d94510349a491b2880ce1fd76990e6d1f44cbe8231faa339f704306d4d9f9"
+}

@@ -29,14 +29,14 @@ impl DeviceTrustStorage {
             SqlxDeviceTrustStatus,
             r#"
             SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                trust_level AS "trust_level!",
-                verified_by_device_id AS "verified_by_device_id?",
-                verified_at AS "verified_at?",
-                created_ts AS "created_ts!",
-                updated_ts AS "updated_ts?"
+                id,
+                user_id,
+                device_id,
+                trust_level,
+                verified_by_device_id,
+                CASE WHEN verified_at IS NOT NULL THEN CAST(EXTRACT(EPOCH FROM verified_at) * 1000 AS BIGINT) ELSE 0 END AS "verified_at!",
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS "updated_ts!"
             FROM device_trust_status
             WHERE user_id = $1 AND device_id = $2
             "#,
@@ -55,20 +55,23 @@ impl DeviceTrustStorage {
 
     /// Create or update device trust status
     pub async fn upsert_device_trust(&self, status: &DeviceTrustStatus) -> Result<(), ApiError> {
+        let trust_level = status.trust_level.to_string();
+        let verified_by = status.verified_by_device_id.as_deref();
+        let verified_at_millis = status.verified_at.unwrap_or(0) as f64;
         sqlx::query!(
             r#"INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_ts, updated_ts)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000.0), $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
              verified_at = EXCLUDED.verified_at,
              updated_ts = EXCLUDED.updated_ts"#,
-            status.user_id,
-            status.device_id,
-            status.trust_level.to_string(),
-            status.verified_by_device_id,
-            status.verified_at,
+            &status.user_id,
+            &status.device_id,
+            &trust_level,
+            verified_by,
+            verified_at_millis,
             status.created_ts,
             status.updated_ts,
         )
@@ -90,13 +93,16 @@ impl DeviceTrustStorage {
         level: DeviceTrustLevel,
         verified_by: Option<&str>,
     ) -> Result<(), ApiError> {
-        let now = chrono::Utc::now();
-        let now_ts = now.timestamp_millis();
+        let now_ts = chrono::Utc::now().timestamp_millis();
+
+        let level_str = level.to_string();
+        let verified_at_millis =
+            if matches!(level, DeviceTrustLevel::Verified) { Some(now_ts) } else { None }.unwrap_or(0) as f64;
 
         sqlx::query!(
             r#"INSERT INTO device_trust_status (user_id, device_id, trust_level,
              verified_by_device_id, verified_at, created_ts, updated_ts)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             VALUES ($1, $2, $3, $4, to_timestamp($5::double precision / 1000.0), $6, $7)
              ON CONFLICT (user_id, device_id) DO UPDATE SET
              trust_level = EXCLUDED.trust_level,
              verified_by_device_id = EXCLUDED.verified_by_device_id,
@@ -104,9 +110,9 @@ impl DeviceTrustStorage {
              updated_ts = EXCLUDED.updated_ts"#,
             user_id,
             device_id,
-            level.to_string(),
+            &level_str,
             verified_by,
-            if matches!(level, DeviceTrustLevel::Verified) { Some(now) } else { None },
+            verified_at_millis,
             now_ts,
             now_ts,
         )
@@ -123,14 +129,14 @@ impl DeviceTrustStorage {
             SqlxDeviceTrustStatus,
             r#"
             SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                trust_level AS "trust_level!",
-                verified_by_device_id AS "verified_by_device_id?",
-                verified_at AS "verified_at?",
-                created_ts AS "created_ts!",
-                updated_ts AS "updated_ts?"
+                id,
+                user_id,
+                device_id,
+                trust_level,
+                verified_by_device_id,
+                CASE WHEN verified_at IS NOT NULL THEN CAST(EXTRACT(EPOCH FROM verified_at) * 1000 AS BIGINT) ELSE 0 END AS "verified_at!",
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS "updated_ts!"
             FROM device_trust_status
             WHERE user_id = $1
             "#,
@@ -152,14 +158,14 @@ impl DeviceTrustStorage {
             SqlxDeviceTrustStatus,
             r#"
             SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                trust_level AS "trust_level!",
-                verified_by_device_id AS "verified_by_device_id?",
-                verified_at AS "verified_at?",
-                created_ts AS "created_ts!",
-                updated_ts AS "updated_ts?"
+                id,
+                user_id,
+                device_id,
+                trust_level,
+                verified_by_device_id,
+                CASE WHEN verified_at IS NOT NULL THEN CAST(EXTRACT(EPOCH FROM verified_at) * 1000 AS BIGINT) ELSE 0 END AS "verified_at!",
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS "updated_ts!"
             FROM device_trust_status
             WHERE user_id = $1 AND trust_level = 'verified'
             "#,
@@ -177,7 +183,7 @@ impl DeviceTrustStorage {
 
     /// Count devices by trust level
     pub async fn count_devices_by_trust(&self, user_id: &str) -> Result<(i64, i64, i64), ApiError> {
-        let row: DeviceTrustCount = sqlx::query_as!(
+        let row = sqlx::query_as!(
             DeviceTrustCount,
             r#"SELECT
                 COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) AS "verified!",
@@ -203,19 +209,24 @@ impl DeviceTrustStorage {
 
     /// Create a new verification request
     pub async fn create_verification_request(&self, request: &DeviceVerificationRequest) -> Result<(), ApiError> {
+        let method = request.verification_method.to_string();
+        let status_str = request.status.to_string();
+        let requesting_device = request.requesting_device_id.as_deref();
+        let commitment = request.commitment.as_deref();
+        let pubkey = request.pubkey.as_deref();
         sqlx::query!(
             r#"INSERT INTO device_verification_request
              (user_id, new_device_id, requesting_device_id, verification_method,
               status, request_token, commitment, pubkey, created_ts, expires_at, completed_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
-            request.user_id,
-            request.new_device_id,
-            request.requesting_device_id,
-            request.verification_method.to_string(),
-            request.status.to_string(),
-            request.request_token,
-            request.commitment,
-            request.pubkey,
+            &request.user_id,
+            &request.new_device_id,
+            requesting_device,
+            &method,
+            &status_str,
+            &request.request_token,
+            commitment,
+            pubkey,
             request.created_ts,
             request.expires_at,
             request.completed_at,
@@ -235,18 +246,18 @@ impl DeviceTrustStorage {
         let result = sqlx::query_as!(
             SqlxVerificationRequest,
             r#"SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                new_device_id AS "new_device_id!",
-                requesting_device_id AS "requesting_device_id?",
-                verification_method AS "verification_method!",
-                status AS "status!",
-                request_token AS "request_token!",
-                commitment AS "commitment?",
-                pubkey AS "pubkey?",
-                created_ts AS "created_ts!",
-                expires_at AS "expires_at!",
-                completed_at AS "completed_at?"
+                id,
+                user_id,
+                new_device_id,
+                requesting_device_id,
+                verification_method,
+                status,
+                request_token,
+                commitment,
+                pubkey,
+                created_ts,
+                expires_at,
+                completed_at
             FROM device_verification_request
             WHERE request_token = $1"#,
             token,
@@ -270,20 +281,20 @@ impl DeviceTrustStorage {
         let result = sqlx::query_as!(
             SqlxVerificationRequest,
             r#"SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                new_device_id AS "new_device_id!",
-                requesting_device_id AS "requesting_device_id?",
-                verification_method AS "verification_method!",
-                status AS "status!",
-                request_token AS "request_token!",
-                commitment AS "commitment?",
-                pubkey AS "pubkey?",
-                created_ts AS "created_ts!",
-                expires_at AS "expires_at!",
-                completed_at AS "completed_at?"
+                id,
+                user_id,
+                new_device_id,
+                requesting_device_id,
+                verification_method,
+                status,
+                request_token,
+                commitment,
+                pubkey,
+                created_ts,
+                expires_at,
+                completed_at
             FROM device_verification_request
-            WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > NOW()"#,
+            WHERE user_id = $1 AND new_device_id = $2 AND status = 'pending' AND expires_at > (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)"#,
             user_id,
             new_device_id,
         )
@@ -299,13 +310,15 @@ impl DeviceTrustStorage {
 
     /// Update verification request status
     pub async fn update_request_status(&self, token: &str, status: VerificationRequestStatus) -> Result<(), ApiError> {
-        let now = chrono::Utc::now();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let status_str = status.to_string();
 
         sqlx::query!(
             r#"UPDATE device_verification_request
              SET status = $1, completed_at = $2
              WHERE request_token = $3"#,
-            status.to_string(),
+            &status_str,
             now,
             token,
         )
@@ -343,8 +356,8 @@ impl DeviceTrustStorage {
     pub async fn cleanup_expired_requests(&self) -> Result<i64, ApiError> {
         let result = sqlx::query!(
             r#"UPDATE device_verification_request
-             SET status = 'expired', completed_at = NOW()
-             WHERE status = 'pending' AND expires_at < NOW()"#,
+             SET status = 'expired', completed_at = (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
+             WHERE status = 'pending' AND expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)"#
         )
         .execute(&*self.pool)
         .await
@@ -366,13 +379,13 @@ impl DeviceTrustStorage {
             r#"INSERT INTO key_rotation_log
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-            log.user_id,
-            log.device_id,
-            log.room_id,
-            log.rotation_type,
-            log.old_key_id,
-            log.new_key_id,
-            log.reason,
+            &log.user_id,
+            &log.device_id,
+            log.room_id.as_deref(),
+            &log.rotation_type,
+            log.old_key_id.as_deref(),
+            log.new_key_id.as_deref(),
+            log.reason.as_deref(),
             log.rotated_at,
         )
         .execute(&*self.pool)
@@ -391,16 +404,17 @@ impl DeviceTrustStorage {
 
     /// Log a security event
     pub async fn log_security_event(&self, event: &E2eeSecurityEvent) -> Result<(), ApiError> {
+        let event_data_str = event.event_data.as_ref().map(|v| v.to_string());
         sqlx::query!(
             r#"INSERT INTO e2ee_security_events
              (user_id, device_id, event_type, event_data, ip_address, user_agent, created_ts)
              VALUES ($1, $2, $3, $4, $5, $6, $7)"#,
-            event.user_id,
-            event.device_id,
-            event.event_type,
-            event.event_data.as_ref().map(|v| v.to_string()),
-            event.ip_address,
-            event.user_agent,
+            &event.user_id,
+            event.device_id.as_deref(),
+            &event.event_type,
+            event_data_str.as_deref(),
+            event.ip_address.as_deref(),
+            event.user_agent.as_deref(),
             event.created_ts,
         )
         .execute(&*self.pool)
@@ -422,14 +436,14 @@ impl DeviceTrustStorage {
         let results = sqlx::query_as!(
             SqlxSecurityEvent,
             r#"SELECT
-                id AS "id!",
-                user_id AS "user_id!",
-                device_id AS "device_id?",
-                event_type AS "event_type!",
-                event_data AS "event_data?",
-                ip_address AS "ip_address?",
-                user_agent AS "user_agent?",
-                created_ts AS "created_ts!"
+                id,
+                user_id,
+                device_id,
+                event_type,
+                event_data,
+                ip_address,
+                user_agent,
+                created_ts
             FROM e2ee_security_events
             WHERE user_id = $1
             ORDER BY created_ts DESC
@@ -460,10 +474,12 @@ impl DeviceTrustStorage {
     ) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
+        let trusted_at_millis = if is_trusted { Some(now) } else { None }.unwrap_or(0) as f64;
+
         sqlx::query!(
             r#"INSERT INTO cross_signing_trust
              (user_id, target_user_id, master_key_id, is_trusted, trusted_at, created_ts, updated_ts)
-             VALUES ($1, $2, (SELECT key_data FROM cross_signing_keys WHERE user_id = $2 AND key_type = 'master' LIMIT 1), $3, $4, $5, $6)
+             VALUES ($1, $2, (SELECT key_data FROM cross_signing_keys WHERE user_id = $2 AND key_type = 'master' LIMIT 1), $3, to_timestamp($4::double precision / 1000.0), $5, $6)
              ON CONFLICT (user_id, target_user_id) DO UPDATE SET
              is_trusted = EXCLUDED.is_trusted,
              master_key_id = COALESCE(EXCLUDED.master_key_id, cross_signing_trust.master_key_id),
@@ -472,7 +488,7 @@ impl DeviceTrustStorage {
             user_id,
             target_user_id,
             is_trusted,
-            if is_trusted { Some(chrono::Utc::now()) } else { None },
+            trusted_at_millis,
             now,
             now,
         )
@@ -486,9 +502,7 @@ impl DeviceTrustStorage {
     /// Check if user has cross-signing master key
     pub async fn has_cross_signing_master_key(&self, user_id: &str) -> Result<bool, ApiError> {
         let result = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "count!"
-            FROM cross_signing_keys
-            WHERE user_id = $1 AND key_type = 'master'"#,
+            r#"SELECT COUNT(*) AS "count!: i64" FROM cross_signing_keys WHERE user_id = $1 AND key_type = 'master'"#,
             user_id,
         )
         .fetch_one(&*self.pool)
@@ -513,12 +527,12 @@ struct SqlxDeviceTrustStatus {
     device_id: String,
     trust_level: String,
     verified_by_device_id: Option<String>,
-    verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    verified_at: i64,
     created_ts: i64,
-    updated_ts: Option<i64>,
+    updated_ts: i64,
 }
 
-/// Wrapper for `query_as!` count_devices_by_trust — 3 COUNT columns.
+/// Wrapper for count_devices_by_trust — 3 COUNT columns.
 #[derive(sqlx::FromRow)]
 struct DeviceTrustCount {
     verified: i64,
@@ -534,9 +548,9 @@ impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
             device_id: row.device_id,
             trust_level: row.trust_level.parse().unwrap_or_default(),
             verified_by_device_id: row.verified_by_device_id,
-            verified_at: row.verified_at,
+            verified_at: if row.verified_at == 0 { None } else { Some(row.verified_at) },
             created_ts: row.created_ts,
-            updated_ts: row.updated_ts.unwrap_or(row.created_ts),
+            updated_ts: row.updated_ts,
         }
     }
 }
@@ -553,8 +567,8 @@ struct SqlxVerificationRequest {
     commitment: Option<String>,
     pubkey: Option<String>,
     created_ts: i64,
-    expires_at: chrono::DateTime<chrono::Utc>,
-    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    expires_at: i64,
+    completed_at: Option<i64>,
 }
 
 impl From<SqlxVerificationRequest> for DeviceVerificationRequest {

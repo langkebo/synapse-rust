@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -83,21 +83,21 @@ impl ChunkedUploadService {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + (self.upload_expiry_seconds * 1000);
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO upload_progress
             (upload_id, user_id, filename, content_type, total_size, total_chunks, status, created_ts, expires_at)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8)
             ",
+            upload_id,
+            user_id,
+            filename,
+            content_type,
+            total_size,
+            total_chunks,
+            now,
+            expires_at,
         )
-        .bind(&upload_id)
-        .bind(user_id)
-        .bind(filename)
-        .bind(content_type)
-        .bind(total_size)
-        .bind(total_chunks)
-        .bind(now)
-        .bind(expires_at)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to start upload", &e))?;
@@ -145,7 +145,7 @@ impl ChunkedUploadService {
         let now = chrono::Utc::now().timestamp_millis();
         let chunk_size = request.chunk_data.len() as i64;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO upload_chunks (upload_id, chunk_index, chunk_data, chunk_size, created_ts)
             VALUES ($1, $2, $3, $4, $5)
@@ -153,17 +153,17 @@ impl ChunkedUploadService {
                 chunk_data = EXCLUDED.chunk_data,
                 chunk_size = EXCLUDED.chunk_size
             ",
+            upload_id,
+            request.chunk_index,
+            request.chunk_data,
+            chunk_size,
+            now,
         )
-        .bind(&upload_id)
-        .bind(request.chunk_index)
-        .bind(&request.chunk_data)
-        .bind(chunk_size)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to store chunk", &e))?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE upload_progress
             SET uploaded_chunks = uploaded_chunks + 1,
@@ -172,10 +172,10 @@ impl ChunkedUploadService {
                 status = CASE WHEN uploaded_chunks + 1 >= total_chunks THEN 'complete' ELSE 'pending' END
             WHERE upload_id = $1
             ",
+            upload_id,
+            chunk_size,
+            now,
         )
-        .bind(&upload_id)
-        .bind(chunk_size)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update progress", &e))?;
@@ -198,8 +198,10 @@ impl ChunkedUploadService {
     }
 
     pub async fn get_progress(&self, upload_id: &str) -> Result<UploadProgress, ApiError> {
-        sqlx::query_as::<_, UploadProgress>("SELECT * FROM upload_progress WHERE upload_id = $1")
-            .bind(upload_id)
+        sqlx::query_as!(UploadProgress,
+            r#"SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at AS "expires_at?" FROM upload_progress WHERE upload_id = $1"#,
+            upload_id,
+        )
             .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get progress", &e))?
@@ -220,16 +222,17 @@ impl ChunkedUploadService {
             )));
         }
 
-        let chunks = sqlx::query("SELECT chunk_data FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index")
-            .bind(upload_id)
-            .fetch_all(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get chunks", &e))?;
+        let chunks = sqlx::query!(
+            r#"SELECT chunk_data AS "chunk_data!" FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index"#,
+            upload_id,
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get chunks", &e))?;
 
         let mut combined_data = Vec::new();
         for row in chunks {
-            let chunk_data: Vec<u8> = row.get("chunk_data");
-            combined_data.extend_from_slice(&chunk_data);
+            combined_data.extend_from_slice(&row.chunk_data);
         }
 
         if combined_data.len() > self.max_file_size {
@@ -255,21 +258,20 @@ impl ChunkedUploadService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to start upload finalization transaction", &e))?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             UPDATE upload_progress
             SET status = 'finalized', updated_ts = $2
             WHERE upload_id = $1
             ",
+            upload_id,
+            now,
         )
-        .bind(upload_id)
-        .bind(now)
         .execute(&mut *tx)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to finalize upload status", &e))?;
 
-        sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
-            .bind(upload_id)
+        sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id)
             .execute(&mut *tx)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup finalized upload chunks", &e))?;
@@ -288,9 +290,9 @@ impl ChunkedUploadService {
             return Err(ApiError::forbidden("Upload does not belong to user"));
         }
 
-        sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1").bind(upload_id).execute(&*self.pool).await.ok();
+        sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
 
-        sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1").bind(upload_id).execute(&*self.pool).await.ok();
+        sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
 
         info!("Cancelled upload: {}", upload_id);
         Ok(())
@@ -299,25 +301,17 @@ impl ChunkedUploadService {
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let expired: Vec<String> = sqlx::query_scalar("SELECT upload_id FROM upload_progress WHERE expires_at < $1")
-            .bind(now)
-            .fetch_all(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to find expired uploads", &e))?;
+        let expired: Vec<String> =
+            sqlx::query_scalar!(r#"SELECT upload_id AS "upload_id!" FROM upload_progress WHERE expires_at < $1"#, now,)
+                .fetch_all(&*self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to find expired uploads", &e))?;
 
         let mut cleaned = 0u64;
         for upload_id in expired {
-            sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
-                .bind(&upload_id)
-                .execute(&*self.pool)
-                .await
-                .ok();
+            sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
 
-            sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1")
-                .bind(&upload_id)
-                .execute(&*self.pool)
-                .await
-                .ok();
+            sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
 
             cleaned += 1;
         }
@@ -330,10 +324,10 @@ impl ChunkedUploadService {
     }
 
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
-        sqlx::query_as::<_, UploadProgress>(
-            "SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC",
+        sqlx::query_as!(UploadProgress,
+            r#"SELECT upload_id, user_id, filename, content_type, total_size, uploaded_size, total_chunks, uploaded_chunks, status, created_ts, updated_ts, expires_at AS "expires_at?" FROM upload_progress WHERE user_id = $1 AND status != 'finalized' ORDER BY created_ts DESC"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to list uploads", &e))

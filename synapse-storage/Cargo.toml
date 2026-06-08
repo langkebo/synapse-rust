@@ -1,0 +1,60 @@
+[package]
+name = "synapse-storage"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.0"
+authors = ["Synapse Rust Team"]
+description = "Storage layer for Synapse Rust"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+default = []
+openclaw = ["synapse-common/openclaw"]
+openclaw-routes = ["synapse-common/openclaw-routes"]
+runtime-ddl = ["synapse-common/runtime-ddl"]
+test-utils = ["synapse-common/test-utils"]
+friends = ["synapse-common/friends"]
+voice-extended = ["synapse-common/voice-extended"]
+saml-sso = ["synapse-common/saml-sso"]
+cas-sso = ["synapse-common/cas-sso"]
+beacons = ["synapse-common/beacons"]
+voip-tracking = ["synapse-common/voip-tracking"]
+widgets = ["synapse-common/widgets"]
+server-notifications = ["synapse-common/server-notifications"]
+burn-after-read = ["synapse-common/burn-after-read"]
+privacy-ext = ["synapse-common/privacy-ext"]
+external-services = ["synapse-common/external-services"]
+builtin-oidc = ["synapse-common/builtin-oidc"]
+geo-ip = ["synapse-common/geo-ip"]
+vodozemac-megolm = ["synapse-common/vodozemac-megolm"]
+
+[dependencies]
+synapse-common = { path = "../synapse-common" }
+synapse-cache = { path = "../synapse-cache" }
+
+tokio = { version = "1.49", features = ["full", "test-util"] }
+async-trait = "0.1"
+
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
+ipnetwork = "0.20"
+
+deadpool-redis = "0.18"
+redis = { version = "0.27", features = ["aio", "tokio-comp"] }
+moka = { version = "0.12", features = ["future", "sync"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+chrono = { version = "0.4", features = ["serde"] }
+
+thiserror = "2.0"
+uuid = { version = "1", features = ["v4", "serde"] }
+futures = "0.3"
+tracing = { version = "0.1", features = ["attributes"] }
+
+base64 = "0.22"
+rand = "0.8.5"

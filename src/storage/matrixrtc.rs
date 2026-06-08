@@ -91,52 +91,63 @@ impl MatrixRTCStorage {
     pub async fn create_session(&self, params: CreateSessionParams) -> Result<RTCSession, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query_as::<_, RTCSession>(
-            r#"
-            INSERT INTO matrixrtc_sessions
+        sqlx::query_as!(
+            RTCSession,
+            r##"INSERT INTO matrixrtc_sessions
                 (room_id, session_id, application, call_id, creator, created_ts, updated_ts, is_active, config)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
             ON CONFLICT (room_id, session_id) DO UPDATE SET
                 updated_ts = EXCLUDED.updated_ts,
                 is_active = true,
                 config = EXCLUDED.config
-            RETURNING *
-            "#,
+            RETURNING id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                application AS "application!", call_id AS "call_id?", creator AS "creator!",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!",
+                is_active AS "is_active!", config AS "config!"
+            "##,
+            &params.room_id,
+            &params.session_id,
+            &params.application,
+            params.call_id.as_deref(),
+            &params.creator,
+            now,
+            now,
+            &params.config
         )
-        .bind(&params.room_id)
-        .bind(&params.session_id)
-        .bind(&params.application)
-        .bind(&params.call_id)
-        .bind(&params.creator)
-        .bind(now)
-        .bind(now)
-        .bind(&params.config)
         .fetch_one(&*self.pool)
         .await
     }
 
     pub async fn get_session(&self, room_id: &str, session_id: &str) -> Result<Option<RTCSession>, sqlx::Error> {
-        sqlx::query_as::<_, RTCSession>(
-            r#"
-            SELECT * FROM matrixrtc_sessions
+        sqlx::query_as!(
+            RTCSession,
+            r##"SELECT id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                application AS "application!", call_id AS "call_id?", creator AS "creator!",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!",
+                is_active AS "is_active!", config AS "config!"
+            FROM matrixrtc_sessions
             WHERE room_id = $1 AND session_id = $2 AND is_active = true
-            "#,
+            "##,
+            room_id,
+            session_id
         )
-        .bind(room_id)
-        .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_active_sessions_for_room(&self, room_id: &str) -> Result<Vec<RTCSession>, sqlx::Error> {
-        sqlx::query_as::<_, RTCSession>(
-            r#"
-            SELECT * FROM matrixrtc_sessions
+        sqlx::query_as!(
+            RTCSession,
+            r##"SELECT id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                application AS "application!", call_id AS "call_id?", creator AS "creator!",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!",
+                is_active AS "is_active!", config AS "config!"
+            FROM matrixrtc_sessions
             WHERE room_id = $1 AND is_active = true
             ORDER BY created_ts DESC
-            "#,
+            "##,
+            room_id
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -144,16 +155,16 @@ impl MatrixRTCStorage {
     pub async fn end_session(&self, room_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE matrixrtc_sessions
             SET is_active = false, updated_ts = $3
             WHERE room_id = $1 AND session_id = $2
             "#,
+            room_id,
+            session_id,
+            now
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -164,9 +175,9 @@ impl MatrixRTCStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + 3600 * 1000;
 
-        sqlx::query_as::<_, RTCMembership>(
-            r#"
-            INSERT INTO matrixrtc_memberships
+        sqlx::query_as!(
+            RTCMembership,
+            r##"INSERT INTO matrixrtc_memberships
                 (room_id, session_id, user_id, device_id, membership_id, application, call_id,
                  created_ts, updated_ts, expires_at, foci_active, foci_preferred, application_data, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)
@@ -178,22 +189,27 @@ impl MatrixRTCStorage {
                 foci_preferred = EXCLUDED.foci_preferred,
                 application_data = EXCLUDED.application_data,
                 is_active = true
-            RETURNING *
-            "#,
+            RETURNING id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                user_id AS "user_id!", device_id AS "device_id!", membership_id AS "membership_id!",
+                application AS "application!", call_id AS "call_id?",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!", expires_at AS "expires_at?",
+                foci_active AS "foci_active?", foci_preferred AS "foci_preferred?",
+                application_data AS "application_data?", is_active AS "is_active!"
+            "##,
+            &params.room_id,
+            &params.session_id,
+            &params.user_id,
+            &params.device_id,
+            &params.membership_id,
+            &params.application,
+            params.call_id.as_deref(),
+            now,
+            now,
+            expires_at,
+            params.foci_active.as_deref(),
+            params.foci_preferred.as_ref(),
+            params.application_data.as_ref()
         )
-        .bind(&params.room_id)
-        .bind(&params.session_id)
-        .bind(&params.user_id)
-        .bind(&params.device_id)
-        .bind(&params.membership_id)
-        .bind(&params.application)
-        .bind(&params.call_id)
-        .bind(now)
-        .bind(now)
-        .bind(expires_at)
-        .bind(&params.foci_active)
-        .bind(&params.foci_preferred)
-        .bind(&params.application_data)
         .fetch_one(&*self.pool)
         .await
     }
@@ -205,17 +221,23 @@ impl MatrixRTCStorage {
     ) -> Result<Vec<RTCMembership>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query_as::<_, RTCMembership>(
-            r#"
-            SELECT * FROM matrixrtc_memberships
+        sqlx::query_as!(
+            RTCMembership,
+            r##"SELECT id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                user_id AS "user_id!", device_id AS "device_id!", membership_id AS "membership_id!",
+                application AS "application!", call_id AS "call_id?",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!", expires_at AS "expires_at?",
+                foci_active AS "foci_active?", foci_preferred AS "foci_preferred?",
+                application_data AS "application_data?", is_active AS "is_active!"
+            FROM matrixrtc_memberships
             WHERE room_id = $1 AND session_id = $2 AND is_active = true
               AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY created_ts ASC
-            "#,
+            "##,
+            room_id,
+            session_id,
+            now
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(now)
         .fetch_all(&*self.pool)
         .await
     }
@@ -227,16 +249,22 @@ impl MatrixRTCStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Option<RTCMembership>, sqlx::Error> {
-        sqlx::query_as::<_, RTCMembership>(
-            r#"
-            SELECT * FROM matrixrtc_memberships
+        sqlx::query_as!(
+            RTCMembership,
+            r##"SELECT id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                user_id AS "user_id!", device_id AS "device_id!", membership_id AS "membership_id!",
+                application AS "application!", call_id AS "call_id?",
+                created_ts AS "created_ts!", updated_ts AS "updated_ts!", expires_at AS "expires_at?",
+                foci_active AS "foci_active?", foci_preferred AS "foci_preferred?",
+                application_data AS "application_data?", is_active AS "is_active!"
+            FROM matrixrtc_memberships
             WHERE room_id = $1 AND session_id = $2 AND user_id = $3 AND device_id = $4
-            "#,
+            "##,
+            room_id,
+            session_id,
+            user_id,
+            device_id
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -250,18 +278,18 @@ impl MatrixRTCStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
+        sqlx::query!(
             r#"
             UPDATE matrixrtc_memberships
             SET is_active = false, updated_ts = $5
             WHERE room_id = $1 AND session_id = $2 AND user_id = $3 AND device_id = $4
             "#,
+            room_id,
+            session_id,
+            user_id,
+            device_id,
+            now
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -271,14 +299,14 @@ impl MatrixRTCStorage {
     pub async fn cleanup_expired_memberships(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let result = sqlx::query(
+        let result = sqlx::query!(
             r#"
             UPDATE matrixrtc_memberships
             SET is_active = false
             WHERE is_active = true AND expires_at IS NOT NULL AND expires_at < $1
             "#,
+            now
         )
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -297,9 +325,9 @@ impl MatrixRTCStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let expires_at = now + 24 * 3600 * 1000;
 
-        sqlx::query_as::<_, RTCEncryptionKey>(
-            r#"
-            INSERT INTO matrixrtc_encryption_keys
+        sqlx::query_as!(
+            RTCEncryptionKey,
+            r##"INSERT INTO matrixrtc_encryption_keys
                 (room_id, session_id, key_index, key, created_ts, expires_at, sender_user_id, sender_device_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (room_id, session_id, key_index) DO UPDATE SET
@@ -308,17 +336,20 @@ impl MatrixRTCStorage {
                 expires_at = EXCLUDED.expires_at,
                 sender_user_id = EXCLUDED.sender_user_id,
                 sender_device_id = EXCLUDED.sender_device_id
-            RETURNING *
-            "#,
+            RETURNING id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                key_index AS "key_index!", key AS "key!", created_ts AS "created_ts!",
+                expires_at AS "expires_at?", sender_user_id AS "sender_user_id!",
+                sender_device_id AS "sender_device_id!"
+            "##,
+            room_id,
+            session_id,
+            key_index,
+            key,
+            now,
+            expires_at,
+            sender_user_id,
+            sender_device_id
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(key_index)
-        .bind(key)
-        .bind(now)
-        .bind(expires_at)
-        .bind(sender_user_id)
-        .bind(sender_device_id)
         .fetch_one(&*self.pool)
         .await
     }
@@ -330,17 +361,21 @@ impl MatrixRTCStorage {
     ) -> Result<Vec<RTCEncryptionKey>, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query_as::<_, RTCEncryptionKey>(
-            r#"
-            SELECT * FROM matrixrtc_encryption_keys
+        sqlx::query_as!(
+            RTCEncryptionKey,
+            r##"SELECT id AS "id!", room_id AS "room_id!", session_id AS "session_id!",
+                key_index AS "key_index!", key AS "key!", created_ts AS "created_ts!",
+                expires_at AS "expires_at?", sender_user_id AS "sender_user_id!",
+                sender_device_id AS "sender_device_id!"
+            FROM matrixrtc_encryption_keys
             WHERE room_id = $1 AND session_id = $2
               AND (expires_at IS NULL OR expires_at > $3)
             ORDER BY key_index ASC
-            "#,
+            "##,
+            room_id,
+            session_id,
+            now
         )
-        .bind(room_id)
-        .bind(session_id)
-        .bind(now)
         .fetch_all(&*self.pool)
         .await
     }

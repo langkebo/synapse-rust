@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO beacon_locations (\n                room_id, event_id, beacon_info_id, sender, uri,\n                description, timestamp, accuracy, created_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            RETURNING id AS \"id!\", room_id AS \"room_id!\", event_id AS \"event_id!\", beacon_info_id AS \"beacon_info_id!\", sender AS \"sender!\", uri AS \"uri!\", description AS \"description?\", timestamp AS \"timestamp!\", accuracy AS \"accuracy?\", created_ts AS \"created_ts!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "beacon_info_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sender!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "uri!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "timestamp!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "accuracy?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "ecfb2ba544ddf04734031cb6254812b4b5e18982369ebb0a4ca6105d2935729a"
+}

@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id, actor_id, action, resource_type, resource_id, result, request_id, details, created_ts\n            FROM audit_events\n            WHERE event_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "resource_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "resource_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "result",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "request_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "details",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e83c61c9407d85b79c0ef48d8d2a8a4e9124ac04a2e15edcdb7089975b3b030f"
+}

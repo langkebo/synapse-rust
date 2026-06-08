@@ -56,7 +56,8 @@ impl VoiceService {
 
         let content_uri = media_result["content_uri"].as_str().unwrap_or_default().to_string();
 
-        let media_id = content_uri.trim_start_matches(&format!("mxc://{}/", self.server_name)).to_string();
+        let media_id = crate::common::media_locator::MediaLocator::parse(&content_uri)
+            .map_or_else(|_| content_uri.trim_start_matches(&format!("mxc://{}/", self.server_name)).to_string(), |loc| loc.media_id);
 
         let size_bytes = params.content.len() as i64;
         let duration_ms = params.duration_ms;
@@ -223,7 +224,10 @@ impl VoiceService {
             .map_err(|e| ApiError::internal(e.to_string()))?
             .ok_or_else(|| ApiError::not_found(format!("Voice message not found: {}", media_id)))?;
 
-        let content_uri = format!("mxc://{}/{}", self.server_name, media_id);
+        let content_uri = crate::common::media_locator::MediaLocator {
+            server_name: self.server_name.clone(),
+            media_id: media_id.to_string(),
+        }.to_mxc_url();
 
         Ok(json!({
             "media_id": record.media_id,
@@ -238,7 +242,10 @@ impl VoiceService {
     }
 
     fn record_to_message_json(&self, record: &crate::storage::voice::VoiceUsageRecord) -> serde_json::Value {
-        let content_uri = format!("mxc://{}/{}", self.server_name, record.media_id);
+        let content_uri = crate::common::media_locator::MediaLocator {
+            server_name: self.server_name.clone(),
+            media_id: record.media_id.clone(),
+        }.to_mxc_url();
         json!({
             "media_id": record.media_id,
             "user_id": record.user_id,

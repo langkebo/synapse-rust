@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT room_id AS \"room_id!\", user_id AS \"user_id!\", created_ts AS \"created_ts!\" FROM room_invite_blocklist\n            ORDER BY created_ts DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "412ddd42ec6a1bad893a971b5f7d750372d355248e0882f349ca54fbbc938d00"
+}

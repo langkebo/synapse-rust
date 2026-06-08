@@ -223,20 +223,24 @@ impl DeviceSyncManager {
     }
 
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
-        let devices: Vec<DeviceRow> = sqlx::query_as(
-            r"
-            SELECT device_id, user_id, display_name as device_display_name,
-                   device_key as keys, last_seen_ts, last_seen_ip,
-                   FALSE as is_blocked, FALSE as verified
+        let rows = sqlx::query_as!(
+            DeviceRow,
+            r#"
+            SELECT device_id as "device_id!", user_id as "user_id!",
+                   display_name as "device_display_name?",
+                   device_key as "keys?",
+                   last_seen_ts as "last_seen_ts?",
+                   last_seen_ip as "last_seen_ip?",
+                   FALSE as "is_blocked!", FALSE as "verified!"
             FROM devices WHERE user_id = $1
-            ",
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to fetch devices", &e))?;
 
-        Ok(devices
+        Ok(rows
             .into_iter()
             .map(|d| DeviceInfo {
                 device_id: d.device_id,
@@ -281,15 +285,15 @@ impl DeviceSyncManager {
     pub async fn cleanup_expired_devices(&self, user_id: &str) -> Result<u64, ApiError> {
         let expiry_threshold = Utc::now() - Duration::days(DEVICE_KEY_EXPIRY_DAYS);
 
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM devices
             WHERE user_id = $1
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
-            ",
+            "#,
+            user_id,
+            expiry_threshold.timestamp_millis()
         )
-        .bind(user_id)
-        .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired devices", &e))?;
@@ -327,16 +331,16 @@ impl DeviceSyncManager {
     }
 
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE devices SET
                 device_key = NULL,
                 last_seen_ts = NULL
             WHERE device_id = $1 AND user_id = $2
-            ",
+            "#,
+            device_id,
+            user_id
         )
-        .bind(device_id)
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to revoke device", &e))?;

@@ -34,12 +34,12 @@ pub(crate) async fn register(
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE users SET is_guest = TRUE WHERE user_id = $1
-            ",
+            "#,
+            &user.user_id
         )
-        .bind(&user.user_id)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
@@ -258,7 +258,7 @@ pub(crate) async fn submit_email_token(
         return Err(ApiError::bad_request("Verification token has already been used".to_string()));
     }
 
-    if verification_token.expires_at < chrono::Utc::now() {
+    if verification_token.expires_at < chrono::Utc::now().timestamp_millis() {
         return Err(ApiError::bad_request("Verification token has expired".to_string()));
     }
 

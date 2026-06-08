@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO qr_login_transactions (transaction_id, user_id, device_id, status, created_ts, expires_at)\n            VALUES ($1, $2, $3, 'pending', $4, $5)\n            ON CONFLICT (transaction_id) DO UPDATE\n            SET user_id = EXCLUDED.user_id, device_id = EXCLUDED.device_id, status = 'pending', expires_at = EXCLUDED.expires_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44a0300c844b5d73dd463fac799580c7d8c084b2099102c09ad5d3e14493eb6f"
+}

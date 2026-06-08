@@ -34,6 +34,98 @@ pub struct Claims {
     pub device_id: Option<String>,
 }
 
+/// Builder for constructing [`Claims`] instances with a fluent API.
+///
+/// Eliminates the scattered `Claims { … }` struct literals across
+/// `auth/token.rs`, `cache/mod.rs`, and `auth/tests.rs`, ensuring
+/// consistent default values (e.g. `jti` auto-generated, `iat` = now).
+///
+/// # Example
+///
+/// ```ignore
+/// let claims = ClaimsBuilder::new()
+///     .sub("@alice:example.com")
+///     .user_id("@alice:example.com")
+///     .is_admin(false)
+///     .exp(now + 3600)
+///     .iat(now)
+///     .device_id(Some("DEVICE1".to_string()))
+///     .build();
+/// ```
+pub struct ClaimsBuilder {
+    sub: Option<String>,
+    user_id: Option<String>,
+    jti: Option<String>,
+    is_admin: bool,
+    exp: Option<i64>,
+    iat: Option<i64>,
+    device_id: Option<String>,
+}
+
+impl ClaimsBuilder {
+    pub fn new() -> Self {
+        Self { sub: None, user_id: None, jti: None, is_admin: false, exp: None, iat: None, device_id: None }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn sub(mut self, sub: impl Into<String>) -> Self {
+        self.sub = Some(sub.into());
+        self
+    }
+
+    pub fn user_id(mut self, user_id: impl Into<String>) -> Self {
+        self.user_id = Some(user_id.into());
+        self
+    }
+
+    pub fn jti(mut self, jti: impl Into<String>) -> Self {
+        self.jti = Some(jti.into());
+        self
+    }
+
+    pub fn is_admin(mut self, is_admin: bool) -> Self {
+        self.is_admin = is_admin;
+        self
+    }
+
+    pub fn exp(mut self, exp: i64) -> Self {
+        self.exp = Some(exp);
+        self
+    }
+
+    pub fn iat(mut self, iat: i64) -> Self {
+        self.iat = Some(iat);
+        self
+    }
+
+    pub fn device_id(mut self, device_id: Option<String>) -> Self {
+        self.device_id = device_id;
+        self
+    }
+
+    /// Build the `Claims`, auto-generating `jti` and `iat` if not set.
+    /// Panics if `sub` or `exp` are missing.
+    pub fn build(self) -> Claims {
+        let now = chrono::Utc::now().timestamp();
+        let sub = self.sub.expect("ClaimsBuilder: sub is required");
+        Claims {
+            sub: sub.clone(),
+            user_id: self.user_id.unwrap_or(sub),
+            jti: self.jti.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+            is_admin: self.is_admin,
+            exp: self.exp.expect("ClaimsBuilder: exp is required"),
+            iat: self.iat.unwrap_or(now),
+            device_id: self.device_id,
+        }
+    }
+}
+
+impl Default for ClaimsBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthService {
     pub user_storage: UserStorage,

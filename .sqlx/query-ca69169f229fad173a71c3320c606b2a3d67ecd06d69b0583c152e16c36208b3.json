@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", space_id as \"space_id!\", summary as \"summary!\", children_count as \"children_count!\", member_count as \"member_count!\", updated_ts as \"updated_ts!\" FROM space_summaries WHERE space_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "space_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "summary!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "children_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "member_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "ca69169f229fad173a71c3320c606b2a3d67ecd06d69b0583c152e16c36208b3"
+}

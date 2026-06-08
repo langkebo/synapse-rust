@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id AS \"id!\", session_id AS \"session_id!\", medium AS \"medium!\", address AS \"address!\",\n                client_secret AS \"client_secret!\", token AS \"token!\", send_attempt AS \"send_attempt!\",\n                next_link AS \"next_link?\", is_validated AS \"is_validated!\", validated_at AS \"validated_at?\",\n                created_ts AS \"created_ts!\", expires_at AS \"expires_at!\"\n            FROM threepid_validation_session\n            WHERE session_id = $1 AND client_secret = $2 AND token = $3\n            AND is_validated = FALSE AND expires_at > $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "medium!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "address!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_secret!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "token!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "send_attempt!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "next_link?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_validated!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "validated_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "691b71c2da42302eeb35fc88498f60d21c80f2665dd998e1ad6838e8c025c82b"
+}

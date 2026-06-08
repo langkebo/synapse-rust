@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_commands SET status = 'completed', completed_ts = $2 WHERE command_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e233721a04af9cb205e9315d6e45ecc9bb8c2a8b74a8540ce417e4f3d1a25488"
+}

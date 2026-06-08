@@ -111,12 +111,13 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 
     if state.services.config.federation.admission_mode {
         let server_status =
-            sqlx::query_scalar::<_, String>("SELECT status FROM federation_servers WHERE server_name = $1")
-                .bind(origin_server)
-                .fetch_optional(&*state.services.user_storage.pool)
-                .await
-                .ok()
-                .flatten();
+            sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1",
+                origin_server
+            )
+            .fetch_optional(&*state.services.user_storage.pool)
+            .await
+            .ok()
+            .flatten();
 
         match server_status {
             Some(status) if status != "active" => {
@@ -128,13 +129,13 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
             }
             None => {
                 let now = chrono::Utc::now().timestamp_millis();
-                let _ = sqlx::query(
+                let _ = sqlx::query!(
                     "INSERT INTO federation_servers (server_name, status, updated_ts) \
                      VALUES ($1, 'pending', $2) \
                      ON CONFLICT (server_name) DO NOTHING",
+                    origin_server,
+                    now
                 )
-                .bind(origin_server)
-                .bind(now)
                 .execute(&*state.services.user_storage.pool)
                 .await;
 
@@ -186,10 +187,7 @@ pub async fn replication_http_auth_middleware(
         return ApiError::unauthorized("Replication secret not configured".to_string()).into_response();
     };
     let token = request.headers().get("x-synapse-worker-secret").and_then(|h| h.to_str().ok()).unwrap_or_default();
-    use subtle::ConstantTimeEq;
-    let token_bytes = token.as_bytes();
-    let secret_bytes = secret.as_bytes();
-    if token_bytes.len() != secret_bytes.len() || token_bytes.ct_eq(secret_bytes).unwrap_u8() != 1 {
+    if !crate::common::crypto::secure_compare(token, &secret) {
         return ApiError::unauthorized("Invalid replication secret".to_string()).into_response();
     }
     next.run(request).await

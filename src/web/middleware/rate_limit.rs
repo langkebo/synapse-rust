@@ -1,5 +1,6 @@
 use crate::cache::*;
 use crate::common::error::ApiError;
+use crate::common::rate_limit_config::RateLimitBackend;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
@@ -57,6 +58,24 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 
     let fail_open = file_config.as_ref().map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
     let include_headers = file_config.as_ref().map_or(config.include_headers, |c| c.include_headers);
+
+    // Determine the configured backend and whether Redis is actually available.
+    let backend = file_config.as_ref().map_or(RateLimitBackend::Auto, |c| c.backend);
+    let redis_available = state.cache.is_redis_enabled();
+
+    // When backend is explicitly "redis" but Redis is not available, reject
+    // the request rather than silently falling back to an inconsistent
+    // in-memory bucket (which would defeat the purpose of the "redis" setting).
+    if matches!(backend, RateLimitBackend::Redis) && !redis_available {
+        tracing::error!(
+            "Rate limit backend is set to 'redis' but Redis is not available. \
+             Rejecting request to avoid inconsistent multi-worker rate limiting."
+        );
+        if fail_open {
+            return next.run(request).await;
+        }
+        return ApiError::RateLimited.into_response();
+    }
 
     let decision = match state.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
         Ok(d) => d,

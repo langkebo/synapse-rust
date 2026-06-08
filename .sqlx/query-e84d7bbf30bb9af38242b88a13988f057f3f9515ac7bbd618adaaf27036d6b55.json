@@ -1,0 +1,78 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO user_media_quota (user_id, quota_config_id, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $3)\n            RETURNING id, user_id, quota_config_id, custom_max_storage_bytes,\n                custom_max_file_size_bytes, custom_max_files_count,\n                current_storage_bytes AS \"current_storage_bytes!\",\n                current_files_count AS \"current_files_count!\",\n                created_ts AS \"created_ts!\", updated_ts",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "quota_config_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "custom_max_storage_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "custom_max_file_size_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "custom_max_files_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "current_storage_bytes!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "current_files_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e84d7bbf30bb9af38242b88a13988f057f3f9515ac7bbd618adaaf27036d6b55"
+}

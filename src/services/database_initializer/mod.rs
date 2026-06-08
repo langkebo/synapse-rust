@@ -236,18 +236,14 @@ impl DatabaseInitService {
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_as::<_, (i64,)>(
-            r"
-            SELECT value::BIGINT
-            FROM db_metadata WHERE key = 'last_init_ts'
-            ",
+        let result = sqlx::query_scalar!(
+            r#"SELECT value::BIGINT AS "value!" FROM db_metadata WHERE key = 'last_init_ts'"#
         )
         .fetch_optional(&*self.pool)
         .await;
 
         match result {
-            Ok(Some(row)) => {
-                let last_init_ts: i64 = row.0;
+            Ok(Some(last_init_ts)) => {
                 let now = chrono::Utc::now().timestamp();
                 let elapsed = now - last_init_ts;
 

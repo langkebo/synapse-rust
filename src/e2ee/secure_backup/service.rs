@@ -172,19 +172,19 @@ impl SecureBackupService {
             let encrypted_b64 = base64::engine::general_purpose::STANDARD.encode(&encrypted);
 
             // Store encrypted key
-            sqlx::query(
+            sqlx::query!(
                 r"
                 INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET
                     encrypted_key = EXCLUDED.encrypted_key
                 ",
+                user_id,
+                backup_id,
+                &session_key.room_id,
+                &session_key.session_id,
+                &encrypted_b64,
             )
-            .bind(user_id)
-            .bind(backup_id)
-            .bind(&session_key.room_id)
-            .bind(&session_key.session_id)
-            .bind(&encrypted_b64)
             .execute(&*self.pool)
             .await
             .map_err(|e| {
@@ -196,14 +196,14 @@ impl SecureBackupService {
         }
 
         // 4. Update backup key count
-        sqlx::query(
-            "UPDATE secure_key_backups SET key_count = key_count + $1,
+        sqlx::query!(
+            r"UPDATE secure_key_backups SET key_count = key_count + $1,
              updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
              WHERE user_id = $2 AND backup_id = $3",
+            key_count,
+            user_id,
+            backup_id,
         )
-        .bind(key_count)
-        .bind(user_id)
-        .bind(backup_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -223,16 +223,20 @@ impl SecureBackupService {
         rooms: Option<Vec<String>>,
     ) -> Result<RestoreResponse, ApiError> {
         // 1. Get backup auth data
-        let row: (String, i64) =
-            sqlx::query_as("SELECT auth_data, key_count FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-                .bind(user_id)
-                .bind(backup_id)
-                .fetch_one(&*self.pool)
-                .await
-                .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
+        let row = sqlx::query!(
+            r#"
+            SELECT auth_data AS "auth_data!", key_count AS "key_count!"
+            FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2
+            "#,
+            user_id,
+            backup_id,
+        )
+        .fetch_one(&*self.pool)
+        .await
+        .map_err(|_| ApiError::not_found("Backup not found".to_string()))?;
 
-        let auth_data_str = row.0;
-        let total_keys = row.1;
+        let auth_data_str = row.auth_data;
+        let total_keys = row.key_count;
 
         let auth_data: SecureBackupAuthData = serde_json::from_str(&auth_data_str).map_err(|e| {
             tracing::error!("Invalid auth data: {e}");
@@ -248,33 +252,34 @@ impl SecureBackupService {
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
         // 3. Get all encrypted session keys
-        let encrypted_keys: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT room_id, session_id, encrypted_key FROM secure_backup_session_keys
-             WHERE user_id = $1 AND backup_id = $2",
+        let encrypted_rows = sqlx::query!(
+            r#"
+            SELECT room_id AS "room_id!", session_id AS "session_id!", encrypted_key AS "encrypted_key!"
+            FROM secure_backup_session_keys
+            WHERE user_id = $1 AND backup_id = $2
+            "#,
+            user_id,
+            backup_id,
         )
-        .bind(user_id)
-        .bind(backup_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
             tracing::error!("Database error: {e}");
             ApiError::database("A database error occurred".to_string())
-        })?
-        .into_iter()
-        .collect();
+        })?;
 
         let allowed_rooms = rooms.map(|room_ids| room_ids.into_iter().collect::<std::collections::HashSet<_>>());
 
         // 4. Decrypt session keys
         let mut restored_count = 0i64;
-        for (room_id, _session_id, encrypted_b64) in encrypted_keys {
+        for r in encrypted_rows {
             if let Some(allowed_rooms) = &allowed_rooms {
-                if !allowed_rooms.contains(&room_id) {
+                if !allowed_rooms.contains(&r.room_id) {
                     continue;
                 }
             }
 
-            match base64::engine::general_purpose::STANDARD.decode(&encrypted_b64) {
+            match base64::engine::general_purpose::STANDARD.decode(&r.encrypted_key) {
                 Ok(encrypted) => {
                     if Self::decrypt_aes_gcm(&key, &encrypted).is_ok() {
                         restored_count += 1;
@@ -300,12 +305,16 @@ impl SecureBackupService {
         user_id: &str,
         backup_id: &str,
     ) -> Result<Option<SecureBackupResponse>, ApiError> {
-        let result = sqlx::query_as::<_, SqlxSecureBackup>(
-            "SELECT backup_id, version, algorithm, auth_data, key_count
-             FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+        let result = sqlx::query_as!(
+            SqlxSecureBackup,
+            r#"
+            SELECT backup_id AS "backup_id!", version AS "version!", algorithm AS "algorithm!",
+                   auth_data AS "auth_data!", key_count AS "key_count!"
+            FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2
+            "#,
+            user_id,
+            backup_id,
         )
-        .bind(user_id)
-        .bind(backup_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -334,11 +343,15 @@ impl SecureBackupService {
 
     /// List all backups for user
     pub async fn list_backups(&self, user_id: &str) -> Result<Vec<SecureBackupResponse>, ApiError> {
-        let results = sqlx::query_as::<_, SqlxSecureBackup>(
-            "SELECT backup_id, version, algorithm, auth_data, key_count
-             FROM secure_key_backups WHERE user_id = $1 ORDER BY created_ts DESC",
+        let results = sqlx::query_as!(
+            SqlxSecureBackup,
+            r#"
+            SELECT backup_id AS "backup_id!", version AS "version!", algorithm AS "algorithm!",
+                   auth_data AS "auth_data!", key_count AS "key_count!"
+            FROM secure_key_backups WHERE user_id = $1 ORDER BY created_ts DESC
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -368,9 +381,10 @@ impl SecureBackupService {
     /// Delete backup
     pub async fn delete_backup(&self, user_id: &str, backup_id: &str) -> Result<(), ApiError> {
         // Delete session keys first
-        sqlx::query("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2")
-            .bind(user_id)
-            .bind(backup_id)
+        sqlx::query!("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id,
+        )
             .execute(&*self.pool)
             .await
             .map_err(|e| {
@@ -379,9 +393,10 @@ impl SecureBackupService {
             })?;
 
         // Delete backup
-        sqlx::query("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2")
-            .bind(user_id)
-            .bind(backup_id)
+        sqlx::query!("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
+            user_id,
+            backup_id,
+        )
             .execute(&*self.pool)
             .await
             .map_err(|e| {

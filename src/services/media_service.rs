@@ -235,20 +235,20 @@ impl MediaService {
 
         if let Some(pool) = &self.pool {
             let now = chrono::Utc::now().timestamp_millis();
-            if let Err(e) = sqlx::query(
-                r"
+            if let Err(e) = sqlx::query!(
+                r#"
                 INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (media_id) DO UPDATE SET content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name, size = EXCLUDED.size
-                ",
+                "#,
+                media_id,
+                &self.server_name,
+                content_type,
+                filename.unwrap_or(&file_name),
+                content.len() as i64,
+                user_id,
+                now
             )
-            .bind(media_id)
-            .bind(&self.server_name)
-            .bind(content_type)
-            .bind(filename.unwrap_or(&file_name))
-            .bind(content.len() as i64)
-            .bind(user_id)
-            .bind(now)
             .execute(pool.as_ref())
             .await
             {
@@ -265,7 +265,10 @@ impl MediaService {
             }
         }
 
-        let media_url = format!("mxc://{}/{}", self.server_name, media_id);
+        let media_url = crate::common::media_locator::MediaLocator {
+            server_name: self.server_name.clone(),
+            media_id: media_id.to_string(),
+        }.to_mxc_url();
 
         Ok(serde_json::json!({
             "content_uri": media_url
@@ -456,20 +459,20 @@ impl MediaService {
         }
 
         if let Some(pool) = &self.pool {
-            if let Ok(Some((content_type, file_name, size, uploader_user_id))) =
-                sqlx::query_as::<_, (String, Option<String>, i64, Option<String>)>(
-                    r"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1",
+            if let Ok(Some(row)) =
+                sqlx::query!(
+                    r#"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1"#,
+                    media_id
                 )
-                .bind(media_id)
                 .fetch_optional(pool.as_ref())
                 .await
             {
                 return Some(serde_json::json!({
                     "media_id": media_id,
-                    "content_type": content_type,
-                    "filename": file_name,
-                    "size": size,
-                    "uploader_user_id": uploader_user_id
+                    "content_type": row.content_type,
+                    "filename": row.file_name,
+                    "size": row.size,
+                    "uploader_user_id": row.uploader_user_id
                 }));
             }
         }
@@ -544,7 +547,10 @@ impl MediaService {
                                 return Some(serde_json::json!({
                                     "media_id": media_id,
                                     "server_name": server_name,
-                                    "content_uri": format!("mxc://{}/{}", server_name, media_id),
+                                    "content_uri": crate::common::media_locator::MediaLocator {
+                                        server_name: server_name.clone(),
+                                        media_id,
+                                    }.to_mxc_url(),
                                     "filename": file_name,
                                     "size": metadata.len(),
                                     "uploader": uploader,

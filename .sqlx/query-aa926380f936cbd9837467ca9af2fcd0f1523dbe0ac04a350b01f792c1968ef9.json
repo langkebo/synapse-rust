@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 1 as exists_check FROM friend_requests\n            WHERE sender_id = $1 AND receiver_id = $2 AND status = 'pending'\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists_check",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "aa926380f936cbd9837467ca9af2fcd0f1523dbe0ac04a350b01f792c1968ef9"
+}

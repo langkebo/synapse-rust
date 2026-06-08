@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT s.space_id as \"space_id!\", s.room_id as \"room_id!\", s.name as \"name?\", s.topic as \"topic?\",\n                   s.avatar_url as \"avatar_url?\", s.creator as \"creator!\", s.join_rule as \"join_rule!\",\n                   s.visibility as \"visibility?\", s.created_ts as \"created_ts!\", s.updated_ts as \"updated_ts?\",\n                   s.is_public as \"is_public!\", s.parent_space_id as \"parent_space_id?\", s.room_type as \"room_type?\"\n            FROM spaces s\n            JOIN space_members sm ON s.space_id = sm.space_id\n            WHERE sm.user_id = $1 AND sm.membership = 'join'\n            ORDER BY s.created_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "space_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "topic?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "creator!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "join_rule!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "visibility?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_public!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "parent_space_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "room_type?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "16a5c786c18cf08d527ca10568121dd02e5399b160de7b5fff93ea99b63b4847"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE secure_key_backups SET key_count = key_count + $1,\n             updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT\n             WHERE user_id = $2 AND backup_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b408ddcb6b641bcad4bdafb44fe4489ea71a957c0cce15b61a76903f2f9d599c"
+}

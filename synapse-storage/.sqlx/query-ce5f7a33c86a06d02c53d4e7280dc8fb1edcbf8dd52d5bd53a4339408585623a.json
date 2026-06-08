@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, rule_name, rule_type, pattern, action, priority, is_enabled, description, created_ts, updated_ts, created_by\n            FROM federation_blacklist_rule WHERE is_enabled = true ORDER BY priority DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "rule_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "rule_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "pattern",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "priority",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_by",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ce5f7a33c86a06d02c53d4e7280dc8fb1edcbf8dd52d5bd53a4339408585623a"
+}

@@ -2,6 +2,7 @@
 
 > 起始基线: 2026-06-03 快照
 > 现状: 1408 处 `sqlx::query` 调用（100 文件），595 处 `sqlx::query_as`，19 处 `QueryBuilder`；编译期校验调用 0 处
+> **最新状态 (2026-06-08)**: 编译期宏 857，动态 SQL 458，QueryBuilder 18；动态 SQL 占比从 99.6% 降至 ~34%
 > 目标: 把动态 SQL 调用迁移到 `sqlx::query!` / `query_as!` / `query_scalar!`，CI 强制 `.sqlx/` 入仓
 > 关联: [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](./COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) M-3
 > 关联: [ROUTE_STORAGE_MIGRATION_PLAN.md](./ROUTE_STORAGE_MIGRATION_PLAN.md)
@@ -31,10 +32,10 @@
 
 | 指标 | 当前 | 目标 |
 |---|---|---|
-| 动态 SQL 占比 | 99.6% | ≤ 30% |
-| 编译期宏占比 | 0.4% | ≥ 70% |
-| `.sqlx/` 缓存完整性 | N/A | 100% 入仓 |
-| `cargo sqlx prepare --check` 通过率 | N/A | 100% |
+| 动态 SQL 占比 | ~34%（458/(857+458)） | ≤ 30% |
+| 编译期宏占比 | ~66%（857/(857+458)） | ≥ 70% |
+| `.sqlx/` 缓存完整性 | 已有缓存，`cargo check` 通过 | 100% 入仓 |
+| `cargo sqlx prepare --check` 通过率 | `cargo check` 零错误 | 100% |
 
 ## 三、基础设施（Phase 0）
 
@@ -159,6 +160,28 @@ echo "OK: 编译期校验通过"
 ### Batch 7（Phase 3）— Service/Worker/Web 域（剩余 ~700 处）
 
 > 涵盖 `services/*` 中的内联 SQL、`worker/storage.rs`、`web/routes/*` 残留、federation 等。
+
+### 迁移进度（2026-06-08）
+
+已完成大规模迁移，将编译期宏从 4 处增至 857 处，动态 SQL 从 2003 处降至 458 处。由于 `.sqlx/` 离线缓存基于 v8 schema 生成，与 v10 schema 存在 TIMESTAMPTZ→BIGINT 等列类型变更不兼容，以下文件在继续推进前需 **先用 v10 schema DB 运行 `cargo sqlx prepare` 重新生成缓存**，目前临时降级为动态 SQL：
+
+| 批次 | 文件 | 状态 | 说明 |
+|---|---|---|---|
+| Batch 6a | `refresh_token.rs` | ✅ 编译期宏 | `compromised_ts` → `compromised_at` |
+| Batch 6b | `push_notification.rs` | ⚠️ 部分降级 | `last_used_at` 等 3 处降级动态 SQL（v10 BIGINT vs 缓存 TIMESTAMPTZ） |
+| Batch 6c | `membership.rs` | ✅ 编译期宏 | SQL 字符串拼接修复 |
+| Batch 6d | `room/admin.rs` | ✅ 编译期宏 | 元组返回类型修复 |
+| Batch 6e | `threepid.rs` | ⚠️ 全部降级 | `validated_at` 列 v10 存在但 v8 缓存无此列，17 处降级动态 SQL |
+| Batch 6f | `device_trust/storage.rs` | ⚠️ 全部降级 | `expires_at` v10 BIGINT vs 缓存 TIMESTAMPTZ，15 处降级动态 SQL |
+| Batch 6g | `key_rotation/service.rs` | ⚠️ 全部降级 | `rotated_at` v10 BIGINT vs 缓存 TIMESTAMPTZ，16 处降级动态 SQL |
+| Batch 6h | `media_quota.rs` | ⚠️ 部分降级 | raw string `##` 分隔符冲突 + 缓存失效，2 处降级 |
+| Batch 6i | `burn_after_read.rs` | ⚠️ 全部降级 | `delete_ts` v10 重命名（原 `delete_at`），11 处降级动态 SQL |
+| Batch 6j | `email_verification.rs` | ⚠️ 全部降级 | `expires_at` v10 BIGINT vs 缓存 TIMESTAMPTZ，8 处降级动态 SQL |
+| Batch 7a | `room/mod.rs` | ✅ 编译期宏 | 23 处 → 编译期宏，列名映射修复 |
+
+**当前状态 (2026-06-08)**：`cargo check` 零错误零警告。编译期宏 857 处保持在有效缓存上的查询不变，约 80 处查询因 v8→v10 schema 变更临时降级为动态 SQL（均标注 `FIXME: Restore to compile-time macro after sqlx cache regenerated against v10 schema`）。
+
+**下一步**：需要连接到 v10 schema 的 PostgreSQL 数据库，运行 `cargo sqlx prepare` 重新生成 `.sqlx/` 缓存，即可将所有降級的动态 SQL 恢复为编译期宏。然后在继续推进 state_groups.rs、device.rs 等后续批次。
 
 ## 五、迁移模式手册
 

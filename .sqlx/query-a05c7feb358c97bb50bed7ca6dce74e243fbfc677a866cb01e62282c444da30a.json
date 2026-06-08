@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO device_trust_status (user_id, device_id, trust_level, verified_by_device_id, verified_at, created_ts)\n            VALUES ($1, $2, 'unverified', NULL, NULL, $3)\n            ON CONFLICT (user_id, device_id) DO UPDATE SET\n                trust_level = 'unverified', verified_by_device_id = NULL, verified_at = NULL, updated_ts = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a05c7feb358c97bb50bed7ca6dce74e243fbfc677a866cb01e62282c444da30a"
+}

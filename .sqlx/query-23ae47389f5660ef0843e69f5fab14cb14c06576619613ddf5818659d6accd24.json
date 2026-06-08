@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT event_id as \"event_id!\", room_id as \"room_id!\", sender as \"user_id!\", event_type as \"event_type!\",\n                   event_type as \"type!\", content::text as \"content!\", origin_server_ts as \"created_ts!\"\n            FROM events\n            WHERE room_id = $1 AND event_type IN ('m.room.message', 'm.room.name', 'm.room.topic')\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "event_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "content!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "23ae47389f5660ef0843e69f5fab14cb14c06576619613ddf5818659d6accd24"
+}

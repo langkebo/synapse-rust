@@ -7,7 +7,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use sqlx::Row;
 
 pub fn create_report_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -48,43 +47,56 @@ pub async fn get_all_reports(
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
-    let reports = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
-        sqlx::query(
-            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE (score < $2 OR (score = $2 AND received_ts < $3) OR (score = $2 AND received_ts = $3 AND id < $4)) ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
+    let report_list: Vec<Value> = if let (Some(score), Some(ts), Some(id)) = (since_score, since_ts, since_id) {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports WHERE (score < $2 OR (score = $2 AND received_ts < $3) OR (score = $2 AND received_ts = $3 AND id < $4)) ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"#,
+            limit,
+            score,
+            ts,
+            id,
         )
-        .bind(limit)
-        .bind(score)
-        .bind(ts)
-        .bind(id)
         .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
-    } else {
-        sqlx::query(
-            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"
-        )
-        .bind(limit)
-        .fetch_all(&*state.services.rooms.event_storage.pool)
-        .await
-    }
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let report_list: Vec<Value> = reports
-        .iter()
-        .map(|row| {
+        rows.iter().map(|row| {
             json!({
-                "id": row.get::<i64, _>("id"),
-                "room_id": row.get::<String, _>("room_id"),
-                "event_id": row.get::<String, _>("event_id"),
-                "user_id": row.get::<String, _>("reporter_user_id"),
-                "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
-                "reason": row.get::<Option<String>, _>("reason"),
-                "content": row.get::<Option<String>, _>("description"),
-                "status": row.get::<Option<String>, _>("status"),
-                "score": row.get::<Option<i32>, _>("score"),
-                "received_ts": row.get::<i64, _>("received_ts")
+                "id": row.id,
+                "room_id": row.room_id,
+                "event_id": row.event_id,
+                "user_id": row.reporter_user_id,
+                "reported_user_id": row.reported_user_id,
+                "reason": row.reason,
+                "content": row.description,
+                "status": row.status,
+                "score": row.score,
+                "received_ts": row.received_ts
             })
-        })
-        .collect();
+        }).collect()
+    } else {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports ORDER BY score DESC, received_ts DESC, id DESC LIMIT $1"#,
+            limit,
+        )
+        .fetch_all(&*state.services.rooms.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        rows.iter().map(|row| {
+            json!({
+                "id": row.id,
+                "room_id": row.room_id,
+                "event_id": row.event_id,
+                "user_id": row.reporter_user_id,
+                "reported_user_id": row.reported_user_id,
+                "reason": row.reason,
+                "content": row.description,
+                "status": row.status,
+                "score": row.score,
+                "received_ts": row.received_ts
+            })
+        }).collect()
+    };
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
@@ -95,26 +107,26 @@ pub async fn get_report(
     State(state): State<AppState>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let report = sqlx::query(
-        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1"
+    let report = sqlx::query!(
+        r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports WHERE id = $1"#,
+        report_id,
     )
-    .bind(report_id)
     .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match report {
         Some(row) => Ok(Json(json!({
-            "id": row.get::<i64, _>("id"),
-            "room_id": row.get::<String, _>("room_id"),
-            "event_id": row.get::<String, _>("event_id"),
-            "user_id": row.get::<String, _>("reporter_user_id"),
-            "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
-            "reason": row.get::<Option<String>, _>("reason"),
-            "content": row.get::<Option<String>, _>("description"),
-            "status": row.get::<Option<String>, _>("status"),
-            "score": row.get::<Option<i32>, _>("score"),
-            "received_ts": row.get::<i64, _>("received_ts")
+            "id": row.id,
+            "room_id": row.room_id,
+            "event_id": row.event_id,
+            "user_id": row.reporter_user_id,
+            "reported_user_id": row.reported_user_id,
+            "reason": row.reason,
+            "content": row.description,
+            "status": row.status,
+            "score": row.score,
+            "received_ts": row.received_ts
         }))),
         None => Err(ApiError::not_found("Report not found".to_string())),
     }
@@ -126,8 +138,7 @@ pub async fn delete_report(
     State(state): State<AppState>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM event_reports WHERE id = $1")
-        .bind(report_id)
+    let result = sqlx::query!("DELETE FROM event_reports WHERE id = $1", report_id)
         .execute(&*state.services.rooms.event_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -164,44 +175,57 @@ pub async fn get_room_reports(
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
-    let reports = if let (Some(ts), Some(id)) = (since_ts, since_id) {
-        sqlx::query(
-            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 AND (received_ts < $2 OR (received_ts = $2 AND id < $3)) ORDER BY received_ts DESC, id DESC LIMIT $4"
+    let report_list: Vec<Value> = if let (Some(ts), Some(id)) = (since_ts, since_id) {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports WHERE room_id = $1 AND (received_ts < $2 OR (received_ts = $2 AND id < $3)) ORDER BY received_ts DESC, id DESC LIMIT $4"#,
+            &room_id,
+            ts,
+            id,
+            limit,
         )
-        .bind(&room_id)
-        .bind(ts)
-        .bind(id)
-        .bind(limit)
         .fetch_all(&*state.services.rooms.event_storage.pool)
         .await
-    } else {
-        sqlx::query(
-            "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"
-        )
-        .bind(&room_id)
-        .bind(limit)
-        .fetch_all(&*state.services.rooms.event_storage.pool)
-        .await
-    }
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let report_list: Vec<Value> = reports
-        .iter()
-        .map(|row| {
+        rows.iter().map(|row| {
             json!({
-                "id": row.get::<i64, _>("id"),
-                "room_id": row.get::<String, _>("room_id"),
-                "event_id": row.get::<String, _>("event_id"),
-                "user_id": row.get::<String, _>("reporter_user_id"),
-                "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
-                "reason": row.get::<Option<String>, _>("reason"),
-                "content": row.get::<Option<String>, _>("description"),
-                "status": row.get::<Option<String>, _>("status"),
-                "score": row.get::<Option<i32>, _>("score"),
-                "received_ts": row.get::<i64, _>("received_ts")
+                "id": row.id,
+                "room_id": row.room_id,
+                "event_id": row.event_id,
+                "user_id": row.reporter_user_id,
+                "reported_user_id": row.reported_user_id,
+                "reason": row.reason,
+                "content": row.description,
+                "status": row.status,
+                "score": row.score,
+                "received_ts": row.received_ts
             })
-        })
-        .collect();
+        }).collect()
+    } else {
+        let rows = sqlx::query!(
+            r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports WHERE room_id = $1 ORDER BY received_ts DESC, id DESC LIMIT $2"#,
+            &room_id,
+            limit,
+        )
+        .fetch_all(&*state.services.rooms.event_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        rows.iter().map(|row| {
+            json!({
+                "id": row.id,
+                "room_id": row.room_id,
+                "event_id": row.event_id,
+                "user_id": row.reporter_user_id,
+                "reported_user_id": row.reported_user_id,
+                "reason": row.reason,
+                "content": row.description,
+                "status": row.status,
+                "score": row.score,
+                "received_ts": row.received_ts
+            })
+        }).collect()
+    };
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
 }
@@ -222,27 +246,27 @@ pub async fn get_room_report(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let report = sqlx::query(
-        "SELECT id, room_id, event_id, reporter_user_id, reported_user_id, reason, description, status, score, received_ts FROM event_reports WHERE id = $1 AND room_id = $2"
+    let report = sqlx::query!(
+        r#"SELECT id AS "id!", room_id AS "room_id!", event_id AS "event_id!", reporter_user_id AS "reporter_user_id!", reported_user_id, reason, description, status, score, received_ts AS "received_ts!" FROM event_reports WHERE id = $1 AND room_id = $2"#,
+        report_id,
+        &room_id,
     )
-    .bind(report_id)
-    .bind(&room_id)
     .fetch_optional(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match report {
         Some(row) => Ok(Json(json!({
-            "id": row.get::<i64, _>("id"),
-            "room_id": row.get::<String, _>("room_id"),
-            "event_id": row.get::<String, _>("event_id"),
-            "user_id": row.get::<String, _>("reporter_user_id"),
-            "reported_user_id": row.get::<Option<String>, _>("reported_user_id"),
-            "reason": row.get::<Option<String>, _>("reason"),
-            "content": row.get::<Option<String>, _>("description"),
-            "status": row.get::<Option<String>, _>("status"),
-            "score": row.get::<Option<i32>, _>("score"),
-            "received_ts": row.get::<i64, _>("received_ts")
+            "id": row.id,
+            "room_id": row.room_id,
+            "event_id": row.event_id,
+            "user_id": row.reporter_user_id,
+            "reported_user_id": row.reported_user_id,
+            "reason": row.reason,
+            "content": row.description,
+            "status": row.status,
+            "score": row.score,
+            "received_ts": row.received_ts
         }))),
         None => Err(ApiError::not_found("Report not found".to_string())),
     }

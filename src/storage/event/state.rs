@@ -2,13 +2,14 @@ use super::models::*;
 
 impl EventStorage {
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
-        sqlx::query_as::<_, StateEvent>(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (event_type, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -19,9 +20,9 @@ impl EventStorage {
                 ORDER BY event_type, state_key, origin_server_ts DESC
             ) s
             ORDER BY origin_server_ts DESC
-            ",
+            "#,
+            room_id
         )
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
     }
@@ -31,13 +32,14 @@ impl EventStorage {
         room_id: &str,
         origin_server_ts: i64,
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
-        sqlx::query_as::<_, StateEvent>(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (event_type, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -49,10 +51,10 @@ impl EventStorage {
                 ORDER BY event_type, state_key, origin_server_ts DESC, event_id DESC
             ) s
             ORDER BY origin_server_ts DESC, event_id ASC
-            ",
+            "#,
+            room_id,
+            origin_server_ts
         )
-        .bind(room_id)
-        .bind(origin_server_ts)
         .fetch_all(&*self.pool)
         .await
     }
@@ -62,18 +64,19 @@ impl EventStorage {
         room_id: &str,
         event_type: &str,
     ) -> Result<Vec<StateEvent>, sqlx::Error> {
-        sqlx::query_as::<_, StateEvent>(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
-            ",
+            "#,
+            room_id,
+            event_type
         )
-        .bind(room_id)
-        .bind(event_type)
         .fetch_all(&*self.pool)
         .await
     }
@@ -87,13 +90,14 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let events: Vec<StateEvent> = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        let events: Vec<StateEvent> = sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (room_id, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -105,10 +109,10 @@ impl EventStorage {
                 ORDER BY room_id, state_key, origin_server_ts DESC
             ) s
             ORDER BY room_id, origin_server_ts DESC
-            ",
+            "#,
+            room_ids,
+            event_type
         )
-        .bind(room_ids)
-        .bind(event_type)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -124,13 +128,14 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let events: Vec<StateEvent> = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        let events: Vec<StateEvent> = sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (room_id, event_type, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -142,10 +147,10 @@ impl EventStorage {
                 ORDER BY room_id, event_type, state_key, origin_server_ts DESC
             ) s
             ORDER BY room_id, origin_server_ts DESC
-            ",
+            "#,
+            room_ids,
+            since
         )
-        .bind(room_ids)
-        .bind(since)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -161,13 +166,14 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let events: Vec<StateEvent> = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        let events: Vec<StateEvent> = sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (room_id, event_type, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -179,10 +185,10 @@ impl EventStorage {
                 ORDER BY room_id, event_type, state_key, stream_ordering DESC
             ) s
             ORDER BY room_id, stream_ordering DESC
-            ",
+            "#,
+            room_ids,
+            since_stream_ordering
         )
-        .bind(room_ids)
-        .bind(since_stream_ordering)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -251,13 +257,14 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let events: Vec<StateEvent> = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
-                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
-                   COALESCE(is_redacted, false) as is_redacted,
-                   COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+        let events: Vec<StateEvent> = sqlx::query_as!(
+            StateEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(sender, user_id) AS "sender!",
+                   event_type AS "event_type?", content AS "content!", state_key,
+                   COALESCE(unsigned, '{}'::jsonb) AS "unsigned?", COALESCE(is_redacted, false) AS "is_redacted?",
+                   COALESCE(origin_server_ts, 0) AS "origin_server_ts!", depth, NULL::BIGINT AS "processed_ts",
+                   not_before, status, reference_image, origin, user_id, stream_ordering
             FROM (
                 SELECT DISTINCT ON (room_id, event_type, state_key)
                        event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
@@ -268,9 +275,9 @@ impl EventStorage {
                 ORDER BY room_id, event_type, state_key, origin_server_ts DESC
             ) s
             ORDER BY room_id, origin_server_ts DESC
-            ",
+            "#,
+            room_ids
         )
-        .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
 

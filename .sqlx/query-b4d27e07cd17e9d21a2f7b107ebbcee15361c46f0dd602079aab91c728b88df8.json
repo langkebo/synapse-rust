@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE room_memberships SET membership = 'forget', left_ts = $3, updated_ts = $3 WHERE room_id = $1 AND user_id = $2 AND membership IN ('leave', 'invite')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4d27e07cd17e9d21a2f7b107ebbcee15361c46f0dd602079aab91c728b88df8"
+}

@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH target_rooms AS (\n                SELECT UNNEST($2::text[]) AS room_id\n            ),\n            last_reads AS (\n                SELECT tr.room_id, COALESCE(MAX(e.origin_server_ts), 0) AS last_read_ts\n                FROM target_rooms tr\n                LEFT JOIN read_markers rm\n                  ON rm.room_id = tr.room_id\n                 AND rm.user_id = $1\n                LEFT JOIN events e\n                  ON e.event_id = rm.event_id\n                GROUP BY tr.room_id\n            )\n            SELECT\n                tr.room_id AS \"room_id!\",\n                COALESCE(COUNT(ev.event_id) FILTER (\n                    WHERE COALESCE(ev.user_id, ev.sender) != $1\n                      AND ev.state_key IS NULL\n                      AND ev.origin_server_ts > lr.last_read_ts\n                ), 0) AS \"notification_count!\",\n                COALESCE(COUNT(ev.event_id) FILTER (\n                    WHERE COALESCE(ev.user_id, ev.sender) != $1\n                      AND ev.state_key IS NULL\n                      AND ev.origin_server_ts > lr.last_read_ts\n                      AND (\n                        ev.content::text LIKE $3\n                        OR ev.content::text LIKE '%@room%'\n                      )\n                ), 0) AS \"highlight_count!\"\n            FROM target_rooms tr\n            LEFT JOIN last_reads lr\n              ON lr.room_id = tr.room_id\n            LEFT JOIN events ev\n              ON ev.room_id = tr.room_id\n             AND COALESCE(ev.user_id, ev.sender) != $1\n             AND ev.state_key IS NULL\n             AND ev.origin_server_ts > lr.last_read_ts\n            GROUP BY tr.room_id, lr.last_read_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "notification_count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "highlight_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "43b4a1ae4c1a12fc8a1e0fac20c1da3ddb3abe50c661b60967491c939271d36a"
+}

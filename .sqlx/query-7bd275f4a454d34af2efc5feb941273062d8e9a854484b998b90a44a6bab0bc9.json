@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", event_id as \"event_id!\", room_id as \"room_id!\", user_id as \"user_id!\", event_type as \"event_type!\", content as \"content!\", created_ts as \"created_ts!\"\n                 FROM search_index\n                 WHERE (content ILIKE $1 OR content % $2)\n                   AND (created_ts < $3 OR (created_ts = $3 AND id < $4))\n                 ORDER BY created_ts DESC, id DESC\n                 LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "event_type!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "content!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7bd275f4a454d34af2efc5feb941273062d8e9a854484b998b90a44a6bab0bc9"
+}

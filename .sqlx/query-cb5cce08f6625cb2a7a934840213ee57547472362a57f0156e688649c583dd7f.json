@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM events WHERE NOT EXISTS (SELECT 1 FROM rooms WHERE rooms.room_id = events.room_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "cb5cce08f6625cb2a7a934840213ee57547472362a57f0156e688649c583dd7f"
+}

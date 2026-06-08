@@ -331,9 +331,10 @@ impl RoomService {
         }
 
         if let Some(ref jr) = initial_join_rule {
-            if let Err(e) = sqlx::query("UPDATE rooms SET join_rules = $1 WHERE room_id = $2")
-                .bind(jr)
-                .bind(&room_id)
+            if let Err(e) = sqlx::query!("UPDATE rooms SET join_rules = $1 WHERE room_id = $2",
+                    jr,
+                    &room_id
+                )
                 .execute(&mut *tx)
                 .await
             {

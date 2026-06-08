@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO matrixrtc_memberships\n                (room_id, session_id, user_id, device_id, membership_id, application, call_id,\n                 created_ts, updated_ts, expires_at, foci_active, foci_preferred, application_data, is_active)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true)\n            ON CONFLICT (room_id, session_id, user_id, device_id) DO UPDATE SET\n                membership_id = EXCLUDED.membership_id,\n                updated_ts = EXCLUDED.updated_ts,\n                expires_at = EXCLUDED.expires_at,\n                foci_active = EXCLUDED.foci_active,\n                foci_preferred = EXCLUDED.foci_preferred,\n                application_data = EXCLUDED.application_data,\n                is_active = true\n            RETURNING id AS \"id!\", room_id AS \"room_id!\", session_id AS \"session_id!\",\n                user_id AS \"user_id!\", device_id AS \"device_id!\", membership_id AS \"membership_id!\",\n                application AS \"application!\", call_id AS \"call_id?\",\n                created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\", expires_at AS \"expires_at?\",\n                foci_active AS \"foci_active?\", foci_preferred AS \"foci_preferred?\",\n                application_data AS \"application_data?\", is_active AS \"is_active!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "membership_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "application!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "call_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "foci_active?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "foci_preferred?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 13,
+        "name": "application_data?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 14,
+        "name": "is_active!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "f887c790518ba2eced7d78db9599067f1c2ea6f722e582ad8f6f7a338dfd6e0f"
+}

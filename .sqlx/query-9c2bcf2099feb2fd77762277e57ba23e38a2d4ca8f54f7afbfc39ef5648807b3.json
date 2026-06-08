@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $4)\n            ON CONFLICT (user_id) DO UPDATE SET\n                expiration_at = EXCLUDED.expiration_at,\n                is_valid = EXCLUDED.is_valid,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING\n                user_id as \"user_id!\",\n                expiration_at as \"expiration_at!\",\n                last_check_at as \"email_sent_ts?\",\n                renewal_token as \"renewal_token?\",\n                NULL::BIGINT as \"renewal_token_ts?\",\n                is_valid as \"is_valid!\",\n                created_ts as \"created_ts!\",\n                COALESCE(updated_ts, created_ts) as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "expiration_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "email_sent_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "renewal_token?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "renewal_token_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "9c2bcf2099feb2fd77762277e57ba23e38a2d4ca8f54f7afbfc39ef5648807b3"
+}

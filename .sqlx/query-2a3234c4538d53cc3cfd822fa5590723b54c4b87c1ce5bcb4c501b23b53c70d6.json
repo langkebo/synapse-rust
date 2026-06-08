@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)\n        VALUES ($1, $2, $3, $4, $5, $5)\n        ON CONFLICT (user_id, room_id, data_type)\n        DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2a3234c4538d53cc3cfd822fa5590723b54c4b87c1ce5bcb4c501b23b53c70d6"
+}

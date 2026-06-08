@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH candidate_matches AS (\n                SELECT\n                    user_id,\n                    MAX(rank_score) AS rank_score,\n                    MIN(match_category) AS match_category\n                FROM (\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN username ILIKE $1 ESCAPE '\\' THEN 1000\n                            WHEN NOT $4 AND username ILIKE $2 ESCAPE '\\' THEN 820\n                            WHEN NOT $4 AND username ILIKE $3 ESCAPE '\\' THEN 650\n                            ELSE 480\n                        END + ROUND(similarity(username, $5) * 100)::INTEGER AS rank_score,\n                        CASE\n                            WHEN username ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN NOT $4 AND username ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN NOT $4 AND username ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_category\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND (\n                            username ILIKE $1 ESCAPE '\\'\n                            OR (\n                                NOT $4 AND (\n                                    username ILIKE $2 ESCAPE '\\'\n                                    OR username ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($5) >= 3 AND username % $5)\n                                )\n                            )\n                      )\n\n                    UNION ALL\n\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN displayname ILIKE $1 ESCAPE '\\' THEN 950\n                            WHEN NOT $4 AND displayname ILIKE $2 ESCAPE '\\' THEN 780\n                            WHEN NOT $4 AND displayname ILIKE $3 ESCAPE '\\' THEN 610\n                            ELSE 480\n                        END + ROUND(COALESCE(similarity(displayname, $5), 0.0) * 100)::INTEGER AS rank_score,\n                        CASE\n                            WHEN displayname ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN NOT $4 AND displayname ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN NOT $4 AND displayname ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_category\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND displayname IS NOT NULL\n                      AND (\n                            displayname ILIKE $1 ESCAPE '\\'\n                            OR (\n                                NOT $4 AND (\n                                    displayname ILIKE $2 ESCAPE '\\'\n                                    OR displayname ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($5) >= 3 AND displayname % $5)\n                                )\n                            )\n                      )\n\n                    UNION ALL\n\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN email ILIKE $1 ESCAPE '\\' THEN 900\n                            WHEN NOT $4 AND email ILIKE $2 ESCAPE '\\' THEN 740\n                            WHEN NOT $4 AND email ILIKE $3 ESCAPE '\\' THEN 580\n                            ELSE 480\n                        END + ROUND(COALESCE(similarity(email, $5), 0.0) * 100)::INTEGER AS rank_score,\n                        CASE\n                            WHEN email ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN NOT $4 AND email ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN NOT $4 AND email ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_category\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND email IS NOT NULL\n                      AND (\n                            email ILIKE $1 ESCAPE '\\'\n                            OR (\n                                NOT $4 AND (\n                                    email ILIKE $2 ESCAPE '\\'\n                                    OR email ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($5) >= 3 AND email % $5)\n                                )\n                            )\n                      )\n\n                    UNION ALL\n\n                    SELECT\n                        user_id,\n                        CASE\n                            WHEN user_id ILIKE $1 ESCAPE '\\' THEN 875\n                            WHEN NOT $4 AND user_id ILIKE $2 ESCAPE '\\' THEN 710\n                            WHEN NOT $4 AND user_id ILIKE $3 ESCAPE '\\' THEN 550\n                            ELSE 480\n                        END + ROUND(similarity(user_id, $5) * 100)::INTEGER AS rank_score,\n                        CASE\n                            WHEN user_id ILIKE $1 ESCAPE '\\' THEN 0\n                            WHEN NOT $4 AND user_id ILIKE $2 ESCAPE '\\' THEN 1\n                            WHEN NOT $4 AND user_id ILIKE $3 ESCAPE '\\' THEN 2\n                            ELSE 3\n                        END AS match_category\n                    FROM users\n                    WHERE COALESCE(is_deactivated, FALSE) = FALSE\n                      AND (\n                            user_id ILIKE $1 ESCAPE '\\'\n                            OR (\n                                NOT $4 AND (\n                                    user_id ILIKE $2 ESCAPE '\\'\n                                    OR user_id ILIKE $3 ESCAPE '\\'\n                                    OR (char_length($5) >= 3 AND user_id % $5)\n                                )\n                            )\n                      )\n                ) AS matches\n                GROUP BY user_id\n            )\n            SELECT\n                u.user_id AS \"user_id!\",\n                u.username AS \"username!\",\n                COALESCE(u.displayname, u.username) AS \"displayname!\",\n                u.avatar_url AS \"avatar_url?\",\n                u.created_ts AS \"created_ts!\",\n                p.presence AS \"presence?\",\n                p.last_active_ts AS \"last_active_ts?\",\n                (\n                    cm.rank_score\n                    + CASE\n                        WHEN COALESCE(p.presence, 'offline') = 'online' THEN 50\n                        WHEN COALESCE(p.presence, 'offline') = 'unavailable' THEN 20\n                        ELSE 0\n                    END\n                )::INTEGER AS \"match_score!\",\n                CASE cm.match_category\n                    WHEN 0 THEN 'exact'\n                    WHEN 1 THEN 'prefix'\n                    WHEN 2 THEN 'contains'\n                    ELSE 'fuzzy'\n                END AS \"match_type!\"\n            FROM candidate_matches cm\n            JOIN users u ON u.user_id = cm.user_id\n            LEFT JOIN presence p ON p.user_id = u.user_id\n            ORDER BY\n                cm.rank_score DESC,\n                COALESCE(p.last_active_ts, 0) DESC,\n                u.created_ts DESC,\n                u.username ASC\n            LIMIT $6\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "displayname!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "presence?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_active_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "match_score!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "match_type!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "38fbb1a6beb290f437049756ea13d0c9ddf564d6fe50790fefe662ed2f9decbb"
+}

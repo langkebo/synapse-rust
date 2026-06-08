@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id AS \"event_id!\" FROM state_group_state\n               WHERE state_group_id = $1 AND event_type = $2 AND state_key = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a251d9c50e4ad3d902f8a109d773d1a5b86df9681fa63daa7d99db8cbb9c7aad"
+}

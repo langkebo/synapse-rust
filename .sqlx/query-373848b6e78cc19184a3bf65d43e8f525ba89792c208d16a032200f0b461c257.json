@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT chunk_data AS \"chunk_data!\" FROM upload_chunks WHERE upload_id = $1 ORDER BY chunk_index",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_data!",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "373848b6e78cc19184a3bf65d43e8f525ba89792c208d16a032200f0b461c257"
+}

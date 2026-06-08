@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT content AS \"content!\" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "content!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "daa235fd1e2d2e6e923dbe8491e308416f1a1771830c61e039a77f1957cfd291"
+}

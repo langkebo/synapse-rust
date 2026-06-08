@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(job_name, '') AS \"job_name!\",\n                COALESCE(job_type, '') AS \"job_type!\",\n                description, table_name, column_name,\n                COALESCE(status, 'pending') AS \"status!\",\n                COALESCE(progress, '{}') AS \"progress!\",\n                COALESCE(total_items, 0) AS \"total_items!\",\n                COALESCE(processed_items, 0) AS \"processed_items!\",\n                COALESCE(created_ts, 0) AS \"created_ts!\",\n                started_ts, completed_ts, updated_ts AS last_updated_ts, error_message,\n                COALESCE(retry_count, 0) AS \"retry_count!\",\n                COALESCE(max_retries, 3) AS \"max_retries!\",\n                COALESCE(batch_size, 100) AS \"batch_size!\",\n                COALESCE(sleep_ms, 100) AS \"sleep_ms!\",\n                depends_on, metadata\n            FROM background_updates\n            WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)\n                OR created_ts < $2\n                OR (created_ts = $2 AND job_name < $3)\n            ORDER BY created_ts DESC, job_name DESC\n            LIMIT $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "table_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "column_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "progress!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "total_items!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "processed_items!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "started_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "completed_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "last_updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "error_message",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "retry_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "max_retries!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
+        "name": "batch_size!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 17,
+        "name": "sleep_ms!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 18,
+        "name": "depends_on",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 19,
+        "name": "metadata",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "08c1b1e5aa4354fc6003b1d956590630aaf6a08e159c94810fd4ee0e64cce852"
+}

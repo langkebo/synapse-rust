@@ -1,6 +1,6 @@
 use crate::cache::{CacheKeyBuilder, CacheManager, CacheTtl};
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing;
@@ -27,13 +27,13 @@ impl PresenceStorage {
     pub async fn set_presence(
         &self,
         user_id: &str,
-        presence: &str,
+        presence: crate::common::PresenceState,
         status_msg: Option<&str>,
     ) -> Result<(), sqlx::Error> {
         tracing::debug!(user_id = %user_id, presence = %presence, "Setting presence");
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO presence (user_id, presence, status_msg, last_active_ts, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4, $4)
             ON CONFLICT (user_id) DO UPDATE SET
@@ -41,12 +41,12 @@ impl PresenceStorage {
                 status_msg = EXCLUDED.status_msg,
                 last_active_ts = EXCLUDED.last_active_ts,
                 updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            user_id,
+            &presence.to_string(),
+            status_msg,
+            now
         )
-        .bind(user_id)
-        .bind(presence)
-        .bind(status_msg)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -72,21 +72,21 @@ impl PresenceStorage {
             return Ok(Some((snapshot.presence, snapshot.status_msg)));
         }
 
-        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            r"
-            SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1
-            ",
+        let result = sqlx::query!(
+            r#"
+            SELECT presence as "presence!", status_msg, last_active_ts FROM presence WHERE user_id = $1
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some((presence, status_msg, last_active_ts)) = &result {
+        if let Some(row) = &result {
             let snapshot = PresenceSnapshot {
                 user_id: user_id.to_string(),
-                presence: presence.clone(),
-                status_msg: status_msg.clone(),
-                last_active_ts: *last_active_ts,
+                presence: row.presence.clone(),
+                status_msg: row.status_msg.clone(),
+                last_active_ts: Some(row.last_active_ts),
             };
             let ttl = CacheTtl::user_presence().as_secs();
             if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
@@ -94,7 +94,7 @@ impl PresenceStorage {
             }
         }
 
-        Ok(result.map(|(presence, status_msg, _)| (presence, status_msg)))
+        Ok(result.map(|row| (row.presence, row.status_msg)))
     }
 
     pub async fn get_presence_with_meta(
@@ -106,21 +106,21 @@ impl PresenceStorage {
             return Ok(Some((snapshot.presence, snapshot.status_msg, snapshot.last_active_ts)));
         }
 
-        let result = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
-            r"
-            SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1
-            ",
+        let result = sqlx::query!(
+            r#"
+            SELECT presence as "presence!", status_msg, last_active_ts FROM presence WHERE user_id = $1
+            "#,
+            user_id
         )
-        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
-        if let Some((presence, status_msg, last_active_ts)) = &result {
+        if let Some(row) = &result {
             let snapshot = PresenceSnapshot {
                 user_id: user_id.to_string(),
-                presence: presence.clone(),
-                status_msg: status_msg.clone(),
-                last_active_ts: *last_active_ts,
+                presence: row.presence.clone(),
+                status_msg: row.status_msg.clone(),
+                last_active_ts: Some(row.last_active_ts),
             };
             let ttl = CacheTtl::user_presence().as_secs();
             if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
@@ -128,7 +128,7 @@ impl PresenceStorage {
             }
         }
 
-        Ok(result)
+        Ok(result.map(|row| (row.presence, row.status_msg, Some(row.last_active_ts))))
     }
 
     pub async fn get_presences(
@@ -157,28 +157,28 @@ impl PresenceStorage {
             return Ok(map);
         }
 
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
-            r"
-            SELECT user_id, presence, status_msg, last_active_ts FROM presence WHERE user_id = ANY($1)
-            ",
+        let rows = sqlx::query!(
+            r#"
+            SELECT user_id as "user_id!", presence as "presence!", status_msg, last_active_ts FROM presence WHERE user_id = ANY($1)
+            "#,
+            &missing_ids
         )
-        .bind(&missing_ids)
         .fetch_all(&*self.pool)
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
         for row in rows {
             let snapshot = PresenceSnapshot {
-                user_id: row.0.clone(),
-                presence: row.1.clone(),
-                status_msg: row.2.clone(),
-                last_active_ts: row.3,
+                user_id: row.user_id.clone(),
+                presence: row.presence.clone(),
+                status_msg: row.status_msg.clone(),
+                last_active_ts: Some(row.last_active_ts),
             };
-            let key = CacheKeyBuilder::user_presence(&row.0);
+            let key = CacheKeyBuilder::user_presence(&row.user_id);
             if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
+                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.user_id, e);
             }
-            map.insert(row.0, (row.1, row.2));
+            map.insert(row.user_id, (row.presence, row.status_msg));
         }
 
         Ok(map)
@@ -187,28 +187,26 @@ impl PresenceStorage {
     pub async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
         if typing {
             let now = chrono::Utc::now().timestamp_millis();
-            sqlx::query(
-                r"
+            sqlx::query!(
+                r#"
                 INSERT INTO typing (user_id, room_id, is_typing, last_active_ts)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (user_id, room_id)
                 DO UPDATE SET is_typing = EXCLUDED.is_typing, last_active_ts = EXCLUDED.last_active_ts
-                ",
+                "#,
+                user_id,
+                room_id,
+                typing,
+                now
             )
-            .bind(user_id)
-            .bind(room_id)
-            .bind(typing)
-            .bind(now)
             .execute(&*self.pool)
             .await?;
         } else {
-            sqlx::query(
-                r"
-                DELETE FROM typing WHERE user_id = $1 AND room_id = $2
-                ",
+            sqlx::query!(
+                r#"DELETE FROM typing WHERE user_id = $1 AND room_id = $2"#,
+                user_id,
+                room_id
             )
-            .bind(user_id)
-            .bind(room_id)
             .execute(&*self.pool)
             .await?;
         }
@@ -217,16 +215,16 @@ impl PresenceStorage {
 
     pub async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             INSERT INTO presence_subscriptions (subscriber_id, target_id, created_ts)
             VALUES ($1, $2, $3)
             ON CONFLICT (subscriber_id, target_id) DO NOTHING
-            ",
+            "#,
+            subscriber_id,
+            target_id,
+            now
         )
-        .bind(subscriber_id)
-        .bind(target_id)
-        .bind(now)
         .execute(&*self.pool)
         .await;
 
@@ -235,6 +233,8 @@ impl PresenceStorage {
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    // Fallback for older schema with user_id/friend_id columns
+                    // SKIP: columns may not exist at compile time — keep as runtime sqlx::query
                     return sqlx::query(
                         r"
                         INSERT INTO presence_subscriptions (user_id, friend_id, created_ts)
@@ -255,14 +255,11 @@ impl PresenceStorage {
     }
 
     pub async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
-        let result = sqlx::query(
-            r"
-            DELETE FROM presence_subscriptions
-            WHERE subscriber_id = $1 AND target_id = $2
-            ",
+        let result = sqlx::query!(
+            r#"DELETE FROM presence_subscriptions WHERE subscriber_id = $1 AND target_id = $2"#,
+            subscriber_id,
+            target_id
         )
-        .bind(subscriber_id)
-        .bind(target_id)
         .execute(&*self.pool)
         .await;
 
@@ -271,6 +268,8 @@ impl PresenceStorage {
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("column \"subscriber_id\" does not exist") {
+                    // Fallback for older schema with user_id/friend_id columns
+                    // SKIP: columns may not exist at compile time — keep as runtime sqlx::query
                     return sqlx::query(
                         r"
                         DELETE FROM presence_subscriptions
@@ -289,33 +288,28 @@ impl PresenceStorage {
     }
 
     pub async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String,)>(
-            r"
-            SELECT target_id FROM presence_subscriptions
-            WHERE subscriber_id = $1
-            LIMIT 5000
-            ",
+        let result = sqlx::query_scalar!(
+            r#"SELECT target_id FROM presence_subscriptions WHERE subscriber_id = $1 LIMIT 5000"#,
+            subscriber_id
         )
-        .bind(subscriber_id)
         .fetch_all(&*self.pool)
         .await;
 
         match result {
-            Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+            Ok(rows) => Ok(rows),
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("column \"subscriber_id\" does not exist") {
-                    let fallback_result = sqlx::query_as::<_, (String,)>(
-                        r"
-                        SELECT friend_id FROM presence_subscriptions
-                        WHERE user_id = $1
-                        ",
+                    // Fallback for older schema with user_id/friend_id columns
+                    // SKIP: columns may not exist at compile time — keep as runtime sqlx::query
+                    let fallback_result = sqlx::query(
+                        r"SELECT friend_id FROM presence_subscriptions WHERE user_id = $1",
                     )
                     .bind(subscriber_id)
                     .fetch_all(&*self.pool)
                     .await;
                     return match fallback_result {
-                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+                        Ok(rows) => Ok(rows.iter().map(|r| r.get("friend_id")).collect()),
                         Err(e2) => Err(e2),
                     };
                 }
@@ -325,32 +319,28 @@ impl PresenceStorage {
     }
 
     pub async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String,)>(
-            r"
-            SELECT subscriber_id FROM presence_subscriptions
-            WHERE target_id = $1
-            ",
+        let result = sqlx::query_scalar!(
+            r#"SELECT subscriber_id FROM presence_subscriptions WHERE target_id = $1"#,
+            target_id
         )
-        .bind(target_id)
         .fetch_all(&*self.pool)
         .await;
 
         match result {
-            Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+            Ok(rows) => Ok(rows),
             Err(e) => {
                 let err_msg = e.to_string();
                 if err_msg.contains("column \"subscriber_id\" does not exist") {
-                    let fallback_result = sqlx::query_as::<_, (String,)>(
-                        r"
-                        SELECT user_id FROM presence_subscriptions
-                        WHERE friend_id = $1
-                        ",
+                    // Fallback for older schema with user_id/friend_id columns
+                    // SKIP: columns may not exist at compile time — keep as runtime sqlx::query
+                    let fallback_result = sqlx::query(
+                        r"SELECT user_id FROM presence_subscriptions WHERE friend_id = $1",
                     )
                     .bind(target_id)
                     .fetch_all(&*self.pool)
                     .await;
                     return match fallback_result {
-                        Ok(rows) => Ok(rows.into_iter().map(|row| row.0).collect()),
+                        Ok(rows) => Ok(rows.iter().map(|r| r.get("user_id")).collect()),
                         Err(e2) => Err(e2),
                     };
                 }
@@ -385,32 +375,32 @@ impl PresenceStorage {
             return Ok(results);
         }
 
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
-            r"
-            SELECT user_id, presence, status_msg, last_active_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT user_id as "user_id!", presence as "presence!", status_msg, last_active_ts
             FROM presence
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            &missing_ids
         )
-        .bind(&missing_ids)
         .fetch_all(&*self.pool)
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
         for row in &rows {
             let snapshot = PresenceSnapshot {
-                user_id: row.0.clone(),
-                presence: row.1.clone(),
-                status_msg: row.2.clone(),
-                last_active_ts: row.3,
+                user_id: row.user_id.clone(),
+                presence: row.presence.clone(),
+                status_msg: row.status_msg.clone(),
+                last_active_ts: Some(row.last_active_ts),
             };
-            let key = CacheKeyBuilder::user_presence(&row.0);
+            let key = CacheKeyBuilder::user_presence(&row.user_id);
             if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
+                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.user_id, e);
             }
         }
 
-        results.extend(rows.into_iter().map(|(uid, presence, status_msg, _)| (uid, presence, status_msg)));
+        results.extend(rows.into_iter().map(|row| (row.user_id, row.presence, row.status_msg)));
         Ok(results)
     }
 
@@ -438,32 +428,32 @@ impl PresenceStorage {
             return Ok(results);
         }
 
-        let rows = sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
-            r"
-            SELECT user_id, presence, status_msg, last_active_ts
+        let rows = sqlx::query!(
+            r#"
+            SELECT user_id as "user_id!", presence as "presence!", status_msg, last_active_ts
             FROM presence
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            &missing_ids
         )
-        .bind(&missing_ids)
         .fetch_all(&*self.pool)
         .await?;
 
         let ttl = CacheTtl::user_presence().as_secs();
         for row in &rows {
             let snapshot = PresenceSnapshot {
-                user_id: row.0.clone(),
-                presence: row.1.clone(),
-                status_msg: row.2.clone(),
-                last_active_ts: row.3,
+                user_id: row.user_id.clone(),
+                presence: row.presence.clone(),
+                status_msg: row.status_msg.clone(),
+                last_active_ts: Some(row.last_active_ts),
             };
-            let key = CacheKeyBuilder::user_presence(&row.0);
+            let key = CacheKeyBuilder::user_presence(&row.user_id);
             if let Err(e) = self.cache.set(&key, &snapshot, ttl).await {
-                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.0, e);
+                tracing::warn!(target: "cache", "Failed to cache presence for {}: {}", row.user_id, e);
             }
         }
 
-        results.extend(rows);
+        results.extend(rows.into_iter().map(|row| (row.user_id, row.presence, row.status_msg, Some(row.last_active_ts))));
         Ok(results)
     }
 
@@ -493,17 +483,17 @@ impl PresenceStorage {
             return Ok(map);
         }
 
-        let rows = sqlx::query_as::<_, PresenceSnapshot>(
-            r"
-            SELECT user_id,
-                   COALESCE(presence, 'offline') as presence,
+        let rows = sqlx::query_as!(PresenceSnapshot,
+            r#"
+            SELECT user_id as "user_id!",
+                   COALESCE(presence, 'offline') as "presence!",
                    status_msg,
                    last_active_ts
             FROM presence
             WHERE user_id = ANY($1)
-            ",
+            "#,
+            &missing_ids
         )
-        .bind(&missing_ids)
         .fetch_all(&*self.pool)
         .await?;
 

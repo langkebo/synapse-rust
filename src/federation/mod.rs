@@ -1,5 +1,6 @@
 pub mod client;
 pub mod device_sync;
+pub mod edu;
 pub mod event_auth;
 pub mod event_broadcaster;
 #[cfg(feature = "friends")]
@@ -11,6 +12,7 @@ pub mod state_resolution;
 
 pub use client::FederationClient;
 pub use device_sync::DeviceSyncManager;
+pub use edu::{EduDispatcher, EduProcessResult, EduType};
 pub use event_auth::EventAuthChain;
 pub use event_broadcaster::EventBroadcaster;
 #[cfg(feature = "friends")]

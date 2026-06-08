@@ -141,8 +141,9 @@ impl FederationBlacklistStorage {
         let now = Utc::now().timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as::<_, FederationBlacklist>(
-            r"
+        let row = sqlx::query_as!(
+            FederationBlacklist,
+            r#"
             INSERT INTO federation_blacklist (
                 server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata
             )
@@ -155,16 +156,20 @@ impl FederationBlacklistStorage {
                 expires_at = $6,
                 is_enabled = true,
                 metadata = $7
-            RETURNING *
-            ",
+            RETURNING id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
+                      reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
+                      COALESCE(created_ts, added_ts) AS "created_ts!",
+                      COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                      expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
+            "#,
+            &request.server_name,
+            &request.block_type,
+            request.reason.as_deref(),
+            &request.blocked_by,
+            now,
+            request.expires_at,
+            &metadata
         )
-        .bind(&request.server_name)
-        .bind(&request.block_type)
-        .bind(&request.reason)
-        .bind(&request.blocked_by)
-        .bind(now)
-        .bind(request.expires_at)
-        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
@@ -207,24 +212,25 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn get_blacklist_entry(&self, server_name: &str) -> Result<Option<FederationBlacklist>, ApiError> {
-        let row = sqlx::query_as::<_, FederationBlacklist>(
-            r"
+        let row = sqlx::query_as!(
+            FederationBlacklist,
+            r#"
             SELECT
-                id,
-                server_name,
-                'blacklist' AS block_type,
-                reason,
-                COALESCE(added_by, 'system') AS blocked_by,
-                added_ts AS created_ts,
-                COALESCE(updated_ts, added_ts) AS updated_ts,
-                NULL::BIGINT AS expires_at,
-                TRUE AS is_enabled,
-                '{}'::jsonb AS metadata
+                id AS "id!",
+                server_name AS "server_name!",
+                'blacklist' AS "block_type!",
+                reason AS "reason?",
+                COALESCE(added_by, 'system') AS "blocked_by!",
+                added_ts AS "created_ts!",
+                COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                NULL::BIGINT AS "expires_at?",
+                TRUE AS "is_enabled!",
+                '{}'::jsonb AS "metadata!"
             FROM federation_blacklist
             WHERE server_name = $1
-            ",
+            "#,
+            server_name
         )
-        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get blacklist entry", &e))?;
@@ -249,13 +255,19 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
-        let row = sqlx::query_as::<_, FederationBlacklist>(
-            r"
-            SELECT * FROM federation_blacklist
+        let row = sqlx::query_as!(
+            FederationBlacklist,
+            r#"
+            SELECT id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
+                   reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
+                   COALESCE(created_ts, added_ts) AS "created_ts!",
+                   COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                   expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
+            FROM federation_blacklist
             WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
-            ",
+            "#,
+            server_name
         )
-        .bind(server_name)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check whitelist", &e))?;
@@ -269,51 +281,53 @@ impl FederationBlacklistStorage {
         from: Option<FederationBlacklistCursor>,
     ) -> Result<(Vec<FederationBlacklist>, Option<String>), ApiError> {
         let rows = if let Some(cursor) = from {
-            sqlx::query_as::<_, FederationBlacklist>(
-                r"
+            sqlx::query_as!(
+                FederationBlacklist,
+                r#"
                 SELECT
-                    id,
-                    server_name,
-                    'blacklist' AS block_type,
-                    reason,
-                    COALESCE(added_by, 'system') AS blocked_by,
-                    added_ts AS created_ts,
-                    COALESCE(updated_ts, added_ts) AS updated_ts,
-                    NULL::BIGINT AS expires_at,
-                    TRUE AS is_enabled,
-                    '{}'::jsonb AS metadata
+                    id AS "id!",
+                    server_name AS "server_name!",
+                    'blacklist' AS "block_type!",
+                    reason AS "reason?",
+                    COALESCE(added_by, 'system') AS "blocked_by!",
+                    added_ts AS "created_ts!",
+                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                    NULL::BIGINT AS "expires_at?",
+                    TRUE AS "is_enabled!",
+                    '{}'::jsonb AS "metadata!"
                 FROM federation_blacklist
                 WHERE (added_ts, server_name) < ($1, $2)
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $3
-                ",
+                "#,
+                cursor.created_ts,
+                cursor.server_name,
+                (limit + 1) as i64
             )
-            .bind(cursor.created_ts)
-            .bind(cursor.server_name)
-            .bind(limit + 1)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
         } else {
-            sqlx::query_as::<_, FederationBlacklist>(
-                r"
+            sqlx::query_as!(
+                FederationBlacklist,
+                r#"
                 SELECT
-                    id,
-                    server_name,
-                    'blacklist' AS block_type,
-                    reason,
-                    COALESCE(added_by, 'system') AS blocked_by,
-                    added_ts AS created_ts,
-                    COALESCE(updated_ts, added_ts) AS updated_ts,
-                    NULL::BIGINT AS expires_at,
-                    TRUE AS is_enabled,
-                    '{}'::jsonb AS metadata
+                    id AS "id!",
+                    server_name AS "server_name!",
+                    'blacklist' AS "block_type!",
+                    reason AS "reason?",
+                    COALESCE(added_by, 'system') AS "blocked_by!",
+                    added_ts AS "created_ts!",
+                    COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                    NULL::BIGINT AS "expires_at?",
+                    TRUE AS "is_enabled!",
+                    '{}'::jsonb AS "metadata!"
                 FROM federation_blacklist
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
-                ",
+                "#,
+                (limit + 1) as i64
             )
-            .bind(limit + 1)
             .fetch_all(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get blacklist", &e))?
@@ -376,8 +390,9 @@ impl FederationBlacklistStorage {
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, FederationAccessStats>(
-            r"
+        let row = sqlx::query_as!(
+            FederationAccessStats,
+            r#"
             INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests,
                 last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
             VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
@@ -394,17 +409,21 @@ impl FederationBlacklistStorage {
                 END,
                 error_rate = CAST(federation_access_stats.failed_requests AS FLOAT) / NULLIF(federation_access_stats.total_requests, 0),
                 updated_ts = $4
-            RETURNING *
-            ",
+            RETURNING id AS "id!", server_name AS "server_name!", total_requests AS "total_requests!",
+                      successful_requests AS "successful_requests!", failed_requests AS "failed_requests!",
+                      last_request_ts AS "last_request_ts?", last_success_ts AS "last_success_ts?",
+                      last_failure_ts AS "last_failure_ts?", average_response_time_ms AS "average_response_time_ms!",
+                      error_rate AS "error_rate!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            "#,
+            &request.server_name,
+            if request.is_success { 1 } else { 0 },
+            if request.is_success { 0 } else { 1 },
+            now,
+            if request.is_success { Some(now) } else { None },
+            if request.is_success { None } else { Some(now) },
+            request.response_time_ms,
+            if request.is_success { 0.0 } else { 1.0 }
         )
-        .bind(&request.server_name)
-        .bind(if request.is_success { 1 } else { 0 })
-        .bind(if request.is_success { 0 } else { 1 })
-        .bind(now)
-        .bind(if request.is_success { Some(now) } else { None })
-        .bind(if request.is_success { None } else { Some(now) })
-        .bind(request.response_time_ms)
-        .bind(if request.is_success { 0.0 } else { 1.0 })
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update access stats", &e))?;
@@ -413,12 +432,19 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn get_access_stats(&self, server_name: &str) -> Result<Option<FederationAccessStats>, ApiError> {
-        let row =
-            sqlx::query_as::<_, FederationAccessStats>("SELECT * FROM federation_access_stats WHERE server_name = $1")
-                .bind(server_name)
-                .fetch_optional(&*self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
+        let row = sqlx::query_as!(
+            FederationAccessStats,
+            r#"SELECT id AS "id!", server_name AS "server_name!", total_requests AS "total_requests!",
+                      successful_requests AS "successful_requests!", failed_requests AS "failed_requests!",
+                      last_request_ts AS "last_request_ts?", last_success_ts AS "last_success_ts?",
+                      last_failure_ts AS "last_failure_ts?", average_response_time_ms AS "average_response_time_ms!",
+                      error_rate AS "error_rate!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+               FROM federation_access_stats WHERE server_name = $1"#,
+            server_name
+        )
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get access stats", &e))?;
 
         Ok(row)
     }

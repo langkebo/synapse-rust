@@ -166,17 +166,17 @@ impl LeakDetectionStorage {
     }
 
     pub async fn save_alert(&self, alert: &LeakAlert) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO leak_alerts
              (key_id, details, created_ts, is_acknowledged, acknowledged_by, acknowledged_at)
              VALUES ($1, $2, $3, $4, $5, $6)",
+            &alert.key_id,
+            alert.details.as_ref(),
+            alert.created_ts,
+            alert.is_acknowledged,
+            alert.acknowledged_by.as_deref(),
+            alert.acknowledged_at,
         )
-        .bind(&alert.key_id)
-        .bind(&alert.details)
-        .bind(alert.created_ts)
-        .bind(alert.is_acknowledged)
-        .bind(&alert.acknowledged_by)
-        .bind(alert.acknowledged_at)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -192,13 +192,17 @@ impl LeakDetectionStorage {
     }
 
     pub async fn get_user_alerts(&self, user_id: &str) -> Result<Vec<LeakAlert>, ApiError> {
-        let rows = sqlx::query(
-            "SELECT id, key_id, details, created_ts, is_acknowledged, acknowledged_by, acknowledged_at
-             FROM leak_alerts
-             WHERE key_id LIKE $1
-             ORDER BY created_ts DESC",
+        let pattern = format!("%{}%", user_id);
+        let rows = sqlx::query!(
+            r#"
+            SELECT id AS "id!", key_id AS "key_id!", details, created_ts AS "created_ts!",
+                   is_acknowledged AS "is_acknowledged!", acknowledged_by, acknowledged_at
+            FROM leak_alerts
+            WHERE key_id LIKE $1
+            ORDER BY created_ts DESC
+            "#,
+            pattern,
         )
-        .bind(format!("%{}%", user_id))
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -206,17 +210,16 @@ impl LeakDetectionStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        use sqlx::Row;
         let alerts = rows
             .into_iter()
             .map(|row| LeakAlert {
-                id: row.get("id"),
-                key_id: row.get("key_id"),
-                details: row.get("details"),
-                created_ts: row.get("created_ts"),
-                is_acknowledged: row.get("is_acknowledged"),
-                acknowledged_by: row.get("acknowledged_by"),
-                acknowledged_at: row.get("acknowledged_at"),
+                id: row.id,
+                key_id: row.key_id,
+                details: row.details,
+                created_ts: row.created_ts,
+                is_acknowledged: row.is_acknowledged,
+                acknowledged_by: row.acknowledged_by,
+                acknowledged_at: row.acknowledged_at,
             })
             .collect();
 
@@ -225,14 +228,14 @@ impl LeakDetectionStorage {
 
     pub async fn acknowledge_alert(&self, alert_id: i64, acknowledged_by: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
+        sqlx::query!(
             "UPDATE leak_alerts
              SET is_acknowledged = true, acknowledged_by = $2, acknowledged_at = $3
              WHERE id = $1",
+            alert_id,
+            acknowledged_by,
+            now,
         )
-        .bind(alert_id)
-        .bind(acknowledged_by)
-        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -244,14 +247,16 @@ impl LeakDetectionStorage {
     }
 
     pub async fn get_leak_statistics(&self) -> Result<LeakStatistics, ApiError> {
-        let row = sqlx::query(
-            "SELECT
-             COUNT(*) as total_alerts,
-             COUNT(CASE WHEN NOT is_acknowledged THEN 1 END) as unresolved_alerts,
-             COUNT(CASE WHEN severity = 'high' THEN 1 END) as high_severity_count,
-             COUNT(CASE WHEN severity = 'medium' THEN 1 END) as medium_severity_count,
-             COUNT(CASE WHEN severity = 'low' THEN 1 END) as low_severity_count
-             FROM leak_alerts",
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                COUNT(*) AS "total_alerts!",
+                COUNT(CASE WHEN NOT is_acknowledged THEN 1 END) AS "unresolved_alerts!",
+                COUNT(CASE WHEN severity = 'high' THEN 1 END) AS "high_severity_count!",
+                COUNT(CASE WHEN severity = 'medium' THEN 1 END) AS "medium_severity_count!",
+                COUNT(CASE WHEN severity = 'low' THEN 1 END) AS "low_severity_count!"
+            FROM leak_alerts
+            "#,
         )
         .fetch_one(&*self.pool)
         .await
@@ -260,13 +265,12 @@ impl LeakDetectionStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        use sqlx::Row;
         Ok(LeakStatistics {
-            total_alerts: row.get("total_alerts"),
-            unresolved_alerts: row.get("unresolved_alerts"),
-            high_severity_count: row.get("high_severity_count"),
-            medium_severity_count: row.get("medium_severity_count"),
-            low_severity_count: row.get("low_severity_count"),
+            total_alerts: row.total_alerts,
+            unresolved_alerts: row.unresolved_alerts,
+            high_severity_count: row.high_severity_count,
+            medium_severity_count: row.medium_severity_count,
+            low_severity_count: row.low_severity_count,
         })
     }
 }

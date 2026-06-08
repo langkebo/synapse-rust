@@ -579,6 +579,14 @@ async fn send_to_device(
         .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
 
+    // Notify recipients so that long-polling /sync connections wake up
+    // immediately instead of waiting for the next polling cycle.
+    if let Some(msg_map) = body.get("messages").and_then(|m| m.as_object()) {
+        for (user_id, _) in msg_map {
+            state.services.event_notifier.notify_user(user_id);
+        }
+    }
+
     Ok(Json(json!({ "failures": {} })))
 }
 

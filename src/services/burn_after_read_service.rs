@@ -18,7 +18,7 @@ pub struct BurnEvent {
     pub room_id: String,
     pub user_id: String,
     pub created_ts: i64,
-    pub delete_at: i64,
+    pub delete_ts: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -89,7 +89,7 @@ impl BurnAfterReadService {
                 room_id: r.room_id,
                 user_id: r.user_id,
                 created_ts: r.created_ts,
-                delete_at: r.delete_at,
+                delete_ts: r.delete_at,
             })
             .collect())
     }
@@ -168,10 +168,10 @@ impl BurnAfterReadService {
         burn_after_ms: i64,
     ) -> ApiResult<()> {
         let now = Utc::now().timestamp_millis();
-        let delete_at = now + burn_after_ms;
+        let delete_ts = now + burn_after_ms;
 
         self.storage
-            .schedule_burn(user_id, room_id, event_id, delete_at)
+            .schedule_burn(user_id, room_id, event_id, delete_ts)
             .await
             .map_err(|e| crate::common::ApiError::internal_with_log("Failed to schedule burn", &e))?;
 
@@ -227,7 +227,7 @@ impl BurnAfterReadService {
                 room_id: row.room_id.clone(),
                 user_id: row.user_id.clone(),
                 created_ts: row.created_ts,
-                delete_at: row.delete_at,
+                delete_ts: row.delete_at,
             });
         }
 
@@ -295,7 +295,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             user_id: "@alice:example.com".to_string(),
             created_ts: 1234567890,
-            delete_at: 1234567950,
+            delete_ts: 1234567950,
         };
         assert_eq!(event.id, 1);
         assert_eq!(event.event_id, "$event1");

@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::Row;
 
 fn create_push_compat_router() -> Router<AppState> {
     Router::new()
@@ -126,16 +125,18 @@ pub struct PushAction {
 }
 
 async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let pushers = sqlx::query(
-        r"
-        SELECT pushkey, kind, app_id, app_display_name, device_display_name,
-               profile_tag, lang, data, device_id
+    // P2 #32: 只返回当前设备的 pusher，防止跨设备查看
+    let pushers = sqlx::query!(
+        r#"
+        SELECT pushkey AS "pushkey!", kind AS "kind!", app_id AS "app_id!", app_display_name AS "app_display_name!", device_display_name AS "device_display_name!",
+               profile_tag AS "profile_tag?", lang AS "lang!", data AS "data", device_id AS "device_id?"
         FROM pushers
-        WHERE user_id = $1
+        WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
         ORDER BY created_ts DESC
-        ",
+        "#,
+        &auth_user.user_id,
+        auth_user.device_id.as_deref(),
     )
-    .bind(&auth_user.user_id)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -144,14 +145,14 @@ async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser
         .iter()
         .map(|row| {
             json!({
-                "pushkey": row.get::<Option<String>, _>("pushkey"),
-                "kind": row.get::<Option<String>, _>("kind"),
-                "app_id": row.get::<Option<String>, _>("app_id"),
-                "app_display_name": row.get::<Option<String>, _>("app_display_name"),
-                "device_display_name": row.get::<Option<String>, _>("device_display_name"),
-                "profile_tag": row.get::<Option<String>, _>("profile_tag"),
-                "lang": row.get::<Option<String>, _>("lang"),
-                "data": row.get::<Option<Value>, _>("data").unwrap_or(json!({}))
+                "pushkey": row.pushkey,
+                "kind": row.kind,
+                "app_id": row.app_id,
+                "app_display_name": row.app_display_name,
+                "device_display_name": row.device_display_name,
+                "profile_tag": row.profile_tag,
+                "lang": row.lang,
+                "data": row.data.as_ref().unwrap_or(&json!({}))
             })
         })
         .collect();
@@ -166,12 +167,18 @@ async fn set_pusher(
     auth_user: AuthenticatedUser,
     Json(body): Json<SetPusherRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    // P2 #32: 验证 access_token 必须关联 device_id，防止无设备用户设置 pusher
+    let device_id = auth_user
+        .device_id
+        .as_deref()
+        .ok_or_else(|| ApiError::forbidden("Device ID required for pusher operations".to_string()))?;
+
     let kind = body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     let now = chrono::Utc::now().timestamp_millis();
 
     if kind != "null" {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name,
                                  device_display_name, profile_tag, lang, data, created_ts, updated_ts)
@@ -180,20 +187,20 @@ async fn set_pusher(
                 pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
                 device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
             ",
+            &auth_user.user_id,
+            device_id,
+            &body.pushkey,
+            now,
+            &kind,
+            &body.app_id,
+            &body.app_display_name,
+            &body.device_display_name,
+            body.profile_tag.as_deref(),
+            &body.lang,
+            body.data.as_ref(),
+            now,
+            now,
         )
-        .bind(&auth_user.user_id)
-        .bind(&auth_user.device_id)
-        .bind(&body.pushkey)
-        .bind(now)
-        .bind(&kind)
-        .bind(&body.app_id)
-        .bind(&body.app_display_name)
-        .bind(&body.device_display_name)
-        .bind(&body.profile_tag)
-        .bind(&body.lang)
-        .bind(&body.data)
-        .bind(now)
-        .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
@@ -205,12 +212,15 @@ async fn set_pusher(
             "created_ts": now
         })))
     } else {
-        sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
-            .bind(&auth_user.user_id)
-            .bind(&body.pushkey)
-            .execute(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
+        // P2 #32: 删除 pusher 时也限制为当前设备，防止跨设备删除
+        sqlx::query!("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3",
+            &auth_user.user_id,
+            &body.pushkey,
+            device_id,
+        )
+        .execute(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
 
         Ok(Json(json!({
             "deleted": true,
@@ -222,16 +232,17 @@ async fn set_pusher(
 async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
-    let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
-        .bind(&auth_user.user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
+    let row = sqlx::query!(r#"SELECT content AS "content" FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#,
+        &auth_user.user_id,
+    )
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
 
     let username = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
     if let Some(row) = row {
-        let mut content: Value = row.get("content");
+        let mut content: Value = row.content;
         merge_default_push_rules(&mut content, &auth_user.user_id, username);
         return Ok(Json(content));
     }
@@ -247,18 +258,17 @@ async fn get_push_rules_scope(
     if scope == "global" {
         let username = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
-        let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
-            .bind(&auth_user.user_id)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let result = sqlx::query!(r#"SELECT content AS "content" FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#,
+            &auth_user.user_id,
+        )
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if let Some(row) = result {
-            let content: Option<Value> = row.get("content");
-            if let Some(content) = content {
-                if let Some(global) = content.get("global") {
-                    return Ok(Json(global.clone()));
-                }
+            let content = row.content;
+            if let Some(global) = content.get("global") {
+                return Ok(Json(global.clone()));
             }
         }
 
@@ -319,22 +329,22 @@ async fn set_push_rule(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
+    sqlx::query!(
         r"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
-        "
+        ",
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        &rule_id,
+        pattern.as_deref(),
+        conditions.as_ref(),
+        &actions,
+        now,
     )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(&rule_id)
-    .bind(&pattern)
-    .bind(&conditions)
-    .bind(&actions)
-    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
@@ -366,22 +376,22 @@ async fn create_push_rule(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
+    sqlx::query!(
         r"
         INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
         ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
             pattern = $5, conditions = $6, actions = $7
-        "
+        ",
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        &rule_id,
+        pattern.as_deref(),
+        conditions.as_ref(),
+        &actions,
+        now,
     )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(&rule_id)
-    .bind(&pattern)
-    .bind(&conditions)
-    .bind(&actions)
-    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to create push rule", &e))?;
@@ -399,14 +409,15 @@ async fn delete_push_rule(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
-        .bind(&auth_user.user_id)
-        .bind(&scope)
-        .bind(&kind)
-        .bind(&rule_id)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
+    let result = sqlx::query!("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        &rule_id,
+    )
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
 
     if result.rows_affected() == 0 {
         return Err(ApiError::not_found("Push rule not found".to_string()));
@@ -423,15 +434,16 @@ async fn set_push_rule_actions(
 ) -> Result<Json<Value>, ApiError> {
     let actions = if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
 
-    sqlx::query("UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5")
-        .bind(&auth_user.user_id)
-        .bind(&scope)
-        .bind(&kind)
-        .bind(&actions)
-        .bind(&rule_id)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
+    sqlx::query!("UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        &actions,
+        &rule_id,
+    )
+    .execute(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -445,20 +457,20 @@ async fn get_push_rule_enabled(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
-        "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
+    let result = sqlx::query!(
+        r#"SELECT is_enabled AS "is_enabled!" FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"#,
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        &rule_id,
     )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(&rule_id)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match result {
         Some(row) => Ok(Json(json!({
-            "enabled": row.get::<Option<bool>, _>("is_enabled").unwrap_or(true)
+            "enabled": row.is_enabled
         }))),
         None => Err(ApiError::not_found("Push rule not found".to_string())),
     }
@@ -472,14 +484,14 @@ async fn set_push_rule_enabled(
 ) -> Result<Json<Value>, ApiError> {
     let enabled = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    sqlx::query(
+    sqlx::query!(
         "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
+        &auth_user.user_id,
+        &scope,
+        &kind,
+        enabled,
+        &rule_id,
     )
-    .bind(&auth_user.user_id)
-    .bind(&scope)
-    .bind(&kind)
-    .bind(enabled)
-    .bind(&rule_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
@@ -501,17 +513,17 @@ async fn get_notifications(
     let _from = params.get("from").cloned();
     let _only = params.get("only").cloned();
 
-    let notifications = sqlx::query(
-        r"
-        SELECT event_id, room_id, ts, notification_type, is_read
+    let notifications = sqlx::query!(
+        r#"
+        SELECT event_id AS "event_id?", room_id AS "room_id?", ts AS "ts?", notification_type AS "notification_type?", is_read AS "is_read?"
         FROM notifications
         WHERE user_id = $1
         ORDER BY ts DESC
         LIMIT $2
-        ",
+        "#,
+        &auth_user.user_id,
+        limit as i64,
     )
-    .bind(&auth_user.user_id)
-    .bind(limit as i64)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -520,11 +532,11 @@ async fn get_notifications(
         .iter()
         .map(|row| {
             json!({
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "room_id": row.get::<Option<String>, _>("room_id"),
-                "ts": row.get::<Option<i64>, _>("ts"),
-                "profile_tag": row.get::<Option<String>, _>("notification_type"),
-                "read": row.get::<Option<bool>, _>("is_read").unwrap_or(false)
+                "event_id": row.event_id,
+                "room_id": row.room_id,
+                "ts": row.ts,
+                "profile_tag": row.notification_type,
+                "read": row.is_read.unwrap_or(false)
             })
         })
         .collect();
@@ -541,12 +553,12 @@ async fn ack_notification(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     // Mark notification as read
-    let result = sqlx::query(
-        "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id",
+    let result = sqlx::query!(
+        "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id AS \"id!\"",
+        notification_id,
+        &auth_user.user_id,
+        chrono::Utc::now().timestamp_millis(),
     )
-    .bind(notification_id)
-    .bind(&auth_user.user_id)
-    .bind(chrono::Utc::now().timestamp_millis())
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
@@ -562,17 +574,17 @@ async fn ack_notification(
 }
 
 async fn get_user_push_rules(state: &AppState, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
-    let rules = sqlx::query(
-        r"
-        SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
+    let rules = sqlx::query!(
+        r#"
+        SELECT rule_id AS "rule_id!", pattern AS "pattern?", conditions AS "conditions", actions AS "actions", is_enabled AS "is_enabled!", is_default AS "is_default!"
         FROM push_rules
         WHERE user_id = $1 AND scope = $2 AND kind = $3
         ORDER BY priority DESC, created_ts ASC
-        ",
+        "#,
+        user_id,
+        scope,
+        kind,
     )
-    .bind(user_id)
-    .bind(scope)
-    .bind(kind)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -581,12 +593,12 @@ async fn get_user_push_rules(state: &AppState, user_id: &str, scope: &str, kind:
         .iter()
         .map(|row| {
             json!({
-                "rule_id": row.get::<Option<String>, _>("rule_id"),
-                "default": row.get::<Option<bool>, _>("is_default").unwrap_or(false),
-                "enabled": row.get::<Option<bool>, _>("is_enabled").unwrap_or(true),
-                "pattern": row.get::<Option<String>, _>("pattern"),
-                "conditions": row.get::<Option<Value>, _>("conditions"),
-                "actions": row.get::<Option<Value>, _>("actions").unwrap_or(json!([]))
+                "rule_id": row.rule_id,
+                "default": row.is_default,
+                "enabled": row.is_enabled,
+                "pattern": row.pattern,
+                "conditions": row.conditions,
+                "actions": row.actions.as_ref().unwrap_or(&json!([])).clone()
             })
         })
         .collect())

@@ -330,7 +330,7 @@ impl DeviceTrustService {
                 return VerificationRequestResponse {
                     request_token: token.to_string(),
                     status: "not_found".to_string(),
-                    expires_at: chrono::Utc::now(),
+                    expires_at: chrono::Utc::now().timestamp_millis(),
                     methods_available: vec![],
                 };
             }

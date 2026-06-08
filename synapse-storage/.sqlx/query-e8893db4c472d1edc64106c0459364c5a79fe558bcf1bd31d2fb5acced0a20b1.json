@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM refresh_tokens WHERE expires_at < $1 AND is_revoked = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e8893db4c472d1edc64106c0459364c5a79fe558bcf1bd31d2fb5acced0a20b1"
+}

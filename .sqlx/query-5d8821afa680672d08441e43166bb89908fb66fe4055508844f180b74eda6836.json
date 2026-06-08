@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_summary_members (\n                room_id, user_id, display_name, avatar_url, membership, is_hero,\n                last_active_ts, updated_ts, created_ts\n            )\n            VALUES ($1, $2, $3, $4, 'join', false, $5, $5, $5)\n            ON CONFLICT (room_id, user_id) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d8821afa680672d08441e43166bb89908fb66fe4055508844f180b74eda6836"
+}

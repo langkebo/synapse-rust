@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE refresh_tokens SET\n                access_token_id = $2,\n                last_used_ts = $3,\n                use_count = use_count + 1\n            WHERE token_hash = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "792603735a342ea8133955da53398210bd5a9c96813528f8dec165cc05a37e48"
+}

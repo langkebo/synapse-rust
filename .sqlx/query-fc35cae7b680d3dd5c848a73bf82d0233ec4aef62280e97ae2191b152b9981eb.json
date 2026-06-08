@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH latest_friend_lists AS (\n                SELECT DISTINCT ON (COALESCE(sender, user_id))\n                    COALESCE(sender, user_id) AS owner_user_id,\n                    room_id AS friend_room_id,\n                    content,\n                    origin_server_ts\n                FROM events\n                WHERE event_type = 'm.friends.list'\n                  AND state_key = ''\n                ORDER BY COALESCE(sender, user_id), origin_server_ts DESC\n            )\n            SELECT owner_user_id as \"owner_user_id!\", friend_room_id as \"friend_room_id!\", content as \"content!\"\n            FROM latest_friend_lists\n            WHERE EXISTS (\n                SELECT 1\n                FROM jsonb_array_elements(COALESCE(content->'friends', '[]'::jsonb)) AS friend\n                WHERE friend->>'dm_room_id' = $1\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "friend_room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "content!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "fc35cae7b680d3dd5c848a73bf82d0233ec4aef62280e97ae2191b152b9981eb"
+}

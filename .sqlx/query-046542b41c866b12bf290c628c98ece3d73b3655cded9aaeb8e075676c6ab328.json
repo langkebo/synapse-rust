@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO rendezvous_session\n                (session_id, intent, transport, transport_data, key, created_ts, expires_at, status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')\n            RETURNING id as \"id!\", session_id as \"session_id!\", user_id, device_id, intent, transport, transport_data, key, created_ts as \"created_ts!\", expires_at as \"expires_at!\", status\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "intent",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "transport",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "transport_data",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "046542b41c866b12bf290c628c98ece3d73b3655cded9aaeb8e075676c6ab328"
+}

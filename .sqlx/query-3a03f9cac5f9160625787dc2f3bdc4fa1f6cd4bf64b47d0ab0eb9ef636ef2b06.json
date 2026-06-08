@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT as_id as \"as_id!\" FROM application_service_user_namespaces WHERE $1 ~ namespace LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "as_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3a03f9cac5f9160625787dc2f3bdc4fa1f6cd4bf64b47d0ab0eb9ef636ef2b06"
+}

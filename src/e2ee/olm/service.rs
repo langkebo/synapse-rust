@@ -18,7 +18,7 @@ static PICKLE_KEY: OnceLock<[u8; 32]> = OnceLock::new();
 pub fn get_pickle_key() -> &'static [u8; 32] {
     PICKLE_KEY.get_or_init(|| {
         if let Ok(key_str) = env::var("OLM_PICKLE_KEY") {
-            match hex::decode(&key_str) {
+            match crate::common::crypto::decode_hex(&key_str) {
                 Ok(decoded) if decoded.len() == 32 => {
                     let mut key = [0u8; 32];
                     key.copy_from_slice(&decoded[..32]);

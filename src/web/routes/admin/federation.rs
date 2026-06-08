@@ -9,8 +9,30 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use tracing::info;
+
+#[derive(Debug, sqlx::FromRow)]
+struct DestinationRow {
+    server_name: Option<String>,
+    last_failed_connect_at: Option<i64>,
+    last_successful_connect_at: Option<i64>,
+    failure_count: Option<i32>,
+    status: Option<String>,
+    updated_ts: Option<i64>,
+}
+
+fn build_destination_json_from_row(row: &DestinationRow) -> Value {
+    json!({
+        "destination": row.server_name,
+        "retry_last_ts": row.last_failed_connect_at,
+        "retry_interval": Value::Null,
+        "failure_ts": row.last_failed_connect_at,
+        "last_successful_ts": row.last_successful_connect_at,
+        "failure_count": row.failure_count.unwrap_or_default(),
+        "status": row.status.clone().unwrap_or_else(|| "active".to_string()),
+        "updated_ts": row.updated_ts
+    })
+}
 
 pub fn create_federation_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -118,26 +140,6 @@ mod cursor_tests {
     }
 }
 
-fn build_destination_json(row: &sqlx::postgres::PgRow) -> Result<serde_json::Value, sqlx::Error> {
-    let server_name: Option<String> = row.try_get("server_name")?;
-    let last_failed: Option<i64> = row.try_get("last_failed_connect_at")?;
-    let last_successful: Option<i64> = row.try_get("last_successful_connect_at")?;
-    let failure_count: Option<i32> = row.try_get("failure_count")?;
-    let status: Option<String> = row.try_get("status")?;
-    let updated_ts: Option<i64> = row.try_get("updated_ts")?;
-
-    Ok(json!({
-        "destination": server_name,
-        "retry_last_ts": last_failed,
-        "retry_interval": Value::Null,
-        "failure_ts": last_failed,
-        "last_successful_ts": last_successful,
-        "failure_count": failure_count.unwrap_or_default(),
-        "status": status.unwrap_or_else(|| "active".to_string()),
-        "updated_ts": updated_ts
-    }))
-}
-
 #[derive(Debug, Deserialize)]
 pub struct DestinationsQuery {
     pub limit: Option<i32>,
@@ -153,24 +155,26 @@ pub async fn get_destinations(
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let offset = query.from.unwrap_or(0);
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers")
+    let total: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM federation_servers")
         .fetch_one(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .unwrap_or(0);
 
-    let destinations = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers ORDER BY server_name OFFSET $1 LIMIT $2"
+    let destinations = sqlx::query_as!(
+        DestinationRow,
+        r#"SELECT server_name AS "server_name?", last_failed_connect_at AS "last_failed_connect_at?", last_successful_connect_at AS "last_successful_connect_at?", failure_count AS "failure_count?", status AS "status?", updated_ts AS "updated_ts?" FROM federation_servers ORDER BY server_name OFFSET $1 LIMIT $2"#,
+        offset,
+        limit as i64,
     )
-    .bind(offset)
-    .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let dest_list: Vec<Value> = destinations
         .iter()
-        .map(|row| build_destination_json(row).map_err(|e| ApiError::internal_with_log("Row parse error", &e)))
-        .collect::<Result<_, _>>()?;
+        .map(|row| build_destination_json_from_row(row))
+        .collect();
 
     let next_from = if offset + (limit as i64) < total { Some(offset + (limit as i64)) } else { None };
 
@@ -188,18 +192,17 @@ pub async fn get_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let dest = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts FROM federation_servers WHERE server_name = $1"
+    let dest = sqlx::query_as!(
+        DestinationRow,
+        r#"SELECT server_name AS "server_name?", last_failed_connect_at AS "last_failed_connect_at?", last_successful_connect_at AS "last_successful_connect_at?", failure_count AS "failure_count?", status AS "status?", updated_ts AS "updated_ts?" FROM federation_servers WHERE server_name = $1"#,
+        &destination,
     )
-    .bind(&destination)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match dest {
-        Some(row) => {
-            Ok(Json(build_destination_json(&row).map_err(|e| ApiError::internal_with_log("Row parse error", &e))?))
-        }
+        Some(row) => Ok(Json(build_destination_json_from_row(&row))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
 }
@@ -210,10 +213,10 @@ pub async fn reset_connection(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query(
+    let result = sqlx::query!(
         "UPDATE federation_servers SET last_failed_connect_at = NULL, failure_count = 0 WHERE server_name = $1",
+        &destination,
     )
-    .bind(&destination)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -231,8 +234,7 @@ pub async fn delete_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM federation_servers WHERE server_name = $1")
-        .bind(&destination)
+    let result = sqlx::query!("DELETE FROM federation_servers WHERE server_name = $1", &destination)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -250,8 +252,7 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let destination_exists = sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
-        .bind(&destination)
+    let destination_exists = sqlx::query!("SELECT server_name FROM federation_servers WHERE server_name = $1", &destination)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -261,15 +262,15 @@ pub async fn get_destination_rooms(
         return Err(ApiError::not_found("Destination not found".to_string()));
     }
 
-    let rooms = sqlx::query(
+    let rooms = sqlx::query!(
         "SELECT DISTINCT room_id FROM federation_queue WHERE destination = $1 AND room_id IS NOT NULL ORDER BY room_id",
+        &destination,
     )
-    .bind(&destination)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let room_list: Vec<String> = rooms.iter().map(|r| r.get("room_id")).collect();
+    let room_list: Vec<String> = rooms.iter().filter_map(|r| r.room_id.clone()).collect();
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -283,8 +284,7 @@ pub async fn rewrite_federation(
     let from_server = &body.from;
     let to_server = &body.to;
 
-    let source_exists = sqlx::query("SELECT server_name FROM federation_servers WHERE server_name = $1")
-        .bind(from_server)
+    let source_exists = sqlx::query!("SELECT server_name FROM federation_servers WHERE server_name = $1", from_server)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -295,8 +295,7 @@ pub async fn rewrite_federation(
     }
 
     let rooms_result =
-        sqlx::query("SELECT DISTINCT room_id FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL")
-            .bind(format!("%:{from_server}"))
+        sqlx::query!("SELECT DISTINCT room_id FROM events WHERE sender LIKE $1 AND state_key IS NOT NULL", format!("%:{from_server}"))
             .fetch_all(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -331,10 +330,10 @@ pub async fn resolve_federation(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let destination = sqlx::query(
-        "SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count FROM federation_servers WHERE server_name = $1"
+    let destination = sqlx::query!(
+        r#"SELECT server_name AS "server_name!", last_failed_connect_at AS "last_failed_connect_at?", last_successful_connect_at AS "last_successful_connect_at?", failure_count AS "failure_count?" FROM federation_servers WHERE server_name = $1"#,
+        server_name,
     )
-    .bind(server_name)
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -361,14 +360,16 @@ pub async fn confirm_federation(
     let now = chrono::Utc::now().timestamp_millis();
     let new_status = if body.accept { "active" } else { "rejected" };
 
-    let existing = sqlx::query("SELECT id, status FROM federation_servers WHERE server_name = $1")
-        .bind(&body.server_name)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let existing = sqlx::query!(
+        r#"SELECT id AS "id!", status AS "status?" FROM federation_servers WHERE server_name = $1"#,
+        &body.server_name,
+    )
+    .fetch_optional(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let previous_status = match existing {
-        Some(row) => row.get::<Option<String>, _>("status").unwrap_or_else(|| "active".to_string()),
+        Some(row) => row.status.unwrap_or_else(|| "active".to_string()),
         None => {
             return Err(ApiError::not_found(format!("Server '{}' not found in federation registry", body.server_name)));
         }
@@ -381,10 +382,7 @@ pub async fn confirm_federation(
         )));
     }
 
-    sqlx::query("UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3")
-        .bind(new_status)
-        .bind(now)
-        .bind(&body.server_name)
+    sqlx::query!("UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3", new_status, now, &body.server_name)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -431,7 +429,7 @@ pub async fn list_pending_federation(
     let limit = query.limit.unwrap_or(100).min(500);
     let cursor = decode_pending_federation_cursor(query.from.as_deref());
 
-    let pending = sqlx::query(
+    let pending = sqlx::query!(
         "SELECT server_name, failure_count, last_failed_connect_at, last_successful_connect_at, updated_ts \
          FROM federation_servers WHERE status = 'pending' \
            AND (($1::BIGINT IS NULL AND $2::TEXT IS NULL)
@@ -439,29 +437,30 @@ pub async fn list_pending_federation(
              OR (COALESCE(updated_ts, 0) = $1 AND server_name < $2)) \
          ORDER BY COALESCE(updated_ts, 0) DESC, server_name DESC \
          LIMIT $3",
+        cursor.map(|(updated_ts, _)| updated_ts),
+        cursor.map(|(_, server_name)| server_name),
+        limit as i64
     )
-    .bind(cursor.map(|(updated_ts, _)| updated_ts))
-    .bind(cursor.map(|(_, server_name)| server_name))
-    .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
+    let total: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM federation_servers WHERE status = 'pending'")
         .fetch_one(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .unwrap_or(0);
 
     let list: Vec<Value> = pending
         .iter()
         .map(|row| {
             json!({
-                "server_name": row.get::<Option<String>, _>("server_name"),
-                "failure_count": row.get::<Option<i32>, _>("failure_count").unwrap_or_default(),
-                "last_failed_connect_at": row.get::<Option<i64>, _>("last_failed_connect_at"),
-                "last_successful_connect_at": row.get::<Option<i64>, _>("last_successful_connect_at"),
+                "server_name": row.server_name,
+                "failure_count": row.failure_count.unwrap_or_default(),
+                "last_failed_connect_at": row.last_failed_connect_at,
+                "last_successful_connect_at": row.last_successful_connect_at,
                 "status": "pending",
-                "updated_ts": row.get::<Option<i64>, _>("updated_ts")
+                "updated_ts": row.updated_ts
             })
         })
         .collect();
@@ -469,8 +468,8 @@ pub async fn list_pending_federation(
     let next_batch = if pending.len() as i32 == limit {
         pending.last().map(|row| {
             encode_pending_federation_cursor(
-                row.get::<Option<i64>, _>("updated_ts").unwrap_or_default(),
-                row.get::<Option<String>, _>("server_name").unwrap_or_default().as_str(),
+                row.updated_ts.unwrap_or_default(),
+                row.server_name.as_str(),
             )
         })
     } else {
@@ -526,12 +525,12 @@ pub async fn add_to_blacklist(
 ) -> Result<Json<Value>, ApiError> {
     let now = chrono::Utc::now().timestamp_millis();
 
-    let result = sqlx::query(
-        "INSERT INTO federation_blacklist (server_name, added_ts, added_by) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING"
+    let result = sqlx::query!(
+        "INSERT INTO federation_blacklist (server_name, added_ts, added_by) VALUES ($1, $2, $3) ON CONFLICT (server_name) DO NOTHING",
+        &server_name,
+        now,
+        &admin.user_id,
     )
-    .bind(&server_name)
-    .bind(now)
-    .bind(&admin.user_id)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -549,8 +548,7 @@ pub async fn remove_from_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
-        .bind(&server_name)
+    let result = sqlx::query!("DELETE FROM federation_blacklist WHERE server_name = $1", &server_name)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -564,18 +562,20 @@ pub async fn remove_from_blacklist(
 
 #[axum::debug_handler]
 pub async fn get_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let cache = sqlx::query("SELECT key, value, expiry_ts FROM federation_cache ORDER BY key")
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let cache = sqlx::query!(
+        r#"SELECT key AS "key!", value AS "value?", expiry_ts AS "expiry_ts?" FROM federation_cache ORDER BY key"#
+    )
+    .fetch_all(&*state.services.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let entries: Vec<Value> = cache
         .iter()
         .map(|row| {
             json!({
-                "key": row.get::<Option<String>, _>("key"),
-                "value": row.get::<Option<String>, _>("value"),
-                "expiry_ts": row.get::<Option<i64>, _>("expiry_ts")
+                "key": row.key,
+                "value": row.value,
+                "expiry_ts": row.expiry_ts
             })
         })
         .collect();
@@ -589,8 +589,7 @@ pub async fn delete_federation_cache_entry(
     State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1")
-        .bind(&key)
+    let result = sqlx::query!("DELETE FROM federation_cache WHERE key = $1", &key)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -604,7 +603,7 @@ pub async fn delete_federation_cache_entry(
 
 #[axum::debug_handler]
 pub async fn clear_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM federation_cache")
+    let result = sqlx::query!("DELETE FROM federation_cache")
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

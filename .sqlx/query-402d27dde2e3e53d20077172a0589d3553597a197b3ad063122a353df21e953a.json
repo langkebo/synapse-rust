@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM federation_blacklist WHERE server_name = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "402d27dde2e3e53d20077172a0589d3553597a197b3ad063122a353df21e953a"
+}

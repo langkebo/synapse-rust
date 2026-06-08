@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO typing (user_id, room_id, is_typing, last_active_ts)\n                VALUES ($1, $2, $3, $4)\n                ON CONFLICT (user_id, room_id)\n                DO UPDATE SET is_typing = EXCLUDED.is_typing, last_active_ts = EXCLUDED.last_active_ts\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2e8a3c200ebc4ca460077ef9dfedc856dc7bc3f5074ff06bfe7544fa616d6ed5"
+}

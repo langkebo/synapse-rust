@@ -79,9 +79,9 @@ impl SynapseServer {
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
             .after_connect(|conn, _meta| {
                 Box::pin(async move {
-                    sqlx::query("SET statement_timeout = '30s'").execute(&mut *conn).await?;
-                    sqlx::query("SET lock_timeout = '10s'").execute(&mut *conn).await?;
-                    sqlx::query("SET idle_in_transaction_session_timeout = '60s'").execute(&mut *conn).await?;
+                    sqlx::query!("SET statement_timeout = '30s'").execute(&mut *conn).await?;
+                    sqlx::query!("SET lock_timeout = '10s'").execute(&mut *conn).await?;
+                    sqlx::query!("SET idle_in_transaction_session_timeout = '60s'").execute(&mut *conn).await?;
                     Ok(())
                 })
             })
@@ -173,6 +173,20 @@ impl SynapseServer {
 
             ::tracing::info!("Redis pool created.");
 
+            // Startup health check: verify Redis connectivity with a ping
+            match redis_pool.get().await {
+                Ok(mut conn) => {
+                    let ping: redis::RedisResult<String> = redis::cmd("PING").query_async(&mut *conn).await;
+                    match ping {
+                        Ok(_) => ::tracing::info!("Redis connectivity verified (PING OK)."),
+                        Err(e) => ::tracing::warn!("Redis PING failed: {}. Service may be degraded.", e),
+                    }
+                }
+                Err(e) => {
+                    ::tracing::warn!("Failed to acquire Redis connection from pool: {}. Service may be degraded.", e);
+                }
+            }
+
             let tq = RedisTaskQueue::from_pool(redis_pool.clone());
             task_queue = Some(Arc::new(tq));
 
@@ -186,7 +200,12 @@ impl SynapseServer {
 
             cache
         } else {
-            ::tracing::info!("Redis disabled. Using local in-memory cache.");
+            ::tracing::warn!(
+                "Redis disabled. Using local in-memory cache. \
+                 Rate limiting will use per-process in-memory token buckets, \
+                 which are NOT shared across workers. For multi-worker deployments, \
+                 enable Redis to ensure consistent rate limiting."
+            );
             Arc::new(CacheManager::new(&CacheConfig::default()))
         };
 
@@ -515,9 +534,9 @@ impl SynapseServer {
 
         ::tracing::info!("Performing system warmup...");
 
-        sqlx::query("SELECT 1").execute(&**pool).await?;
+        sqlx::query_scalar!("SELECT 1 AS health_check").fetch_one(&**pool).await?;
 
-        let _ = sqlx::query("SELECT count(*) FROM users").fetch_one(&**pool).await?;
+        let _ = sqlx::query_scalar!("SELECT count(*) FROM users").fetch_one(&**pool).await?;
 
         #[cfg(feature = "saml-sso")]
         {

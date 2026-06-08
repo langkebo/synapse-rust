@@ -49,7 +49,6 @@ pub struct EventBroadcaster {
     batch_tx: Arc<tokio::sync::Mutex<Option<BatchSender>>>,
 }
 
-type DbPendingRow = (i64, String, String, Option<String>, serde_json::Value, i64, i32);
 type BatchSender = mpsc::Sender<(String, OutgoingItem)>;
 
 impl EventBroadcaster {
@@ -195,14 +194,16 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        let rows: Vec<DbPendingRow> = sqlx::query_as(
-            r"
-            SELECT id, destination, event_id, room_id, content, created_ts, retry_count
+        let rows = sqlx::query!(
+            r#"
+            SELECT id as "id!", destination as "destination!", event_id as "event_id!",
+                   room_id as "room_id?", content as "content!",
+                   created_ts as "created_ts!", retry_count as "retry_count!"
             FROM federation_queue
             WHERE status = 'pending'
             ORDER BY created_ts ASC
             LIMIT 500
-            ",
+            "#,
         )
         .fetch_all(pool)
         .await
@@ -212,15 +213,18 @@ impl EventBroadcaster {
         let mut queue = self.pending_queue.write().await;
         let count = rows.len();
 
-        for (db_id, destination, _event_id, _room_id, content, _created_ts, retry_count) in rows {
-            let retry_count = retry_count as u32;
+        for row in rows {
+            let db_id = row.id;
+            let destination = row.destination;
+            let content = row.content;
+            let retry_count = row.retry_count as u32;
             let delay = self.get_backoff_delay(retry_count);
 
             let transaction: FederationTransaction = match serde_json::from_value(content) {
                 Ok(txn) => txn,
                 Err(e) => {
                     ::tracing::warn!("Failed to deserialize persisted transaction {}: {}", db_id, e);
-                    let _ = sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await;
+                    let _ = sqlx::query!("DELETE FROM federation_queue WHERE id = $1", db_id).execute(pool).await;
                     continue;
                 }
             };
@@ -438,23 +442,23 @@ impl EventBroadcaster {
             None
         };
 
-        match sqlx::query_as::<_, (i64,)>(
-            r"
+        match sqlx::query!(
+            r#"
             INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-            RETURNING id
-            ",
+            RETURNING id as "id!"
+            "#,
+            destination,
+            &event_id,
+            event_type,
+            room_id.as_deref(),
+            &content,
+            chrono::Utc::now().timestamp_millis()
         )
-        .bind(destination)
-        .bind(&event_id)
-        .bind(event_type)
-        .bind(&room_id)
-        .bind(&content)
-        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(pool)
         .await
         {
-            Ok(row) => Some(row.0),
+            Ok(row) => Some(row.id),
             Err(e) => {
                 ::tracing::error!("Failed to persist transaction to federation_queue: {}", e);
                 None
@@ -467,22 +471,24 @@ impl EventBroadcaster {
             let result =
                 match status {
                     "sent" => {
-                        sqlx::query("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1")
-                            .bind(db_id)
-                            .bind(chrono::Utc::now().timestamp_millis())
+                        sqlx::query!("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1",
+                            db_id,
+                            chrono::Utc::now().timestamp_millis()
+                        )
                             .execute(pool)
                             .await
                     }
-                    "retry" => sqlx::query(
+                    "retry" => sqlx::query!(
                         "UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1",
+                        db_id
                     )
-                    .bind(db_id)
                     .execute(pool)
                     .await,
                     _ => {
-                        sqlx::query("UPDATE federation_queue SET status = $2 WHERE id = $1")
-                            .bind(db_id)
-                            .bind(status)
+                        sqlx::query!("UPDATE federation_queue SET status = $2 WHERE id = $1",
+                            db_id,
+                            status
+                        )
                             .execute(pool)
                             .await
                     }
@@ -591,8 +597,9 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        sqlx::query("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1")
-            .bind(older_than_ts)
+        sqlx::query!("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1",
+            older_than_ts
+        )
             .execute(pool)
             .await
             .map(|r| r.rows_affected())
@@ -656,21 +663,21 @@ async fn send_batch(
                 };
 
                 let event_id = format!("txn:{}", txn.transaction_id);
-                sqlx::query_as::<_, (i64,)>(
-                    r"
+                sqlx::query!(
+                    r#"
                     INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
                     VALUES ($1, $2, 'm.room.event', NULL, $3, $4, 'pending')
-                    RETURNING id
-                    ",
+                    RETURNING id as "id!"
+                    "#,
+                    destination,
+                    &event_id,
+                    &content,
+                    chrono::Utc::now().timestamp_millis()
                 )
-                .bind(destination)
-                .bind(&event_id)
-                .bind(&content)
-                .bind(chrono::Utc::now().timestamp_millis())
                 .fetch_one(pool)
                 .await
                 .ok()
-                .map(|r: (i64,)| r.0)
+                .map(|row| row.id)
             } else {
                 None
             };
@@ -698,4 +705,53 @@ pub enum FederationBroadcastError {
     InvalidEvent(String),
     #[error("Network error: {0}")]
     NetworkError(String),
+}
+
+// ---------------------------------------------------------------------------
+// EventBroadcaster trait implementation
+// ---------------------------------------------------------------------------
+
+/// Message type for the federation [`EventBroadcaster`] trait implementation.
+///
+/// Wraps a [`FederationEvent`] so it can be published through the generic
+/// `EventBroadcaster` interface.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FederationBroadcastMessage {
+    pub event: FederationEvent,
+}
+
+impl crate::common::traits::EventBroadcaster for EventBroadcaster {
+    type Message = FederationBroadcastMessage;
+
+    async fn broadcast_publish(&self, message: Self::Message) -> Result<(), crate::common::traits::BroadcastError> {
+        let event_value = serde_json::to_value(&message.event)
+            .map_err(|e| crate::common::traits::BroadcastError::EncodingFailed(e.to_string()))?;
+
+        self.broadcast_event(&message.event.room_id, &event_value, &message.event.origin)
+            .await
+            .map_err(|e| crate::common::traits::BroadcastError::Transport(e.to_string()))
+    }
+
+    fn broadcast_subscriber_count(&self) -> usize {
+        self.pending_queue
+            .try_read()
+            .map(|q| q.len())
+            .unwrap_or(0)
+    }
+}
+
+impl From<FederationBroadcastError> for crate::common::traits::BroadcastError {
+    fn from(e: FederationBroadcastError) -> Self {
+        match e {
+            FederationBroadcastError::SendFailed(msg) => {
+                crate::common::traits::BroadcastError::Transport(msg)
+            }
+            FederationBroadcastError::InvalidEvent(msg) => {
+                crate::common::traits::BroadcastError::EncodingFailed(msg)
+            }
+            FederationBroadcastError::NetworkError(msg) => {
+                crate::common::traits::BroadcastError::Transport(msg)
+            }
+        }
+    }
 }

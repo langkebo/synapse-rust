@@ -1,0 +1,462 @@
+use synapse_common::ApiError;
+use crate::routes::{AppState, AuthenticatedUser};
+use axum::{
+    extract::{Json, Path, State},
+    routing::{get, put},
+    Router,
+};
+use serde_json::{json, Value};
+use sqlx::Row;
+
+fn create_account_data_compat_router() -> Router<AppState> {
+    Router::new()
+        .route("/user/{user_id}/account_data/", get(list_account_data))
+        .route(
+            "/user/{user_id}/account_data/{type}",
+            get(get_account_data).put(set_account_data).post(set_account_data).delete(delete_account_data),
+        )
+        .route(
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            get(get_room_account_data)
+                .put(set_room_account_data)
+                .post(set_room_account_data)
+                .delete(delete_room_account_data),
+        )
+        .route("/user/{user_id}/filter", put(create_filter).post(create_filter))
+        .route("/user/{user_id}/filter/{filter_id}", get(get_filter).delete(delete_filter))
+        .route("/user/{user_id}/openid/request_token", get(get_openid_token).post(get_openid_token))
+}
+
+pub fn create_account_data_router(state: AppState) -> Router<AppState> {
+    let compat_router = create_account_data_compat_router();
+
+    Router::new()
+        .nest("/_matrix/client/v3", compat_router.clone())
+        .nest("/_matrix/client/r0", compat_router)
+        .with_state(state)
+}
+
+const ACCOUNT_DATA_NEST_PREFIXES: &[&str] = &["/_matrix/client/v3", "/_matrix/client/r0"];
+
+fn account_data_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
+    use axum::http::Method;
+    vec![
+        (Method::GET, "/user/{user_id}/account_data/"),
+        (Method::GET, "/user/{user_id}/account_data/{type}"),
+        (Method::PUT, "/user/{user_id}/account_data/{type}"),
+        (Method::DELETE, "/user/{user_id}/account_data/{type}"),
+        (Method::GET, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::PUT, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::DELETE, "/user/{user_id}/rooms/{room_id}/account_data/{type}"),
+        (Method::PUT, "/user/{user_id}/filter"),
+        (Method::POST, "/user/{user_id}/filter"),
+        (Method::GET, "/user/{user_id}/filter/{filter_id}"),
+        (Method::DELETE, "/user/{user_id}/filter/{filter_id}"),
+        (Method::GET, "/user/{user_id}/openid/request_token"),
+        (Method::POST, "/user/{user_id}/openid/request_token"),
+    ]
+}
+
+pub fn account_data_route_manifest() -> Vec<crate::routes::route_ledger::RouteEntry> {
+    crate::routes::route_ledger::expand_under_prefixes(
+        "account_data",
+        ACCOUNT_DATA_NEST_PREFIXES,
+        &account_data_compat_relative_routes(),
+    )
+}
+
+async fn list_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let result = sqlx::query("SELECT data_type, content FROM account_data WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_all(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    let account_data: serde_json::Map<String, Value> = result
+        .iter()
+        .map(|row| {
+            let data_type: String = row.get("data_type");
+            let content: Value = row.get("content");
+            (data_type, content)
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "account_data": account_data
+    })))
+}
+
+async fn set_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
+    }
+
+    if data_type.len() > 128 {
+        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
+    }
+
+    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    if body_str.len() > 65536 {
+        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r"
+        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+        VALUES ($1, $2, $3, $4, $4)
+        ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
+        ",
+    )
+    .bind(&user_id)
+    .bind(&data_type)
+    .bind(&body)
+    .bind(now)
+    .execute(&*state.services.account.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to save account data", &e))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let result = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = $2")
+        .bind(&user_id)
+        .bind(&data_type)
+        .fetch_optional(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    match result {
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("content").unwrap_or(json!({})))),
+        None => {
+            if data_type == "m.push_rules" {
+                Ok(Json(json!({
+                    "global": {
+                        "content": [],
+                        "override": [],
+                        "room": [],
+                        "sender": [],
+                        "underride": []
+                    }
+                })))
+            } else {
+                Err(ApiError::not_found("Account data not found".to_string()))
+            }
+        }
+    }
+}
+
+async fn set_room_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
+    }
+
+    // 对称于 set_account_data 的尺寸/长度校验——避免其他客户端通过
+    // room account data 路径绕过限制写入巨大或非法 key。
+    if data_type.len() > 128 {
+        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
+    }
+
+    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    if body_str.len() > 65536 {
+        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
+    }
+
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r"
+        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
+        VALUES ($1, $2, $3, $4, $5, $5)
+        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_ts = $5
+        ",
+    )
+    .bind(&user_id)
+    .bind(&room_id)
+    .bind(&data_type)
+    .bind(&body)
+    .bind(now)
+    .execute(&*state.services.account.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))?;
+
+    Ok(Json(json!({})))
+}
+
+async fn get_room_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
+    }
+
+    let result =
+        sqlx::query("SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
+            .bind(&user_id)
+            .bind(&room_id)
+            .bind(&data_type)
+            .fetch_optional(&*state.services.account.user_storage.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    match result {
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("data").unwrap_or(json!({})))),
+        None => Err(ApiError::not_found("Room account data not found".to_string())),
+    }
+}
+
+async fn create_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
+    }
+
+    let filter_id = synapse_common::random_string(16);
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r"
+        INSERT INTO filters (filter_id, user_id, content, created_ts)
+        VALUES ($1, $2, $3, $4)
+        ",
+    )
+    .bind(&filter_id)
+    .bind(&user_id)
+    .bind(&body)
+    .bind(now)
+    .execute(&*state.services.account.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to save filter", &e))?;
+
+    Ok(Json(json!({
+        "filter_id": filter_id
+    })))
+}
+
+async fn get_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
+    }
+
+    let result = sqlx::query("SELECT content FROM filters WHERE filter_id = $1 AND user_id = $2")
+        .bind(&filter_id)
+        .bind(&user_id)
+        .fetch_optional(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    match result {
+        Some(row) => Ok(Json(row.get::<Option<Value>, _>("content").unwrap_or(json!({})))),
+        None => Err(ApiError::not_found("Filter not found".to_string())),
+    }
+}
+
+async fn delete_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, data_type)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
+    }
+
+    let result = sqlx::query("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2")
+        .bind(&user_id)
+        .bind(&data_type)
+        .execute(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_room_account_data(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, room_id, data_type)): Path<(String, String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
+    }
+
+    let result = sqlx::query("DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
+        .bind(&user_id)
+        .bind(&room_id)
+        .bind(&data_type)
+        .execute(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Room account data not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn delete_filter(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path((user_id, filter_id)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
+    }
+
+    let result = sqlx::query("DELETE FROM filters WHERE filter_id = $1 AND user_id = $2")
+        .bind(&filter_id)
+        .bind(&user_id)
+        .execute(&*state.services.account.user_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete filter", &e))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::not_found("Filter not found".to_string()));
+    }
+
+    Ok(Json(json!({})))
+}
+
+async fn get_openid_token(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Path(user_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    if user_id != auth_user.user_id {
+        return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
+    }
+
+    let token = synapse_common::random_string(32);
+    let expires_in = 3600;
+    let now = chrono::Utc::now().timestamp_millis();
+
+    sqlx::query(
+        r"
+        INSERT INTO openid_tokens (token, user_id, created_ts, expires_at, is_valid)
+        VALUES ($1, $2, $3, $4, TRUE)
+        ",
+    )
+    .bind(&token)
+    .bind(&user_id)
+    .bind(now)
+    .bind(now + (expires_in * 1000))
+    .execute(&*state.services.account.user_storage.pool)
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to create OpenID token", &e))?;
+
+    Ok(Json(json!({
+        "access_token": token,
+        "token_type": "Bearer",
+        "matrix_server_name": state.services.core.config.server.name,
+        "expires_in": expires_in
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    #[test]
+    fn test_account_data_routes_structure() {
+        let routes = [
+            "/_matrix/client/v3/user/{user_id}/account_data/",
+            "/_matrix/client/r0/user/{user_id}/account_data/{type}",
+            "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/_matrix/client/r0/user/{user_id}/openid/request_token",
+        ];
+
+        assert!(routes.iter().all(|route| route.starts_with("/_matrix/client/")));
+    }
+
+    #[test]
+    fn test_account_data_compat_router_contains_shared_paths() {
+        let shared_paths = [
+            "/user/{user_id}/account_data/",
+            "/user/{user_id}/account_data/{type}",
+            "/user/{user_id}/rooms/{room_id}/account_data/{type}",
+            "/user/{user_id}/filter",
+            "/user/{user_id}/filter/{filter_id}",
+            "/user/{user_id}/openid/request_token",
+        ];
+
+        assert_eq!(shared_paths.len(), 6);
+        assert!(shared_paths.iter().all(|path| path.starts_with("/user/")));
+    }
+
+    #[test]
+    fn test_account_data_json_structure() {
+        let data = json!({
+            "type": "m.direct",
+            "content": {
+                "@alice:example.com": ["!room1:example.com"]
+            }
+        });
+        assert_eq!(data["type"], "m.direct");
+    }
+
+    #[test]
+    fn test_filter_json_structure() {
+        let filter = json!({
+            "room": {
+                "timeline": {
+                    "limit": 100
+                }
+            }
+        });
+        assert!(filter["room"]["timeline"]["limit"].is_number());
+    }
+
+    #[test]
+    fn test_openid_token_response() {
+        let response = json!({
+            "access_token": "test_token",
+            "token_type": "Bearer",
+            "matrix_server_name": "example.com",
+            "expires_in": 3600
+        });
+        assert_eq!(response["token_type"], "Bearer");
+        assert_eq!(response["expires_in"], 3600);
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO replication_positions (worker_id, stream_name, stream_position, updated_ts)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (worker_id, stream_name) DO UPDATE SET\n                stream_position = EXCLUDED.stream_position,\n                updated_ts = EXCLUDED.updated_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "776877017dc601465e04896aa13b8fcb2bbc93e36dca745c989119342e6e4589"
+}
