@@ -1,0 +1,1011 @@
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use sqlx::{FromRow, PgPool};
+use std::sync::Arc;
+use tracing;
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RoomSummary {
+    pub id: Option<i64>,
+    pub room_id: String,
+    pub room_type: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    #[sqlx(rename = "join_rules")]
+    pub join_rule: String,
+    pub history_visibility: String,
+    pub guest_access: String,
+    pub is_direct: bool,
+    pub is_space: bool,
+    pub is_encrypted: bool,
+    pub member_count: i64,
+    pub joined_member_count: i64,
+    pub invited_member_count: i64,
+    pub hero_users: serde_json::Value,
+    pub last_event_id: Option<String>,
+    pub last_event_ts: Option<i64>,
+    pub last_message_ts: Option<i64>,
+    pub unread_notifications: i64,
+    pub unread_highlight: i64,
+    pub updated_ts: Option<i64>,
+    pub created_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RoomSummaryMember {
+    pub id: i64,
+    pub room_id: String,
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub membership: String,
+    pub is_hero: bool,
+    pub last_active_ts: Option<i64>,
+    pub updated_ts: i64,
+    pub created_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RoomSummaryState {
+    pub id: i64,
+    pub room_id: String,
+    pub event_type: String,
+    pub state_key: String,
+    pub event_id: Option<String>,
+    pub content: serde_json::Value,
+    pub updated_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct RoomSummaryStats {
+    pub id: i64,
+    pub room_id: String,
+    pub total_events: i64,
+    pub total_state_events: i64,
+    pub total_messages: i64,
+    pub total_media: i64,
+    pub storage_size: i64,
+    pub last_updated_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateRoomSummaryRequest {
+    pub room_id: String,
+    pub room_type: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub join_rule: Option<String>,
+    pub history_visibility: Option<String>,
+    pub guest_access: Option<String>,
+    pub is_direct: Option<bool>,
+    pub is_space: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UpdateRoomSummaryRequest {
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub join_rule: Option<String>,
+    pub history_visibility: Option<String>,
+    pub guest_access: Option<String>,
+    pub is_direct: Option<bool>,
+    pub is_space: Option<bool>,
+    pub is_encrypted: Option<bool>,
+    pub last_event_id: Option<String>,
+    pub last_event_ts: Option<i64>,
+    pub last_message_ts: Option<i64>,
+    pub hero_users: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSummaryMemberRequest {
+    pub room_id: String,
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub membership: String,
+    pub is_hero: Option<bool>,
+    pub last_active_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSummaryMemberRequest {
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub membership: Option<String>,
+    pub is_hero: Option<bool>,
+    pub last_active_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomSummaryResponse {
+    pub room_id: String,
+    pub room_type: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub canonical_alias: Option<String>,
+    pub join_rule: String,
+    pub history_visibility: String,
+    pub guest_access: String,
+    pub is_direct: bool,
+    pub is_space: bool,
+    pub is_encrypted: bool,
+    pub member_count: i64,
+    pub joined_member_count: i64,
+    pub invited_member_count: i64,
+    pub heroes: Vec<RoomSummaryHero>,
+    pub last_event_ts: Option<i64>,
+    pub last_message_ts: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomSummaryHero {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RoomSummaryStorage {
+    pool: Arc<PgPool>,
+}
+
+impl RoomSummaryStorage {
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self { pool: pool.clone() }
+    }
+
+    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummary, sqlx::Error> {
+        tracing::info!(room_id = %request.room_id, "Creating room summary");
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as::<_, RoomSummary>(
+            r"
+            INSERT INTO room_summaries (
+                room_id, room_type, name, topic, avatar_url, canonical_alias,
+                join_rules, history_visibility, guest_access, is_direct, is_space,
+                is_encrypted, member_count, joined_member_count, invited_member_count, hero_users,
+                unread_notifications, unread_highlight, updated_ts, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE, 0, 0, 0, '[]'::jsonb, 0, 0, $12, $12)
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            ",
+        )
+        .bind(&request.room_id)
+        .bind(&request.room_type)
+        .bind(&request.name)
+        .bind(&request.topic)
+        .bind(&request.avatar_url)
+        .bind(&request.canonical_alias)
+        .bind(request.join_rule.unwrap_or_else(|| "invite".to_string()))
+        .bind(
+            request
+                .history_visibility
+                .unwrap_or_else(|| "shared".to_string()),
+        )
+        .bind(
+            request
+                .guest_access
+                .unwrap_or_else(|| "forbidden".to_string()),
+        )
+        .bind(request.is_direct.unwrap_or(false))
+        .bind(request.is_space.unwrap_or(false))
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummary>, sqlx::Error> {
+        tracing::debug!(room_id = %room_id, "Querying room summary");
+        let row =
+            sqlx::query_as::<_, RoomSummary>("SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = $1")
+                .bind(room_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+
+        if row.is_none() {
+            tracing::warn!(room_id = %room_id, "Room summary not found");
+        }
+
+        Ok(row)
+    }
+
+    pub async fn update_summary(
+        &self,
+        room_id: &str,
+        request: UpdateRoomSummaryRequest,
+    ) -> Result<RoomSummary, sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Updating room summary");
+        let now = Utc::now().timestamp_millis();
+        let row = sqlx::query_as::<_, RoomSummary>(
+            r"
+            UPDATE room_summaries SET
+                name = COALESCE($2, name),
+                topic = COALESCE($3, topic),
+                avatar_url = COALESCE($4, avatar_url),
+                canonical_alias = COALESCE($5, canonical_alias),
+                join_rules = COALESCE($6, join_rules),
+                history_visibility = COALESCE($7, history_visibility),
+                guest_access = COALESCE($8, guest_access),
+                is_direct = COALESCE($9, is_direct),
+                is_space = COALESCE($10, is_space),
+                is_encrypted = COALESCE($11, is_encrypted),
+                last_event_id = COALESCE($12, last_event_id),
+                last_event_ts = COALESCE($13, last_event_ts),
+                last_message_ts = COALESCE($14, last_message_ts),
+                hero_users = COALESCE($15, hero_users),
+                updated_ts = $16
+            WHERE room_id = $1
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(&request.name)
+        .bind(&request.topic)
+        .bind(&request.avatar_url)
+        .bind(&request.canonical_alias)
+        .bind(&request.join_rule)
+        .bind(&request.history_visibility)
+        .bind(&request.guest_access)
+        .bind(request.is_direct)
+        .bind(request.is_space)
+        .bind(request.is_encrypted)
+        .bind(&request.last_event_id)
+        .bind(request.last_event_ts)
+        .bind(request.last_message_ts)
+        .bind(&request.hero_users)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn set_canonical_alias(
+        &self,
+        room_id: &str,
+        canonical_alias: Option<&str>,
+    ) -> Result<RoomSummary, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        sqlx::query_as::<_, RoomSummary>(
+            r"
+            UPDATE room_summaries
+            SET canonical_alias = $2,
+                updated_ts = $3
+            WHERE room_id = $1
+            RETURNING id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(canonical_alias)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn delete_summary(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, "Deleting room summary");
+        sqlx::query("DELETE FROM room_summaries WHERE room_id = $1").bind(room_id).execute(&*self.pool).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummary>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummary>(
+            "SELECT id, room_id, room_type, name, topic, avatar_url, canonical_alias, join_rules, history_visibility, guest_access, is_direct, is_space, is_encrypted, member_count, joined_member_count, invited_member_count, hero_users, last_event_id, last_event_ts, last_message_ts, unread_notifications, unread_highlight, updated_ts, created_ts FROM room_summaries WHERE room_id = ANY($1)",
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummary>, sqlx::Error> {
+        tracing::debug!(user_id = %user_id, "Querying room summaries for user");
+        let rows = sqlx::query_as::<_, RoomSummary>(
+            r"
+            SELECT rs.id, rs.room_id, rs.room_type, rs.name, rs.topic, rs.avatar_url, rs.canonical_alias, rs.join_rules, rs.history_visibility, rs.guest_access, rs.is_direct, rs.is_space, rs.is_encrypted, rs.member_count, rs.joined_member_count, rs.invited_member_count, rs.hero_users, rs.last_event_id, rs.last_event_ts, rs.last_message_ts, rs.unread_notifications, rs.unread_highlight, rs.updated_ts, rs.created_ts FROM room_summaries rs
+            INNER JOIN room_summary_members rsm ON rs.room_id = rsm.room_id
+            WHERE rsm.user_id = $1 AND rsm.membership IN ('join', 'invite')
+            ORDER BY rs.last_event_ts DESC NULLS LAST
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, sqlx::Error> {
+        tracing::info!(room_id = %request.room_id, user_id = %request.user_id, membership = %request.membership, "Adding member to room summary");
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            INSERT INTO room_summary_members (
+                room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            ON CONFLICT (room_id, user_id) DO UPDATE SET
+                display_name = COALESCE(EXCLUDED.display_name, room_summary_members.display_name),
+                avatar_url = COALESCE(EXCLUDED.avatar_url, room_summary_members.avatar_url),
+                membership = EXCLUDED.membership,
+                is_hero = COALESCE(EXCLUDED.is_hero, room_summary_members.is_hero),
+                last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            ",
+        )
+        .bind(&request.room_id)
+        .bind(&request.user_id)
+        .bind(&request.display_name)
+        .bind(&request.avatar_url)
+        .bind(&request.membership)
+        .bind(request.is_hero.unwrap_or(false))
+        .bind(request.last_active_ts)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        self.refresh_member_counts(&request.room_id).await?;
+
+        Ok(row)
+    }
+
+    pub async fn add_members_batch(
+        &self,
+        room_id: &str,
+        members: Vec<CreateSummaryMemberRequest>,
+    ) -> Result<usize, sqlx::Error> {
+        if members.is_empty() {
+            return Ok(0);
+        }
+
+        tracing::info!(room_id = %room_id, count = members.len(), "Batch adding members to room summary");
+
+        let now = Utc::now().timestamp_millis();
+        let mut user_ids: Vec<String> = Vec::with_capacity(members.len());
+        let mut display_names: Vec<Option<String>> = Vec::with_capacity(members.len());
+        let mut avatar_urls: Vec<Option<String>> = Vec::with_capacity(members.len());
+        let mut memberships: Vec<String> = Vec::with_capacity(members.len());
+        let mut is_heroes: Vec<bool> = Vec::with_capacity(members.len());
+        let mut last_active_tss: Vec<Option<i64>> = Vec::with_capacity(members.len());
+        let mut nows: Vec<i64> = Vec::with_capacity(members.len());
+
+        for m in &members {
+            user_ids.push(m.user_id.clone());
+            display_names.push(m.display_name.clone());
+            avatar_urls.push(m.avatar_url.clone());
+            memberships.push(m.membership.clone());
+            is_heroes.push(m.is_hero.unwrap_or(false));
+            last_active_tss.push(m.last_active_ts);
+            nows.push(now);
+        }
+
+        let result = sqlx::query(
+            r"
+            INSERT INTO room_summary_members (
+                room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            )
+            SELECT $1, u, d, a, m, h, l, n, n
+            FROM UNNEST($2::TEXT[], $3::TEXT[], $4::TEXT[], $5::TEXT[], $6::BOOLEAN[], $7::BIGINT[], $8::BIGINT[])
+            AS t(u, d, a, m, h, l, n)
+            ON CONFLICT (room_id, user_id) DO UPDATE SET
+                display_name = COALESCE(EXCLUDED.display_name, room_summary_members.display_name),
+                avatar_url = COALESCE(EXCLUDED.avatar_url, room_summary_members.avatar_url),
+                membership = EXCLUDED.membership,
+                is_hero = COALESCE(EXCLUDED.is_hero, room_summary_members.is_hero),
+                last_active_ts = COALESCE(EXCLUDED.last_active_ts, room_summary_members.last_active_ts),
+                updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(&user_ids)
+        .bind(&display_names)
+        .bind(&avatar_urls)
+        .bind(&memberships)
+        .bind(&is_heroes)
+        .bind(&last_active_tss)
+        .bind(&nows)
+        .execute(&*self.pool)
+        .await?;
+
+        self.refresh_member_counts(room_id).await?;
+
+        Ok(result.rows_affected() as usize)
+    }
+
+    pub async fn update_member(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        request: UpdateSummaryMemberRequest,
+    ) -> Result<RoomSummaryMember, sqlx::Error> {
+        tracing::info!(room_id = %room_id, user_id = %user_id, "Updating room summary member");
+        let now = Utc::now().timestamp_millis();
+        let row = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            UPDATE room_summary_members SET
+                display_name = COALESCE($3, display_name),
+                avatar_url = COALESCE($4, avatar_url),
+                membership = COALESCE($5, membership),
+                is_hero = COALESCE($6, is_hero),
+                last_active_ts = COALESCE($7, last_active_ts),
+                updated_ts = $8
+            WHERE room_id = $1 AND user_id = $2
+            RETURNING id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .bind(&request.display_name)
+        .bind(&request.avatar_url)
+        .bind(&request.membership)
+        .bind(request.is_hero)
+        .bind(request.last_active_ts)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        self.refresh_member_counts(room_id).await?;
+
+        Ok(row)
+    }
+
+    pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        tracing::info!(room_id = %room_id, user_id = %user_id, "Removing member from room summary");
+        sqlx::query("DELETE FROM room_summary_members WHERE room_id = $1 AND user_id = $2")
+            .bind(room_id)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+
+        self.refresh_member_counts(room_id).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryMember>(
+            "SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts FROM room_summary_members WHERE room_id = $1 ORDER BY is_hero DESC, user_id",
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn get_heroes(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts FROM room_summary_members
+            WHERE room_id = $1 AND membership = 'join'
+            ORDER BY is_hero DESC, last_active_ts DESC NULLS LAST
+            LIMIT $2
+            ",
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn get_hero_candidates(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            FROM room_summary_members
+            WHERE room_id = $1 AND membership = 'join'
+            ORDER BY last_active_ts DESC NULLS LAST, updated_ts DESC, user_id ASC
+            LIMIT $2
+            ",
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn set_hero_members(&self, room_id: &str, hero_user_ids: &[String]) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            UPDATE room_summary_members
+            SET is_hero = user_id = ANY($2::text[])
+            WHERE room_id = $1
+            ",
+        )
+        .bind(room_id)
+        .bind(hero_user_ids)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn set_state(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+        event_id: Option<&str>,
+        content: serde_json::Value,
+    ) -> Result<RoomSummaryState, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as::<_, RoomSummaryState>(
+            r"
+            INSERT INTO room_summary_state (room_id, event_type, state_key, event_id, content, updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (room_id, event_type, state_key) DO UPDATE SET
+                event_id = EXCLUDED.event_id,
+                content = EXCLUDED.content,
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING *
+            ",
+        )
+        .bind(room_id)
+        .bind(event_type)
+        .bind(state_key)
+        .bind(event_id)
+        .bind(&content)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn get_state(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<RoomSummaryState>, sqlx::Error> {
+        let row = sqlx::query_as::<_, RoomSummaryState>(
+            "SELECT id, room_id, event_type, state_key, event_id, content, updated_ts FROM room_summary_state WHERE room_id = $1 AND event_type = $2 AND state_key = $3",
+        )
+        .bind(room_id)
+        .bind(event_type)
+        .bind(state_key)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn get_all_state(&self, room_id: &str) -> Result<Vec<RoomSummaryState>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryState>(
+            "SELECT id, room_id, event_type, state_key, event_id, content, updated_ts FROM room_summary_state WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn get_stats(&self, room_id: &str) -> Result<Option<RoomSummaryStats>, sqlx::Error> {
+        let row = sqlx::query_as::<_, RoomSummaryStats>(
+            "SELECT id::BIGINT AS id, room_id, total_events::BIGINT AS total_events, total_state_events::BIGINT AS total_state_events, total_messages::BIGINT AS total_messages, total_media::BIGINT AS total_media, storage_size::BIGINT AS storage_size, last_updated_ts::BIGINT AS last_updated_ts FROM room_summary_stats WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn update_stats(
+        &self,
+        room_id: &str,
+        total_events: i64,
+        total_state_events: i64,
+        total_messages: i64,
+        total_media: i64,
+        storage_size: i64,
+    ) -> Result<RoomSummaryStats, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as::<_, RoomSummaryStats>(
+            r"
+            INSERT INTO room_summary_stats (room_id, total_events, total_state_events, total_messages, total_media, storage_size, last_updated_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (room_id) DO UPDATE SET
+                total_events = EXCLUDED.total_events,
+                total_state_events = EXCLUDED.total_state_events,
+                total_messages = EXCLUDED.total_messages,
+                total_media = EXCLUDED.total_media,
+                storage_size = EXCLUDED.storage_size,
+                last_updated_ts = EXCLUDED.last_updated_ts
+            RETURNING id::BIGINT AS id, room_id, total_events::BIGINT AS total_events, total_state_events::BIGINT AS total_state_events, total_messages::BIGINT AS total_messages, total_media::BIGINT AS total_media, storage_size::BIGINT AS storage_size, last_updated_ts::BIGINT AS last_updated_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(total_events)
+        .bind(total_state_events)
+        .bind(total_messages)
+        .bind(total_media)
+        .bind(storage_size)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn queue_update(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        event_type: &str,
+        state_key: Option<&str>,
+        priority: i32,
+    ) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        sqlx::query(
+            r"
+            INSERT INTO room_summary_update_queue (room_id, event_id, event_type, state_key, priority, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ",
+        )
+        .bind(room_id)
+        .bind(event_id)
+        .bind(event_type)
+        .bind(state_key)
+        .bind(priority)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn get_pending_updates(&self, limit: i64) -> Result<Vec<RoomSummaryUpdateQueueItem>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, RoomSummaryUpdateQueueItem>(
+            r"
+            SELECT id, room_id, event_id, event_type, state_key, priority, status, created_ts, processed_ts, error_message, retry_count
+            FROM room_summary_update_queue
+            WHERE status = 'pending'
+            ORDER BY priority DESC, created_ts ASC, id ASC
+            LIMIT $1
+            FOR UPDATE SKIP LOCKED
+            ",
+        )
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    pub async fn mark_update_processed(&self, id: i64) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        sqlx::query("UPDATE room_summary_update_queue SET status = 'processed', processed_ts = $2 WHERE id = $1")
+            .bind(id)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn mark_update_failed(&self, id: i64, error: &str) -> Result<(), sqlx::Error> {
+        tracing::warn!(id = id, error = %error, "Marking room summary update as failed");
+        sqlx::query(
+            r"
+            UPDATE room_summary_update_queue SET
+                status = 'failed',
+                error_message = $2,
+                retry_count = retry_count + 1
+            WHERE id = $1
+            ",
+        )
+        .bind(id)
+        .bind(error)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn increment_unread_notifications(&self, room_id: &str, highlight: bool) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        if highlight {
+            sqlx::query(
+                "UPDATE room_summaries SET unread_notifications = unread_notifications + 1, unread_highlight = unread_highlight + 1, updated_ts = $2 WHERE room_id = $1",
+            )
+            .bind(room_id)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                "UPDATE room_summaries SET unread_notifications = unread_notifications + 1, updated_ts = $2 WHERE room_id = $1",
+            )
+            .bind(room_id)
+            .bind(now)
+            .execute(&*self.pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn clear_unread_notifications(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE room_summaries SET unread_notifications = 0, unread_highlight = 0, updated_ts = $2 WHERE room_id = $1",
+        )
+        .bind(room_id)
+        .bind(Utc::now().timestamp_millis())
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn refresh_member_counts(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            UPDATE room_summaries
+            SET
+                member_count = counts.member_count,
+                joined_member_count = counts.joined_member_count,
+                invited_member_count = counts.invited_member_count,
+                updated_ts = $2
+            FROM (
+                SELECT
+                    COUNT(*)::BIGINT AS member_count,
+                    COUNT(*) FILTER (WHERE membership = 'join')::BIGINT AS joined_member_count,
+                    COUNT(*) FILTER (WHERE membership = 'invite')::BIGINT AS invited_member_count
+                FROM room_summary_members
+                WHERE room_id = $1
+            ) AS counts
+            WHERE room_summaries.room_id = $1
+            ",
+        )
+        .bind(room_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct RoomSummaryUpdateQueueItem {
+    pub id: i64,
+    pub room_id: String,
+    pub event_id: String,
+    pub event_type: String,
+    pub state_key: Option<String>,
+    pub priority: i32,
+    pub status: String,
+    pub created_ts: i64,
+    pub processed_ts: Option<i64>,
+    pub error_message: Option<String>,
+    pub retry_count: i32,
+}
+
+impl RoomSummary {
+    pub fn to_response(&self, heroes: Vec<RoomSummaryHero>) -> RoomSummaryResponse {
+        RoomSummaryResponse {
+            room_id: self.room_id.clone(),
+            room_type: self.room_type.clone(),
+            name: self.name.clone(),
+            topic: self.topic.clone(),
+            avatar_url: self.avatar_url.clone(),
+            canonical_alias: self.canonical_alias.clone(),
+            join_rule: self.join_rule.clone(),
+            history_visibility: self.history_visibility.clone(),
+            guest_access: self.guest_access.clone(),
+            is_direct: self.is_direct,
+            is_space: self.is_space,
+            is_encrypted: self.is_encrypted,
+            member_count: self.member_count,
+            joined_member_count: self.joined_member_count,
+            invited_member_count: self.invited_member_count,
+            heroes,
+            last_event_ts: self.last_event_ts,
+            last_message_ts: self.last_message_ts,
+        }
+    }
+}
+
+impl From<RoomSummaryMember> for RoomSummaryHero {
+    fn from(member: RoomSummaryMember) -> Self {
+        Self { user_id: member.user_id, display_name: member.display_name, avatar_url: member.avatar_url }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_room_summary_creation() {
+        let summary = RoomSummary {
+            id: Some(1),
+            room_id: "!room:example.com".to_string(),
+            room_type: None,
+            name: Some("Test Room".to_string()),
+            topic: Some("A test room".to_string()),
+            avatar_url: Some("mxc://avatar".to_string()),
+            canonical_alias: None,
+            join_rule: "public".to_string(),
+            history_visibility: "shared".to_string(),
+            guest_access: "forbidden".to_string(),
+            is_direct: false,
+            is_space: false,
+            is_encrypted: false,
+            member_count: 10,
+            joined_member_count: 8,
+            invited_member_count: 2,
+            hero_users: serde_json::json!([]),
+            last_event_id: None,
+            last_event_ts: None,
+            last_message_ts: None,
+            unread_notifications: 0,
+            unread_highlight: 0,
+            updated_ts: Some(1234567890),
+            created_ts: Some(1234567800),
+        };
+        assert_eq!(summary.room_id, "!room:example.com");
+        assert!(summary.name.is_some());
+    }
+
+    #[test]
+    fn test_room_summary_member_creation() {
+        let member = RoomSummaryMember {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            display_name: Some("Alice".to_string()),
+            avatar_url: Some("mxc://alice".to_string()),
+            membership: "join".to_string(),
+            is_hero: true,
+            last_active_ts: Some(1234567890),
+            updated_ts: 1234567890,
+            created_ts: 1234567800,
+        };
+        assert_eq!(member.user_id, "@alice:example.com");
+        assert!(member.is_hero);
+    }
+
+    #[test]
+    fn test_room_summary_state_creation() {
+        let state = RoomSummaryState {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            event_type: "m.room.create".to_string(),
+            state_key: "".to_string(),
+            event_id: None,
+            content: serde_json::json!({"creator": "@admin:example.com"}),
+            updated_ts: 1234567890,
+        };
+        assert_eq!(state.room_id, "!room:example.com");
+    }
+
+    #[test]
+    fn test_room_summary_stats_creation() {
+        let stats = RoomSummaryStats {
+            id: 1,
+            room_id: "!room:example.com".to_string(),
+            total_events: 100,
+            total_state_events: 20,
+            total_messages: 100,
+            total_media: 10,
+            storage_size: 1048576,
+            last_updated_ts: 1234567890,
+        };
+        assert_eq!(stats.total_messages, 100);
+    }
+
+    #[test]
+    fn test_create_room_summary_request() {
+        let request = CreateRoomSummaryRequest {
+            room_id: "!room:example.com".to_string(),
+            room_type: None,
+            name: Some("New Room".to_string()),
+            topic: Some("Topic".to_string()),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: Some("public".to_string()),
+            history_visibility: Some("shared".to_string()),
+            guest_access: Some("forbidden".to_string()),
+            is_direct: Some(false),
+            is_space: Some(false),
+        };
+        assert_eq!(request.room_id, "!room:example.com");
+    }
+
+    #[test]
+    fn test_update_room_summary_request() {
+        let request = UpdateRoomSummaryRequest {
+            name: Some("Updated Name".to_string()),
+            topic: None,
+            avatar_url: Some("mxc://new".to_string()),
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+            is_encrypted: None,
+            last_event_id: None,
+            last_event_ts: None,
+            last_message_ts: None,
+            hero_users: None,
+        };
+        assert!(request.name.is_some());
+    }
+
+    #[test]
+    fn test_hero_users_json() {
+        let heroes = vec![
+            RoomSummaryHero {
+                user_id: "@alice:example.com".to_string(),
+                display_name: Some("Alice".to_string()),
+                avatar_url: None,
+            },
+            RoomSummaryHero {
+                user_id: "@bob:example.com".to_string(),
+                display_name: Some("Bob".to_string()),
+                avatar_url: Some("mxc://bob".to_string()),
+            },
+        ];
+        let json = serde_json::to_string(&heroes).unwrap();
+        assert!(json.contains("@alice:example.com"));
+    }
+
+    #[test]
+    fn test_room_summary_optional_fields() {
+        let summary = RoomSummary {
+            id: Some(2),
+            room_id: "!room2:example.com".to_string(),
+            room_type: None,
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: "public".to_string(),
+            history_visibility: "shared".to_string(),
+            guest_access: "forbidden".to_string(),
+            is_direct: false,
+            is_space: false,
+            is_encrypted: false,
+            member_count: 0,
+            joined_member_count: 0,
+            invited_member_count: 0,
+            hero_users: serde_json::json!([]),
+            last_event_id: None,
+            last_event_ts: None,
+            last_message_ts: None,
+            unread_notifications: 0,
+            unread_highlight: 0,
+            updated_ts: Some(0),
+            created_ts: Some(0),
+        };
+        assert!(summary.name.is_none());
+        assert!(summary.topic.is_none());
+    }
+}

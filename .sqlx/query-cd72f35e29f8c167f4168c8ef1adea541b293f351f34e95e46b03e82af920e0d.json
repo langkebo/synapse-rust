@@ -1,0 +1,75 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE feature_flags\n            SET rollout_percent = COALESCE($2, rollout_percent),\n                expires_at = COALESCE($3, expires_at),\n                reason = COALESCE($4, reason),\n                status = COALESCE($5, status),\n                updated_ts = $6\n            WHERE flag_key = $1\n            RETURNING flag_key as \"flag_key!\", target_scope as \"target_scope!\", rollout_percent as \"rollout_percent!\", expires_at, reason as \"reason!\", status as \"status!\", created_by as \"created_by!\", created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flag_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_scope!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "rollout_percent!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "reason!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cd72f35e29f8c167f4168c8ef1adea541b293f351f34e95e46b03e82af920e0d"
+}

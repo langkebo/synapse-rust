@@ -34,7 +34,7 @@ async fn test_telemetry_metrics_alerts_and_ack() {
     let histogram = state.services.metrics.register_histogram("telemetry_test_histogram".to_string());
     histogram.observe(100.0);
 
-    let manual_alert = state.services.telemetry_alert_service.raise_alert(
+    let manual_alert = state.services.admin.telemetry_alert_service.raise_alert(
         "telemetry_test_alert",
         "Telemetry test alert",
         &TelemetryAlertSeverity::Critical,

@@ -16,9 +16,10 @@ fn create_service() -> UiaService {
 #[test]
 fn test_get_default_flows() {
     let flows = UiaService::get_default_flows();
-    assert_eq!(flows.len(), 2);
+    assert_eq!(flows.len(), 3);
     assert_eq!(flows[0].stages, vec!["m.login.password"]);
     assert_eq!(flows[1].stages, vec!["m.login.token"]);
+    assert_eq!(flows[2].stages, vec!["m.login.email.identity"]);
 }
 
 #[test]
@@ -32,22 +33,25 @@ fn test_get_password_change_flows() {
 #[test]
 fn test_get_delete_device_flows() {
     let flows = UiaService::get_delete_device_flows();
-    assert_eq!(flows.len(), 1);
+    assert_eq!(flows.len(), 2);
     assert_eq!(flows[0].stages, vec!["m.login.password"]);
+    assert_eq!(flows[1].stages, vec!["m.login.email.identity"]);
 }
 
 #[test]
 fn test_get_deactivate_account_flows() {
     let flows = UiaService::get_deactivate_account_flows();
-    assert_eq!(flows.len(), 1);
+    assert_eq!(flows.len(), 2);
     assert_eq!(flows[0].stages, vec!["m.login.password"]);
+    assert_eq!(flows[1].stages, vec!["m.login.email.identity"]);
 }
 
 #[test]
 fn test_get_cross_signing_flows() {
     let flows = UiaService::get_cross_signing_flows();
-    assert_eq!(flows.len(), 1);
+    assert_eq!(flows.len(), 2);
     assert_eq!(flows[0].stages, vec!["m.login.password"]);
+    assert_eq!(flows[1].stages, vec!["m.login.email.identity"]);
 }
 
 #[test]
@@ -636,7 +640,6 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
-        invite_signing_key: None,
     };
     AuthService::new(pool, cache, metrics, &security, "localhost")
 }

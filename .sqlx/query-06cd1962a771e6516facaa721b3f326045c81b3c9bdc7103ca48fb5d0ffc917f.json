@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT user_id, device_id, change_type, stream_id\n        FROM device_lists_changes\n        WHERE stream_id > $1\n          AND stream_id <= $2\n          AND user_id = ANY($3)\n        ORDER BY stream_id ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "change_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "stream_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "06cd1962a771e6516facaa721b3f326045c81b3c9bdc7103ca48fb5d0ffc917f"
+}

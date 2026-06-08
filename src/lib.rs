@@ -22,7 +22,7 @@ pub use common::*;
 pub use e2ee::backup::KeyBackupService;
 pub use e2ee::cross_signing::CrossSigningService;
 pub use e2ee::device_keys::DeviceKeyService;
-pub use e2ee::megolm::{EncryptedEvent, MegolmService, MegolmSession};
+pub use e2ee::megolm::{EncryptedEvent, MegolmSession};
 pub use e2ee::signature::{EventSignature, SignatureService};
 #[allow(ambiguous_glob_reexports)]
 pub use federation::*;

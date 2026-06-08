@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id AS \"user_id!\", MAX(stream_id) AS \"max_id!\"\n            FROM device_lists_stream\n            WHERE stream_id > $1\n              AND user_id != $2\n            GROUP BY user_id\n            ORDER BY MAX(stream_id) ASC\n            LIMIT 100\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "17c3597d7ace56db2570747715e144d28774b7b76b70b98dbcafa8bb33a0fc0d"
+}

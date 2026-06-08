@@ -1,0 +1,127 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id as \"id!\", user_id as \"user_id!\", device_id as \"device_id!\", room_id as \"room_id!\",\n                conn_id, list_key,\n                COALESCE(bump_stamp, 0) AS \"bump_stamp!\",\n                COALESCE(highlight_count, 0) AS \"highlight_count!\",\n                COALESCE(notification_count, 0) AS \"notification_count!\",\n                COALESCE(is_dm, false) AS \"is_dm!\",\n                COALESCE(is_encrypted, false) AS \"is_encrypted!\",\n                COALESCE(is_tombstoned, false) AS \"is_tombstoned!\",\n                COALESCE(invited, false) AS \"is_invited!\",\n                name, avatar,\n                COALESCE(timestamp, 0) AS \"timestamp!\",\n                created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            FROM sliding_sync_rooms\n            WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "list_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "bump_stamp!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "highlight_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "notification_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_dm!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_encrypted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_tombstoned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_invited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "avatar",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "timestamp!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "3e3a10eba82a2a661def0fa207ccb9621b0eac03a293fe2c354cb2c478ee25b1"
+}

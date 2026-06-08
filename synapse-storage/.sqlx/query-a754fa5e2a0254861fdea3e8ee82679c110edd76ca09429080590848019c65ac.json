@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id as \"id!\",\n                family_id as \"family_id!\",\n                old_token_hash as \"old_token_hash?\",\n                new_token_hash as \"new_token_hash!\",\n                rotated_ts as \"rotated_ts!\",\n                rotation_reason as \"rotation_reason?\"\n            FROM refresh_token_rotations WHERE family_id = $1 ORDER BY rotated_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "family_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "old_token_hash?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "new_token_hash!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "rotated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "rotation_reason?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a754fa5e2a0254861fdea3e8ee82679c110edd76ca09429080590848019c65ac"
+}

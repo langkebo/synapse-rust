@@ -1,7 +1,7 @@
 use super::gateway::PushGateway;
 use super::providers::{
-    ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushProvider, PushResult,
-    WebPushProvider,
+    send_with_retry, ApnsProvider, FcmProvider, NotificationCounts,
+    NotificationPayload as ProviderPayload, PushResult, WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
 use crate::common::error::ApiError;
@@ -191,7 +191,7 @@ impl PushNotificationService {
     }
 
     pub async fn process_pending_notifications(&self, batch_size: i32) -> Result<u64, ApiError> {
-        let notifications = self.storage.get_pending_notifications(batch_size).await?;
+        let notifications = self.storage.get_pending_notifications(batch_size as i64).await?;
         let mut processed = 0u64;
 
         for notification in notifications {
@@ -246,21 +246,21 @@ impl PushNotificationService {
         let result = match push_type {
             "fcm" => {
                 if let Some(provider) = &self.fcm_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_fcm_fallback(&push_token, &content).await?
                 }
             }
             "apns" => {
                 if let Some(provider) = &self.apns_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_apns_fallback(&push_token, &content).await?
                 }
             }
             "webpush" => {
                 if let Some(provider) = &self.webpush_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_webpush_fallback(&push_token, &content).await?
                 }

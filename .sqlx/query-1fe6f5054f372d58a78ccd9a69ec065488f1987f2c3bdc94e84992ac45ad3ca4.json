@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", user_id as \"user_id!\", name as \"name!\", description as \"description?\",\n                      system_message as \"system_message!\", model_id as \"model_id?\", avatar_url as \"avatar_url?\",\n                      category as \"category?\", temperature as \"temperature?\", max_tokens as \"max_tokens?\",\n                      is_public as \"is_public!\", metadata as \"metadata?\",\n                      created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n               FROM ai_chat_roles\n               WHERE user_id = $1 OR is_public = true\n               ORDER BY is_public, created_ts DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "system_message!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "model_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "category?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "temperature?",
+        "type_info": "Float4"
+      },
+      {
+        "ordinal": 9,
+        "name": "max_tokens?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_public!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "metadata?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "1fe6f5054f372d58a78ccd9a69ec065488f1987f2c3bdc94e84992ac45ad3ca4"
+}

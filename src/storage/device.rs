@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -34,33 +34,25 @@ impl DeviceStorage {
         change_type: &str,
     ) -> Result<i64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let row = sqlx::query(
-            r"
-            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-            VALUES ($1, $2, $3)
-            RETURNING stream_id
-            ",
+        let row = sqlx::query!(
+            r#"INSERT INTO device_lists_stream (user_id, device_id, created_ts) VALUES ($1, $2, $3) RETURNING stream_id as "stream_id!""#,
+            user_id,
+            device_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
-        use sqlx::Row;
-        let stream_id: i64 = row.get("stream_id");
+        let stream_id: i64 = row.stream_id;
 
-        sqlx::query(
-            r"
-            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-            VALUES ($1, $2, $3, $4, $5)
-            ",
+        sqlx::query!(
+            "INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts) VALUES ($1, $2, $3, $4, $5)",
+            user_id,
+            device_id,
+            change_type,
+            stream_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(change_type)
-        .bind(stream_id)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -82,16 +74,12 @@ impl DeviceStorage {
         device_id: &str,
         room_id: &str,
     ) -> Result<HashSet<String>, sqlx::Error> {
-        let members: Vec<String> = sqlx::query_scalar(
-            r"
-            SELECT member_user_id
-            FROM lazy_loaded_members
-            WHERE user_id = $1 AND device_id = $2 AND room_id = $3
-            ",
+        let members: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT member_user_id as "member_user_id!" FROM lazy_loaded_members WHERE user_id = $1 AND device_id = $2 AND room_id = $3"#,
+            user_id,
+            device_id,
+            room_id
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(room_id)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -110,28 +98,15 @@ impl DeviceStorage {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        let member_user_ids: Vec<&str> = member_user_ids.iter().map(String::as_str).collect();
-        let result = sqlx::query(
-            r"
-            INSERT INTO lazy_loaded_members (
-                user_id,
-                device_id,
-                room_id,
-                member_user_id,
-                created_ts,
-                updated_ts
-            )
-            SELECT $1, $2, $3, member_user_id, $4, $4
-            FROM UNNEST($5::TEXT[]) AS member_user_id
-            ON CONFLICT (user_id, device_id, room_id, member_user_id)
-            DO UPDATE SET updated_ts = EXCLUDED.updated_ts
-            ",
+        let member_user_ids: Vec<String> = member_user_ids.iter().cloned().collect();
+        let result = sqlx::query!(
+            "INSERT INTO lazy_loaded_members (user_id, device_id, room_id, member_user_id, created_ts, updated_ts) SELECT $1, $2, $3, member_user_id, $4, $4 FROM UNNEST($5::TEXT[]) AS member_user_id ON CONFLICT (user_id, device_id, room_id, member_user_id) DO UPDATE SET updated_ts = EXCLUDED.updated_ts",
+            user_id,
+            device_id,
+            room_id,
+            now,
+            &member_user_ids
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(room_id)
-        .bind(now)
-        .bind(&member_user_ids)
         .execute(&*self.pool)
         .await?;
 
@@ -139,30 +114,24 @@ impl DeviceStorage {
     }
 
     async fn delete_lazy_loaded_members_for_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM lazy_loaded_members
-            WHERE user_id = $1
-            ",
+        let result = sqlx::query!(
+            "DELETE FROM lazy_loaded_members WHERE user_id = $1",
+            user_id
         )
-        .bind(user_id)
         .execute(&*self.pool)
-        .await
-        .map(|result| result.rows_affected())
+        .await?;
+        Ok(result.rows_affected())
     }
 
     async fn delete_lazy_loaded_members_for_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM lazy_loaded_members
-            WHERE user_id = $1 AND device_id = $2
-            ",
+        let result = sqlx::query!(
+            "DELETE FROM lazy_loaded_members WHERE user_id = $1 AND device_id = $2",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&*self.pool)
-        .await
-        .map(|result| result.rows_affected())
+        .await?;
+        Ok(result.rows_affected())
     }
 
     async fn delete_lazy_loaded_members_for_device_tx(
@@ -170,17 +139,14 @@ impl DeviceStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<u64, sqlx::Error> {
-        sqlx::query(
-            r"
-            DELETE FROM lazy_loaded_members
-            WHERE user_id = $1 AND device_id = $2
-            ",
+        let result = sqlx::query!(
+            "DELETE FROM lazy_loaded_members WHERE user_id = $1 AND device_id = $2",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .execute(&mut **tx)
-        .await
-        .map(|result| result.rows_affected())
+        .await?;
+        Ok(result.rows_affected())
     }
 
     pub async fn create_device(
@@ -190,19 +156,16 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let device = sqlx::query_as::<_, Device>(
-            r"
-            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            ",
+        let device = sqlx::query_as!(
+            Device,
+            "INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts) VALUES ($1, $2, $3, $4, $5, $6) RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list",
+            device_id,
+            user_id,
+            display_name,
+            now,
+            now,
+            now
         )
-        .bind(device_id)
-        .bind(user_id)
-        .bind(display_name)
-        .bind(now)
-        .bind(now)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -221,47 +184,37 @@ impl DeviceStorage {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        let device = sqlx::query_as::<_, Device>(
-            r"
-            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            ",
+        let device = sqlx::query_as!(
+            Device,
+            "INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts) VALUES ($1, $2, $3, $4, $5, $6) RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list",
+            device_id,
+            user_id,
+            display_name,
+            now,
+            now,
+            now
         )
-        .bind(device_id)
-        .bind(user_id)
-        .bind(display_name)
-        .bind(now)
-        .bind(now)
-        .bind(now)
         .fetch_one(&mut **tx)
         .await?;
 
         let _ = Self::delete_lazy_loaded_members_for_device_tx(tx, user_id, device_id).await;
 
-        let stream_id: i64 = sqlx::query_scalar(
-            r"
-            INSERT INTO device_lists_stream (user_id, device_id, created_ts)
-            VALUES ($1, $2, $3)
-            RETURNING stream_id
-            ",
+        let stream_id: i64 = sqlx::query_scalar!(
+            r#"INSERT INTO device_lists_stream (user_id, device_id, created_ts) VALUES ($1, $2, $3) RETURNING stream_id as "stream_id!""#,
+            user_id,
+            device_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(now)
         .fetch_one(&mut **tx)
         .await?;
 
-        sqlx::query(
-            r"
-            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-            VALUES ($1, $2, 'changed', $3, $4)
-            ",
+        sqlx::query!(
+            "INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts) VALUES ($1, $2, 'changed', $3, $4)",
+            user_id,
+            device_id,
+            stream_id,
+            now
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(stream_id)
-        .bind(now)
         .execute(&mut **tx)
         .await?;
 
@@ -269,37 +222,31 @@ impl DeviceStorage {
     }
 
     pub async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        sqlx::query_as::<_, Device>(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE device_id = $1
-            ",
+        sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE device_id = $1",
+            device_id
         )
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
-        sqlx::query_as::<_, Device>(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC
-            ",
+        sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC",
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn update_device_display_name(&self, device_id: &str, display_name: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"
-            UPDATE devices SET display_name = $1 WHERE device_id = $2
-            ",
+        sqlx::query!(
+            "UPDATE devices SET display_name = $1 WHERE device_id = $2",
+            display_name,
+            device_id
         )
-        .bind(display_name)
-        .bind(device_id)
         .execute(&*self.pool)
         .await?;
 
@@ -315,16 +262,12 @@ impl DeviceStorage {
         device_id: &str,
         display_name: &str,
     ) -> Result<u64, sqlx::Error> {
-        let rows_affected = sqlx::query(
-            r"
-            UPDATE devices
-            SET display_name = $1
-            WHERE device_id = $2 AND user_id = $3
-            ",
+        let rows_affected = sqlx::query!(
+            "UPDATE devices SET display_name = $1 WHERE device_id = $2 AND user_id = $3",
+            display_name,
+            device_id,
+            user_id
         )
-        .bind(display_name)
-        .bind(device_id)
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map(|result| result.rows_affected())?;
@@ -338,13 +281,11 @@ impl DeviceStorage {
 
     pub async fn update_device_last_seen(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
-            UPDATE devices SET last_seen_ts = $1 WHERE device_id = $2
-            ",
+        sqlx::query!(
+            "UPDATE devices SET last_seen_ts = $1 WHERE device_id = $2",
+            now,
+            device_id
         )
-        .bind(now)
-        .bind(device_id)
         .execute(&*self.pool)
         .await?;
         Ok(())
@@ -352,12 +293,10 @@ impl DeviceStorage {
 
     pub async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
         let existing = self.get_device(device_id).await?;
-        let result = sqlx::query(
-            r"
-            DELETE FROM devices WHERE device_id = $1
-            ",
+        let result = sqlx::query!(
+            "DELETE FROM devices WHERE device_id = $1",
+            device_id
         )
-        .bind(device_id)
         .execute(&*self.pool)
         .await;
 
@@ -376,14 +315,11 @@ impl DeviceStorage {
     }
 
     pub async fn delete_user_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
-        let rows_affected = sqlx::query(
-            r"
-            DELETE FROM devices
-            WHERE device_id = $1 AND user_id = $2
-            ",
+        let rows_affected = sqlx::query!(
+            "DELETE FROM devices WHERE device_id = $1 AND user_id = $2",
+            device_id,
+            user_id
         )
-        .bind(device_id)
-        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map(|result| result.rows_affected())?;
@@ -397,21 +333,17 @@ impl DeviceStorage {
     }
 
     pub async fn delete_user_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        let device_ids: Vec<String> = sqlx::query_scalar(
-            r"
-            SELECT device_id FROM devices WHERE user_id = $1
-            ",
+        let device_ids: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT device_id as "device_id!" FROM devices WHERE user_id = $1"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        let result = sqlx::query(
-            r"
-            DELETE FROM devices WHERE user_id = $1
-            ",
+        let result = sqlx::query!(
+            "DELETE FROM devices WHERE user_id = $1",
+            user_id
         )
-        .bind(user_id)
         .execute(&*self.pool)
         .await;
 
@@ -434,17 +366,18 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            r"
-            SELECT user_id, device_id FROM devices WHERE device_id = ANY($1)
-            ",
+        let rows = sqlx::query!(
+            "SELECT user_id, device_id FROM devices WHERE device_id = ANY($1)",
+            device_ids
         )
-        .bind(device_ids)
         .fetch_all(&*self.pool)
         .await?;
+        let rows: Vec<(String, String)> = rows
+            .iter()
+            .map(|r| (r.user_id.clone(), r.device_id.clone()))
+            .collect();
 
-        let rows_affected = sqlx::query("DELETE FROM devices WHERE device_id = ANY($1)")
-            .bind(device_ids)
+        let rows_affected = sqlx::query!("DELETE FROM devices WHERE device_id = ANY($1)", device_ids)
             .execute(&*self.pool)
             .await
             .map(|result| result.rows_affected())?;
@@ -464,9 +397,7 @@ impl DeviceStorage {
             return Ok(0);
         }
 
-        let rows_affected = sqlx::query("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)")
-            .bind(user_id)
-            .bind(device_ids)
+        let rows_affected = sqlx::query!("DELETE FROM devices WHERE user_id = $1 AND device_id = ANY($2)", user_id, device_ids)
             .execute(&*self.pool)
             .await
             .map(|result| result.rows_affected())?;
@@ -482,12 +413,10 @@ impl DeviceStorage {
     }
 
     pub async fn device_exists(&self, device_id: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar::<_, i32>(
-            r#"
-            SELECT 1 AS "exists" FROM devices WHERE device_id = $1 LIMIT 1
-            "#,
+        let result = sqlx::query_scalar!(
+            r#"SELECT 1 AS "exists" FROM devices WHERE device_id = $1 LIMIT 1"#,
+            device_id
         )
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await?;
         Ok(result.is_some())
@@ -498,14 +427,11 @@ impl DeviceStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as::<_, Device>(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE device_id = ANY($1)
-            ORDER BY last_seen_ts DESC
-            ",
+        sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE device_id = ANY($1) ORDER BY last_seen_ts DESC",
+            device_ids
         )
-        .bind(device_ids)
         .fetch_all(&*self.pool)
         .await
     }
@@ -518,14 +444,11 @@ impl DeviceStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let devices: Vec<Device> = sqlx::query_as(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE user_id = ANY($1)
-            ORDER BY user_id, last_seen_ts DESC
-            ",
+        let devices: Vec<Device> = sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE user_id = ANY($1) ORDER BY user_id, last_seen_ts DESC",
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -549,14 +472,11 @@ impl DeviceStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let devices: Vec<Device> = sqlx::query_as(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices
-            WHERE user_id = ANY($1) AND device_key IS NOT NULL
-            ",
+        let devices: Vec<Device> = sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE user_id = ANY($1) AND device_key IS NOT NULL",
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -573,26 +493,22 @@ impl DeviceStorage {
     }
 
     pub async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COUNT(*) FROM devices WHERE user_id = $1
-            ",
+        let count = sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!" FROM devices WHERE user_id = $1"#,
+            user_id
         )
-        .bind(user_id)
         .fetch_one(&*self.pool)
         .await?;
         Ok(count)
     }
 
     pub async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        sqlx::query_as::<_, Device>(
-            r"
-            SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            FROM devices WHERE user_id = $1 AND device_id = $2
-            ",
+        sqlx::query_as!(
+            Device,
+            "SELECT device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list FROM devices WHERE user_id = $1 AND device_id = $2",
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
     }
@@ -602,12 +518,10 @@ impl DeviceStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_scalar::<_, String>(
-            r"
-            SELECT DISTINCT user_id FROM devices WHERE user_id = ANY($1)
-            ",
+        sqlx::query_scalar!(
+            r#"SELECT DISTINCT user_id as "user_id!" FROM devices WHERE user_id = ANY($1)"#,
+            user_ids
         )
-        .bind(user_ids)
         .fetch_all(&*self.pool)
         .await
     }
@@ -618,13 +532,11 @@ impl DeviceStorage {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        let result = sqlx::query(
-            r"
-            UPDATE devices SET last_seen_ts = $1 WHERE device_id = ANY($2)
-            ",
+        let result = sqlx::query!(
+            "UPDATE devices SET last_seen_ts = $1 WHERE device_id = ANY($2)",
+            now,
+            device_ids
         )
-        .bind(now)
-        .bind(device_ids)
         .execute(&*self.pool)
         .await?;
 
@@ -634,10 +546,8 @@ impl DeviceStorage {
     /// Get the maximum stream ID from the device_lists_stream table.
     /// Returns 0 if the table is empty.
     pub async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
-        let max_id: i64 = sqlx::query_scalar(
-            r"
-            SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-            ",
+        let max_id = sqlx::query_scalar!(
+            r#"SELECT COALESCE(MAX(stream_id), 0) as "max_id!" FROM device_lists_stream"#
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -655,21 +565,18 @@ impl DeviceStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as::<_, (String, Option<String>, String, i64)>(
-            r"
-            SELECT user_id, device_id, change_type, stream_id
-            FROM device_lists_changes
-            WHERE stream_id > $1
-              AND stream_id <= $2
-              AND user_id = ANY($3)
-            ORDER BY stream_id ASC
-            ",
+        let rows = sqlx::query!(
+            "SELECT user_id, device_id, change_type, stream_id FROM device_lists_changes WHERE stream_id > $1 AND stream_id <= $2 AND user_id = ANY($3) ORDER BY stream_id ASC",
+            since,
+            to,
+            user_ids
         )
-        .bind(since)
-        .bind(to)
-        .bind(user_ids)
         .fetch_all(&*self.pool)
-        .await
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.user_id.clone(), r.device_id.clone(), r.change_type.clone(), r.stream_id))
+            .collect())
     }
 
     pub async fn get_devices_by_user_device_pairs(
@@ -681,17 +588,20 @@ impl DeviceStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as::<_, (String, String, Option<String>, Option<i64>)>(
-            r"
-            SELECT user_id, device_id, display_name, last_seen_ts
-            FROM devices
-            WHERE (user_id, device_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::text[]))
-            ",
+        let user_ids: Vec<String> = user_ids.iter().map(|s| s.to_string()).collect();
+        let device_ids: Vec<String> = device_ids.iter().map(|s| s.to_string()).collect();
+
+        let rows = sqlx::query!(
+            "SELECT user_id, device_id, display_name, last_seen_ts FROM devices WHERE (user_id, device_id) = ANY(SELECT * FROM UNNEST($1::text[], $2::text[]))",
+            &user_ids,
+            &device_ids
         )
-        .bind(user_ids)
-        .bind(device_ids)
         .fetch_all(&*self.pool)
-        .await
+        .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.user_id.clone(), r.device_id.clone(), r.display_name.clone(), r.last_seen_ts))
+            .collect())
     }
 
     /// Get the distinct user IDs whose device lists changed in the given stream
@@ -702,24 +612,16 @@ impl DeviceStorage {
         to: i64,
         exclude_user_id: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT DISTINCT user_id
-            FROM device_lists_stream
-            WHERE stream_id > $1
-              AND stream_id <= $2
-              AND user_id != $3
-            ORDER BY user_id
-            LIMIT 100
-            ",
+        let rows = sqlx::query!(
+            "SELECT DISTINCT user_id FROM device_lists_stream WHERE stream_id > $1 AND stream_id <= $2 AND user_id != $3 ORDER BY user_id LIMIT 100",
+            from,
+            to,
+            exclude_user_id
         )
-        .bind(from)
-        .bind(to)
-        .bind(exclude_user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.iter().map(|row| row.get("user_id")).collect())
+        Ok(rows.iter().map(|row| row.user_id.clone()).collect())
     }
 
     /// Get the distinct user IDs who left (no room membership) in the given
@@ -730,26 +632,16 @@ impl DeviceStorage {
         to: i64,
         exclude_user_id: &str,
     ) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT DISTINCT dl.user_id
-            FROM device_lists_stream dl
-            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
-            WHERE dl.stream_id > $1
-              AND dl.stream_id <= $2
-              AND dl.user_id != $3
-              AND rm.user_id IS NULL
-            ORDER BY dl.user_id
-            LIMIT 100
-            ",
+        let rows = sqlx::query!(
+            "SELECT DISTINCT dl.user_id FROM device_lists_stream dl LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id WHERE dl.stream_id > $1 AND dl.stream_id <= $2 AND dl.user_id != $3 AND rm.user_id IS NULL ORDER BY dl.user_id LIMIT 100",
+            from,
+            to,
+            exclude_user_id
         )
-        .bind(from)
-        .bind(to)
-        .bind(exclude_user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.iter().map(|row| row.get("user_id")).collect())
+        Ok(rows.iter().map(|row| row.user_id.clone()).collect())
     }
 }
 

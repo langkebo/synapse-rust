@@ -8,37 +8,45 @@ impl EventStorage {
         since: i64,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+        let events = sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(user_id, sender) AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            since,
+            limit
         )
-        .bind(room_id)
-        .bind(since)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)
     }
 
     pub async fn get_events_since(&self, since: i64, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+        let events = sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(user_id, sender) AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events WHERE origin_server_ts > $1
             ORDER BY origin_server_ts ASC
             LIMIT $2
-            ",
+            "#,
+            since,
+            limit
         )
-        .bind(since)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
         Ok(events)
@@ -200,16 +208,20 @@ impl EventStorage {
             return Ok(Vec::new());
         }
 
-        sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", COALESCE(user_id, sender) AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events
             WHERE event_id = ANY($1)
-            ",
+            "#,
+            event_ids
         )
-        .bind(event_ids)
         .fetch_all(&*self.pool)
         .await
     }
@@ -232,17 +244,17 @@ impl EventStorage {
             return Ok(false);
         }
 
-        let row = sqlx::query_scalar::<_, i32>(
-            r"
-            SELECT 1
+        let row = sqlx::query_scalar!(
+            r#"
+            SELECT 1 AS "1"
             FROM events
             WHERE room_id = ANY($1)
               AND origin_server_ts > $2
             LIMIT 1
-            ",
+            "#,
+            room_ids,
+            since
         )
-        .bind(room_ids)
-        .bind(since)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -258,19 +270,22 @@ impl EventStorage {
             return Ok(std::collections::HashMap::new());
         }
 
-        let events: Vec<RoomEvent> = sqlx::query_as(
-            r"
+        let events: Vec<RoomEvent> = sqlx::query_as!(
+            RoomEvent,
+            r#"
             SELECT DISTINCT ON (room_id)
-                   event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts,
-                   COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+                   event_id AS "event_id!", room_id AS "room_id!", COALESCE(user_id, sender) AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", COALESCE(origin_server_ts, 0) AS "origin_server_ts!",
+                   COALESCE(origin_server_ts, 0) AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events
             WHERE room_id = ANY($1)
             ORDER BY room_id, origin_server_ts DESC
-            ",
+            "#,
+            room_ids
         )
-        .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -327,23 +342,26 @@ impl EventStorage {
         since_stream_ordering: i64,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEvent>(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", sender AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", origin_server_ts AS "origin_server_ts!",
+                   origin_server_ts AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events
             WHERE room_id = $1
               AND stream_ordering > $2
               AND is_redacted = false
             ORDER BY stream_ordering ASC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            since_stream_ordering,
+            limit
         )
-        .bind(room_id)
-        .bind(since_stream_ordering)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }
@@ -358,11 +376,13 @@ impl EventStorage {
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
         let (op, order) = if direction == "b" { ("<", "DESC") } else { (">", "ASC") };
         let query = format!(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", sender AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", origin_server_ts AS "origin_server_ts!",
+                   origin_server_ts AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events
             WHERE room_id = $1
               AND stream_ordering {op} $2
@@ -370,7 +390,7 @@ impl EventStorage {
               AND is_redacted = false
             ORDER BY stream_ordering {order}
             LIMIT $3
-            "
+            "#
         );
         sqlx::query_as::<_, RoomEvent>(&query)
             .bind(room_id)
@@ -403,20 +423,23 @@ impl EventStorage {
 
     /// Get pending events for a room (used by the message queue endpoint).
     pub async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        sqlx::query_as::<_, RoomEvent>(
-            r"
-            SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+        sqlx::query_as!(
+            RoomEvent,
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", sender AS "user_id!",
+                   event_type AS "event_type!", content AS "content!", state_key,
+                   COALESCE(depth, 0) AS "depth!", origin_server_ts AS "origin_server_ts!",
+                   origin_server_ts AS "processed_ts!",
+                   COALESCE(not_before, 0) AS "not_before!", status, reference_image,
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') AS "origin!", stream_ordering
             FROM events
             WHERE room_id = $1 AND status = 'pending'
             ORDER BY origin_server_ts ASC
             LIMIT $2
-            ",
+            "#,
+            room_id,
+            limit
         )
-        .bind(room_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await
     }

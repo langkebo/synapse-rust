@@ -95,7 +95,7 @@ impl DatabaseMonitor {
     }
 
     pub async fn check_connection(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query("SELECT 1").fetch_one(&self.pool).await;
+        let result = sqlx::query_scalar!("SELECT 1").fetch_one(&self.pool).await;
 
         match result {
             Ok(_) => {
@@ -140,22 +140,25 @@ impl DatabaseMonitor {
     }
 
     pub async fn get_performance_metrics(&self) -> Result<PerformanceMetrics, sqlx::Error> {
-        let db_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64, Option<chrono::DateTime<Utc>>)>(
-            "SELECT COALESCE(xact_commit, 0), COALESCE(xact_rollback, 0), \
-                    COALESCE(blks_hit, 0), COALESCE(blks_read, 0), COALESCE(deadlocks, 0), \
-                    stats_reset \
-             FROM pg_stat_database WHERE datname = current_database() LIMIT 1",
+        let db_stats_row = sqlx::query!(
+            r#"SELECT COALESCE(xact_commit, 0)::BIGINT AS "xact_commit!", COALESCE(xact_rollback, 0)::BIGINT AS "xact_rollback!",
+                      COALESCE(blks_hit, 0)::BIGINT AS "blks_hit!", COALESCE(blks_read, 0)::BIGINT AS "blks_read!",
+                      COALESCE(deadlocks, 0)::BIGINT AS "deadlocks!", stats_reset
+               FROM pg_stat_database WHERE datname = current_database() LIMIT 1"#
         )
         .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or((0, 0, 0, 0, 0, None));
+        .await?;
+
+        let (xact_commit, xact_rollback, blks_hit, blks_read, deadlocks, stats_reset) =
+            db_stats_row.map(|r| (r.xact_commit, r.xact_rollback, r.blks_hit, r.blks_read, r.deadlocks, r.stats_reset))
+            .unwrap_or((0, 0, 0, 0, 0, None));
 
         let cache_hit_ratio =
-            if db_stats.2 + db_stats.3 > 0 { db_stats.2 as f64 / (db_stats.2 + db_stats.3) as f64 } else { 0.0 };
+            if blks_hit + blks_read > 0 { blks_hit as f64 / (blks_hit + blks_read) as f64 } else { 0.0 };
 
-        let total_transactions = db_stats.0 + db_stats.1;
+        let total_transactions = xact_commit + xact_rollback;
         let stats_window_seconds =
-            db_stats.5.map_or(60.0, |stats_reset| (Utc::now() - stats_reset).num_seconds().max(1) as f64);
+            stats_reset.map_or(60.0, |sr| (Utc::now() - sr).num_seconds().max(1) as f64);
 
         let pg_stat_statements_enabled = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
@@ -198,7 +201,7 @@ impl DatabaseMonitor {
             total_queries,
             transactions_per_second: total_transactions as f64 / stats_window_seconds,
             cache_hit_ratio,
-            deadlock_count: db_stats.4 as u64,
+            deadlock_count: deadlocks as u64,
             redis_latency_ms,
             redis_slow_commands_count,
         })
@@ -211,29 +214,29 @@ impl DatabaseMonitor {
         let null_constraint_violations = Vec::new();
 
         // 1. 检查核心外键约束 (示例：events -> rooms)
-        let orphans = sqlx::query_as::<_, (String, String, i64, String)>(
-            r"
-            SELECT 'events' as table_name, 'room_id' as column_name, 0 as violating_row_id, 'rooms' as referenced_table
+        let orphans = sqlx::query!(
+            r#"
+            SELECT 'events' AS "table_name!", 'room_id' AS "column_name!", 0::BIGINT AS "violating_row_id!", 'rooms' AS "referenced_table!"
             FROM events e
             WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)
             LIMIT 10
-            ",
+            "#
         )
         .fetch_all(&self.pool)
         .await?;
 
-        for (table, col, _id, ref_table) in orphans {
+        for row in orphans {
             foreign_key_violations.push(ForeignKeyViolation {
-                table_name: table,
-                column_name: col,
-                violating_row_id: 0,
-                referenced_table: ref_table,
+                table_name: row.table_name,
+                column_name: row.column_name,
+                violating_row_id: row.violating_row_id,
+                referenced_table: row.referenced_table,
             });
         }
 
         // 2. 检查孤立记录 (示例：room_memberships -> users)
-        let member_orphans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM room_memberships m WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)",
+        let member_orphans: i64 = sqlx::query_scalar!(
+            r#"SELECT COALESCE(COUNT(*), 0)::BIGINT AS "count!" FROM room_memberships m WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = m.user_id)"#
         )
         .fetch_one(&self.pool)
         .await?;

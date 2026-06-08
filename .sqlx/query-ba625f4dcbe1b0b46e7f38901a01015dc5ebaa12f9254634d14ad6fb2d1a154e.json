@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)\n                VALUES ($1, $2, $3, $4, $5, $6, $7)\n                ON CONFLICT (media_id) DO UPDATE SET content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name, size = EXCLUDED.size\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba625f4dcbe1b0b46e7f38901a01015dc5ebaa12f9254634d14ad6fb2d1a154e"
+}

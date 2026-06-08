@@ -63,7 +63,7 @@ impl EmailVerificationService {
             return Err(ApiError::bad_request("Verification token has already been used".to_string()));
         }
 
-        if verification_token.expires_at < Utc::now() {
+        if verification_token.expires_at < Utc::now().timestamp_millis() {
             return Err(ApiError::bad_request("Verification token has expired".to_string()));
         }
 

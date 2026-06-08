@@ -18,23 +18,23 @@ impl VerificationStorage {
 
     /// Create a new verification request
     pub async fn create_request(&self, request: &VerificationRequest) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO verification_requests
             (transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (transaction_id) DO NOTHING
             ",
+            &request.transaction_id,
+            &request.from_user,
+            &request.from_device,
+            &request.to_user,
+            request.to_device.as_deref(),
+            serialize_method(&request.method),
+            serialize_state(&request.state),
+            request.created_ts,
+            request.updated_ts,
         )
-        .bind(&request.transaction_id)
-        .bind(&request.from_user)
-        .bind(&request.from_device)
-        .bind(&request.to_user)
-        .bind(&request.to_device)
-        .bind(serialize_method(&request.method))
-        .bind(serialize_state(&request.state))
-        .bind(request.created_ts)
-        .bind(request.updated_ts)
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| {
@@ -47,39 +47,38 @@ impl VerificationStorage {
 
     /// Get verification request by transaction ID
     pub async fn get_request(&self, transaction_id: &str) -> Result<Option<VerificationRequest>, ApiError> {
-        let row = sqlx::query_as::<_, (
-            String, String, String, String, Option<String>, String, String, i64, Option<i64>
-        )>(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts
-             FROM verification_requests WHERE transaction_id = $1"
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                transaction_id AS "transaction_id!",
+                from_user AS "from_user!",
+                from_device AS "from_device!",
+                to_user AS "to_user!",
+                to_device,
+                method AS "method!",
+                state AS "state!",
+                created_ts AS "created_ts!",
+                updated_ts
+            FROM verification_requests WHERE transaction_id = $1
+            "#,
+            transaction_id,
         )
-        .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| { tracing::error!("Failed to get verification request: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-        if let Some((
-            transaction_id,
-            from_user,
-            from_device,
-            to_user,
-            to_device,
-            method,
-            state,
-            created_ts,
-            updated_ts,
-        )) = row
+        if let Some(r) = row
         {
             Ok(Some(VerificationRequest {
-                transaction_id,
-                from_user,
-                from_device,
-                to_user,
-                to_device,
-                method: parse_method(&method),
-                state: parse_state(&state),
-                created_ts,
-                updated_ts,
+                transaction_id: r.transaction_id,
+                from_user: r.from_user,
+                from_device: r.from_device,
+                to_user: r.to_user,
+                to_device: r.to_device,
+                method: parse_method(&r.method),
+                state: parse_state(&r.state),
+                created_ts: r.created_ts,
+                updated_ts: r.updated_ts,
             }))
         } else {
             Ok(None)
@@ -89,10 +88,11 @@ impl VerificationStorage {
     /// Update verification state
     pub async fn update_state(&self, transaction_id: &str, state: VerificationState) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query("UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3")
-            .bind(serialize_state(&state))
-            .bind(now)
-            .bind(transaction_id)
+        sqlx::query!("UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3",
+            serialize_state(&state),
+            now,
+            transaction_id,
+        )
             .execute(&*self.pool)
             .await
             .map_err(|e| {
@@ -105,7 +105,7 @@ impl VerificationStorage {
 
     /// Store SAS state
     pub async fn store_sas_state(&self, sas: &SasState) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO verification_sas
             (tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac)
@@ -113,17 +113,17 @@ impl VerificationStorage {
             ON CONFLICT (tx_id) DO UPDATE SET
                 to_device = $3, state = $5, exchange_hashes = $6, commitment = $7, pubkey = $8, sas_bytes = $9, mac = $10
             ",
+            &sas.tx_id,
+            &sas.from_device,
+            sas.to_device.as_deref(),
+            serialize_method(&sas.method),
+            serialize_state(&sas.state),
+            serde_json::to_value(&sas.exchange_hashes).unwrap_or_default(),
+            sas.commitment.as_deref(),
+            sas.pubkey.as_deref(),
+            sas.sas_bytes.as_deref(),
+            sas.mac.as_deref(),
         )
-        .bind(&sas.tx_id)
-        .bind(&sas.from_device)
-        .bind(&sas.to_device)
-        .bind(serialize_method(&sas.method))
-        .bind(serialize_state(&sas.state))
-        .bind(serde_json::to_value(&sas.exchange_hashes).unwrap_or_default())
-        .bind(&sas.commitment)
-        .bind(&sas.pubkey)
-        .bind(&sas.sas_bytes)
-        .bind(&sas.mac)
         .execute(&*self.pool)
         .await
         .map_err(|e| { tracing::error!("Failed to store SAS state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
@@ -133,7 +133,7 @@ impl VerificationStorage {
 
     /// Store QR state
     pub async fn store_qr_state(&self, qr: &QrState) -> Result<(), ApiError> {
-        sqlx::query(
+        sqlx::query!(
             r"
             INSERT INTO verification_qr
             (tx_id, from_device, to_device, state, qr_code_data, scanned_data)
@@ -141,13 +141,13 @@ impl VerificationStorage {
             ON CONFLICT (tx_id) DO UPDATE SET
                 to_device = $3, state = $4, qr_code_data = $5, scanned_data = $6
             ",
+            &qr.tx_id,
+            &qr.from_device,
+            qr.to_device.as_deref(),
+            serialize_state(&qr.state),
+            qr.qr_code_data.as_deref(),
+            qr.scanned_data.as_deref(),
         )
-        .bind(&qr.tx_id)
-        .bind(&qr.from_device)
-        .bind(&qr.to_device)
-        .bind(serialize_state(&qr.state))
-        .bind(&qr.qr_code_data)
-        .bind(&qr.scanned_data)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -160,15 +160,23 @@ impl VerificationStorage {
 
     /// Get pending verifications for a user
     pub async fn get_pending_verifications(&self, user_id: &str) -> Result<Vec<VerificationRequest>, ApiError> {
-        let rows = sqlx::query_as::<
-            _,
-            (String, String, String, String, Option<String>, String, String, i64, Option<i64>),
-        >(
-            "SELECT transaction_id, from_user, from_device, to_user, to_device, method, state, created_ts, updated_ts
-             FROM verification_requests
-             WHERE to_user = $1 AND state IN ('requested', 'ready', 'pending')",
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                transaction_id AS "transaction_id!",
+                from_user AS "from_user!",
+                from_device AS "from_device!",
+                to_user AS "to_user!",
+                to_device,
+                method AS "method!",
+                state AS "state!",
+                created_ts AS "created_ts!",
+                updated_ts
+            FROM verification_requests
+            WHERE to_user = $1 AND state IN ('requested', 'ready', 'pending')
+            "#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -178,69 +186,57 @@ impl VerificationStorage {
 
         Ok(rows
             .into_iter()
-            .map(
-                |(
-                    transaction_id,
-                    from_user,
-                    from_device,
-                    to_user,
-                    to_device,
-                    method,
-                    state,
-                    created_ts,
-                    updated_ts,
-                )| {
-                    VerificationRequest {
-                        transaction_id,
-                        from_user,
-                        from_device,
-                        to_user,
-                        to_device,
-                        method: parse_method(&method),
-                        state: parse_state(&state),
-                        created_ts,
-                        updated_ts,
-                    }
-                },
-            )
+            .map(|r| {
+                VerificationRequest {
+                    transaction_id: r.transaction_id,
+                    from_user: r.from_user,
+                    from_device: r.from_device,
+                    to_user: r.to_user,
+                    to_device: r.to_device,
+                    method: parse_method(&r.method),
+                    state: parse_state(&r.state),
+                    created_ts: r.created_ts,
+                    updated_ts: r.updated_ts,
+                }
+            })
             .collect())
     }
 
     pub async fn get_sas_state(&self, transaction_id: &str) -> Result<Option<SasState>, ApiError> {
-        let row = sqlx::query_as::<_, (
-            String, String, Option<String>, String, String, serde_json::Value, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>
-        )>(
-            "SELECT tx_id, from_device, to_device, method, state, exchange_hashes, commitment, pubkey, sas_bytes, mac FROM verification_sas WHERE tx_id = $1"
+        let row = sqlx::query!(
+            r#"
+            SELECT
+                tx_id AS "tx_id!",
+                from_device AS "from_device!",
+                to_device,
+                method AS "method!",
+                state AS "state!",
+                exchange_hashes AS "exchange_hashes!",
+                commitment,
+                pubkey,
+                sas_bytes,
+                mac
+            FROM verification_sas WHERE tx_id = $1
+            "#,
+            transaction_id,
         )
-        .bind(transaction_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| { tracing::error!("Failed to get SAS state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
 
-        if let Some((
-            tx_id,
-            from_device,
-            to_device,
-            method,
-            state,
-            exchange_hashes,
-            commitment,
-            pubkey,
-            sas_bytes,
-            mac,
-        )) = row
+        if let Some(r) = row
         {
             Ok(Some(SasState {
-                tx_id,
-                from_device,
-                to_device,
-                method: parse_method(&method),
-                state: parse_state(&state),
-                exchange_hashes: serde_json::from_value(exchange_hashes).unwrap_or_default(),
-                commitment,
-                pubkey,
-                sas_bytes,
-                mac,
+                tx_id: r.tx_id,
+                from_device: r.from_device,
+                to_device: r.to_device,
+                method: parse_method(&r.method),
+                state: parse_state(&r.state),
+                exchange_hashes: serde_json::from_value(r.exchange_hashes).unwrap_or_default(),
+                commitment: r.commitment,
+                pubkey: r.pubkey,
+                sas_bytes: r.sas_bytes,
+                mac: r.mac,
             }))
         } else {
             Ok(None)
@@ -248,8 +244,9 @@ impl VerificationStorage {
     }
 
     pub async fn delete_request(&self, transaction_id: &str) -> Result<(), ApiError> {
-        sqlx::query("DELETE FROM verification_requests WHERE transaction_id = $1")
-            .bind(transaction_id)
+        sqlx::query!("DELETE FROM verification_requests WHERE transaction_id = $1",
+            transaction_id,
+        )
             .execute(&*self.pool)
             .await
             .map_err(|e| {

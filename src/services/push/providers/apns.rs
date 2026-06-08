@@ -1,4 +1,4 @@
-use super::{NotificationPayload, PushProvider, PushResult};
+use super::{is_retryable_error, NotificationPayload, PushGatewayType, PushProvider, PushResult};
 use async_trait::async_trait;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
@@ -182,13 +182,9 @@ impl PushProvider for ApnsProvider {
                 PushResult::success()
             }
             Err(e) => {
-                let should_retry = e.contains("InternalServerError")
-                    || e.contains("ServiceUnavailable")
-                    || e.contains("TooManyRequests");
-
                 error!("APNS push error: {}", e);
 
-                if should_retry {
+                if is_retryable_error(&e) {
                     PushResult::retryable_failure(&e)
                 } else {
                     PushResult::failure(&e)
@@ -199,6 +195,14 @@ impl PushProvider for ApnsProvider {
 
     fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn gateway_type(&self) -> PushGatewayType {
+        PushGatewayType::Apns
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.config.endpoint
     }
 }
 

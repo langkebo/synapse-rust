@@ -1,4 +1,5 @@
 use crate::common::*;
+use crate::federation::EduDispatcher;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
 use axum::extract::{Extension, Json, Path, State};
@@ -49,8 +50,9 @@ pub(super) async fn send_transaction(
     if process_inbound_edus {
         if let Some(edus) = edus {
             let mut processed_edus = 0usize;
-            let mut processed_presence_updates = 0usize;
-            let mut dropped_presence_updates = 0usize;
+            let mut total_processed = 0usize;
+            let mut total_dropped = 0usize;
+            let mut total_errored = 0usize;
 
             super::increment_gauge(&state, "federation_inbound_edu_in_flight");
 
@@ -71,28 +73,47 @@ pub(super) async fn send_transaction(
                         origin,
                         backoff_ms
                     );
-                    return Ok::<(), ApiError>(());
+                    // Skip only presence EDUs; other types can still be processed.
                 }
 
                 for edu in edus.iter().take(inbound_edus_max_per_txn) {
                     processed_edus += 1;
-                    let edu_type = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
-                    if edu_type != "m.presence" || !process_inbound_presence_edus {
+                    let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
+
+                    // Skip presence EDUs when disabled or backoff is active.
+                    if edu_type_str == "m.presence" && !process_inbound_presence_edus {
+                        continue;
+                    }
+                    if edu_type_str == "m.presence"
+                        && get_presence_backoff_remaining_ms(&state, origin).await.is_some()
+                    {
                         continue;
                     }
 
-                    if processed_presence_updates >= inbound_presence_updates_max_per_txn {
-                        break;
+                    // Per-type rate limiting for presence.
+                    let remaining = if edu_type_str == "m.presence" {
+                        inbound_presence_updates_max_per_txn.saturating_sub(total_processed)
+                    } else {
+                        inbound_edus_max_per_txn
+                    };
+
+                    if remaining == 0 {
+                        continue;
                     }
 
-                    let remaining = inbound_presence_updates_max_per_txn - processed_presence_updates;
-                    let (processed, dropped, errored) =
-                        process_inbound_presence_edu(&state, origin, edu, remaining).await;
-                    processed_presence_updates += processed;
-                    dropped_presence_updates += dropped + errored;
-
-                    if errored > 0 {
-                        break;
+                    match EduDispatcher::dispatch(&state, origin, edu, remaining).await {
+                        Some(result) => {
+                            total_processed += result.processed;
+                            total_dropped += result.dropped;
+                            total_errored += result.errored;
+                            if result.errored > 0 {
+                                break;
+                            }
+                        }
+                        None => {
+                            // Unknown/unsupported EDU type — silently skip.
+                            ::tracing::trace!("Skipping unknown EDU type '{}' from {}", edu_type_str, origin);
+                        }
                     }
                 }
                 Ok::<(), ApiError>(())
@@ -111,14 +132,15 @@ pub(super) async fn send_transaction(
             super::decrement_gauge(&state, "federation_inbound_edu_in_flight");
 
             ::tracing::debug!(
-                "Inbound federation txn {} from {}: pdus={}, edus_total={}, edus_processed={}, presence_updates_processed={}, presence_updates_dropped={}",
+                "Inbound federation txn {} from {}: pdus={}, edus_total={}, edus_processed={}, edu_updates_processed={}, edu_updates_dropped={}, edu_updates_errored={}",
                 txn_id,
                 origin,
                 pdus.len(),
                 edus.len(),
                 processed_edus,
-                processed_presence_updates,
-                dropped_presence_updates
+                total_processed,
+                total_dropped,
+                total_errored
             );
         }
     }
@@ -382,74 +404,6 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
     Err(last_error.unwrap_or_else(|| "No verifiable PDU signature".to_string()))
 }
 
-async fn process_inbound_presence_edu(
-    state: &AppState,
-    origin: &str,
-    edu: &Value,
-    remaining_updates: usize,
-) -> (usize, usize, usize) {
-    let Some(push) = edu.get("content").and_then(|content| content.get("push")).and_then(|value| value.as_array())
-    else {
-        super::increment_counter(state, "federation_inbound_presence_dropped_total");
-        return (0, 0, 0);
-    };
-
-    let mut processed = 0usize;
-    let mut dropped = 0usize;
-    let mut errored = 0usize;
-
-    for update in push.iter().take(remaining_updates) {
-        let Some(user_id) = update.get("user_id").and_then(|value| value.as_str()) else {
-            dropped += 1;
-            continue;
-        };
-
-        if !super::user_matches_origin(user_id, origin) {
-            dropped += 1;
-            continue;
-        }
-
-        let presence = update.get("presence").and_then(|value| value.as_str()).unwrap_or("online");
-        let status_msg = update.get("status_msg").and_then(|value| value.as_str());
-
-        let exists = match state.services.user_storage.user_exists(user_id).await {
-            Ok(exists) => exists,
-            Err(error) => {
-                ::tracing::warn!("Failed to validate presence user {} from {}: {}", user_id, origin, error);
-                errored += 1;
-                set_presence_backoff(state, origin).await;
-                break;
-            }
-        };
-
-        if !exists {
-            dropped += 1;
-            continue;
-        }
-
-        if let Err(error) = state.services.presence_storage.set_presence(user_id, presence, status_msg).await {
-            ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
-            errored += 1;
-            set_presence_backoff(state, origin).await;
-            break;
-        }
-
-        processed += 1;
-    }
-
-    if processed > 0 {
-        super::increment_counter_by(state, "federation_inbound_presence_processed_total", processed as u64);
-    }
-    if dropped > 0 {
-        super::increment_counter_by(state, "federation_inbound_presence_dropped_total", dropped as u64);
-    }
-    if errored > 0 {
-        super::increment_counter_by(state, "federation_inbound_presence_error_total", errored as u64);
-    }
-
-    (processed, dropped, errored)
-}
-
 async fn acquire_origin_edu_permit(state: &AppState, origin: &str) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
     let per_origin_limit = state.services.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
     let semaphore = {
@@ -465,11 +419,4 @@ async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Op
     let guard = state.federation_presence_backoff_until.read().await;
     let until = guard.get(origin).copied()?;
     (until > now).then_some((until - now) as u64)
-}
-
-async fn set_presence_backoff(state: &AppState, origin: &str) {
-    let until =
-        chrono::Utc::now().timestamp_millis() + state.services.config.federation.inbound_presence_backoff_ms as i64;
-    let mut guard = state.federation_presence_backoff_until.write().await;
-    guard.insert(origin.to_string(), until);
 }

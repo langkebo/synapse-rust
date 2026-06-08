@@ -204,7 +204,7 @@ impl From<ThirdPartyRuleResult> for ThirdPartyRuleResultResponse {
 pub struct AccountValidityResponse {
     pub user_id: String,
     pub expiration_ts: i64,
-    pub email_sent_ts: Option<i64>,
+    pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
     pub renewal_token_ts: Option<i64>,
     pub is_valid: bool,
@@ -232,7 +232,7 @@ impl From<AccountValidity> for AccountValidityResponse {
         Self {
             user_id: v.user_id,
             expiration_ts: v.expiration_at,
-            email_sent_ts: v.email_sent_ts,
+            last_check_at: v.email_sent_ts,
             renewal_token: v.renewal_token,
             renewal_token_ts: v.renewal_token_ts,
             is_valid: v.is_valid,

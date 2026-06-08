@@ -1,0 +1,512 @@
+use synapse_common::ApiError;
+use synapse_storage::application_service::*;
+use reqwest::Client;
+use serde_json::json;
+use std::sync::Arc;
+use std::time::Duration;
+use tracing::{error, info, instrument, warn};
+
+pub struct ApplicationServiceManager {
+    storage: Arc<ApplicationServiceStorage>,
+    http_client: Client,
+    server_name: String,
+}
+
+impl ApplicationServiceManager {
+    pub fn new(storage: Arc<ApplicationServiceStorage>, server_name: String) -> Self {
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .pool_idle_timeout(Duration::from_secs(60))
+            .build()
+            .unwrap_or_else(|_| {
+                tracing::warn!("Failed to build HTTP client with custom config, using default");
+                Client::new()
+            });
+
+        Self { storage, http_client, server_name }
+    }
+
+    #[instrument(skip(self, request))]
+    pub async fn register(&self, request: RegisterApplicationServiceRequest) -> Result<ApplicationService, ApiError> {
+        info!("Registering application service: as_id={}", request.as_id);
+
+        if let Some(existing) = self
+            .storage
+            .get_by_id(&request.as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check existing service", &e))?
+        {
+            return Err(ApiError::bad_request(format!("Application service '{}' already exists", existing.as_id)));
+        }
+
+        let service = self
+            .storage
+            .register(request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to register application service", &e))?;
+
+        info!("Application service registered successfully: as_id={}", service.as_id);
+        Ok(service)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get(&self, as_id: &str) -> Result<Option<ApplicationService>, ApiError> {
+        self.storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_by_token(&self, as_token: &str) -> Result<Option<ApplicationService>, ApiError> {
+        let service = self
+            .storage
+            .get_by_token(as_token)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get application service by token", &e))?;
+
+        if let Some(ref svc) = service {
+            let _ =
+                self.storage.update_last_seen(&svc.as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
+        }
+
+        Ok(service)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_all_active(&self) -> Result<Vec<ApplicationService>, ApiError> {
+        self.storage
+            .get_all_active()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get active services", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn update(
+        &self,
+        as_id: &str,
+        request: UpdateApplicationServiceRequest,
+    ) -> Result<ApplicationService, ApiError> {
+        info!("Updating application service: as_id={}", as_id);
+
+        let service = self
+            .storage
+            .update(as_id, &request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to update application service", &e))?;
+
+        info!("Application service updated successfully: as_id={}", as_id);
+        Ok(service)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn unregister(&self, as_id: &str) -> Result<(), ApiError> {
+        info!("Unregistering application service: as_id={}", as_id);
+
+        self.storage
+            .unregister(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to unregister application service", &e))?;
+
+        info!("Application service unregistered successfully: as_id={}", as_id);
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    pub async fn validate_token(&self, as_token: &str) -> Result<ApplicationService, ApiError> {
+        self.get_by_token(as_token).await?.ok_or_else(|| ApiError::unauthorized("Invalid application service token"))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn set_state(
+        &self,
+        as_id: &str,
+        state_key: &str,
+        state_value: &str,
+    ) -> Result<ApplicationServiceState, ApiError> {
+        self.storage
+            .set_state(as_id, state_key, state_value)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to set state", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_state(&self, as_id: &str, state_key: &str) -> Result<Option<ApplicationServiceState>, ApiError> {
+        self.storage
+            .get_state(as_id, state_key)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, ApiError> {
+        self.storage.get_all_states(as_id).await.map_err(|e| ApiError::internal_with_log("Failed to get states", &e))
+    }
+
+    #[instrument(skip(self, content))]
+    pub async fn push_event(
+        &self,
+        as_id: &str,
+        room_id: &str,
+        event_type: &str,
+        sender: &str,
+        content: serde_json::Value,
+        state_key: Option<&str>,
+    ) -> Result<ApplicationServiceEvent, ApiError> {
+        let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
+
+        let event = self
+            .storage
+            .add_event(&event_id, as_id, room_id, event_type, sender, content, state_key)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
+
+        info!("Event pushed to application service: as_id={}, event_id={}", as_id, event_id);
+        Ok(event)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_pending_events(&self, as_id: &str, limit: i64) -> Result<Vec<ApplicationServiceEvent>, ApiError> {
+        self.storage
+            .get_pending_events(as_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get pending events", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn send_transaction(&self, as_id: &str, events: Vec<serde_json::Value>) -> Result<(), ApiError> {
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+
+        let transaction_id = format!("{}", uuid::Uuid::new_v4());
+
+        let _transaction = self
+            .storage
+            .create_transaction(as_id, &transaction_id, &events)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create transaction", &e))?;
+
+        let url = format!("{}/transactions/{}", service.url, transaction_id);
+
+        let response = self
+            .http_client
+            .put(&url)
+            .header("Authorization", format!("Bearer {}", service.hs_token))
+            .json(&json!({
+                "events": events
+            }))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                let _ = self
+                    .storage
+                    .complete_transaction(as_id, &transaction_id)
+                    .await
+                    .map_err(|e| error!("Failed to complete transaction: {}", e));
+
+                for event in &events {
+                    if let Some(event_id) = event.get("event_id").and_then(|e| e.as_str()) {
+                        let _ = self
+                            .storage
+                            .mark_event_processed(event_id, &transaction_id)
+                            .await
+                            .map_err(|e| warn!("Failed to mark event processed: {}", e));
+                    }
+                }
+
+                info!("Transaction sent successfully: as_id={}, txn_id={}", as_id, transaction_id);
+                Ok(())
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let error_body = resp.text().await.unwrap_or_default();
+
+                let _ = self
+                    .storage
+                    .fail_transaction(as_id, &transaction_id, &format!("HTTP {status}: {error_body}"))
+                    .await
+                    .map_err(|e| error!("Failed to fail transaction: {}", e));
+
+                Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
+            }
+            Err(e) => {
+                let _ = self
+                    .storage
+                    .fail_transaction(as_id, &transaction_id, &e.to_string())
+                    .await
+                    .map_err(|e| error!("Failed to fail transaction: {}", e));
+
+                Err(ApiError::internal_with_log("Failed to send transaction", &e))
+            }
+        }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn query_user(&self, user_id: &str) -> Result<Option<String>, ApiError> {
+        self.storage
+            .is_user_in_namespace(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to query user namespace", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn query_room_alias(&self, alias: &str) -> Result<Option<String>, ApiError> {
+        self.storage
+            .is_room_alias_in_namespace(alias)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to query room alias namespace", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn query_room_id(&self, room_id: &str) -> Result<Option<String>, ApiError> {
+        self.storage
+            .is_room_id_in_namespace(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to query room namespace", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn register_virtual_user(
+        &self,
+        as_id: &str,
+        user_id: &str,
+        displayname: Option<&str>,
+        avatar_url: Option<&str>,
+    ) -> Result<ApplicationServiceUser, ApiError> {
+        info!("Registering virtual user: as_id={}, user_id={}", as_id, user_id);
+
+        let user = self
+            .storage
+            .register_virtual_user(as_id, user_id, displayname, avatar_url)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to register virtual user", &e))?;
+
+        info!("Virtual user registered successfully: user_id={}", user_id);
+        Ok(user)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_virtual_users(&self, as_id: &str) -> Result<Vec<ApplicationServiceUser>, ApiError> {
+        self.storage
+            .get_virtual_users(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get virtual users", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_namespaces(&self, as_id: &str) -> Result<NamespacesInfo, ApiError> {
+        let users = self
+            .storage
+            .get_user_namespaces(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user namespaces", &e))?;
+        let aliases = self
+            .storage
+            .get_room_alias_namespaces(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room alias namespaces", &e))?;
+        let rooms = self
+            .storage
+            .get_room_namespaces(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room namespaces", &e))?;
+
+        Ok(NamespacesInfo { users, aliases, rooms })
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+        self.storage.get_statistics().await.map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+    }
+
+    pub async fn ping(&self, as_id: &str) -> Result<bool, ApiError> {
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get service", &e))?
+            .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+
+        let url = format!("{}/_matrix/app/v1/ping", service.url);
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", service.hs_token))
+            .json(&json!({}))
+            .send()
+            .await;
+
+        match response {
+            Ok(resp) if resp.status().is_success() => {
+                let _ =
+                    self.storage.update_last_seen(as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct NamespacesInfo {
+    pub users: Vec<ApplicationServiceNamespace>,
+    pub aliases: Vec<ApplicationServiceNamespace>,
+    pub rooms: Vec<ApplicationServiceNamespace>,
+}
+
+use serde::Serialize;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_namespaces_info_serialization() {
+        let info = NamespacesInfo { users: vec![], aliases: vec![], rooms: vec![] };
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("users"));
+        assert!(json.contains("aliases"));
+        assert!(json.contains("rooms"));
+    }
+
+    #[test]
+    fn test_namespaces_info_with_data() {
+        let namespace = synapse_storage::application_service::ApplicationServiceNamespace {
+            id: 1,
+            as_id: "test-as".to_string(),
+            namespace_pattern: "@_.*:example.com".to_string(),
+            is_exclusive: true,
+            regex: "@_.*:example.com".to_string(),
+            created_ts: 1234567890,
+        };
+        let info = NamespacesInfo { users: vec![namespace.clone()], aliases: vec![], rooms: vec![namespace] };
+        assert_eq!(info.users.len(), 1);
+        assert_eq!(info.rooms.len(), 1);
+        assert!(info.aliases.is_empty());
+    }
+
+    #[test]
+    fn test_update_request_builder() {
+        let request = synapse_storage::application_service::UpdateApplicationServiceRequest::new()
+            .url("http://new-url:8080")
+            .description("New Description")
+            .is_rate_limited(true)
+            .is_enabled(true);
+
+        assert_eq!(request.url, Some("http://new-url:8080".to_string()));
+        assert_eq!(request.description, Some("New Description".to_string()));
+        assert_eq!(request.is_rate_limited, Some(true));
+        assert_eq!(request.is_enabled, Some(true));
+    }
+
+    #[test]
+    fn test_update_request_partial() {
+        let request = synapse_storage::application_service::UpdateApplicationServiceRequest::new()
+            .description("Only Description Update");
+
+        assert!(request.url.is_none());
+        assert_eq!(request.description, Some("Only Description Update".to_string()));
+        assert!(request.is_rate_limited.is_none());
+        assert!(request.is_enabled.is_none());
+    }
+
+    #[test]
+    fn test_update_request_protocols() {
+        let request = synapse_storage::application_service::UpdateApplicationServiceRequest::new()
+            .protocols(vec!["irc".to_string(), "matrix".to_string()]);
+
+        assert_eq!(request.protocols.as_ref().unwrap().len(), 2);
+        assert!(request.protocols.unwrap().contains(&"irc".to_string()));
+    }
+
+    #[test]
+    fn test_namespace_rule_creation() {
+        let rule = synapse_storage::application_service::NamespaceRule {
+            is_exclusive: true,
+            regex: "@_irc_.*:example\\.com".to_string(),
+            group_id: Some("group:example.com".to_string()),
+        };
+        assert!(rule.is_exclusive);
+        assert_eq!(rule.regex, "@_irc_.*:example\\.com");
+        assert_eq!(rule.group_id, Some("group:example.com".to_string()));
+    }
+
+    #[test]
+    fn test_namespace_rule_without_group() {
+        let rule = synapse_storage::application_service::NamespaceRule {
+            is_exclusive: false,
+            regex: "#_.*:example\\.com".to_string(),
+            group_id: None,
+        };
+        assert!(!rule.is_exclusive);
+        assert!(rule.group_id.is_none());
+    }
+
+    #[test]
+    fn test_namespaces_structure() {
+        let namespaces = synapse_storage::application_service::Namespaces {
+            users: vec![synapse_storage::application_service::NamespaceRule {
+                is_exclusive: true,
+                regex: "@_.*:example.com".to_string(),
+                group_id: None,
+            }],
+            aliases: vec![],
+            rooms: vec![],
+        };
+        assert_eq!(namespaces.users.len(), 1);
+        assert!(namespaces.aliases.is_empty());
+        assert!(namespaces.rooms.is_empty());
+    }
+
+    #[test]
+    fn test_register_request_minimal() {
+        let request = synapse_storage::application_service::RegisterApplicationServiceRequest {
+            as_id: "minimal-as".to_string(),
+            url: "http://localhost:8080".to_string(),
+            as_token: "token".to_string(),
+            hs_token: "hs_token".to_string(),
+            sender: "@bot:example.com".to_string(),
+            description: None,
+            is_rate_limited: None,
+            protocols: None,
+            namespaces: None,
+            api_key: None,
+            config: None,
+        };
+        assert_eq!(request.as_id, "minimal-as");
+        assert!(request.description.is_none());
+        assert!(request.protocols.is_none());
+    }
+
+    #[test]
+    fn test_register_request_full() {
+        let request = synapse_storage::application_service::RegisterApplicationServiceRequest {
+            as_id: "full-as".to_string(),
+            url: "http://localhost:9999".to_string(),
+            as_token: "as_token".to_string(),
+            hs_token: "hs_token".to_string(),
+            sender: "@bridge:example.com".to_string(),
+            description: Some("A full bridge service".to_string()),
+            is_rate_limited: Some(true),
+            protocols: Some(vec!["irc".to_string()]),
+            namespaces: Some(serde_json::json!({
+                "users": [{"exclusive": true, "regex": "@_.*:example.com"}],
+                "aliases": [],
+                "rooms": []
+            })),
+            api_key: None,
+            config: None,
+        };
+        assert_eq!(request.description, Some("A full bridge service".to_string()));
+        assert_eq!(request.is_rate_limited, Some(true));
+        assert!(request.namespaces.is_some());
+    }
+}

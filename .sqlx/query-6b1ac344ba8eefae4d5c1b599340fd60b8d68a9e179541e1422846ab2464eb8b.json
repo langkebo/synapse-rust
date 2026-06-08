@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id!\", destination as \"destination!\", event_id as \"event_id!\",\n                   room_id as \"room_id?\", content as \"content!\",\n                   created_ts as \"created_ts!\", retry_count as \"retry_count!\"\n            FROM federation_queue\n            WHERE status = 'pending'\n            ORDER BY created_ts ASC\n            LIMIT 500\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "destination!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "room_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "content!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "retry_count!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6b1ac344ba8eefae4d5c1b599340fd60b8d68a9e179541e1422846ab2464eb8b"
+}

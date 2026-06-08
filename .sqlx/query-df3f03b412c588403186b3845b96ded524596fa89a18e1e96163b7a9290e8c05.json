@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                tx_id AS \"tx_id!\",\n                from_device AS \"from_device!\",\n                to_device,\n                method AS \"method!\",\n                state AS \"state!\",\n                exchange_hashes AS \"exchange_hashes!\",\n                commitment,\n                pubkey,\n                sas_bytes,\n                mac\n            FROM verification_sas WHERE tx_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tx_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_device!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "to_device",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "method!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "state!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "exchange_hashes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "commitment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "pubkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "sas_bytes",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 9,
+        "name": "mac",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "df3f03b412c588403186b3845b96ded524596fa89a18e1e96163b7a9290e8c05"
+}

@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE room_summary_members SET\n                display_name = COALESCE($3, display_name),\n                avatar_url = COALESCE($4, avatar_url),\n                membership = COALESCE($5, membership),\n                is_hero = COALESCE($6, is_hero),\n                last_active_ts = COALESCE($7, last_active_ts),\n                updated_ts = $8\n            WHERE room_id = $1 AND user_id = $2\n            RETURNING id as \"id!\", room_id as \"room_id!\", user_id as \"user_id!\",\n                      display_name as \"display_name?\", avatar_url as \"avatar_url?\",\n                      membership as \"membership!\", is_hero as \"is_hero!\",\n                      last_active_ts as \"last_active_ts?\", updated_ts as \"updated_ts!\", created_ts as \"created_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "membership!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_hero!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_active_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "da410c0bd922b242095f49cf61120b856562ebef453227fec59f521466780222"
+}

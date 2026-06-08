@@ -1,7 +1,7 @@
 // Device Trust Models
 // E2EE Phase 1: Device trust and verification
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 /// Device trust level enum
@@ -46,7 +46,7 @@ pub struct DeviceTrustStatus {
     pub device_id: String,
     pub trust_level: DeviceTrustLevel,
     pub verified_by_device_id: Option<String>,
-    pub verified_at: Option<DateTime<Utc>>,
+    pub verified_at: Option<i64>,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -69,7 +69,7 @@ impl DeviceTrustStatus {
     pub fn verify(&mut self, verified_by: &str) {
         self.trust_level = DeviceTrustLevel::Verified;
         self.verified_by_device_id = Some(verified_by.to_string());
-        self.verified_at = Some(Utc::now());
+        self.verified_at = Some(Utc::now().timestamp_millis());
         self.updated_ts = Utc::now().timestamp_millis();
     }
 
@@ -165,8 +165,8 @@ pub struct DeviceVerificationRequest {
     pub commitment: Option<String>,
     pub pubkey: Option<String>,
     pub created_ts: i64,
-    pub expires_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub expires_at: i64,
+    pub completed_at: Option<i64>,
 }
 
 impl DeviceVerificationRequest {
@@ -177,7 +177,7 @@ impl DeviceVerificationRequest {
         token: &str,
         expires_minutes: i64,
     ) -> Self {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         Self {
             id: 0,
             user_id: user_id.to_string(),
@@ -188,29 +188,29 @@ impl DeviceVerificationRequest {
             request_token: token.to_string(),
             commitment: None,
             pubkey: None,
-            created_ts: now.timestamp_millis(),
-            expires_at: now + chrono::Duration::minutes(expires_minutes),
+            created_ts: now,
+            expires_at: now + expires_minutes * 60 * 1000,
             completed_at: None,
         }
     }
 
     pub fn is_expired(&self) -> bool {
-        Utc::now() > self.expires_at
+        Utc::now().timestamp_millis() > self.expires_at
     }
 
     pub fn approve(&mut self) {
         self.status = VerificationRequestStatus::Approved;
-        self.completed_at = Some(Utc::now());
+        self.completed_at = Some(Utc::now().timestamp_millis());
     }
 
     pub fn reject(&mut self) {
         self.status = VerificationRequestStatus::Rejected;
-        self.completed_at = Some(Utc::now());
+        self.completed_at = Some(Utc::now().timestamp_millis());
     }
 
     pub fn expire(&mut self) {
         self.status = VerificationRequestStatus::Expired;
-        self.completed_at = Some(Utc::now());
+        self.completed_at = Some(Utc::now().timestamp_millis());
     }
 }
 
@@ -225,7 +225,7 @@ pub struct KeyRotationLog {
     pub old_key_id: Option<String>,
     pub new_key_id: Option<String>,
     pub reason: Option<String>,
-    pub rotated_at: DateTime<Utc>,
+    pub rotated_at: i64,
 }
 
 impl KeyRotationLog {
@@ -239,7 +239,7 @@ impl KeyRotationLog {
             old_key_id: None,
             new_key_id: None,
             reason: None,
-            rotated_at: Utc::now(),
+            rotated_at: Utc::now().timestamp_millis(),
         }
     }
 
@@ -316,7 +316,7 @@ pub struct CrossSigningTrust {
     pub target_user_id: String,
     pub master_key_id: Option<String>,
     pub is_trusted: bool,
-    pub trusted_at: Option<DateTime<Utc>>,
+    pub trusted_at: Option<i64>,
     pub created_ts: i64,
     pub updated_ts: i64,
 }
@@ -385,7 +385,7 @@ pub struct VerificationRequestRequest {
 pub struct VerificationRequestResponse {
     pub request_token: String,
     pub status: String,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: i64,
     pub methods_available: Vec<String>,
 }
 
@@ -405,7 +405,7 @@ pub struct VerificationRespondResponse {
 pub struct DeviceTrustStatusResponse {
     pub device_id: String,
     pub trust_level: String,
-    pub verified_at: Option<DateTime<Utc>>,
+    pub verified_at: Option<i64>,
     pub verified_by: Option<String>,
 }
 

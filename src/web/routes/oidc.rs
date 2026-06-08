@@ -374,7 +374,9 @@ async fn oidc_userinfo(
     let name = profile.get("displayname").and_then(|v| v.as_str()).map(String::from);
 
     let picture = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
-        if s.starts_with("mxc://") {
+        if let Ok(loc) = crate::common::media_locator::MediaLocator::parse(s) {
+            loc.to_mxc_url()
+        } else if s.starts_with("mxc://") {
             s.to_string()
         } else {
             format!("mxc://{s}")
@@ -497,23 +499,24 @@ async fn oidc_token(
             // 控制 preferred_username 等映射字段冒用本地已存在账号。
             let pool = &*state.services.user_storage.pool;
             let bound_user_id: Option<String> =
-                sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
-                    .bind(&issuer)
-                    .bind(&subject)
-                    .fetch_optional(pool)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
+                sqlx::query_scalar!("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
+                    &issuer,
+                    &subject
+                )
+                .fetch_optional(pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
 
             let matrix_user_id = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                sqlx::query(
+                sqlx::query!(
                     "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
                      authentication_count = authentication_count + 1 \
                      WHERE issuer = $2 AND subject = $3",
+                    now_ts,
+                    &issuer,
+                    &subject
                 )
-                .bind(now_ts)
-                .bind(&issuer)
-                .bind(&subject)
                 .execute(pool)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
@@ -543,15 +546,15 @@ async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                sqlx::query(
+                sqlx::query!(
                     "INSERT INTO oidc_user_mapping \
                      (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count) \
                      VALUES ($1, $2, $3, $4, $4, 1)",
+                    &issuer,
+                    &subject,
+                    &matrix_user_id,
+                    now_ts
                 )
-                .bind(&issuer)
-                .bind(&subject)
-                .bind(&matrix_user_id)
-                .bind(now_ts)
                 .execute(pool)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;

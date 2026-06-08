@@ -58,9 +58,19 @@ impl Default for Argon2Config {
 }
 
 impl Argon2Config {
+    /// OWASP 推荐的最低 m_cost（65536 = 64 MiB）
     pub const OWASP_MIN_M_COST: u32 = 65536;
+    /// OWASP 推荐的最低 t_cost
     pub const OWASP_MIN_T_COST: u32 = 3;
+    /// OWASP 推荐的最低 p_cost
     pub const OWASP_MIN_P_COST: u32 = 1;
+
+    /// 启动时强制下限：m_cost 允许的绝对最低值（32768 = 32 MiB）
+    pub const FLOOR_M_COST: u32 = 32768;
+    /// 启动时强制下限：t_cost 允许的绝对最低值
+    pub const FLOOR_T_COST: u32 = 1;
+    /// 启动时强制下限：p_cost 允许的绝对最低值
+    pub const FLOOR_P_COST: u32 = 1;
 
     pub fn new(m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Self, Argon2ConfigError> {
         Self::new_with_output_len(m_cost, t_cost, p_cost, Some(32))
@@ -159,6 +169,44 @@ impl Argon2Config {
             .map_err(|e| Argon2ConfigError::InvalidParams(e.to_string()))
     }
 
+    /// 强制校验参数下限，低于下限时打印 warning 并自动提升到最低值。
+    /// 不会 panic，不会阻止启动。
+    pub fn enforce_minimum(&mut self) {
+        if self.m_cost < Self::FLOOR_M_COST {
+            tracing::warn!(
+                "Argon2 m_cost ({}) is below the enforced floor ({}). \
+                 Automatically raising to {} for security compliance. \
+                 OWASP recommends m_cost >= 65536 (64 MiB).",
+                self.m_cost,
+                Self::FLOOR_M_COST,
+                Self::FLOOR_M_COST
+            );
+            self.m_cost = Self::FLOOR_M_COST;
+        }
+
+        if self.t_cost < Self::FLOOR_T_COST {
+            tracing::warn!(
+                "Argon2 t_cost ({}) is below the enforced floor ({}). \
+                 Automatically raising to {}.",
+                self.t_cost,
+                Self::FLOOR_T_COST,
+                Self::FLOOR_T_COST
+            );
+            self.t_cost = Self::FLOOR_T_COST;
+        }
+
+        if self.p_cost < Self::FLOOR_P_COST {
+            tracing::warn!(
+                "Argon2 p_cost ({}) is below the enforced floor ({}). \
+                 Automatically raising to {}.",
+                self.p_cost,
+                Self::FLOOR_P_COST,
+                Self::FLOOR_P_COST
+            );
+            self.p_cost = Self::FLOOR_P_COST;
+        }
+    }
+
     pub fn initialize_global(config: Self) -> Result<(), Argon2ConfigError> {
         config.validate()?;
 
@@ -166,9 +214,34 @@ impl Argon2Config {
         Ok(())
     }
 
-    pub fn initialize_global_owasp(config: Self) -> Result<(), Argon2ConfigError> {
+    pub fn initialize_global_owasp(mut config: Self) -> Result<(), Argon2ConfigError> {
+        // 先强制下限校验，自动提升不合规参数
+        config.enforce_minimum();
+
         config.validate()?;
-        config.validate_owasp()?;
+
+        // 低于 OWASP 推荐值但高于强制下限时，打印 warning 但不阻止启动
+        if config.m_cost < Self::OWASP_MIN_M_COST {
+            tracing::warn!(
+                "Argon2 m_cost ({}) is below OWASP recommendation ({}). \
+                 The value is above the enforced floor ({}) so it is allowed, \
+                 but for better security consider raising m_cost to at least 65536.",
+                config.m_cost,
+                Self::OWASP_MIN_M_COST,
+                Self::FLOOR_M_COST
+            );
+        }
+
+        if config.t_cost < Self::OWASP_MIN_T_COST {
+            tracing::warn!(
+                "Argon2 t_cost ({}) is below OWASP recommendation ({}). \
+                 The value is above the enforced floor ({}) so it is allowed, \
+                 but for better security consider raising t_cost to at least 3.",
+                config.t_cost,
+                Self::OWASP_MIN_T_COST,
+                Self::FLOOR_T_COST
+            );
+        }
 
         let _ = GLOBAL_ARGON2_CONFIG.set(config);
         Ok(())
@@ -211,23 +284,27 @@ impl std::fmt::Display for Argon2Config {
 
 impl From<crate::common::config::SecurityConfig> for Argon2Config {
     fn from(security: crate::common::config::SecurityConfig) -> Self {
-        Self {
+        let mut config = Self {
             m_cost: security.argon2_m_cost,
             t_cost: security.argon2_t_cost,
             p_cost: security.argon2_p_cost,
             output_len: Some(32),
-        }
+        };
+        config.enforce_minimum();
+        config
     }
 }
 
 impl From<&crate::common::config::SecurityConfig> for Argon2Config {
     fn from(security: &crate::common::config::SecurityConfig) -> Self {
-        Self {
+        let mut config = Self {
             m_cost: security.argon2_m_cost,
             t_cost: security.argon2_t_cost,
             p_cost: security.argon2_p_cost,
             output_len: Some(32),
-        }
+        };
+        config.enforce_minimum();
+        config
     }
 }
 
@@ -381,5 +458,90 @@ mod tests {
         assert_eq!(config.m_cost, 65536);
         assert_eq!(config.t_cost, 3);
         assert_eq!(config.p_cost, 1);
+    }
+
+    #[test]
+    fn test_enforce_minimum_raises_m_cost() {
+        let mut config = Argon2Config { m_cost: 1024, t_cost: 1, p_cost: 1, output_len: Some(32) };
+        config.enforce_minimum();
+        assert_eq!(config.m_cost, Argon2Config::FLOOR_M_COST);
+        assert_eq!(config.t_cost, 1);
+        assert_eq!(config.p_cost, 1);
+    }
+
+    #[test]
+    fn test_enforce_minimum_raises_t_cost() {
+        let mut config = Argon2Config { m_cost: 32768, t_cost: 0, p_cost: 1, output_len: Some(32) };
+        config.enforce_minimum();
+        assert_eq!(config.m_cost, 32768);
+        assert_eq!(config.t_cost, Argon2Config::FLOOR_T_COST);
+        assert_eq!(config.p_cost, 1);
+    }
+
+    #[test]
+    fn test_enforce_minimum_raises_p_cost() {
+        let mut config = Argon2Config { m_cost: 32768, t_cost: 1, p_cost: 0, output_len: Some(32) };
+        config.enforce_minimum();
+        assert_eq!(config.m_cost, 32768);
+        assert_eq!(config.t_cost, 1);
+        assert_eq!(config.p_cost, Argon2Config::FLOOR_P_COST);
+    }
+
+    #[test]
+    fn test_enforce_minimum_no_change_when_above_floor() {
+        let mut config = Argon2Config { m_cost: 65536, t_cost: 3, p_cost: 1, output_len: Some(32) };
+        config.enforce_minimum();
+        assert_eq!(config.m_cost, 65536);
+        assert_eq!(config.t_cost, 3);
+        assert_eq!(config.p_cost, 1);
+    }
+
+    #[test]
+    fn test_enforce_minimum_m_cost_at_floor() {
+        let mut config = Argon2Config { m_cost: 32768, t_cost: 1, p_cost: 1, output_len: Some(32) };
+        config.enforce_minimum();
+        assert_eq!(config.m_cost, 32768);
+    }
+
+    #[test]
+    fn test_from_security_config_low_values_auto_raised() {
+        use crate::common::config::SecurityConfig;
+
+        let security = SecurityConfig {
+            secret: "test_secret".to_string(),
+            expiry_time: 3600,
+            refresh_token_expiry: 604800,
+            argon2_m_cost: 1024,
+            argon2_t_cost: 0,
+            argon2_p_cost: 0,
+            allow_legacy_hashes: false,
+            login_failure_lockout_threshold: 5,
+            login_lockout_duration_seconds: 900,
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: 1,
+            admin_rbac_enabled: true,
+            ui_auth_session_timeout: 900,
+        };
+
+        let config = Argon2Config::from(security);
+        assert_eq!(config.m_cost, Argon2Config::FLOOR_M_COST);
+        assert_eq!(config.t_cost, Argon2Config::FLOOR_T_COST);
+        assert_eq!(config.p_cost, Argon2Config::FLOOR_P_COST);
+    }
+
+    #[test]
+    fn test_initialize_global_owasp_auto_raises_low_values() {
+        // 验证 initialize_global_owasp 对低于下限的参数不会返回错误
+        // （enforce_minimum 会自动提升参数值）
+        let config = Argon2Config { m_cost: 1024, t_cost: 0, p_cost: 0, output_len: Some(32) };
+        let mut enforced = config;
+        enforced.enforce_minimum();
+        // enforce_minimum 应将参数提升到下限
+        assert_eq!(enforced.m_cost, Argon2Config::FLOOR_M_COST);
+        assert_eq!(enforced.t_cost, Argon2Config::FLOOR_T_COST);
+        assert_eq!(enforced.p_cost, Argon2Config::FLOOR_P_COST);
+        // 提升后的配置应通过 validate
+        assert!(enforced.validate().is_ok());
     }
 }

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE beacon_info\n                    SET expires_at = $2, updated_ts = $3\n                    WHERE event_id = $1\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "191f2eb770049366b82d059c5222ca9d8064693ca4d3a9d94f4d61541cdfd444"
+}

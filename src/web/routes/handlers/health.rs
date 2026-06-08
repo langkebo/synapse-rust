@@ -59,14 +59,14 @@ pub async fn detailed_health_check(
     ];
     let mut missing_tables = Vec::new();
     for table in &required_tables {
-        let exists: Result<(bool,), _> = sqlx::query_as(
+        let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1)",
+            table
         )
-        .bind(table)
         .fetch_one(&*pool)
         .await;
         match exists {
-            Ok((true,)) => {}
+            Ok(Some(true)) => {}
             _ => {
                 missing_tables.push(table.to_string());
             }

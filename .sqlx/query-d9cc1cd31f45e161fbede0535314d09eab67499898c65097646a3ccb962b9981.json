@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT key AS \"key!\", value AS \"value?\", expiry_ts AS \"expiry_ts?\" FROM federation_cache ORDER BY key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "value?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "expiry_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "d9cc1cd31f45e161fbede0535314d09eab67499898c65097646a3ccb962b9981"
+}

@@ -103,7 +103,6 @@ fn create_test_config() -> Config {
             key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
-            allow_insecure_key_fetch: false,
             process_inbound_edus: false,
             inbound_edus_max_per_txn: 100,
             inbound_edu_max_concurrency: 8,
@@ -132,7 +131,6 @@ fn create_test_config() -> Config {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
-            invite_signing_key: None,
         },
         search: SearchConfig {
             enabled: false,

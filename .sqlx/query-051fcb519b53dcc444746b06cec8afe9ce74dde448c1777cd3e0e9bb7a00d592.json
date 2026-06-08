@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE cas_proxy_tickets\n            SET consumed_at = $1, is_valid = FALSE\n            WHERE proxy_ticket_id = $2 AND service_url = $3 AND is_valid = TRUE AND expires_at > $1\n            RETURNING\n                id AS \"id!\",\n                proxy_ticket_id AS \"proxy_ticket_id!\",\n                user_id AS \"user_id!\",\n                service_url AS \"service_url!\",\n                pgt_url AS \"pgt_url?\",\n                created_ts AS \"created_ts!\",\n                expires_at AS \"expires_at!\",\n                consumed_at AS \"consumed_at?\",\n                is_valid AS \"is_valid!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "proxy_ticket_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "service_url!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "pgt_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "consumed_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "051fcb519b53dcc444746b06cec8afe9ce74dde448c1777cd3e0e9bb7a00d592"
+}

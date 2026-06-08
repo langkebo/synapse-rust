@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO feature_flags (\n                flag_key,\n                target_scope,\n                rollout_percent,\n                expires_at,\n                reason,\n                status,\n                created_by,\n                created_ts,\n                updated_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)\n            RETURNING flag_key as \"flag_key!\", target_scope as \"target_scope!\", rollout_percent as \"rollout_percent!\", expires_at, reason as \"reason!\", status as \"status!\", created_by as \"created_by!\", created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flag_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_scope!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "rollout_percent!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "expires_at",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "reason!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "46ea40bb822fcf4a2a39233f98f31f34278881ae4cf247be8bf0c7fe0d1ad17a"
+}

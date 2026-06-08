@@ -55,10 +55,29 @@ pub struct RateLimitEndpointRule {
     pub rule: RateLimitRule,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RateLimitBackend {
+    /// Automatically use Redis when available, fall back to in-memory otherwise.
+    #[default]
+    Auto,
+    /// Always use Redis; fail loudly if Redis is not available.
+    Redis,
+    /// Always use in-memory token bucket (single-worker mode only).
+    Local,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfigFile {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Rate-limit token-bucket backend: "auto" (default), "redis", or "local".
+    ///
+    /// - `auto`: use Redis when available, fall back to in-memory.
+    /// - `redis`: require Redis; log an error and refuse requests if Redis is down.
+    /// - `local`: always use in-memory (single-worker deployments only).
+    #[serde(default)]
+    pub backend: RateLimitBackend,
     #[serde(default)]
     pub default: RateLimitRule,
     #[serde(default)]
@@ -111,6 +130,7 @@ impl Default for RateLimitConfigFile {
     fn default() -> Self {
         Self {
             enabled: default_enabled(),
+            backend: RateLimitBackend::default(),
             default: RateLimitRule::default(),
             endpoints: vec![
                 RateLimitEndpointRule {

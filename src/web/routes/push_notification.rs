@@ -69,7 +69,7 @@ pub struct DeviceResponse {
     pub platform: Option<String>,
     pub enabled: bool,
     pub created_ts: i64,
-    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_used_ts: Option<i64>,
 }
 
 impl From<PushDevice> for DeviceResponse {
@@ -80,7 +80,7 @@ impl From<PushDevice> for DeviceResponse {
             platform: device.platform,
             enabled: device.enabled,
             created_ts: device.created_ts,
-            last_used_at: device.last_used_at,
+            last_used_ts: device.last_used_at,
         }
     }
 }

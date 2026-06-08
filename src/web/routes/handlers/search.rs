@@ -12,6 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
+
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -469,7 +470,9 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
 
     for row in rows {
         let target_user_id = row.user_id;
-        let presence = row.presence.unwrap_or_else(|| "offline".to_string());
+        let presence_str = row.presence.unwrap_or_else(|| "offline".to_string());
+        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
+            .unwrap_or(crate::common::PresenceState::Offline);
 
         if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
@@ -479,7 +482,7 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
             "user_id": target_user_id,
             "display_name": row.displayname,
             "avatar_url": row.avatar_url,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "last_active_ts": row.last_active_ts,
             "match_score": row.match_score,
             "match_type": row.match_type
@@ -845,28 +848,30 @@ async fn timestamp_to_event(
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let event = if dir == "b" {
-        sqlx::query(
-            "SELECT event_id, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts <= $2 ORDER BY origin_server_ts DESC LIMIT 1"
+        sqlx::query!(
+            r#"SELECT event_id as "event_id!", origin_server_ts as "origin_server_ts!" FROM events WHERE room_id = $1 AND origin_server_ts <= $2 ORDER BY origin_server_ts DESC LIMIT 1"#,
+            room_id,
+            ts
         )
-        .bind(&room_id)
-        .bind(ts)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
+        .map(|row| row.map(|r| (r.event_id, r.origin_server_ts)))
     } else {
-        sqlx::query(
-            "SELECT event_id, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts >= $2 ORDER BY origin_server_ts ASC LIMIT 1"
+        sqlx::query!(
+            r#"SELECT event_id as "event_id!", origin_server_ts as "origin_server_ts!" FROM events WHERE room_id = $1 AND origin_server_ts >= $2 ORDER BY origin_server_ts ASC LIMIT 1"#,
+            room_id,
+            ts
         )
-        .bind(&room_id)
-        .bind(ts)
         .fetch_optional(&*state.services.user_storage.pool)
         .await
+        .map(|row| row.map(|r| (r.event_id, r.origin_server_ts)))
     }
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match event {
-        Some(row) => Ok(Json(json!({
-            "event_id": row.get::<Option<String>, _>("event_id"),
-            "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
+        Some((event_id, origin_server_ts)) => Ok(Json(json!({
+            "event_id": event_id,
+            "origin_server_ts": origin_server_ts
         }))),
         None => Err(ApiError::not_found("No event found at this timestamp".to_string())),
     }
@@ -901,22 +906,22 @@ async fn get_event_context(
 
     let target_ts = target_event.origin_server_ts;
 
-    let events_before = sqlx::query(
-        "SELECT event_id, sender, event_type AS type, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts < $2 ORDER BY origin_server_ts DESC LIMIT $3"
+    let events_before = sqlx::query!(
+        r#"SELECT event_id, sender, event_type AS "type", content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts < $2 ORDER BY origin_server_ts DESC LIMIT $3"#,
+        room_id,
+        target_ts,
+        limit as i64
     )
-    .bind(&room_id)
-    .bind(target_ts)
-    .bind(limit as i64)
     .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let events_after = sqlx::query(
-        "SELECT event_id, sender, event_type AS type, content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts > $2 ORDER BY origin_server_ts ASC LIMIT $3"
+    let events_after = sqlx::query!(
+        r#"SELECT event_id, sender, event_type AS "type", content, origin_server_ts FROM events WHERE room_id = $1 AND origin_server_ts > $2 ORDER BY origin_server_ts ASC LIMIT $3"#,
+        room_id,
+        target_ts,
+        limit as i64
     )
-    .bind(&room_id)
-    .bind(target_ts)
-    .bind(limit as i64)
     .fetch_all(&*state.services.rooms.event_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -925,11 +930,11 @@ async fn get_event_context(
         .iter()
         .map(|row| {
             json!({
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "sender": row.get::<Option<String>, _>("sender"),
-                "type": row.get::<Option<String>, _>("type"),
-                "content": row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
-                "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
+                "event_id": row.event_id,
+                "sender": row.sender,
+                "type": row.r#type,
+                "content": row.content.clone(),
+                "origin_server_ts": row.origin_server_ts
             })
         })
         .collect();
@@ -938,11 +943,11 @@ async fn get_event_context(
         .iter()
         .map(|row| {
             json!({
-                "event_id": row.get::<Option<String>, _>("event_id"),
-                "sender": row.get::<Option<String>, _>("sender"),
-                "type": row.get::<Option<String>, _>("type"),
-                "content": row.get::<Option<Value>, _>("content").unwrap_or(json!({})),
-                "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
+                "event_id": row.event_id,
+                "sender": row.sender,
+                "type": row.r#type,
+                "content": row.content.clone(),
+                "origin_server_ts": row.origin_server_ts
             })
         })
         .collect();
@@ -1231,8 +1236,10 @@ async fn search_recipients(
 
     for row in users {
         let target_user_id = row.user_id;
-        let presence = row.presence.unwrap_or_else(|| "offline".to_string());
-        let online = presence == "online";
+        let presence_str = row.presence.unwrap_or_else(|| "offline".to_string());
+        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
+            .unwrap_or(crate::common::PresenceState::Offline);
+        let online = presence_state == crate::common::PresenceState::Online;
         if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
         }
@@ -1242,7 +1249,7 @@ async fn search_recipients(
             "username": row.username,
             "display_name": row.displayname,
             "avatar_url": row.avatar_url,
-            "presence": presence,
+            "presence": presence_state.to_string(),
             "online": online,
             "last_active_ts": row.last_active_ts,
             "match_score": row.match_score,
@@ -1278,8 +1285,8 @@ async fn search_rooms(
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());
 
-    let rooms = sqlx::query(
-        r"
+    let rooms = sqlx::query!(
+        r#"
         SELECT room_id, name, topic, avatar_url, is_public
         FROM rooms
         WHERE
@@ -1296,11 +1303,11 @@ async fn search_rooms(
             )
         ORDER BY name
         LIMIT $3
-        ",
+        "#,
+        search_pattern,
+        auth_user.user_id,
+        limit
     )
-    .bind(&search_pattern)
-    .bind(&auth_user.user_id)
-    .bind(limit)
     .fetch_all(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
@@ -1309,12 +1316,12 @@ async fn search_rooms(
         .iter()
         .map(|row| {
             json!({
-                "room_id": row.get::<String, _>("room_id"),
-                "name": row.get::<Option<String>, _>("name"),
-                "topic": row.get::<Option<String>, _>("topic"),
-                "avatar_url": row.get::<Option<String>, _>("avatar_url"),
-                "is_public": row.get::<bool, _>("is_public"),
-                "world_readable": row.get::<bool, _>("is_public"),
+                "room_id": row.room_id,
+                "name": row.name,
+                "topic": row.topic,
+                "avatar_url": row.avatar_url,
+                "is_public": row.is_public,
+                "world_readable": row.is_public,
                 "num_joined_members": 0,
             })
         })

@@ -1,0 +1,92 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO ai_generations\n                (user_id, conversation_id, type, prompt, status, created_ts)\n            VALUES ($1, $2, $3, $4, 'pending', $5)\n            RETURNING id as \"id!\", user_id as \"user_id!\", conversation_id as \"conversation_id?\",\n                      type as \"type!\", prompt as \"prompt!\", result_url as \"result_url?\",\n                      result_mxc as \"result_mxc?\", COALESCE(status, 'pending') as \"status!\",\n                      error_message as \"error_message?\", metadata as \"metadata?\",\n                      created_ts as \"created_ts!\", completed_ts as \"completed_ts?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "conversation_id?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "prompt!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "result_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "result_mxc?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "error_message?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "completed_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      null,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "6a64a686c548eae4a0fcf38e1257ae78c17eef35fc03d7e54c45106b04a80b36"
+}

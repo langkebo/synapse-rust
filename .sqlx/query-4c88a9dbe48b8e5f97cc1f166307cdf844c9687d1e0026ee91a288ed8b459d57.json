@@ -1,0 +1,139 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO sliding_sync_rooms\n                (user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count,\n                 is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)\n            ON CONFLICT (user_id, device_id, room_id, COALESCE(conn_id, '')) DO UPDATE SET\n                list_key = COALESCE(EXCLUDED.list_key, sliding_sync_rooms.list_key),\n                bump_stamp = GREATEST(sliding_sync_rooms.bump_stamp, EXCLUDED.bump_stamp),\n                highlight_count = EXCLUDED.highlight_count,\n                notification_count = EXCLUDED.notification_count,\n                is_dm = EXCLUDED.is_dm,\n                is_encrypted = EXCLUDED.is_encrypted,\n                is_tombstoned = EXCLUDED.is_tombstoned,\n                invited = EXCLUDED.invited,\n                name = COALESCE(EXCLUDED.name, sliding_sync_rooms.name),\n                avatar = COALESCE(EXCLUDED.avatar, sliding_sync_rooms.avatar),\n                timestamp = EXCLUDED.timestamp,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING\n                id as \"id!\", user_id as \"user_id!\", device_id as \"device_id!\", room_id as \"room_id!\",\n                conn_id, list_key,\n                COALESCE(bump_stamp, 0) AS \"bump_stamp!\",\n                COALESCE(highlight_count, 0) AS \"highlight_count!\",\n                COALESCE(notification_count, 0) AS \"notification_count!\",\n                COALESCE(is_dm, false) AS \"is_dm!\",\n                COALESCE(is_encrypted, false) AS \"is_encrypted!\",\n                COALESCE(is_tombstoned, false) AS \"is_tombstoned!\",\n                COALESCE(invited, false) AS \"is_invited!\",\n                name, avatar,\n                COALESCE(timestamp, 0) AS \"timestamp!\",\n                created_ts as \"created_ts!\", updated_ts as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "conn_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "list_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "bump_stamp!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "highlight_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "notification_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_dm!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_encrypted!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "is_tombstoned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_invited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 13,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "avatar",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "timestamp!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      true,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "4c88a9dbe48b8e5f97cc1f166307cdf844c9687d1e0026ee91a288ed8b459d57"
+}

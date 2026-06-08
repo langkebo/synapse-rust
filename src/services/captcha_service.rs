@@ -241,7 +241,7 @@ mod tests {
             is_default: true,
             is_enabled: true,
             created_ts: 0,
-            updated_ts: 0,
+            updated_ts: Some(0i64),
         };
 
         let content = CaptchaService::render_template_static(&template, "123456", 10);

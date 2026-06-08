@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id!\", command_id as \"command_id!\", target_worker_id as \"target_worker_id!\",\n                      source_worker_id as \"source_worker_id?\", command_type as \"command_type!\",\n                      COALESCE(command_data, '{}'::jsonb) as \"command_data!\",\n                      priority as \"priority!\", status as \"status!\", created_ts as \"created_ts!\",\n                      sent_ts as \"sent_ts?\", completed_ts as \"completed_ts?\",\n                      error_message as \"error_message?\", retry_count as \"retry_count!\", max_retries as \"max_retries!\"\n            FROM worker_commands\n            WHERE target_worker_id = $1 AND status = 'pending'\n            ORDER BY priority DESC, created_ts ASC\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "command_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "target_worker_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "source_worker_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "command_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "command_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "sent_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "completed_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "error_message?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "retry_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "max_retries!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e0a5fef2c1b2d15f83cd3701918086784b2980d5899ed1624f7030183e157a0d"
+}

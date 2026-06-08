@@ -1,4 +1,4 @@
-use super::{NotificationPayload, PushProvider, PushResult};
+use super::{is_retryable_error, NotificationPayload, PushGatewayType, PushProvider, PushResult};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -158,12 +158,7 @@ impl PushProvider for FcmProvider {
                         if let Some(error) = &result.error {
                             warn!("FCM push failed: {}", error);
 
-                            let should_retry = matches!(
-                                error.as_str(),
-                                "Unavailable" | "InternalServerError" | "DeviceMessageRateExceeded"
-                            );
-
-                            if should_retry {
+                            if is_retryable_error(error) {
                                 return PushResult::retryable_failure(error);
                             }
                             return PushResult::failure(error);
@@ -183,6 +178,14 @@ impl PushProvider for FcmProvider {
 
     fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn gateway_type(&self) -> PushGatewayType {
+        PushGatewayType::Fcm
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.config.endpoint
     }
 }
 

@@ -1,0 +1,100 @@
+[package]
+name = "synapse-services"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.0"
+authors = ["Synapse Rust Team"]
+description = "Service layer for Synapse Rust"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+default = ["server"]
+server = ["synapse-common/server"]
+openclaw = ["synapse-common/openclaw"]
+openclaw-routes = ["synapse-common/openclaw-routes"]
+runtime-ddl = ["synapse-common/runtime-ddl", "synapse-storage/runtime-ddl"]
+test-utils = ["synapse-common/test-utils", "synapse-storage/test-utils", "synapse-e2ee/test-utils", "synapse-federation/test-utils"]
+performance-tests = []
+vodozemac-megolm = ["synapse-common/vodozemac-megolm", "synapse-storage/vodozemac-megolm", "synapse-e2ee/vodozemac-megolm"]
+core-private-chat = ["friends", "burn-after-read"]
+friends = ["synapse-common/friends", "synapse-storage/friends", "synapse-federation/friends"]
+voice-extended = ["synapse-common/voice-extended", "synapse-storage/voice-extended"]
+saml-sso = ["synapse-common/saml-sso", "synapse-storage/saml-sso"]
+cas-sso = ["synapse-common/cas-sso", "synapse-storage/cas-sso"]
+beacons = ["synapse-common/beacons", "synapse-storage/beacons"]
+voip-tracking = ["synapse-common/voip-tracking", "synapse-storage/voip-tracking"]
+widgets = ["synapse-common/widgets", "synapse-storage/widgets"]
+server-notifications = ["synapse-common/server-notifications", "synapse-storage/server-notifications"]
+burn-after-read = ["synapse-common/burn-after-read", "synapse-storage/burn-after-read"]
+privacy-ext = ["synapse-common/privacy-ext", "synapse-storage/privacy-ext"]
+external-services = ["synapse-common/external-services", "synapse-storage/external-services"]
+builtin-oidc = ["synapse-common/builtin-oidc", "synapse-storage/builtin-oidc"]
+geo-ip = ["synapse-common/geo-ip", "synapse-storage/geo-ip"]
+
+[dependencies]
+synapse-common = { path = "../synapse-common" }
+synapse-cache = { path = "../synapse-cache" }
+synapse-storage = { path = "../synapse-storage" }
+synapse-e2ee = { path = "../synapse-e2ee", default-features = false }
+synapse-federation = { path = "../synapse-federation" }
+
+tokio = { version = "1.49", features = ["full", "test-util"] }
+async-trait = "0.1"
+
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
+ipnetwork = "0.20"
+
+redis = { version = "0.27", features = ["aio", "tokio-comp"] }
+deadpool-redis = "0.18"
+moka = { version = "0.12", features = ["future", "sync"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+rand = "0.8.5"
+sha1 = "0.10"
+sha2 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+base64 = "0.22"
+zeroize = "1"
+
+argon2 = "0.5"
+aes-gcm = "0.10"
+jsonwebtoken = "9"
+rsa = { version = "0.9", features = ["pem", "sha2"] }
+subtle = "2.5"
+
+image = "0.25"
+hex = "0.4.3"
+infer = "0.19.0"
+x509-cert = "0.2"
+ring = "0.17"
+
+metrics = "0.23"
+
+tracing = { version = "0.1", features = ["attributes"] }
+tracing-opentelemetry = "0.32"
+opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+
+chrono = { version = "0.4", features = ["serde"] }
+
+thiserror = "2.0"
+uuid = { version = "1", features = ["v4", "serde"] }
+futures = "0.3"
+dashmap = { version = "6", features = ["serde"] }
+regex = "1.10"
+
+reqwest = { version = "0.12", features = ["json"] }
+
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+axum = "0.8"

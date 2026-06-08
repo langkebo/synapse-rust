@@ -1,0 +1,59 @@
+[package]
+name = "synapse-e2ee"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.93.0"
+authors = ["Synapse Rust Team"]
+description = "E2EE (End-to-End Encryption) module for Synapse Rust"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[features]
+default = []
+vodozemac-megolm = ["synapse-common/vodozemac-megolm"]
+test-utils = ["synapse-common/test-utils", "synapse-storage/test-utils"]
+
+[dependencies]
+synapse-common = { path = "../synapse-common" }
+synapse-cache = { path = "../synapse-cache" }
+synapse-storage = { path = "../synapse-storage" }
+
+tokio = { version = "1.49", features = ["full", "test-util"] }
+async-trait = "0.1"
+
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+chrono = { version = "0.4", features = ["serde"] }
+
+thiserror = "2.0"
+uuid = { version = "1", features = ["v4", "serde"] }
+futures = "0.3"
+tracing = { version = "0.1", features = ["attributes"] }
+
+rand = "0.8.5"
+sha2 = { version = "0.10", features = ["oid"] }
+hmac = "0.12"
+hkdf = "0.12"
+base64 = "0.22"
+zeroize = "1"
+
+argon2 = "0.5"
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+ed25519-dalek = "2.0"
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+generic-array = "0.14"
+typenum = "1"
+subtle = "2.5"
+
+vodozemac = "0.9"
+
+dashmap = { version = "6", features = ["serde"] }
+hex = "0.4.3"
+parking_lot = "0.12"

@@ -221,6 +221,30 @@ pub fn parse_replication_command(data: &[u8]) -> Result<ReplicationCommand, ApiE
     serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))
 }
 
+// ---------------------------------------------------------------------------
+// EventBroadcaster trait implementation
+// ---------------------------------------------------------------------------
+
+impl crate::common::traits::EventBroadcaster for WorkerBus {
+    type Message = BusMessage;
+
+    async fn broadcast_publish(&self, message: Self::Message) -> Result<(), crate::common::traits::BroadcastError> {
+        let encoded = serde_json::to_vec(&message)
+            .map_err(|e| crate::common::traits::BroadcastError::EncodingFailed(e.to_string()))?;
+
+        self.publish(&message.channel, &encoded).await.map_err(|e| {
+            crate::common::traits::BroadcastError::Transport(e.to_string())
+        })
+    }
+
+    fn broadcast_subscriber_count(&self) -> usize {
+        self.subscribers
+            .try_read()
+            .map(|s| s.len())
+            .unwrap_or(0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

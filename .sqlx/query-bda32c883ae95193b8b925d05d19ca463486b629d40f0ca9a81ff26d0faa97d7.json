@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT dls.user_id\n            FROM device_lists_stream dls\n            WHERE dls.stream_id > $1\n              AND dls.user_id != $2\n              AND NOT EXISTS (\n                SELECT 1 FROM room_memberships rm1\n                INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'\n                WHERE rm1.user_id = dls.user_id AND rm1.membership = 'join'\n              )\n            ORDER BY dls.user_id\n            LIMIT 100\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bda32c883ae95193b8b925d05d19ca463486b629d40f0ca9a81ff26d0faa97d7"
+}

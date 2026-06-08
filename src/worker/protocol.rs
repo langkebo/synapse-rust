@@ -1,3 +1,4 @@
+use crate::common::PresenceState;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -119,15 +120,6 @@ pub struct EventData {
     pub sender: String,
     pub content: serde_json::Value,
     pub origin_server_ts: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PresenceState {
-    Online,
-    Unavailable,
-    Offline,
-    Busy,
 }
 
 impl fmt::Display for ReplicationCommand {

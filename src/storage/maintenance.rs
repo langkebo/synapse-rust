@@ -61,19 +61,15 @@ impl DatabaseMaintenance {
         const MIN_MODIFICATIONS: i64 = 1_000;
 
         for table in tables {
-            let modifications = sqlx::query_scalar::<_, Option<i64>>(
-                r"
-                SELECT COALESCE(n_mod_since_analyze, 0)
-                FROM pg_stat_user_tables
-                WHERE relname = $1
-                ",
+            let modifications = sqlx::query!(
+                r#"SELECT COALESCE(n_mod_since_analyze, 0)::BIGINT AS "modifications!" FROM pg_stat_user_tables WHERE relname = $1"#,
+                table
             )
-            .bind(table)
             .fetch_optional(&self.pool)
             .await
             .ok()
             .flatten()
-            .flatten()
+            .map(|r| r.modifications)
             .unwrap_or(0);
 
             if modifications < MIN_MODIFICATIONS {
@@ -120,12 +116,10 @@ impl DatabaseMaintenance {
         for index in indexes {
             let _start = Instant::now();
 
-            match sqlx::query_scalar::<_, String>(
-                r"
-                SELECT indexname FROM pg_indexes WHERE indexname = $1
-                ",
+            match sqlx::query_scalar!(
+                r#"SELECT indexname FROM pg_indexes WHERE indexname = $1"#,
+                index
             )
-            .bind(index)
             .fetch_optional(&self.pool)
             .await
             {
@@ -150,27 +144,27 @@ impl DatabaseMaintenance {
     async fn analyze_table_stats(&self) -> Result<Vec<TableStats>, sqlx::Error> {
         let mut stats = Vec::new();
 
-        let tables = sqlx::query_as::<_, (String, i64, i64, i64)>(
-            r"
+        let rows = sqlx::query!(
+            r#"
             SELECT
-                relname as table_name,
-                COALESCE(n_live_tup, 0) as live_tuples,
-                COALESCE(n_dead_tup, 0) as dead_tuples,
-                COALESCE(n_mod_since_analyze, 0) as modifications
+                relname AS "table_name!",
+                COALESCE(n_live_tup, 0)::BIGINT AS "live_tuples!",
+                COALESCE(n_dead_tup, 0)::BIGINT AS "dead_tuples!",
+                COALESCE(n_mod_since_analyze, 0)::BIGINT AS "modifications!"
             FROM pg_stat_user_tables
             ORDER BY n_mod_since_analyze DESC
             LIMIT 20
-            ",
+            "#,
         )
         .fetch_all(&self.pool)
         .await?;
 
-        for table in tables {
+        for row in rows {
             stats.push(TableStats {
-                table_name: table.0,
-                live_tuples: table.1,
-                dead_tuples: table.2,
-                modifications: table.3,
+                table_name: row.table_name,
+                live_tuples: row.live_tuples,
+                dead_tuples: row.dead_tuples,
+                modifications: row.modifications,
             });
         }
 

@@ -26,21 +26,21 @@ impl StickyEventStorage {
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            INSERT INTO room_is_sticky_events (room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts)
+        sqlx::query!(
+            r#"
+            INSERT INTO room_sticky_events (room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (room_id, user_id, event_type)
             DO UPDATE SET event_id = EXCLUDED.event_id, is_sticky = EXCLUDED.is_sticky, updated_ts = EXCLUDED.updated_ts
-            ",
+            "#,
+            room_id,
+            user_id,
+            event_id,
+            event_type,
+            is_sticky,
+            now,
+            now,
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(event_id)
-        .bind(event_type)
-        .bind(is_sticky)
-        .bind(now)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -54,74 +54,53 @@ impl StickyEventStorage {
         user_id: &str,
         event_type: &str,
     ) -> Result<Option<StickyEvent>, sqlx::Error> {
-        let result = sqlx::query_as::<_, (String, String, String, String, bool, i64, i64)>(
-            r"
-            SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts
-            FROM room_is_sticky_events
-            WHERE room_id = $1 AND user_id = $2 AND event_type = $3 AND is_sticky = true
-            ",
+        let row = sqlx::query_as!(
+            StickyEvent,
+            r#"SELECT room_id AS "room_id!", user_id AS "user_id!", event_id AS "event_id!", event_type AS "event_type!", is_sticky AS "is_sticky!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            FROM room_sticky_events
+            WHERE room_id = $1 AND user_id = $2 AND event_type = $3 AND is_sticky = true"#,
+            room_id,
+            user_id,
+            event_type,
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(event_type)
         .fetch_optional(&*self.pool)
         .await?;
 
-        Ok(result.map(|(room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts)| StickyEvent {
-            room_id,
-            user_id,
-            event_id,
-            event_type,
-            is_sticky,
-            created_ts,
-            updated_ts,
-        }))
+        Ok(row)
     }
 
     /// Get all is_sticky events for a room and user
     pub async fn get_all_is_sticky_events(&self, room_id: &str, user_id: &str) -> Result<Vec<StickyEvent>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String, String, String, String, bool, i64, i64)>(
-            r"
-            SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts
-            FROM room_is_sticky_events
+        let rows = sqlx::query_as!(
+            StickyEvent,
+            r#"SELECT room_id AS "room_id!", user_id AS "user_id!", event_id AS "event_id!", event_type AS "event_type!", is_sticky AS "is_sticky!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            FROM room_sticky_events
             WHERE room_id = $1 AND user_id = $2 AND is_sticky = true
-            ORDER BY event_type
-            ",
+            ORDER BY event_type"#,
+            room_id,
+            user_id,
         )
-        .bind(room_id)
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|(room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts)| StickyEvent {
-                room_id,
-                user_id,
-                event_id,
-                event_type,
-                is_sticky,
-                created_ts,
-                updated_ts,
-            })
-            .collect())
+        Ok(rows)
     }
 
     /// Clear is_sticky event for a room, user, and event type
     pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query(
-            r"
-            UPDATE room_is_sticky_events
+        sqlx::query!(
+            r#"
+            UPDATE room_sticky_events
             SET is_sticky = false, updated_ts = $4
             WHERE room_id = $1 AND user_id = $2 AND event_type = $3
-            ",
+            "#,
+            room_id,
+            user_id,
+            event_type,
+            now,
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(event_type)
-        .bind(now)
         .execute(&*self.pool)
         .await?;
 
@@ -130,17 +109,15 @@ impl StickyEventStorage {
 
     /// Get rooms with is_sticky events for a user (for sync)
     pub async fn get_rooms_with_is_sticky_events(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (String,)>(
-            r"
-            SELECT DISTINCT room_id FROM room_is_sticky_events
-            WHERE user_id = $1 AND is_sticky = true
-            ",
+        let rows = sqlx::query_scalar!(
+            r#"SELECT DISTINCT room_id AS "room_id!" FROM room_sticky_events
+            WHERE user_id = $1 AND is_sticky = true"#,
+            user_id,
         )
-        .bind(user_id)
         .fetch_all(&*self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| r.0).collect())
+        Ok(rows)
     }
 }
 

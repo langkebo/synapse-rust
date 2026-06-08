@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE account_validity SET\n                expiration_at = $3,\n                renewal_token = NULL,\n                is_valid = true\n            WHERE user_id = $1 AND renewal_token = $2\n            RETURNING\n                user_id as \"user_id!\",\n                expiration_at as \"expiration_at!\",\n                last_check_at as \"email_sent_ts?\",\n                renewal_token as \"renewal_token?\",\n                NULL::BIGINT as \"renewal_token_ts?\",\n                is_valid as \"is_valid!\",\n                created_ts as \"created_ts!\",\n                COALESCE(updated_ts, created_ts) as \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "expiration_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "email_sent_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "renewal_token?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "renewal_token_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      null,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "d6095958c754fcf37b03aec348f10c2c8b17bdaaeabea8466775ffaafc252b0f"
+}

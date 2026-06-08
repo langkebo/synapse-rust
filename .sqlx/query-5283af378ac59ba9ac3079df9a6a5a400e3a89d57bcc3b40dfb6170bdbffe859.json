@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO event_to_state_groups (event_id, state_group_id)\n            VALUES ($1, $2)\n            ON CONFLICT (event_id) DO UPDATE SET state_group_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5283af378ac59ba9ac3079df9a6a5a400e3a89d57bcc3b40dfb6170bdbffe859"
+}

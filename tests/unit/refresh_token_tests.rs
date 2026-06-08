@@ -60,12 +60,12 @@ mod tests {
             used_ts: 1234567890,
             ip_address: Some("127.0.0.1".to_string()),
             user_agent: Some("TestAgent".to_string()),
-            success: true,
+            is_success: true,
             error_message: None,
         };
 
         assert_eq!(usage.refresh_token_id, 100);
-        assert!(usage.success);
+        assert!(usage.is_success);
     }
 
     #[test]
@@ -79,7 +79,7 @@ mod tests {
             last_refresh_ts: Some(1234567000),
             refresh_count: 3,
             is_compromised: false,
-            compromised_at: None,
+            compromised_ts: None,
         };
 
         assert_eq!(family.family_id, "family123");

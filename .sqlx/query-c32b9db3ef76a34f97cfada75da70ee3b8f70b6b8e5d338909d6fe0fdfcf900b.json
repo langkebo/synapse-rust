@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE push_device SET last_error = $1, error_count = error_count + 1, updated_ts = $4 WHERE user_id = $2 AND device_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c32b9db3ef76a34f97cfada75da70ee3b8f70b6b8e5d338909d6fe0fdfcf900b"
+}

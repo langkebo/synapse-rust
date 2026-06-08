@@ -1,4 +1,4 @@
-use super::{NotificationPayload, PushProvider, PushResult};
+use super::{is_retryable_error, NotificationPayload, PushGatewayType, PushProvider, PushResult};
 use async_trait::async_trait;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use reqwest::Client;
@@ -11,6 +11,9 @@ pub struct WebPushProviderConfig {
     pub vapid_public_key: String,
     pub vapid_private_key: String,
     pub subject: String,
+    /// Default gateway endpoint for WebPush relay service.
+    /// Individual subscription endpoints take precedence at send time.
+    pub gateway_endpoint: String,
     pub timeout_secs: u64,
 }
 
@@ -20,6 +23,7 @@ impl Default for WebPushProviderConfig {
             vapid_public_key: String::new(),
             vapid_private_key: String::new(),
             subject: "mailto:admin@example.com".to_string(),
+            gateway_endpoint: String::new(),
             timeout_secs: 30,
         }
     }
@@ -199,11 +203,9 @@ impl PushProvider for WebPushProvider {
                 PushResult::success()
             }
             Err(e) => {
-                let should_retry = e.contains("429") || e.contains("503") || e.contains("500");
-
                 error!("WebPush error: {}", e);
 
-                if should_retry {
+                if is_retryable_error(&e) {
                     PushResult::retryable_failure(&e)
                 } else {
                     PushResult::failure(&e)
@@ -214,6 +216,14 @@ impl PushProvider for WebPushProvider {
 
     fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    fn gateway_type(&self) -> PushGatewayType {
+        PushGatewayType::WebPush
+    }
+
+    fn endpoint(&self) -> &str {
+        &self.config.gateway_endpoint
     }
 }
 

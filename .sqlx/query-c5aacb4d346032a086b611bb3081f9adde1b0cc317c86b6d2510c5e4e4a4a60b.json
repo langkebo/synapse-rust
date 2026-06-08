@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE openid_tokens\n            SET is_valid = FALSE\n            WHERE user_id = $1 AND is_valid = TRUE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c5aacb4d346032a086b611bb3081f9adde1b0cc317c86b6d2510c5e4e4a4a60b"
+}

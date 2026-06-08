@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE call_sessions\n            SET state = $3, updated_ts = $4, ended_ts = CASE WHEN $3 = 'ended' THEN $4 ELSE ended_ts END\n            WHERE call_id = $1 AND room_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a945cf7c0746d5df824ed2ba4a4c44e517612bf7b9e39d5fced1571718947de3"
+}

@@ -36,18 +36,20 @@ impl DehydratedDeviceStorage {
     }
 
     pub async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
-        sqlx::query_as::<_, DehydratedDevice>(
-            r"
-            SELECT id, user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at
+        sqlx::query_as!(
+            DehydratedDevice,
+            r#"
+            SELECT id, user_id, device_id, device_data AS "device_data!", algorithm AS "algorithm!",
+                   account, created_ts AS "created_ts!", updated_ts AS "updated_ts!", expires_at
             FROM dehydrated_devices
             WHERE user_id = $1
               AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY updated_ts DESC
             LIMIT 1
-            ",
+            "#,
+            user_id,
+            chrono::Utc::now().timestamp_millis()
         )
-        .bind(user_id)
-        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_optional(&*self.pool)
         .await
     }
@@ -56,18 +58,19 @@ impl DehydratedDeviceStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM dehydrated_devices
             WHERE user_id = $1
             ",
+            &params.user_id
         )
-        .bind(&params.user_id)
         .execute(&mut *tx)
         .await?;
 
-        let record = sqlx::query_as::<_, DehydratedDevice>(
-            r"
+        let record = sqlx::query_as!(
+            DehydratedDevice,
+            r#"
             INSERT INTO dehydrated_devices (
                 user_id,
                 device_id,
@@ -79,16 +82,17 @@ impl DehydratedDeviceStorage {
                 expires_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $6, $7)
-            RETURNING id, user_id, device_id, device_data, algorithm, account, created_ts, updated_ts, expires_at
-            ",
+            RETURNING id, user_id, device_id, device_data AS "device_data!", algorithm AS "algorithm!",
+                      account, created_ts AS "created_ts!", updated_ts AS "updated_ts!", expires_at
+            "#,
+            &params.user_id,
+            &params.device_id,
+            &params.device_data,
+            &params.algorithm,
+            params.account.as_ref(),
+            now,
+            params.expires_at
         )
-        .bind(&params.user_id)
-        .bind(&params.device_id)
-        .bind(&params.device_data)
-        .bind(&params.algorithm)
-        .bind(&params.account)
-        .bind(now)
-        .bind(params.expires_at)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -102,7 +106,7 @@ impl DehydratedDeviceStorage {
         // Best-effort cleanup of any pending to-device messages addressed to a
         // dehydrated device for this user. We don't know the device_id ahead
         // of time, so we join via dehydrated_devices in a single statement.
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM to_device_messages
             WHERE recipient_user_id = $1
@@ -110,18 +114,18 @@ impl DehydratedDeviceStorage {
                   SELECT device_id FROM dehydrated_devices WHERE user_id = $1
               )
             ",
+            user_id
         )
-        .bind(user_id)
         .execute(&mut *tx)
         .await?;
 
-        let rows = sqlx::query(
+        let rows = sqlx::query!(
             r"
             DELETE FROM dehydrated_devices
             WHERE user_id = $1
             ",
+            user_id
         )
-        .bind(user_id)
         .execute(&mut *tx)
         .await
         .map(|result| result.rows_affected())?;
@@ -139,7 +143,7 @@ impl DehydratedDeviceStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin().await?;
 
-        sqlx::query(
+        sqlx::query!(
             r"
             DELETE FROM to_device_messages
             WHERE (recipient_user_id, recipient_device_id) IN (
@@ -147,18 +151,18 @@ impl DehydratedDeviceStorage {
                 WHERE expires_at IS NOT NULL AND expires_at <= $1
             )
             ",
+            now
         )
-        .bind(now)
         .execute(&mut *tx)
         .await?;
 
-        let rows = sqlx::query(
+        let rows = sqlx::query!(
             r"
             DELETE FROM dehydrated_devices
             WHERE expires_at IS NOT NULL AND expires_at <= $1
             ",
+            now
         )
-        .bind(now)
         .execute(&mut *tx)
         .await
         .map(|result| result.rows_affected())?;
@@ -180,44 +184,35 @@ impl DehydratedDeviceStorage {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<(Vec<Value>, i64), sqlx::Error> {
-        use sqlx::Row;
-
-        let rows = sqlx::query(
-            r"
-            SELECT stream_id, sender_user_id, event_type, content, message_id
+        let rows = sqlx::query!(
+            r#"SELECT stream_id AS "stream_id!", sender_user_id AS "sender_user_id!",
+                      event_type AS "event_type!", content AS "content!", message_id
             FROM to_device_messages
             WHERE recipient_user_id = $1
               AND recipient_device_id = $2
               AND stream_id > $3
             ORDER BY stream_id ASC
-            LIMIT $4
-            ",
+            LIMIT $4"#,
+            user_id,
+            device_id,
+            since_stream_id,
+            limit
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(since_stream_id)
-        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 
         let mut max_stream_id = since_stream_id;
         let mut events = Vec::with_capacity(rows.len());
         for row in rows {
-            let stream_id: i64 = row.get("stream_id");
-            let sender: String = row.get("sender_user_id");
-            let event_type: String = row.get("event_type");
-            let content: Value = row.get("content");
-            let message_id: Option<String> = row.get("message_id");
-
-            if stream_id > max_stream_id {
-                max_stream_id = stream_id;
+            if row.stream_id > max_stream_id {
+                max_stream_id = row.stream_id;
             }
 
             let mut event = serde_json::Map::new();
-            event.insert("type".to_string(), Value::String(event_type));
-            event.insert("sender".to_string(), Value::String(sender));
-            event.insert("content".to_string(), content);
-            if let Some(mid) = message_id {
+            event.insert("type".to_string(), Value::String(row.event_type));
+            event.insert("sender".to_string(), Value::String(row.sender_user_id));
+            event.insert("content".to_string(), row.content);
+            if let Some(mid) = row.message_id {
                 event.insert("message_id".to_string(), Value::String(mid));
             }
             events.push(Value::Object(event));
@@ -243,19 +238,16 @@ impl DehydratedDeviceStorage {
         device_id: &str,
         algorithm: &str,
     ) -> Result<Option<(String, Value)>, sqlx::Error> {
-        use sqlx::Row;
         let mut tx = self.pool.begin().await?;
 
-        let row = sqlx::query(
-            r"
-            SELECT id, device_data
+        let row = sqlx::query!(
+            r#"SELECT id AS "id!", device_data AS "device_data!"
             FROM dehydrated_devices
             WHERE user_id = $1 AND device_id = $2
-            FOR UPDATE
-            ",
+            FOR UPDATE"#,
+            user_id,
+            device_id
         )
-        .bind(user_id)
-        .bind(device_id)
         .fetch_optional(&mut *tx)
         .await?;
 
@@ -264,8 +256,8 @@ impl DehydratedDeviceStorage {
             return Ok(None);
         };
 
-        let id: i64 = row.get("id");
-        let mut device_data: Value = row.get("device_data");
+        let id: i64 = row.id;
+        let mut device_data: Value = row.device_data;
 
         let prefix = format!("{algorithm}:");
 
@@ -274,12 +266,14 @@ impl DehydratedDeviceStorage {
             if let Some(matched_id) = otk_obj.keys().find(|k| k.starts_with(&prefix)).cloned() {
                 if let Some(payload) = otk_obj.remove(&matched_id) {
                     let remaining_with_prefix = otk_obj.keys().filter(|k| k.starts_with(&prefix)).count();
-                    sqlx::query("UPDATE dehydrated_devices SET device_data = $1, updated_ts = $2 WHERE id = $3")
-                        .bind(&device_data)
-                        .bind(chrono::Utc::now().timestamp_millis())
-                        .bind(id)
-                        .execute(&mut *tx)
-                        .await?;
+                    sqlx::query!(
+                        r#"UPDATE dehydrated_devices SET device_data = $1, updated_ts = $2 WHERE id = $3"#,
+                        &device_data,
+                        chrono::Utc::now().timestamp_millis(),
+                        id
+                    )
+                    .execute(&mut *tx)
+                    .await?;
                     tx.commit().await?;
                     if remaining_with_prefix < 5 {
                         ::tracing::warn!(

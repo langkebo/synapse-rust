@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE thread_roots\n            SET is_fetched = TRUE, updated_ts = $3\n            WHERE room_id = $1 AND thread_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6c8c4c03c3e20cc4b726fb48480cdc62bcec24a2fd5512dee2b548f6975d546b"
+}

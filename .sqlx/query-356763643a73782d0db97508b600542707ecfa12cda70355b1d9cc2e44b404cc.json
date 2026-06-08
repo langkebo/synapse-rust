@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO cross_signing_keys (user_id, key_type, key_data, signatures, added_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (user_id, key_type) DO UPDATE\n            SET key_data = EXCLUDED.key_data,\n                signatures = EXCLUDED.signatures,\n                added_ts = EXCLUDED.added_ts\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "356763643a73782d0db97508b600542707ecfa12cda70355b1d9cc2e44b404cc"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT stream_position as \"stream_position!\" FROM replication_positions WHERE worker_id = $1 AND stream_name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stream_position!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c72df9854a5db2cc3bcde9b9a57d2759cb4ea6e5c62085eee92563aee47be66f"
+}

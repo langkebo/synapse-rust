@@ -187,7 +187,7 @@ pub async fn mark_burn_read(
         return Err(ApiError::bad_request("Burn not enabled for this room".to_string()));
     }
 
-    let delete_at = Utc::now().timestamp_millis() + burn_after_ms;
+    let delete_ts = Utc::now().timestamp_millis() + burn_after_ms;
 
     state
         .services
@@ -198,7 +198,7 @@ pub async fn mark_burn_read(
 
     Ok(Json(json!({
         "success": true,
-        "will_delete_at": delete_at,
+        "will_delete_at": delete_ts,
     })))
 }
 
@@ -234,7 +234,7 @@ pub async fn get_pending_burns(
             json!({
                 "event_id": p.event_id,
                 "created_at": p.created_ts,
-                "delete_at": p.delete_at,
+                "delete_ts": p.delete_ts,
             })
         })
         .collect();

@@ -105,14 +105,6 @@ fn increment_counter(state: &AppState, name: &str) {
     }
 }
 
-fn increment_counter_by(state: &AppState, name: &str, delta: u64) {
-    if let Some(counter) = state.services.metrics.get_counter(name) {
-        counter.inc_by(delta);
-    } else {
-        state.services.metrics.register_counter(name.to_string()).inc_by(delta);
-    }
-}
-
 fn observe_histogram(state: &AppState, name: &str, value: f64) {
     if let Some(histogram) = state.services.metrics.get_histogram(name) {
         histogram.observe(value);
@@ -181,6 +173,15 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
         .validate_token(access_token)
         .await?
         .ok_or_else(|| ApiError::unauthorized("Invalid or expired OpenID token".to_string()))?;
+
+    // Validate that the sub (user_id) is a well-formed Matrix user ID (@localpart:server_name)
+    let user_server_name = sender_server_name(&token.user_id)
+        .ok_or_else(|| ApiError::unauthorized("Invalid subject in OpenID token".to_string()))?;
+
+    // Validate that the sub belongs to this homeserver
+    if user_server_name != state.services.server_name.as_str() {
+        return Err(ApiError::not_found("User does not belong to this server".to_string()));
+    }
 
     let user_exists = state
         .services

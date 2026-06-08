@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO email_verification_tokens (email, token, expires_at, created_ts, is_used, user_id, session_data)\n            VALUES ($1, $2, $3, $4, FALSE, $5, $6)\n            RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "200c8e73ef4aa89dba43e281b8d7fbe65f72294b5fefeebde8071f3aedb35895"
+}

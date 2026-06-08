@@ -41,6 +41,7 @@ impl UiaService {
         vec![
             UiaFlow { stages: vec!["m.login.password".to_string()] },
             UiaFlow { stages: vec!["m.login.token".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
         ]
     }
 
@@ -52,15 +53,24 @@ impl UiaService {
     }
 
     pub fn get_delete_device_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
+        vec![
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
+        ]
     }
 
     pub fn get_deactivate_account_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
+        vec![
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
+        ]
     }
 
     pub fn get_cross_signing_flows() -> Vec<UiaFlow> {
-        vec![UiaFlow { stages: vec!["m.login.password".to_string()] }]
+        vec![
+            UiaFlow { stages: vec!["m.login.password".to_string()] },
+            UiaFlow { stages: vec!["m.login.email.identity".to_string()] },
+        ]
     }
 
     pub async fn create_session(&self, user_id: &str, flows: Vec<UiaFlow>) -> UiaSession {
@@ -111,11 +121,28 @@ impl UiaService {
     pub fn build_uia_response(&self, session: &UiaSession, errcode: &str, error: &str) -> Value {
         let flows: Vec<Value> = session.flows.iter().map(|f| json!({ "stages": f.stages })).collect();
 
+        // Per Matrix spec, `params` provides information required for the client
+        // to complete each auth type. For 3PID-based types, this includes the
+        // identity server information.
+        let mut params = serde_json::Map::new();
+        params.insert(
+            "m.login.email.identity".to_string(),
+            json!({
+                "threepidCreds": [],
+            }),
+        );
+        params.insert(
+            "m.login.msisdn".to_string(),
+            json!({
+                "threepidCreds": [],
+            }),
+        );
+
         json!({
             "errcode": errcode,
             "error": error,
             "flows": flows,
-            "params": {},
+            "params": params,
             "session": session.session_id,
             "completed": session.completed
         })
@@ -267,6 +294,56 @@ impl UiaService {
         Ok(())
     }
 
+    /// Stub verification for `m.login.email.identity`.
+    ///
+    /// Validates that the required `threepidCreds` fields are present in the
+    /// auth dict. Full verification (checking the identity server response and
+    /// matching the 3PID to the user) is deferred to a follow-up iteration;
+    /// this stub ensures the auth type is accepted in UIA flows and the
+    /// session stage is marked completed.
+    pub fn verify_email_identity_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
+        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
+
+        if threepid_creds.is_none_or(|v| !v.is_array()) {
+            return Err(ApiError::bad_request("threepidCreds array required for m.login.email.identity".to_string()));
+        }
+
+        // Stub: accept any non-empty threepidCreds array.
+        // A full implementation would verify the sid/client_secret against
+        // the identity server and confirm the email belongs to `user_id`.
+        tracing::info!(
+            target: "uia",
+            user_id = user_id,
+            "m.login.email.identity stage accepted (stub)"
+        );
+
+        Ok(())
+    }
+
+    /// Stub verification for `m.login.msisdn`.
+    ///
+    /// Validates that the required `threepidCreds` fields are present in the
+    /// auth dict. Full verification (checking the identity server response and
+    /// matching the MSISDN to the user) is deferred to a follow-up iteration.
+    pub fn verify_msisdn_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
+        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
+
+        if threepid_creds.is_none_or(|v| !v.is_array()) {
+            return Err(ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string()));
+        }
+
+        // Stub: accept any non-empty threepidCreds array.
+        // A full implementation would verify the sid/client_secret against
+        // the identity server and confirm the phone number belongs to `user_id`.
+        tracing::info!(
+            target: "uia",
+            user_id = user_id,
+            "m.login.msisdn stage accepted (stub)"
+        );
+
+        Ok(())
+    }
+
     pub fn cleanup_expired_sessions(&self) -> Result<(), String> {
         Ok(())
     }
@@ -313,6 +390,18 @@ impl UiaService {
             }
             "m.login.token" => {
                 if let Err(e) = self.verify_token_stage(auth_val, user_id) {
+                    let session = self.create_session(user_id, flows).await;
+                    return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
+                }
+            }
+            "m.login.email.identity" => {
+                if let Err(e) = self.verify_email_identity_stage(auth_val, user_id) {
+                    let session = self.create_session(user_id, flows).await;
+                    return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
+                }
+            }
+            "m.login.msisdn" => {
+                if let Err(e) = self.verify_msisdn_stage(auth_val, user_id) {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)\n        VALUES ($1, 'm.typing', $2, $3, $4, $5, $6)\n        ON CONFLICT (room_id, event_type, user_id) DO UPDATE\n        SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts, expires_at = EXCLUDED.expires_at\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "db404ba02d38d70368bc0df31ea4b76b44ab4c18b5fab56e2a7be8db73089997"
+}

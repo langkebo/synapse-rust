@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO refresh_token_families (family_id, user_id, device_id, created_ts)\n            VALUES ($1, $2, $3, $4)\n            RETURNING\n                id as \"id!\",\n                family_id as \"family_id!\",\n                user_id as \"user_id!\",\n                device_id as \"device_id?\",\n                created_ts as \"created_ts!\",\n                last_refresh_ts as \"last_refresh_ts?\",\n                refresh_count as \"refresh_count!\",\n                is_compromised as \"is_compromised!\",\n                compromised_at as \"compromised_ts?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "family_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_refresh_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "refresh_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_compromised!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "compromised_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2f255fae5cdd5d4467c50af48f90b01da64a724c26d811b08543aef62d666cd2"
+}

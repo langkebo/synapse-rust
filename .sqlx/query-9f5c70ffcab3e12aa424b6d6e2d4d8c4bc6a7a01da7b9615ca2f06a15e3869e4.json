@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO dehydrated_devices (\n                user_id,\n                device_id,\n                device_data,\n                algorithm,\n                account,\n                created_ts,\n                updated_ts,\n                expires_at\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $6, $7)\n            RETURNING id, user_id, device_id, device_data AS \"device_data!\", algorithm AS \"algorithm!\",\n                      account, created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\", expires_at\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "algorithm!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "account",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9f5c70ffcab3e12aa424b6d6e2d4d8c4bc6a7a01da7b9615ca2f06a15e3869e4"
+}

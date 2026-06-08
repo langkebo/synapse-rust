@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO threepid_validation_session\n            (session_id, medium, address, client_secret, token, next_link, created_ts, expires_at)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n            RETURNING id AS \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "90470fbc23a73a89edfb43c9307dfd213cfaef8ba5becfd994e9201c93cf20f5"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM moderation_logs WHERE created_ts < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c80a65c0960060043de9b00a3ac91ff5b32256450a8b33ef3d13b66b598af1f7"
+}

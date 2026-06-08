@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO room_summary_stats (room_id, total_events, total_state_events, total_messages, total_media, storage_size, last_updated_ts)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (room_id) DO UPDATE SET\n                total_events = EXCLUDED.total_events,\n                total_state_events = EXCLUDED.total_state_events,\n                total_messages = EXCLUDED.total_messages,\n                total_media = EXCLUDED.total_media,\n                storage_size = EXCLUDED.storage_size,\n                last_updated_ts = EXCLUDED.last_updated_ts\n            RETURNING id as \"id!\", room_id as \"room_id!\", total_events as \"total_events!\",\n                      total_state_events as \"total_state_events!\", total_messages as \"total_messages!\",\n                      total_media as \"total_media!\", storage_size as \"storage_size!\",\n                      last_updated_ts as \"last_updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_events!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_state_events!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "total_messages!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "total_media!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "storage_size!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a8a7742dc4c53a85f837536c839b88830b95728547246720bce5cea45d32a04f"
+}

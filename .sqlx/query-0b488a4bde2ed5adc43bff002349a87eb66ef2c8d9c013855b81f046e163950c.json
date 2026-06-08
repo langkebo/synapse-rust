@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE widget_sessions SET last_active_ts = $2 WHERE session_id = $1 AND is_active = TRUE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b488a4bde2ed5adc43bff002349a87eb66ef2c8d9c013855b81f046e163950c"
+}

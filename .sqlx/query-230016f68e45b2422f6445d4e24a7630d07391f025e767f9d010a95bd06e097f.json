@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid)\n            VALUES ($1, $2, $3, $4, $5, TRUE)\n            RETURNING\n                id AS \"id!\",\n                token AS \"token!\",\n                user_id AS \"user_id!\",\n                device_id AS \"device_id?\",\n                created_ts AS \"created_ts!\",\n                expires_at AS \"expires_at!\",\n                is_valid AS \"is_valid!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "token!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_valid!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "230016f68e45b2422f6445d4e24a7630d07391f025e767f9d010a95bd06e097f"
+}

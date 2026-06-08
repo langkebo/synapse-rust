@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, user_id, device_id, device_data AS \"device_data!\", algorithm AS \"algorithm!\",\n                   account, created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\", expires_at\n            FROM dehydrated_devices\n            WHERE user_id = $1\n              AND (expires_at IS NULL OR expires_at > $2)\n            ORDER BY updated_ts DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_data!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "algorithm!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "account",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "expires_at",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "59d0b03155f5c4cb78cf94dfdac5384718fccf0a3924b8993a8590071144ea6c"
+}

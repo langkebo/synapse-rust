@@ -12,7 +12,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct RoomSyncQueryDto {
@@ -33,21 +32,21 @@ pub(crate) async fn get_room_info(
 
     let user_id = &auth_user.user_id;
 
-    let membership = sqlx::query(
-        r"
-        SELECT membership
+    let membership = sqlx::query!(
+        r#"
+        SELECT membership AS "membership?"
         FROM room_memberships
         WHERE room_id = $1 AND user_id = $2
-        ",
+        "#,
+        &room_id,
+        user_id,
     )
-    .bind(&room_id)
-    .bind(user_id)
     .fetch_optional(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to check room membership"))?;
 
     let membership = match membership {
-        Some(row) => row.get::<Option<String>, _>("membership"),
+        Some(row) => row.membership,
         None => None,
     };
 
@@ -64,14 +63,10 @@ pub(crate) async fn get_room_info(
 
     let summary = state.services.rooms.room_summary_storage.get_summary(&room_id).await.ok().flatten();
 
-    let invited_members_count = sqlx::query_scalar::<_, i64>(
-        r"
-        SELECT COUNT(*)
-        FROM room_memberships
-        WHERE room_id = $1 AND membership = 'invite'
-        ",
+    let invited_members_count = sqlx::query_scalar!(
+        r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
+        &room_id,
     )
-    .bind(&room_id)
     .fetch_one(&*state.services.rooms.room_storage.pool)
     .await
     .unwrap_or(0);
@@ -109,16 +104,11 @@ pub(crate) async fn get_room_version(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let membership = sqlx::query(
-        r"
-        SELECT 1
-        FROM room_memberships
-        WHERE room_id = $1 AND user_id = $2
-        LIMIT 1
-        ",
+    let membership = sqlx::query!(
+        r#"SELECT 1 AS "_exists" FROM room_memberships WHERE room_id = $1 AND user_id = $2 LIMIT 1"#,
+        &room_id,
+        &auth_user.user_id,
     )
-    .bind(&room_id)
-    .bind(&auth_user.user_id)
     .fetch_optional(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to check room membership"))?;
@@ -146,20 +136,15 @@ pub(crate) async fn get_joined_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let rooms = sqlx::query(
-        r"
-        SELECT DISTINCT room_id
-        FROM room_memberships
-        WHERE user_id = $1 AND membership = 'join'
-        ORDER BY room_id
-        ",
+    let rooms = sqlx::query!(
+        r#"SELECT DISTINCT room_id AS "room_id!" FROM room_memberships WHERE user_id = $1 AND membership = 'join' ORDER BY room_id"#,
+        user_id,
     )
-    .bind(user_id)
     .fetch_all(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to get joined rooms"))?;
 
-    let room_ids: Vec<String> = rooms.iter().filter_map(|row| row.get::<Option<String>, _>("room_id")).collect();
+    let room_ids: Vec<String> = rooms.into_iter().map(|row| row.room_id).collect();
 
     Ok(Json(json!({
         "joined_rooms": room_ids
@@ -172,38 +157,34 @@ pub(crate) async fn get_my_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let rooms = sqlx::query(
-        r"
-        SELECT rm.room_id, rm.membership,
-               COALESCE(r.name, '') as name,
-               COALESCE(r.avatar_url, '') as avatar_url,
-               rm.updated_ts
+    let rooms = sqlx::query!(
+        r#"
+        SELECT rm.room_id AS "room_id!", rm.membership AS "membership!",
+               COALESCE(r.name, '') AS "name!",
+               COALESCE(r.avatar_url, '') AS "avatar_url!",
+               rm.updated_ts AS "updated_ts?"
         FROM room_memberships rm
         LEFT JOIN rooms r ON rm.room_id = r.room_id
         WHERE rm.user_id = $1
         ORDER BY rm.updated_ts DESC
-        ",
+        "#,
+        user_id,
     )
-    .bind(user_id)
     .fetch_all(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to get rooms"))?;
 
-    let mut room_list = Vec::new();
-    for row in rooms.iter() {
-        let membership: Option<String> = row.get("membership");
-        let room_id: Option<String> = row.get("room_id");
-        let name: Option<String> = row.get("name");
-
-        if let (Some(m), Some(r_id)) = (membership, room_id) {
-            room_list.push(json!({
-                "room_id": r_id,
-                "membership": m,
-                "name": name.unwrap_or_default(),
-                "avatar_url": row.get::<Option<String>, _>("avatar_url").unwrap_or_default()
-            }));
-        }
-    }
+    let room_list: Vec<Value> = rooms
+        .into_iter()
+        .map(|row| {
+            json!({
+                "room_id": row.room_id,
+                "membership": row.membership,
+                "name": row.name,
+                "avatar_url": row.avatar_url
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "rooms": room_list,
@@ -552,30 +533,19 @@ pub(crate) async fn get_room_capabilities(
         .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let is_encrypted = sqlx::query(
-        r"
-        SELECT 1
-        FROM events
-        WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL
-        LIMIT 1
-        ",
+    let is_encrypted = sqlx::query!(
+        r#"SELECT 1 AS "_exists" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
+        &room_id,
     )
-    .bind(&room_id)
     .fetch_optional(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to check room encryption"))?
     .is_some();
 
-    let encryption_content = sqlx::query(
-        r"
-        SELECT content
-        FROM events
-        WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL
-        ORDER BY origin_server_ts DESC
-        LIMIT 1
-        ",
+    let encryption_content = sqlx::query!(
+        r#"SELECT content AS "content!" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
+        &room_id,
     )
-    .bind(&room_id)
     .fetch_optional(&*state.services.rooms.room_storage.pool)
     .await
     .map_err(map_internal!("Failed to get encryption event content"))?;
@@ -586,23 +556,17 @@ pub(crate) async fn get_room_capabilities(
             encryption_content
                 .as_ref()
                 .and_then(|row| {
-                    use sqlx::Row;
-                    let content: serde_json::Value = row.get("content");
-                    content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    row.content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string())
                 })
                 .or_else(|| room.encryption.clone())
         } else {
             None
         },
         encryption_content.as_ref().and_then(|row| {
-            use sqlx::Row;
-            let content: serde_json::Value = row.get("content");
-            content.get("rotation_period_ms").and_then(|v| v.as_i64())
+            row.content.get("rotation_period_ms").and_then(|v| v.as_i64())
         }),
         encryption_content.as_ref().and_then(|row| {
-            use sqlx::Row;
-            let content: serde_json::Value = row.get("content");
-            content.get("rotation_period_msgs").and_then(|v| v.as_i64())
+            row.content.get("rotation_period_msgs").and_then(|v| v.as_i64())
         }),
     );
 
@@ -749,19 +713,19 @@ pub(crate) async fn set_room_account_data(
 
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
+    sqlx::query!(
         r"
         INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
         ON CONFLICT (user_id, room_id, data_type)
         DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
         ",
+        &auth_user.user_id,
+        &room_id,
+        &data_type,
+        &body,
+        now,
     )
-    .bind(&auth_user.user_id)
-    .bind(&room_id)
-    .bind(&data_type)
-    .bind(&body)
-    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(map_internal!("Database error"))?;
@@ -792,16 +756,17 @@ pub(crate) async fn get_room_account_data(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let result =
-        sqlx::query("SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3")
-            .bind(&auth_user.user_id)
-            .bind(&room_id)
-            .bind(&data_type)
-            .fetch_optional(&*state.services.user_storage.pool)
-            .await
-            .map_err(map_internal!("Database error"))?;
+        sqlx::query!(r#"SELECT data AS "data" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
+            &auth_user.user_id,
+            &room_id,
+            &data_type,
+        )
+        .fetch_optional(&*state.services.user_storage.pool)
+        .await
+        .map_err(map_internal!("Database error"))?;
 
     match result {
-        Some(row) => Ok(Json(row.get::<Option<Value>, _>("data").unwrap_or_else(|| json!({})))),
+        Some(row) => Ok(Json(row.data)),
         None => Err(ApiError::not_found("Room account data not found".to_string())),
     }
 }
@@ -926,12 +891,12 @@ pub(crate) async fn get_room_vault_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let result = sqlx::query(
-        "SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
+    let result = sqlx::query!(
+        r#"SELECT data AS "data", updated_ts AS "updated_ts?" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
+        &auth_user.user_id,
+        &room_id,
+        "m.room.vault_data",
     )
-    .bind(&auth_user.user_id)
-    .bind(&room_id)
-    .bind("m.room.vault_data")
     .fetch_optional(&*state.services.user_storage.pool)
     .await
     .map_err(map_internal!("Database error"))?;
@@ -939,10 +904,8 @@ pub(crate) async fn get_room_vault_data(
     match result {
         Some(row) => Ok(Json(json!({
             "room_id": room_id,
-            "vault_data": row
-                .get::<Option<Value>, _>("data")
-                .unwrap_or_else(|| json!({})),
-            "updated_ts": row.get::<Option<i64>, _>("updated_ts")
+            "vault_data": row.data,
+            "updated_ts": row.updated_ts
         }))),
         None => Ok(Json(json!({
             "room_id": room_id,
@@ -971,19 +934,19 @@ pub(crate) async fn set_room_vault_data(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query(
+    sqlx::query!(
         r"
         INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
         VALUES ($1, $2, $3, $4, $5, $5)
         ON CONFLICT (user_id, room_id, data_type)
         DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
         ",
+        &auth_user.user_id,
+        &room_id,
+        "m.room.vault_data",
+        &body,
+        now,
     )
-    .bind(&auth_user.user_id)
-    .bind(&room_id)
-    .bind("m.room.vault_data")
-    .bind(&body)
-    .bind(now)
     .execute(&*state.services.user_storage.pool)
     .await
     .map_err(map_internal!("Database error"))?;
@@ -1312,20 +1275,20 @@ pub(crate) async fn search_room_messages(
         .min(100) as i64;
 
     let search_pattern = format!("%{}%", search_term.to_lowercase());
-    let rows = sqlx::query(
-        r"
-        SELECT event_id, room_id, sender, event_type, content, origin_server_ts
+    let rows = sqlx::query!(
+        r#"
+        SELECT event_id AS "event_id?", room_id AS "room_id?", sender AS "sender?", event_type AS "event_type?", content AS "content", origin_server_ts AS "origin_server_ts?"
         FROM events
         WHERE room_id = $1
           AND event_type = 'm.room.message'
           AND LOWER(content::text) LIKE $2
         ORDER BY origin_server_ts DESC
         LIMIT $3
-        ",
+        "#,
+        &room_id,
+        search_pattern,
+        limit,
     )
-    .bind(&room_id)
-    .bind(&search_pattern)
-    .bind(limit)
     .fetch_all(&*state.services.user_storage.pool)
     .await
     .map_err(map_internal!("Database error"))?;
@@ -1336,12 +1299,12 @@ pub(crate) async fn search_room_messages(
             json!({
                 "rank": 1.0,
                 "result": {
-                    "event_id": row.get::<Option<String>, _>("event_id"),
-                    "room_id": row.get::<Option<String>, _>("room_id"),
-                    "sender": row.get::<Option<String>, _>("sender"),
-                    "type": row.get::<Option<String>, _>("event_type"),
-                    "content": row.get::<Option<Value>, _>("content").unwrap_or(Value::Null),
-                    "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts").unwrap_or(0)
+                    "event_id": row.event_id,
+                    "room_id": row.room_id,
+                    "sender": row.sender,
+                    "type": row.event_type,
+                    "content": row.content,
+                    "origin_server_ts": row.origin_server_ts.unwrap_or(0)
                 }
             })
         })

@@ -8,7 +8,9 @@ use std::collections::{HashMap, HashSet};
 
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
-        self.presence_storage.set_presence(user_id, set_presence, None).await.ok();
+        let presence_state = crate::common::PresenceState::from_str_opt(set_presence)
+            .unwrap_or(crate::common::PresenceState::Online);
+        self.presence_storage.set_presence(user_id, presence_state, None).await.ok();
         Ok(())
     }
 
@@ -192,26 +194,20 @@ impl SyncService {
             .await
             .map_err(map_internal!("Failed to get presence for sync"))?;
 
-        let Some((presence, status_msg, last_active_ts)) = presence else {
+        let Some((presence_state, status_msg, last_active_ts)) = presence else {
             return Ok(Vec::new());
         };
 
         let now = chrono::Utc::now().timestamp_millis();
-        let last_active_ago = if presence == "offline" { None } else { last_active_ts.map(|ts| (now - ts).max(0)) };
-        let currently_active = if presence == "online" {
-            Some(last_active_ts.is_some_and(|ts| (now - ts) <= 5 * 60 * 1000))
-        } else if presence == "offline" {
-            None
-        } else {
-            Some(false)
-        };
+        let presence_state = PresenceState::from(presence_state.as_str());
+        let (last_active_ago, currently_active) = presence_state.derive_activity(last_active_ts, now);
 
         Ok(vec![json!({
             "content": {
                 "avatar_url": null,
                 "displayname": null,
                 "last_active_ago": last_active_ago,
-                "presence": presence,
+                "presence": presence_state.to_string(),
                 "status_msg": status_msg,
                 "currently_active": currently_active
             },
@@ -221,21 +217,20 @@ impl SyncService {
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = sqlx::query("SELECT data_type, content FROM account_data WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(&*self.event_storage.pool)
-            .await
-            .map_err(map_internal!("Failed to get account data"))?;
+        let rows = sqlx::query!(
+            r#"SELECT data_type AS "data_type!", content AS "content!" FROM account_data WHERE user_id = $1"#,
+            user_id,
+        )
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(map_internal!("Failed to get account data"))?;
 
         let mut events: Vec<serde_json::Value> = rows
             .iter()
             .map(|row| {
-                use sqlx::Row;
-                let data_type: String = row.get("data_type");
-                let content: serde_json::Value = row.get("content");
                 json!({
-                    "type": data_type,
-                    "content": content
+                    "type": row.data_type,
+                    "content": row.content
                 })
             })
             .collect();
@@ -291,21 +286,21 @@ impl SyncService {
         };
         let since_stream_id = Self::to_device_since_stream_id(since);
 
-        let rows = sqlx::query(
-            r"
-            SELECT sender_user_id, sender_device_id, event_type, content, message_id, stream_id
+        let rows = sqlx::query!(
+            r#"
+            SELECT sender_user_id AS "sender_user_id!", sender_device_id, event_type AS "event_type!", content AS "content!", message_id, stream_id AS "stream_id!"
             FROM to_device_messages
             WHERE recipient_user_id = $1
               AND recipient_device_id = $2
               AND stream_id > $3
             ORDER BY stream_id ASC
             LIMIT $4
-            ",
+            "#,
+            user_id,
+            device_id,
+            since_stream_id,
+            self.sync_to_device_limit(),
         )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(since_stream_id)
-        .bind(self.sync_to_device_limit())
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get to-device events"))?;
@@ -314,24 +309,17 @@ impl SyncService {
         let events: Vec<serde_json::Value> = rows
             .iter()
             .map(|row| {
-                use sqlx::Row;
-                let sender: String = row.get("sender_user_id");
-                let event_type: String = row.get("event_type");
-                let content: serde_json::Value = row.get("content");
-                let message_id: Option<String> = row.get("message_id");
-                let stream_id: i64 = row.get("stream_id");
-
-                if stream_id > max_stream_id {
-                    max_stream_id = stream_id;
+                if row.stream_id > max_stream_id {
+                    max_stream_id = row.stream_id;
                 }
 
                 let mut obj = json!({
-                    "type": event_type,
-                    "sender": sender,
-                    "content": content,
+                    "type": row.event_type,
+                    "sender": row.sender_user_id,
+                    "content": row.content,
                 });
 
-                if let Some(mid) = message_id {
+                if let Some(mid) = &row.message_id {
                     obj["message_id"] = json!(mid);
                 }
 
@@ -349,19 +337,19 @@ impl SyncService {
     ) -> ApiResult<(serde_json::Value, i64)> {
         let since_stream_id = Self::device_list_since_stream_id(since);
 
-        let changed_rows = sqlx::query(
-            r"
-            SELECT user_id, MAX(stream_id) as max_id
+        let changed_rows = sqlx::query!(
+            r#"
+            SELECT user_id AS "user_id!", MAX(stream_id) AS "max_id!"
             FROM device_lists_stream
             WHERE stream_id > $1
               AND user_id != $2
             GROUP BY user_id
-            ORDER BY max_id ASC
+            ORDER BY MAX(stream_id) ASC
             LIMIT 100
-            ",
+            "#,
+            since_stream_id,
+            user_id,
         )
-        .bind(since_stream_id)
-        .bind(user_id)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get device lists"))?;
@@ -370,19 +358,16 @@ impl SyncService {
         let changed: Vec<String> = changed_rows
             .iter()
             .map(|row| {
-                use sqlx::Row;
-                let uid: String = row.get("user_id");
-                let mid: i64 = row.get("max_id");
-                if mid > max_stream_id {
-                    max_stream_id = mid;
+                if row.max_id > max_stream_id {
+                    max_stream_id = row.max_id;
                 }
-                uid
+                row.user_id.clone()
             })
             .collect();
 
-        let left_rows = sqlx::query(
-            r"
-            SELECT DISTINCT dl.user_id
+        let left_rows = sqlx::query!(
+            r#"
+            SELECT DISTINCT dl.user_id AS "user_id!"
             FROM device_lists_stream dl
             LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
             WHERE dl.stream_id > $1
@@ -390,20 +375,17 @@ impl SyncService {
               AND rm.user_id IS NULL
             ORDER BY dl.user_id
             LIMIT 100
-            ",
+            "#,
+            since_stream_id,
+            user_id,
         )
-        .bind(since_stream_id)
-        .bind(user_id)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get left device lists"))?;
 
         let left: Vec<String> = left_rows
             .iter()
-            .map(|row| {
-                use sqlx::Row;
-                row.get("user_id")
-            })
+            .map(|row| row.user_id.clone())
             .collect();
 
         Ok((
@@ -431,19 +413,19 @@ impl SyncService {
         let now = chrono::Utc::now().timestamp_millis();
         let limit = self.sync_ephemeral_limit();
 
-        let rows = sqlx::query(
-            r"
-            SELECT event_type, user_id, content
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_type AS "event_type!", user_id AS "user_id!", content AS "content!"
             FROM room_ephemeral
             WHERE room_id = $1
             AND (expires_at IS NULL OR expires_at > $2)
             ORDER BY stream_id DESC
             LIMIT $3
-            ",
+            "#,
+            room_id,
+            now,
+            limit,
         )
-        .bind(room_id)
-        .bind(now)
-        .bind(limit)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get ephemeral events"))?;
@@ -451,13 +433,9 @@ impl SyncService {
         let events: Vec<serde_json::Value> = rows
             .iter()
             .map(|row| {
-                use sqlx::Row;
-                let event_type: String = row.get("event_type");
-                let content: serde_json::Value = row.get("content");
-
                 json!({
-                    "type": event_type,
-                    "content": content
+                    "type": row.event_type,
+                    "content": row.content
                 })
             })
             .collect();
@@ -479,9 +457,9 @@ impl SyncService {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
-        let rows = sqlx::query(
-            r"
-            SELECT room_id, event_type, user_id, content, stream_id
+        let rows = sqlx::query!(
+            r#"
+            SELECT room_id AS "room_id!", event_type AS "event_type!", user_id AS "user_id!", content AS "content!", stream_id AS "stream_id!"
             FROM (
                 SELECT
                     room_id,
@@ -499,27 +477,23 @@ impl SyncService {
             ) ranked
             WHERE rn <= $3
             ORDER BY room_id, stream_id DESC
-            ",
+            "#,
+            room_ids,
+            now,
+            limit,
         )
-        .bind(room_ids)
-        .bind(now)
-        .bind(limit)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get room ephemeral events"))?;
 
-        for row in rows {
-            use sqlx::Row;
-            let room_id: String = row.get("room_id");
-            if let Some(events) = result.get_mut(&room_id) {
+        for row in &rows {
+            if let Some(events) = result.get_mut(&row.room_id) {
                 if events.len() >= limit as usize {
                     continue;
                 }
-                let event_type: String = row.get("event_type");
-                let content: serde_json::Value = row.get("content");
                 events.push(json!({
-                    "type": event_type,
-                    "content": content
+                    "type": row.event_type,
+                    "content": row.content
                 }));
             }
         }
@@ -536,23 +510,21 @@ impl SyncService {
         room_id: &str,
         user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let rows =
-            sqlx::query("SELECT data_type, data as content FROM room_account_data WHERE user_id = $1 AND room_id = $2")
-                .bind(user_id)
-                .bind(room_id)
-                .fetch_all(&*self.event_storage.pool)
-                .await
-                .map_err(map_internal!("Failed to get room account data"))?;
+        let rows = sqlx::query!(
+            r#"SELECT data_type AS "data_type!", data AS "content!" FROM room_account_data WHERE user_id = $1 AND room_id = $2"#,
+            user_id,
+            room_id,
+        )
+        .fetch_all(&*self.event_storage.pool)
+        .await
+        .map_err(map_internal!("Failed to get room account data"))?;
 
         Ok(rows
             .iter()
             .map(|row| {
-                use sqlx::Row;
-                let data_type: String = row.get("data_type");
-                let content: serde_json::Value = row.get("content");
                 json!({
-                    "type": data_type,
-                    "content": content
+                    "type": row.data_type,
+                    "content": row.content
                 })
             })
             .collect())
@@ -569,28 +541,20 @@ impl SyncService {
             return Ok(result);
         }
 
-        let rows = sqlx::query(
-            r"
-            SELECT room_id, data_type, data as content
-            FROM room_account_data
-            WHERE user_id = $1 AND room_id = ANY($2)
-            ",
+        let rows = sqlx::query!(
+            r#"SELECT room_id AS "room_id!", data_type AS "data_type!", data AS "content!" FROM room_account_data WHERE user_id = $1 AND room_id = ANY($2)"#,
+            user_id,
+            room_ids,
         )
-        .bind(user_id)
-        .bind(room_ids)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get room account data"))?;
 
-        for row in rows {
-            use sqlx::Row;
-            let room_id: String = row.get("room_id");
-            if let Some(events) = result.get_mut(&room_id) {
-                let data_type: String = row.get("data_type");
-                let content: serde_json::Value = row.get("content");
+        for row in &rows {
+            if let Some(events) = result.get_mut(&row.room_id) {
                 events.push(json!({
-                    "type": data_type,
-                    "content": content
+                    "type": row.data_type,
+                    "content": row.content
                 }));
             }
         }
@@ -599,44 +563,44 @@ impl SyncService {
     }
 
     pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
-        let last_read_ts: Option<i64> = sqlx::query_scalar(
-            r"
-            SELECT e.origin_server_ts
+        let last_read_ts: Option<i64> = sqlx::query_scalar!(
+            r#"
+            SELECT e.origin_server_ts AS "last_read_ts!"
             FROM read_markers rm
             JOIN events e ON e.event_id = rm.event_id
             WHERE rm.room_id = $1 AND rm.user_id = $2
             LIMIT 1
-            ",
+            "#,
+            room_id,
+            user_id,
         )
-        .bind(room_id)
-        .bind(user_id)
         .fetch_optional(&*self.event_storage.pool)
         .await
-        .map_err(map_internal!("Failed to get read marker"))?
-        .flatten();
+        .map_err(map_internal!("Failed to get read marker"))?;
 
         let since_ts = last_read_ts.unwrap_or(0);
 
-        let notification_count: i64 = sqlx::query_scalar(
-            r"
-            SELECT COUNT(*)
+        let notification_count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
             FROM events
             WHERE room_id = $1
               AND COALESCE(user_id, sender) != $2
               AND origin_server_ts > $3
               AND state_key IS NULL
-            ",
+            "#,
+            room_id,
+            user_id,
+            since_ts,
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(since_ts)
         .fetch_one(&*self.event_storage.pool)
         .await
         .unwrap_or(0);
 
-        let highlight_count: i64 = sqlx::query_scalar(
-            r"
-            SELECT COUNT(*)
+        let mention_pattern = format!("%{user_id}%");
+        let highlight_count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) AS "count!"
             FROM events
             WHERE room_id = $1
               AND COALESCE(user_id, sender) != $2
@@ -646,12 +610,12 @@ impl SyncService {
                 content::text LIKE $4
                 OR content::text LIKE '%@room%'
               )
-            ",
+            "#,
+            room_id,
+            user_id,
+            since_ts,
+            mention_pattern.as_str(),
         )
-        .bind(room_id)
-        .bind(user_id)
-        .bind(since_ts)
-        .bind(format!("%{user_id}%"))
         .fetch_one(&*self.event_storage.pool)
         .await
         .unwrap_or(0);
@@ -671,8 +635,8 @@ impl SyncService {
         }
 
         let mention_pattern = format!("%{user_id}%");
-        let rows = sqlx::query(
-            r"
+        let rows = sqlx::query!(
+            r#"
             WITH target_rooms AS (
                 SELECT UNNEST($2::text[]) AS room_id
             ),
@@ -687,12 +651,12 @@ impl SyncService {
                 GROUP BY tr.room_id
             )
             SELECT
-                tr.room_id,
+                tr.room_id AS "room_id!",
                 COALESCE(COUNT(ev.event_id) FILTER (
                     WHERE COALESCE(ev.user_id, ev.sender) != $1
                       AND ev.state_key IS NULL
                       AND ev.origin_server_ts > lr.last_read_ts
-                ), 0) AS notification_count,
+                ), 0) AS "notification_count!",
                 COALESCE(COUNT(ev.event_id) FILTER (
                     WHERE COALESCE(ev.user_id, ev.sender) != $1
                       AND ev.state_key IS NULL
@@ -701,7 +665,7 @@ impl SyncService {
                         ev.content::text LIKE $3
                         OR ev.content::text LIKE '%@room%'
                       )
-                ), 0) AS highlight_count
+                ), 0) AS "highlight_count!"
             FROM target_rooms tr
             LEFT JOIN last_reads lr
               ON lr.room_id = tr.room_id
@@ -711,21 +675,17 @@ impl SyncService {
              AND ev.state_key IS NULL
              AND ev.origin_server_ts > lr.last_read_ts
             GROUP BY tr.room_id, lr.last_read_ts
-            ",
+            "#,
+            user_id,
+            room_ids,
+            mention_pattern.as_str(),
         )
-        .bind(user_id)
-        .bind(room_ids)
-        .bind(mention_pattern)
         .fetch_all(&*self.event_storage.pool)
         .await
         .map_err(map_internal!("Failed to get unread counts"))?;
 
-        for row in rows {
-            use sqlx::Row;
-            let room_id: String = row.get("room_id");
-            let notification_count: i64 = row.get("notification_count");
-            let highlight_count: i64 = row.get("highlight_count");
-            result.insert(room_id, (highlight_count, notification_count));
+        for row in &rows {
+            result.insert(row.room_id.clone(), (row.highlight_count, row.notification_count));
         }
 
         Ok(result)

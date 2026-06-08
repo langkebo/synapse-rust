@@ -104,6 +104,7 @@ pub struct ServiceContainer {
     pub translation_service: Arc<crate::services::translation_service::TranslationService>,
     pub uia_service: Arc<crate::services::uia_service::UiaService>,
     pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub event_notifier: crate::services::event_notifier::EventNotifier,
 }
 
 // =============================================================================
@@ -140,13 +141,7 @@ fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_stora
 
     let megolm_storage = crate::e2ee::megolm::MegolmSessionStorage::new(pool);
     let encryption_key = generate_encryption_key();
-    // Phase 1: 双路径抽象 — vodozemac-megolm feature 启用时由
-    // E2EE_USE_VODOZEMAC_MEGOLM 环境变量在 Legacy / Vodozemac 间路由。
-    #[cfg(feature = "vodozemac-megolm")]
     let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), encryption_key);
-    #[cfg(not(feature = "vodozemac-megolm"))]
-    let megolm_service: MegolmProvider =
-        crate::e2ee::megolm::MegolmService::new(megolm_storage, cache.clone(), encryption_key);
 
     let key_request_storage = crate::e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
     let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
@@ -897,6 +892,7 @@ impl ServiceContainer {
                 broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
                 Arc::new(broadcaster)
             },
+            event_notifier: crate::services::event_notifier::EventNotifier::new(),
         };
 
         #[cfg(feature = "burn-after-read")]

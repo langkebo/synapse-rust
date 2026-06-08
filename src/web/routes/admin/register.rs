@@ -163,7 +163,7 @@ fn verify_mac(
     user_type: &Option<String>,
     mac_hex: &str,
 ) -> bool {
-    let Ok(provided) = hex::decode(mac_hex) else {
+    let Ok(provided) = crate::common::crypto::decode_hex(mac_hex) else {
         return false;
     };
 
@@ -551,14 +551,15 @@ async fn register(
     match register_result {
         Ok((_user, access_token, refresh_token, device_id)) => {
             if let Some(user_type) = payload.user_type.as_deref() {
-                sqlx::query("UPDATE users SET user_type = $1 WHERE user_id = $2")
-                    .bind(user_type)
-                    .bind(&user_id)
-                    .execute(&*state.services.user_storage.pool)
-                    .await
-                    .map_err(|e| {
-                        register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
-                    })?;
+                sqlx::query!("UPDATE users SET user_type = $1 WHERE user_id = $2",
+                    user_type,
+                    &user_id
+                )
+                .execute(&*state.services.user_storage.pool)
+                .await
+                .map_err(|e| {
+                    register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
+                })?;
             }
 
             Ok(Json(RegisterResponse {

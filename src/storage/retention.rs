@@ -119,8 +119,9 @@ impl RetentionStorage {
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"
             INSERT INTO room_retention_policies (
                 room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
             )
@@ -130,14 +131,16 @@ impl RetentionStorage {
                 min_lifetime = EXCLUDED.min_lifetime,
                 is_expire_on_clients = EXCLUDED.is_expire_on_clients,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts
-            ",
+            RETURNING id AS "id!", room_id AS "room_id!", max_lifetime AS "max_lifetime?",
+                      min_lifetime AS "min_lifetime!", is_expire_on_clients AS "is_expire_on_clients!",
+                      is_server_default AS "is_server_default!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            "#,
+            &request.room_id,
+            request.max_lifetime,
+            request.min_lifetime.unwrap_or(0),
+            request.is_expire_on_clients.unwrap_or(false),
+            now
         )
-        .bind(&request.room_id)
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime.unwrap_or(0))
-        .bind(request.is_expire_on_clients.unwrap_or(false))
-        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -145,10 +148,14 @@ impl RetentionStorage {
     }
 
     pub async fn get_room_policy(&self, room_id: &str) -> Result<Option<RoomRetentionPolicy>, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies WHERE room_id = $1",
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"SELECT id AS "id!", room_id AS "room_id!", max_lifetime AS "max_lifetime?",
+                      min_lifetime AS "min_lifetime!", is_expire_on_clients AS "is_expire_on_clients!",
+                      is_server_default AS "is_server_default!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+               FROM room_retention_policies WHERE room_id = $1"#,
+            room_id
         )
-        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -160,20 +167,23 @@ impl RetentionStorage {
         room_id: &str,
         request: UpdateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, RoomRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"
             UPDATE room_retention_policies SET
                 max_lifetime = COALESCE($2, max_lifetime),
                 min_lifetime = COALESCE($3, min_lifetime),
                 is_expire_on_clients = COALESCE($4, is_expire_on_clients)
             WHERE room_id = $1
-            RETURNING *
-            ",
+            RETURNING id AS "id!", room_id AS "room_id!", max_lifetime AS "max_lifetime?",
+                      min_lifetime AS "min_lifetime!", is_expire_on_clients AS "is_expire_on_clients!",
+                      is_server_default AS "is_server_default!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            "#,
+            room_id,
+            request.max_lifetime,
+            request.min_lifetime,
+            request.is_expire_on_clients
         )
-        .bind(room_id)
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime)
-        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -181,8 +191,7 @@ impl RetentionStorage {
     }
 
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
-            .bind(room_id)
+        sqlx::query!("DELETE FROM room_retention_policies WHERE room_id = $1", room_id)
             .execute(&*self.pool)
             .await?;
 
@@ -190,8 +199,11 @@ impl RetentionStorage {
     }
 
     pub async fn get_server_policy(&self) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            "SELECT id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts FROM server_retention_policy ORDER BY id LIMIT 1",
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"SELECT id AS "id!", max_lifetime AS "max_lifetime?", min_lifetime AS "min_lifetime!",
+                      is_expire_on_clients AS "is_expire_on_clients!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+               FROM server_retention_policy ORDER BY id LIMIT 1"#,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -203,19 +215,21 @@ impl RetentionStorage {
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, sqlx::Error> {
-        let row = sqlx::query_as::<_, ServerRetentionPolicy>(
-            r"
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"
             UPDATE server_retention_policy SET
                 max_lifetime = COALESCE($1, max_lifetime),
                 min_lifetime = COALESCE($2, min_lifetime),
                 is_expire_on_clients = COALESCE($3, is_expire_on_clients)
             WHERE id = (SELECT MIN(id) FROM server_retention_policy)
-            RETURNING id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
-            ",
+            RETURNING id AS "id!", max_lifetime AS "max_lifetime?", min_lifetime AS "min_lifetime!",
+                      is_expire_on_clients AS "is_expire_on_clients!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            "#,
+            request.max_lifetime,
+            request.min_lifetime,
+            request.is_expire_on_clients
         )
-        .bind(request.max_lifetime)
-        .bind(request.min_lifetime)
-        .bind(request.is_expire_on_clients)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -234,17 +248,17 @@ impl RetentionStorage {
     }
 
     pub async fn delete_events_before(&self, room_id: &str, cutoff_ts: i64) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
-            r"
+        let result = sqlx::query!(
+            r#"
             DELETE FROM events
             WHERE room_id = $1
             AND origin_server_ts < $2
             AND event_type NOT IN ('m.room.create', 'm.room.power_levels', 'm.room.join_rules', 'm.room.history_visibility')
             AND state_key IS NULL
-            ",
+            "#,
+            room_id,
+            cutoff_ts
         )
-        .bind(room_id)
-        .bind(cutoff_ts)
         .execute(&*self.pool)
         .await?;
 
@@ -252,8 +266,12 @@ impl RetentionStorage {
     }
 
     pub async fn get_rooms_with_policies(&self) -> Result<Vec<RoomRetentionPolicy>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, RoomRetentionPolicy>(
-            "SELECT id, room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts FROM room_retention_policies ORDER BY room_id",
+        let rows = sqlx::query_as!(
+            RoomRetentionPolicy,
+            r#"SELECT id AS "id!", room_id AS "room_id!", max_lifetime AS "max_lifetime?",
+                      min_lifetime AS "min_lifetime!", is_expire_on_clients AS "is_expire_on_clients!",
+                      is_server_default AS "is_server_default!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+               FROM room_retention_policies ORDER BY room_id"#,
         )
         .fetch_all(&*self.pool)
         .await?;

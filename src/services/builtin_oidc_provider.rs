@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use subtle::ConstantTimeEq;
+
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -399,7 +399,7 @@ impl BuiltinOidcProvider {
             hasher.update(verifier.as_bytes());
             let computed = URL_SAFE_NO_PAD.encode(hasher.finalize());
             // 常量时间比较, 抵御 timing
-            if computed.as_bytes().ct_eq(challenge.as_bytes()).unwrap_u8() != 1 {
+            if !crate::common::crypto::secure_compare(&computed, challenge) {
                 return Err(ApiError::unauthorized("PKCE code_verifier mismatch".to_string()));
             }
         }
@@ -512,7 +512,7 @@ impl BuiltinOidcProvider {
                 username
             );
             // 常量时间比较
-            if plain.as_bytes().ct_eq(password.as_bytes()).unwrap_u8() == 1 {
+            if crate::common::crypto::secure_compare(plain, password) {
                 return Ok(user);
             }
         }

@@ -96,7 +96,7 @@ pub(crate) async fn search_user_directory(
 
         users.push(json!({
             "user_id": u.user_id,
-            "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+            "display_name": u.displayname,
             "avatar_url": u.avatar_url
         }));
     }
@@ -157,7 +157,7 @@ pub(crate) async fn list_user_directory(
 
         users_json.push(json!({
             "user_id": u.user_id,
-            "display_name": u.displayname.unwrap_or_else(|| u.username.clone()),
+            "display_name": u.displayname,
             "avatar_url": u.avatar_url
         }));
     }

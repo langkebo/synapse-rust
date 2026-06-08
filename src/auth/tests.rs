@@ -7,15 +7,14 @@ use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validati
 
 #[test]
 fn test_claims_struct() {
-    let claims = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-uuid".to_string(),
-        is_admin: false,
-        exp: 1234567890,
-        iat: 1234567889,
-        device_id: Some("DEVICE123".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-uuid".to_string())
+        .exp(1234567890)
+        .iat(1234567889)
+        .device_id(Some("DEVICE123".to_string()))
+        .build();
     assert_eq!(claims.sub, "@test:example.com");
     assert_eq!(claims.user_id, "@test:example.com");
     assert!(!claims.is_admin);
@@ -24,15 +23,14 @@ fn test_claims_struct() {
 
 #[test]
 fn test_claims_with_admin() {
-    let claims = Claims {
-        sub: "@admin:example.com".to_string(),
-        user_id: "@admin:example.com".to_string(),
-        jti: "test-jti-admin".to_string(),
-        is_admin: true,
-        exp: 1234567890,
-        iat: 1234567890,
-        device_id: None,
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@admin:example.com".to_string())
+        .user_id("@admin:example.com".to_string())
+        .jti("test-jti-admin".to_string())
+        .is_admin(true)
+        .exp(1234567890)
+        .iat(1234567890)
+        .build();
     assert!(claims.is_admin);
     assert!(claims.device_id.is_none());
 }
@@ -55,15 +53,14 @@ fn test_generate_token_chars() {
 
 #[test]
 fn test_claims_serialization() {
-    let claims = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-serialization".to_string(),
-        is_admin: false,
-        exp: 1234567890,
-        iat: 1234567890,
-        device_id: Some("DEVICE123".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-serialization".to_string())
+        .exp(1234567890)
+        .iat(1234567890)
+        .device_id(Some("DEVICE123".to_string()))
+        .build();
     let json = serde_json::to_string(&claims).unwrap();
     let deserialized: Claims = serde_json::from_str(&json).unwrap();
     assert_eq!(claims.sub, deserialized.sub);
@@ -162,51 +159,44 @@ fn test_is_legacy_hash_bcrypt() {
 #[test]
 fn test_claims_expiration_validation() {
     let now = Utc::now().timestamp();
-    let valid_claims = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-valid".to_string(),
-        is_admin: false,
-        exp: now + 3600,
-        iat: now,
-        device_id: None,
-    };
+    let valid_claims = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-valid".to_string())
+        .exp(now + 3600)
+        .iat(now)
+        .build();
     assert!(valid_claims.exp > now);
 
-    let expired_claims = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-expired".to_string(),
-        is_admin: false,
-        exp: now - 3600,
-        iat: now - 7200,
-        device_id: None,
-    };
+    let expired_claims = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-expired".to_string())
+        .exp(now - 3600)
+        .iat(now - 7200)
+        .build();
     assert!(expired_claims.exp < now);
 }
 
 #[test]
 fn test_claims_device_id_optional() {
-    let claims_with_device = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-with-device".to_string(),
-        is_admin: false,
-        exp: 1234567890,
-        iat: 1234567890,
-        device_id: Some("DEVICE123".to_string()),
-    };
+    let claims_with_device = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-with-device".to_string())
+        .exp(1234567890)
+        .iat(1234567890)
+        .device_id(Some("DEVICE123".to_string()))
+        .build();
     assert!(claims_with_device.device_id.is_some());
 
-    let claims_without_device = Claims {
-        sub: "@test:example.com".to_string(),
-        user_id: "@test:example.com".to_string(),
-        jti: "test-jti-no-device".to_string(),
-        is_admin: false,
-        exp: 1234567890,
-        iat: 1234567890,
-        device_id: None,
-    };
+    let claims_without_device = ClaimsBuilder::new()
+        .sub("@test:example.com".to_string())
+        .user_id("@test:example.com".to_string())
+        .jti("test-jti-no-device".to_string())
+        .exp(1234567890)
+        .iat(1234567890)
+        .build();
     assert!(claims_without_device.device_id.is_none());
 }
 
@@ -214,15 +204,14 @@ fn test_claims_device_id_optional() {
 fn test_jwt_encode_decode() {
     let jwt_secret = b"test_secret_key_for_jwt_encoding";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@user:example.com".to_string(),
-        user_id: "@user:example.com".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: true,
-        exp: (now + Duration::hours(1)).timestamp(),
-        iat: now.timestamp(),
-        device_id: Some("DEVICE456".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:example.com".to_string())
+        .user_id("@user:example.com".to_string())
+        .is_admin(true)
+        .exp((now + Duration::hours(1)).timestamp())
+        .iat(now.timestamp())
+        .device_id(Some("DEVICE456".to_string()))
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -244,15 +233,12 @@ fn test_jwt_decode_wrong_secret() {
     let jwt_secret = b"correct_secret";
     let wrong_secret = b"wrong_secret";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@user:example.com".to_string(),
-        user_id: "@user:example.com".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: false,
-        exp: (now + Duration::hours(1)).timestamp(),
-        iat: now.timestamp(),
-        device_id: None,
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:example.com".to_string())
+        .user_id("@user:example.com".to_string())
+        .exp((now + Duration::hours(1)).timestamp())
+        .iat(now.timestamp())
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -269,15 +255,12 @@ fn test_jwt_decode_wrong_secret() {
 fn test_jwt_expired_token() {
     let jwt_secret = b"test_secret";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@user:example.com".to_string(),
-        user_id: "@user:example.com".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: false,
-        exp: (now - Duration::hours(1)).timestamp(),
-        iat: (now - Duration::hours(2)).timestamp(),
-        device_id: None,
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:example.com".to_string())
+        .user_id("@user:example.com".to_string())
+        .exp((now - Duration::hours(1)).timestamp())
+        .iat((now - Duration::hours(2)).timestamp())
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -294,15 +277,12 @@ fn test_jwt_expired_token() {
 fn test_jwt_tampered_token() {
     let jwt_secret = b"test_secret";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@user:example.com".to_string(),
-        user_id: "@user:example.com".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: false,
-        exp: (now + Duration::hours(1)).timestamp(),
-        iat: now.timestamp(),
-        device_id: None,
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:example.com".to_string())
+        .user_id("@user:example.com".to_string())
+        .exp((now + Duration::hours(1)).timestamp())
+        .iat(now.timestamp())
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -340,15 +320,15 @@ fn test_auth_generate_token_charset() {
 
 #[test]
 fn test_claims_json_roundtrip() {
-    let original = Claims {
-        sub: "@test:server.com".to_string(),
-        user_id: "@test:server.com".to_string(),
-        jti: "test-jti-roundtrip".to_string(),
-        is_admin: true,
-        exp: 9999999999,
-        iat: 1000000000,
-        device_id: Some("MYDEVICE".to_string()),
-    };
+    let original = ClaimsBuilder::new()
+        .sub("@test:server.com".to_string())
+        .user_id("@test:server.com".to_string())
+        .jti("test-jti-roundtrip".to_string())
+        .is_admin(true)
+        .exp(9999999999)
+        .iat(1000000000)
+        .device_id(Some("MYDEVICE".to_string()))
+        .build();
 
     let json = serde_json::to_string(&original).unwrap();
     let parsed: Claims = serde_json::from_str(&json).unwrap();
@@ -363,15 +343,14 @@ fn test_claims_json_roundtrip() {
 
 #[test]
 fn test_claims_json_structure() {
-    let claims = Claims {
-        sub: "@user:example.com".to_string(),
-        user_id: "@user:example.com".to_string(),
-        jti: "test-jti-structure".to_string(),
-        is_admin: false,
-        exp: 1234567890,
-        iat: 1234567800,
-        device_id: Some("DEV1".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:example.com".to_string())
+        .user_id("@user:example.com".to_string())
+        .jti("test-jti-structure".to_string())
+        .exp(1234567890)
+        .iat(1234567800)
+        .device_id(Some("DEV1".to_string()))
+        .build();
 
     let json = serde_json::to_string(&claims).unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -433,15 +412,13 @@ fn test_auth_service_verify_password_wrong_direct() {
 fn test_auth_service_jwt_generation_direct() {
     let jwt_secret = b"test_jwt_secret_key_for_unit_tests";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@user:test.server".to_string(),
-        user_id: "@user:test.server".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: false,
-        exp: (now + Duration::hours(1)).timestamp(),
-        iat: now.timestamp(),
-        device_id: Some("DEVICE1".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:test.server".to_string())
+        .user_id("@user:test.server".to_string())
+        .exp((now + Duration::hours(1)).timestamp())
+        .iat(now.timestamp())
+        .device_id(Some("DEVICE1".to_string()))
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -464,15 +441,14 @@ fn test_auth_service_jwt_generation_direct() {
 fn test_auth_service_jwt_admin_flag_direct() {
     let jwt_secret = b"test_jwt_secret_key_for_unit_tests";
     let now = Utc::now();
-    let claims = Claims {
-        sub: "@admin:test.server".to_string(),
-        user_id: "@admin:test.server".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: true,
-        exp: (now + Duration::hours(1)).timestamp(),
-        iat: now.timestamp(),
-        device_id: Some("DEVICE2".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@admin:test.server".to_string())
+        .user_id("@admin:test.server".to_string())
+        .is_admin(true)
+        .exp((now + Duration::hours(1)).timestamp())
+        .iat(now.timestamp())
+        .device_id(Some("DEVICE2".to_string()))
+        .build();
 
     let mut header = Header::new(Algorithm::HS256);
     header.typ = Some("JWT".to_string());
@@ -492,15 +468,13 @@ fn test_auth_service_jwt_expiration_direct() {
     let token_expiry: i64 = 3600;
     let now = Utc::now().timestamp();
 
-    let claims = Claims {
-        sub: "@user:test.server".to_string(),
-        user_id: "@user:test.server".to_string(),
-        jti: uuid::Uuid::new_v4().to_string(),
-        is_admin: false,
-        exp: now + token_expiry,
-        iat: now,
-        device_id: Some("DEVICE".to_string()),
-    };
+    let claims = ClaimsBuilder::new()
+        .sub("@user:test.server".to_string())
+        .user_id("@user:test.server".to_string())
+        .exp(now + token_expiry)
+        .iat(now)
+        .device_id(Some("DEVICE".to_string()))
+        .build();
 
     let token = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();
 

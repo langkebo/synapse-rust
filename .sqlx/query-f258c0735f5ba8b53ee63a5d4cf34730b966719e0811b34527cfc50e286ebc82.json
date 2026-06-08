@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE application_services SET\n                url = COALESCE($2, url),\n                description = COALESCE($3, description),\n                is_rate_limited = COALESCE($4, is_rate_limited),\n                protocols = COALESCE($5::text[], protocols),\n                is_enabled = COALESCE($6, is_enabled),\n                api_key = COALESCE($7, api_key),\n                config = COALESCE($8::jsonb, config),\n                updated_ts = $9\n            WHERE as_id = $1\n            RETURNING\n                id as \"id!\", as_id as \"as_id!\", url as \"url!\", as_token as \"as_token!\", hs_token as \"hs_token!\", sender_localpart as \"sender_localpart!\",\n                COALESCE(is_enabled, false) AS \"is_enabled!\",\n                COALESCE(is_rate_limited, true) AS \"is_rate_limited!\",\n                COALESCE(protocols, '{}'::text[]) AS \"protocols!\",\n                COALESCE(namespaces, '{}'::jsonb) AS \"namespaces!\",\n                created_ts as \"created_ts!\", updated_ts, description, api_key, config as \"config!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "as_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "url!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "as_token!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "hs_token!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "sender_localpart!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_rate_limited!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "protocols!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 9,
+        "name": "namespaces!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "api_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "config!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "TextArray",
+        "Bool",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "f258c0735f5ba8b53ee63a5d4cf34730b966719e0811b34527cfc50e286ebc82"
+}

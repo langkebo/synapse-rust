@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO upload_chunks (upload_id, chunk_index, chunk_data, chunk_size, created_ts)\n            VALUES ($1, $2, $3, $4, $5)\n            ON CONFLICT (upload_id, chunk_index) DO UPDATE SET\n                chunk_data = EXCLUDED.chunk_data,\n                chunk_size = EXCLUDED.chunk_size\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Bytea",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "17387c0ff533333112d5ac0d61c88cc3cf5252b979a6eaae98898ecb5e66e1a9"
+}

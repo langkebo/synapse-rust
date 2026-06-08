@@ -711,17 +711,16 @@ mod tests {
         }
     }
 
-    /// 验证 vodozemac session_key 的字符串长度在合理范围
-    /// 这是 dual-write 路径的 sanity check（base64 后 32 字节 → 44 字符）
+    /// 验证 vodozemac session_key 的 base64 字符串非空且长度合理
+    /// vodozemac session_key 是完整的 Megolm ratchet 序列化，远大于 32 字节
     #[test]
     fn vodozemac_session_key_length_sanity() {
         let outbound = GroupSession::new(SessionConfig::default());
         let session_key_b64 = outbound.session_key().to_base64();
-        // URL-safe base64 no-padding: 32 字节 → ceil(32/3)*4 = 44 字符
-        // 实际可能是 43（缺 padding）
+        // vodozemac session_key 包含完整 ratchet 状态，base64 后约 300+ 字符
         assert!(
-            (42..=45).contains(&session_key_b64.len()),
-            "vodozemac session_key b64 length should be ~44, got {}",
+            session_key_b64.len() > 100,
+            "vodozemac session_key b64 should be >100 chars (full ratchet), got {}",
             session_key_b64.len()
         );
     }

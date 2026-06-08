@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE moderation_rules\n            SET is_active = false\n            WHERE rule_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "47ea67b0442ab2d757df0694185350ce864e7fd159765e634c9ab35103429d25"
+}

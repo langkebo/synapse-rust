@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO event_reports (\n                event_id, room_id, reporter_user_id, reported_user_id, event_json,\n                reason, description, score, received_ts, status\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'open')\n            RETURNING\n                id AS \"id!\",\n                event_id AS \"event_id!\",\n                room_id AS \"room_id!\",\n                reporter_user_id AS \"reporter_user_id!\",\n                reported_user_id AS \"reported_user_id?\",\n                event_json AS \"event_json?\",\n                reason AS \"reason?\",\n                description AS \"description?\",\n                status AS \"status!\",\n                score AS \"score!\",\n                received_ts AS \"received_ts!\",\n                resolved_at AS \"resolved_ts?\",\n                resolved_by AS \"resolved_by?\",\n                resolution_reason AS \"resolution_reason?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reporter_user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "reported_user_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "event_json?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "score!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "received_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "resolved_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "resolved_by?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "resolution_reason?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "309321f740b0ab1f76189ca34de971ab960564b7390e44029fa7eeb8c4468f23"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT 'events' AS \"table_name!\", 'room_id' AS \"column_name!\", 0::BIGINT AS \"violating_row_id!\", 'rooms' AS \"referenced_table!\"\n            FROM events e\n            WHERE NOT EXISTS (SELECT 1 FROM rooms r WHERE r.room_id = e.room_id)\n            LIMIT 10\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "column_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "violating_row_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "referenced_table!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cb53e445b45eff0e72aee878f92a38762506a1e68775acdc82a6e98014350c4d"
+}

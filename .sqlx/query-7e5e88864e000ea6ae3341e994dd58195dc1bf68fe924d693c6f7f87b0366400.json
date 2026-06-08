@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", room_id AS \"room_id!\", session_id AS \"session_id!\",\n                application AS \"application!\", call_id AS \"call_id?\", creator AS \"creator!\",\n                created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\",\n                is_active AS \"is_active!\", config AS \"config!\"\n            FROM matrixrtc_sessions\n            WHERE room_id = $1 AND session_id = $2 AND is_active = true\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "room_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "session_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "application!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "call_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "creator!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_active!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "config!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7e5e88864e000ea6ae3341e994dd58195dc1bf68fe924d693c6f7f87b0366400"
+}

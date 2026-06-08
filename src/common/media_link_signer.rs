@@ -11,6 +11,8 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::common::crypto::{encode_hex, secure_compare};
+
 type HmacSha256 = Hmac<Sha256>;
 
 /// Default validity window for signed media URLs (24 hours).
@@ -40,7 +42,7 @@ impl MediaLinkSigner {
         let payload = format!("{path}:{expires}");
         let mut mac = HmacSha256::new_from_slice(&self.key).expect("HMAC key length is valid");
         mac.update(payload.as_bytes());
-        let signature = hex::encode(mac.finalize().into_bytes());
+        let signature = encode_hex(mac.finalize().into_bytes());
 
         format!("signature={signature}&expires={expires}")
     }
@@ -64,18 +66,9 @@ impl MediaLinkSigner {
         };
         mac.update(payload.as_bytes());
 
-        let expected = hex::encode(mac.finalize().into_bytes());
+        let expected = encode_hex(mac.finalize().into_bytes());
         // Constant-time comparison
-        let expected_bytes = expected.as_bytes();
-        let signature_bytes = signature.as_bytes();
-        if expected_bytes.len() != signature_bytes.len() {
-            return false;
-        }
-        expected_bytes
-            .iter()
-            .zip(signature_bytes.iter())
-            .fold(0, |acc, (a, b)| acc | (a ^ b))
-            == 0
+        secure_compare(&expected, signature)
     }
 }
 

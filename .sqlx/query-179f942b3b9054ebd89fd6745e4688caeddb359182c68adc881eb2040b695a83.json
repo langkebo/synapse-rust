@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM sliding_sync_tokens\n            WHERE expires_at IS NOT NULL AND expires_at < $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "179f942b3b9054ebd89fd6745e4688caeddb359182c68adc881eb2040b695a83"
+}

@@ -1,0 +1,171 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO users (user_id, username, password_hash, is_admin, created_ts, generation)\n            VALUES ($1, $2, $3, $4, $5, $6)\n            RETURNING\n                user_id AS \"user_id!\",\n                username AS \"username!\",\n                password_hash AS \"password_hash?\",\n                COALESCE(is_admin, FALSE) AS \"is_admin!\",\n                COALESCE(is_guest, FALSE) AS \"is_guest!\",\n                COALESCE(is_shadow_banned, FALSE) AS \"is_shadow_banned!\",\n                COALESCE(is_deactivated, FALSE) AS \"is_deactivated!\",\n                created_ts AS \"created_ts!\",\n                updated_ts AS \"updated_ts?\",\n                displayname AS \"displayname?\",\n                avatar_url AS \"avatar_url?\",\n                email AS \"email?\",\n                phone AS \"phone?\",\n                COALESCE(generation, 0) AS \"generation!\",\n                consent_version AS \"consent_version?\",\n                appservice_id AS \"appservice_id?\",\n                user_type AS \"user_type?\",\n                invalid_update_at AS \"invalid_update_at?\",\n                migration_state AS \"migration_state?\",\n                password_changed_ts AS \"password_changed_ts?\",\n                COALESCE(is_password_change_required, FALSE) AS \"is_password_change_required!\",\n                password_expires_at AS \"password_expires_at?\",\n                COALESCE(failed_login_attempts, 0) AS \"failed_login_attempts!\",\n                locked_until AS \"locked_until?\",\n                COALESCE(must_change_password, FALSE) AS \"must_change_password!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "username!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "password_hash?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_admin!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_guest!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_shadow_banned!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_deactivated!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "displayname?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "avatar_url?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "email?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "phone?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "generation!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 14,
+        "name": "consent_version?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "appservice_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "user_type?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "invalid_update_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 18,
+        "name": "migration_state?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 19,
+        "name": "password_changed_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "is_password_change_required!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 21,
+        "name": "password_expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 22,
+        "name": "failed_login_attempts!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 23,
+        "name": "locked_until?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
+        "name": "must_change_password!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "fbf9b8bdf026489243bba9e8e7ca5a18432f2ba6292492ce8dc97690d1d8f2eb"
+}

@@ -442,6 +442,15 @@ pub async fn deactivate_user(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
+    // P2 #33: 审计日志 - deactivate_user 操作
+    tracing::warn!(
+        action = "admin.deactivate_user",
+        admin_user_id = %admin.user_id,
+        target_user_id = %user.user_id,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin deactivate user operation"
+    );
+
     tracing::info!(
         admin_user = %admin.user_id,
         target_user = %user.user_id,
@@ -488,7 +497,7 @@ pub async fn deactivate_user(
 
 #[axum::debug_handler]
 pub async fn reset_user_password(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
@@ -496,6 +505,15 @@ pub async fn reset_user_password(
     state.services.auth_service.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&state, &user_id).await?;
+
+    // P2 #33: 审计日志 - reset_password 操作
+    tracing::warn!(
+        action = "admin.reset_password",
+        admin_user_id = %admin.user_id,
+        target_user_id = %user.user_id,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin reset user password operation"
+    );
 
     state.services.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
 
@@ -715,10 +733,11 @@ pub async fn get_users_v2(
         })
         .collect();
 
-    let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+    let row = sqlx::query!(r#"SELECT COUNT(*) AS "total_count!" FROM users"#)
         .fetch_one(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let total_count: i64 = row.total_count;
 
     let next_token = if rows.len() as i64 == limit {
         rows.last().map(|row| {
@@ -811,8 +830,8 @@ pub async fn create_or_update_user_v2(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     if let Some(_user) = existing_user {
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             UPDATE users SET
                 displayname = COALESCE($2, displayname),
                 avatar_url = COALESCE($3, avatar_url),
@@ -821,15 +840,15 @@ pub async fn create_or_update_user_v2(
                 user_type = COALESCE($6, user_type),
                 updated_ts = $7
             WHERE username = $1 OR user_id = $1
-            ",
+            "#,
+            &user_id,
+            body.displayname.as_deref(),
+            body.avatar_url.as_deref(),
+            body.admin,
+            body.deactivated,
+            body.user_type.as_deref(),
+            now,
         )
-        .bind(&user_id)
-        .bind(&body.displayname)
-        .bind(&body.avatar_url)
-        .bind(body.admin)
-        .bind(body.deactivated)
-        .bind(&body.user_type)
-        .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update user", &e))?;
@@ -852,22 +871,22 @@ pub async fn create_or_update_user_v2(
                 .map_err(|e| ApiError::internal_with_log("Password hashing failed", &e))?
         };
 
-        sqlx::query(
-            r"
+        sqlx::query!(
+            r#"
             INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, created_ts, updated_ts, generation)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
-            ",
+            "#,
+            &user_id_full,
+            &username,
+            &password_hash,
+            body.displayname.as_deref(),
+            body.avatar_url.as_deref(),
+            body.admin.unwrap_or(false),
+            body.deactivated.unwrap_or(false),
+            body.user_type.as_deref(),
+            now,
+            now,
         )
-        .bind(&user_id_full)
-        .bind(&username)
-        .bind(&password_hash)
-        .bind(&body.displayname)
-        .bind(&body.avatar_url)
-        .bind(body.admin.unwrap_or(false))
-        .bind(body.deactivated.unwrap_or(false))
-        .bind(&body.user_type)
-        .bind(now)
-        .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create user", &e))?;
@@ -878,26 +897,26 @@ pub async fn create_or_update_user_v2(
 
 #[axum::debug_handler]
 pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = sqlx::query(
-        r"
+    let stats = sqlx::query!(
+        r#"
         SELECT
-            COUNT(*)::BIGINT AS total_users,
-            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE)::BIGINT AS active_users,
-            COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE)::BIGINT AS admin_users,
-            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE)::BIGINT AS deactivated_users,
-            COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE)::BIGINT AS guest_users
+            COUNT(*) AS "total_users!",
+            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS "active_users!",
+            COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS "admin_users!",
+            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS "deactivated_users!",
+            COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS "guest_users!"
         FROM users
-        ",
+        "#
     )
     .fetch_one(&*state.services.user_storage.pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to get user stats", &e))?;
 
-    let total_users = stats.get::<i64, _>("total_users");
-    let active_users = stats.get::<i64, _>("active_users");
-    let admin_users = stats.get::<i64, _>("admin_users");
-    let deactivated_users = stats.get::<i64, _>("deactivated_users");
-    let guest_users = stats.get::<i64, _>("guest_users");
+    let total_users = stats.total_users;
+    let active_users = stats.active_users;
+    let admin_users = stats.admin_users;
+    let deactivated_users = stats.deactivated_users;
+    let guest_users = stats.guest_users;
 
     let room_count = state
         .services.rooms.room_storage
@@ -934,20 +953,21 @@ pub async fn get_single_user_stats(
 
     let pool = &*state.services.rooms.room_storage.pool;
 
-    let messages_sent: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false",
+    let msg_row = sqlx::query!(
+        r#"SELECT COUNT(*) AS "messages_sent!" FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false"#,
+        &user.user_id
     )
-    .bind(&user.user_id)
     .fetch_one(pool)
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
+    let messages_sent: i64 = msg_row.messages_sent;
 
     let last_seen: Option<i64> =
-        sqlx::query_scalar("SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1")
-            .bind(&user.user_id)
+        sqlx::query_scalar!("SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1", &user.user_id)
             .fetch_optional(pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get last seen", &e))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to get last seen", &e))?
+            .flatten();
 
     Ok(Json(json!({
         "user_id": user.user_id,
@@ -1000,20 +1020,21 @@ pub async fn batch_create_users(
         let password_hash =
             hash_password(&password).map_err(|e| ApiError::internal_with_log("Failed to hash password", &e))?;
 
-        let result = sqlx::query(
-            r"
+        let full_user_id = format!("@{}:{}", username, state.services.config.server.name);
+        let result = sqlx::query!(
+            r#"
             INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (username) DO NOTHING
-            ",
+            "#,
+            &full_user_id,
+            &username,
+            &password_hash,
+            user.displayname.as_deref().unwrap_or(&username),
+            user.admin.unwrap_or(false),
+            now,
+            now,
         )
-        .bind(format!("@{}:{}", username, state.services.config.server.name))
-        .bind(&username)
-        .bind(&password_hash)
-        .bind(user.displayname.as_deref().unwrap_or(&username))
-        .bind(user.admin.unwrap_or(false))
-        .bind(now)
-        .bind(now)
         .execute(&*state.services.user_storage.pool)
         .await;
 
@@ -1057,8 +1078,7 @@ pub async fn batch_deactivate_users(
             continue;
         }
 
-        let result = sqlx::query("UPDATE users SET is_deactivated = true WHERE user_id = $1")
-            .bind(user_id)
+        let result = sqlx::query!("UPDATE users SET is_deactivated = true WHERE user_id = $1", user_id)
             .execute(&*state.services.user_storage.pool)
             .await;
 
@@ -1190,9 +1210,7 @@ pub async fn update_account(
     let canonical_user_id = &user.user_id;
 
     if let Some(displayname) = &body.displayname {
-        sqlx::query("UPDATE users SET displayname = $1 WHERE user_id = $2")
-            .bind(displayname)
-            .bind(canonical_user_id)
+        sqlx::query!("UPDATE users SET displayname = $1 WHERE user_id = $2", displayname, canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -1200,9 +1218,7 @@ pub async fn update_account(
 
     if let Some(admin_status) = body.admin {
         ensure_super_admin_for_privilege_change(&admin)?;
-        sqlx::query("UPDATE users SET is_admin = $1 WHERE user_id = $2")
-            .bind(admin_status)
-            .bind(canonical_user_id)
+        sqlx::query!("UPDATE users SET is_admin = $1 WHERE user_id = $2", admin_status, canonical_user_id)
             .execute(&*state.services.user_storage.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

@@ -1,12 +1,13 @@
 use super::models::*;
 use super::storage::SecretStorage;
 use crate::e2ee::crypto::aes::{Aes256GcmCipher, Aes256GcmKey};
-use crate::e2ee::crypto::x25519::X25519KeyPair;
 use crate::error::ApiError;
 use crate::services::dehydrated_device_service::DehydratedDeviceService;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use rand::rngs::OsRng;
 use rand::Rng;
 use std::collections::HashMap;
+use x25519_dalek::{PublicKey, StaticSecret};
 use std::sync::Arc;
 
 const SSSS_KEY_LENGTH: usize = 32;
@@ -39,9 +40,10 @@ impl SecretStorageService {
     }
 
     fn create_curve25519_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
-        let key_pair = X25519KeyPair::generate();
-        let private_key_bytes = key_pair.secret_key().as_bytes();
-        let public_key_bytes = key_pair.public_key().as_bytes();
+        let secret = StaticSecret::random_from_rng(OsRng);
+        let public = PublicKey::from(&secret);
+        let private_key_bytes = secret.as_bytes();
+        let public_key_bytes = public.as_bytes();
 
         let private_key_base64 = BASE64.encode(private_key_bytes);
         let public_key_base64 = BASE64.encode(public_key_bytes);
