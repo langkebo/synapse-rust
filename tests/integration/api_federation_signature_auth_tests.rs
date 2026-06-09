@@ -14,7 +14,6 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest};
 use synapse_rust::storage::{CreateOpenIdTokenRequest, OpenIdTokenStorage};
 use synapse_rust::web::AppState;
-use synapse_rust::PresenceState;
 use tower::ServiceExt;
 
 async fn setup_federation_ingress_app_with<F>(
@@ -2262,7 +2261,7 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
     assert_eq!(response.status(), StatusCode::OK);
 
     let presence = state.services.presence_storage.get_presence(&user_id).await.unwrap().unwrap();
-    assert_eq!(presence.0, PresenceState::Online);
+    assert_eq!(presence.0, "online");
     assert_eq!(presence.1.as_deref(), Some("ready"));
 
     let processed = state.services.metrics.get_counter("federation_inbound_presence_processed_total").unwrap().get();

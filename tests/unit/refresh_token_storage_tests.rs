@@ -1000,7 +1000,7 @@ fn test_record_usage() {
         assert_eq!(history[0].user_id, user_id);
         assert_eq!(history[0].old_access_token_id, Some("old_atid_abc".to_string()));
         assert_eq!(history[0].new_access_token_id, Some("new_atid_123".to_string()));
-        assert!(history[0].is_success);
+        assert!(history[0].success);
     });
 }
 
