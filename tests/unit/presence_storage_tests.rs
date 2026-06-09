@@ -134,7 +134,7 @@ fn test_set_and_get_presence() {
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
         let (presence, status_msg) = result.unwrap();
-        assert_eq!(presence, PresenceState::Online);
+        assert_eq!(presence, "online");
         assert_eq!(status_msg, Some("working".to_string()));
     });
 }
@@ -171,7 +171,7 @@ fn test_set_presence_without_status_msg() {
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
         let (presence, status_msg) = result.unwrap();
-        assert_eq!(presence, PresenceState::Unavailable);
+        assert_eq!(presence, "unavailable");
         assert_eq!(status_msg, None);
     });
 }
@@ -196,7 +196,7 @@ fn test_presence_upsert_updates_existing() {
         let result = storage.get_presence(&user_id).await.unwrap();
         assert!(result.is_some());
         let (presence, status_msg) = result.unwrap();
-        assert_eq!(presence, PresenceState::Offline);
+        assert_eq!(presence, "offline");
         assert_eq!(status_msg, Some("gone home".to_string()));
     });
 }
@@ -219,7 +219,7 @@ fn test_get_presence_with_meta() {
         let result = storage.get_presence_with_meta(&user_id).await.unwrap();
         assert!(result.is_some());
         let (presence, status_msg, last_active_ts) = result.unwrap();
-        assert_eq!(presence, PresenceState::Online);
+        assert_eq!(presence, "online");
         assert_eq!(status_msg, Some("active".to_string()));
         assert!(last_active_ts.is_some());
         assert!(last_active_ts.unwrap() > 0);
@@ -266,10 +266,10 @@ fn test_get_presences_batch() {
 
         assert_eq!(result.len(), 2);
         let (p1, s1) = result.get(&user1).unwrap();
-        assert_eq!(p1, &PresenceState::Online);
+        assert_eq!(p1, "online");
         assert_eq!(*s1, Some("working".to_string()));
         let (p2, s2) = result.get(&user2).unwrap();
-        assert_eq!(p2, &PresenceState::Unavailable);
+        assert_eq!(p2, "unavailable");
         assert_eq!(*s2, None);
         assert!(!result.contains_key(&user3));
     });
@@ -518,11 +518,11 @@ fn test_get_presence_batch() {
         assert_eq!(result.len(), 2);
 
         let u1 = result.iter().find(|(uid, _, _)| uid == &user1).unwrap();
-        assert_eq!(u1.1, PresenceState::Online);
+        assert_eq!(u1.1, "online");
         assert_eq!(u1.2, Some("active".to_string()));
 
         let u2 = result.iter().find(|(uid, _, _)| uid == &user2).unwrap();
-        assert_eq!(u2.1, PresenceState::Offline);
+        assert_eq!(u2.1, "offline");
         assert_eq!(u2.2, None);
     });
 }
@@ -566,13 +566,13 @@ fn test_get_presence_snapshots() {
 
         let snap1 = result.get(&user1).unwrap();
         assert_eq!(snap1.user_id, user1);
-        assert_eq!(snap1.presence, PresenceState::Online);
+        assert_eq!(snap1.presence, "online");
         assert_eq!(snap1.status_msg, Some("active".to_string()));
         assert!(snap1.last_active_ts.is_some());
 
         let snap2 = result.get(&user2).unwrap();
         assert_eq!(snap2.user_id, user2);
-        assert_eq!(snap2.presence, PresenceState::Unavailable);
+        assert_eq!(snap2.presence, "unavailable");
         assert_eq!(snap2.status_msg, None);
     });
 }
