@@ -315,6 +315,7 @@ pub async fn get_rooms(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
+    let legacy_offset = params.get("offset").and_then(|v| v.parse::<i64>().ok());
     let limit = params
         .get("limit")
         .and_then(|v| v.parse().ok())
@@ -325,6 +326,11 @@ pub async fn get_rooms(
 
     if params.contains_key("from") && cursor.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+    if legacy_offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request(
+            "Offset pagination is no longer supported for this endpoint; use from".to_string(),
+        ));
     }
 
     match (&order, &cursor) {
@@ -846,6 +852,11 @@ async fn search_all_rooms_impl(state: &AppState, body: SearchAllRoomsRequest) ->
 
     if body.from.is_some() && cursor.is_none() {
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
+    }
+    if body.offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request(
+            "Offset pagination is no longer supported for this endpoint; use from".to_string(),
+        ));
     }
 
     match (&order, &cursor) {
