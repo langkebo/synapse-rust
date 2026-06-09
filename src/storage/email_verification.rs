@@ -257,8 +257,8 @@ mod tests {
                 user_id TEXT,
                 email TEXT NOT NULL,
                 token TEXT NOT NULL,
-                expires_at TIMESTAMPTZ NOT NULL,
-                created_ts TIMESTAMPTZ NOT NULL,
+                expires_at BIGINT NOT NULL,
+                created_ts BIGINT NOT NULL,
                 is_used BOOLEAN NOT NULL DEFAULT FALSE,
                 session_data JSONB
             )

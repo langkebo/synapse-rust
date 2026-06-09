@@ -654,11 +654,12 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
         handles.push(tokio::spawn(async move {
             for iteration in 0..5 {
                 let state = if iteration % 2 == 0 { PresenceState::Online } else { PresenceState::Unavailable };
+                let expected: &str = if iteration % 2 == 0 { "online" } else { "unavailable" };
                 presence.set_presence(&user_id, state, Some("stable under concurrency")).await.unwrap();
                 let current = presence.get_presence(&user_id).await.unwrap();
                 assert!(current.is_some());
                 let (presence_state, status_msg) = current.unwrap();
-                assert_eq!(presence_state, state);
+                assert_eq!(presence_state, expected);
                 assert_eq!(status_msg.as_deref(), Some("stable under concurrency"));
             }
         }));
