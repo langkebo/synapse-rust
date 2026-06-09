@@ -536,7 +536,26 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r"
-            SELECT * FROM sliding_sync_rooms
+            SELECT
+                id,
+                user_id,
+                device_id,
+                room_id,
+                conn_id,
+                list_key,
+                bump_stamp,
+                highlight_count,
+                notification_count,
+                is_dm,
+                is_encrypted,
+                is_tombstoned,
+                invited,
+                name,
+                avatar,
+                timestamp,
+                created_ts,
+                updated_ts
+            FROM sliding_sync_rooms
             WHERE user_id = ",
         );
         query.push_bind(user_id);

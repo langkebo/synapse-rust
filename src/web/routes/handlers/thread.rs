@@ -676,7 +676,7 @@ async fn get_unread_threads_global(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::thread::ThreadSummary;
+    use crate::services::thread_service::ThreadSummary;
 
     #[test]
     fn test_build_legacy_threads_response_shape() {

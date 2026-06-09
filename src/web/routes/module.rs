@@ -1,6 +1,5 @@
 use crate::common::error::ApiError;
 use crate::services::module_service::*;
-use crate::storage::module::*;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -232,7 +231,7 @@ impl From<AccountValidity> for AccountValidityResponse {
         Self {
             user_id: v.user_id,
             expiration_ts: v.expiration_at,
-            last_check_at: v.email_sent_ts,
+            last_check_at: v.last_check_at,
             renewal_token: v.renewal_token,
             renewal_token_ts: v.renewal_token_ts,
             is_valid: v.is_valid,

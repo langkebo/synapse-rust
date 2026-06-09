@@ -146,18 +146,28 @@ impl RoomStorage {
             return Ok(Vec::new());
         }
 
-        let rows: Vec<RoomRecord> = sqlx::query_as!(
-            RoomRecord,
+        let rows: Vec<RoomRecord> = sqlx::query_as::<_, RoomRecord>(
             r"
-            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias,
-                  r.join_rules AS join_rule, r.creator, r.room_version,
-                  r.is_public, rs.member_count, rs.is_encrypted, r.history_visibility, r.created_ts
+            SELECT
+                r.room_id,
+                r.name,
+                r.topic,
+                r.avatar_url,
+                r.canonical_alias,
+                r.join_rules AS join_rule,
+                r.creator,
+                r.room_version,
+                r.is_public,
+                rs.member_count,
+                rs.is_encrypted,
+                r.history_visibility,
+                r.created_ts
             FROM rooms r
             LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
             WHERE r.room_id = ANY($1)
             ",
-            room_ids,
         )
+        .bind(room_ids)
         .fetch_all(&*self.pool)
         .await?;
 

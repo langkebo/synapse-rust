@@ -32,8 +32,8 @@ pub struct RefreshTokenUsage {
     pub used_ts: i64,
     pub ip_address: Option<String>,
     pub user_agent: Option<String>,
-    #[sqlx(rename = "is_success")]
-    pub success: bool,
+    #[serde(rename = "success")]
+    pub is_success: bool,
     pub error_message: Option<String>,
 }
 
@@ -554,9 +554,9 @@ impl RefreshTokenStorage {
             r#"SELECT
                 user_id,
                 COUNT(*) as "total_tokens!",
-                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW()) * 1000) as "active_tokens!",
+                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as "active_tokens!",
                 COUNT(*) FILTER (WHERE is_revoked = TRUE) as "revoked_tokens!",
-                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW()) * 1000) as "expired_tokens!",
+                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as "expired_tokens!",
                 COALESCE(SUM(use_count), 0) as "total_uses!"
             FROM refresh_tokens
             WHERE user_id = $1
@@ -574,7 +574,7 @@ impl RefreshTokenStorage {
             RefreshTokenUsage,
             r#"SELECT id, refresh_token_id, user_id, old_access_token_id, new_access_token_id,
                 used_ts AS "used_ts!", ip_address, user_agent,
-                is_success AS "success!: bool", error_message
+                is_success AS "is_success!: bool", error_message
             FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2"#,
             user_id,
             limit

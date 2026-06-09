@@ -1,7 +1,8 @@
 use crate::common::error::ApiError;
+pub use crate::storage::thread::ThreadSummary;
 use crate::storage::thread::{
     CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadReply, ThreadRoot,
-    ThreadStorage, ThreadSubscription, ThreadSummary,
+    ThreadStorage, ThreadSubscription,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};

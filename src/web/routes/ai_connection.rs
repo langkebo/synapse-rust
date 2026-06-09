@@ -7,8 +7,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::common::error::{ApiError, ApiResult};
+use crate::services::AiConnection;
 use crate::services::matrix_ai_connection_service::{CreateConnectionRequest, McpToolCallRequest};
-use crate::storage::ai_connection::AiConnection;
 use crate::web::routes::AuthenticatedUser;
 use crate::web::AppState;
 

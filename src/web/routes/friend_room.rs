@@ -339,6 +339,8 @@ pub struct FriendListQueryParams {
     #[serde(default)]
     pub offset: Option<usize>,
     #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
     pub sort_by: Option<String>,
 }
 
@@ -391,6 +393,15 @@ async fn get_friends(
     auth_user: AuthenticatedUser,
     Query(params): Query<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
+    let cursor = crate::services::friend_room_service::decode_friend_list_cursor(params.from.as_deref());
+    let legacy_offset = match (params.from.as_deref(), cursor.as_ref(), params.offset) {
+        (_, Some(_), offset) => offset,
+        (Some(from), None, offset) => from.parse::<usize>().ok().or(offset),
+        (None, None, offset) => offset,
+    };
+    if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
+        return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
+    }
     let page = state
         .services
         .friend_room_service
@@ -398,7 +409,8 @@ async fn get_friends(
             &auth_user.user_id,
             crate::services::friend_room_service::FriendListRequest {
                 limit: params.limit.unwrap_or(50).clamp(1, 200),
-                offset: params.offset.unwrap_or(0).clamp(0, 10000),
+                offset: legacy_offset.map(|offset| offset.clamp(0, 10000)),
+                from: cursor,
                 sort_by: params.sort_by.unwrap_or_else(|| "alphabet".to_string()),
             },
         )
@@ -413,6 +425,7 @@ async fn get_friends(
         "limit": page.limit,
         "offset": page.offset,
         "next_offset": page.next_offset,
+        "next_batch": page.next_batch,
         "room_id": page.room_id,
         "version": page.version,
         "cached": page.cached,

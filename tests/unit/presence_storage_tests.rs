@@ -83,7 +83,7 @@ async fn setup_test_database() -> Option<(Arc<Pool<Postgres>>, PresenceStorage)>
         CREATE TABLE typing (
             user_id TEXT NOT NULL,
             room_id TEXT NOT NULL,
-            typing BOOLEAN DEFAULT FALSE,
+            is_typing BOOLEAN DEFAULT FALSE,
             last_active_ts BIGINT NOT NULL,
             CONSTRAINT pk_typing PRIMARY KEY (user_id, room_id)
         )
@@ -444,7 +444,7 @@ fn test_set_typing_start_and_stop() {
 
         storage.set_typing(&room_id, &user_id, true).await.unwrap();
 
-        let row: Option<(bool,)> = sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
+        let row: Option<(bool,)> = sqlx::query_as("SELECT is_typing FROM typing WHERE user_id = $1 AND room_id = $2")
             .bind(&user_id)
             .bind(&room_id)
             .fetch_optional(&*pool)
@@ -455,7 +455,7 @@ fn test_set_typing_start_and_stop() {
 
         storage.set_typing(&room_id, &user_id, false).await.unwrap();
 
-        let row: Option<(bool,)> = sqlx::query_as("SELECT typing FROM typing WHERE user_id = $1 AND room_id = $2")
+        let row: Option<(bool,)> = sqlx::query_as("SELECT is_typing FROM typing WHERE user_id = $1 AND room_id = $2")
             .bind(&user_id)
             .bind(&room_id)
             .fetch_optional(&*pool)

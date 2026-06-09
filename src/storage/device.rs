@@ -555,6 +555,17 @@ impl DeviceStorage {
         Ok(max_id)
     }
 
+    pub async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let max_id = sqlx::query_scalar!(
+            r#"SELECT COALESCE(MAX(stream_id), 0) as "max_id!" FROM device_lists_stream WHERE user_id = $1"#,
+            user_id
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(max_id)
+    }
+
     pub async fn get_device_list_changes(
         &self,
         since: i64,

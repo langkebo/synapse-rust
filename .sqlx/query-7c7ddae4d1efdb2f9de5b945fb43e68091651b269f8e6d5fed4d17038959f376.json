@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                user_id as \"user_id!\",\n                expiration_at as \"expiration_at!\",\n                last_check_at as \"email_sent_ts?\",\n                renewal_token as \"renewal_token?\",\n                NULL::BIGINT as \"renewal_token_ts?\",\n                is_valid as \"is_valid!\",\n                created_ts as \"created_ts!\",\n                COALESCE(updated_ts, created_ts) as \"updated_ts!\"\n            FROM account_validity\n            WHERE expiration_at < $1 AND is_valid = true\n            ",
+  "query": "\n            UPDATE account_validity SET\n                expiration_at = $3,\n                renewal_token = NULL,\n                is_valid = true\n            WHERE user_id = $1 AND renewal_token = $2\n            RETURNING\n                user_id as \"user_id!\",\n                expiration_at as \"expiration_at!\",\n                last_check_at as \"last_check_at?\",\n                renewal_token as \"renewal_token?\",\n                NULL::BIGINT as \"renewal_token_ts?\",\n                is_valid as \"is_valid!\",\n                created_ts as \"created_ts!\",\n                COALESCE(updated_ts, created_ts) as \"updated_ts!\"\n            ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "email_sent_ts?",
+        "name": "last_check_at?",
         "type_info": "Int8"
       },
       {
@@ -46,6 +46,8 @@
     ],
     "parameters": {
       "Left": [
+        "Text",
+        "Text",
         "Int8"
       ]
     },
@@ -60,5 +62,5 @@
       null
     ]
   },
-  "hash": "4c460efb588a5ce3fa1ddf8b9f04d90adee323f6bbafe84dc4fca33c0b5c303a"
+  "hash": "7c7ddae4d1efdb2f9de5b945fb43e68091651b269f8e6d5fed4d17038959f376"
 }

@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::CreateAuditEventRequest;
+use crate::services::CreateAuditEventRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use axum::{

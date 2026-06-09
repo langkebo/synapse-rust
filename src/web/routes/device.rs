@@ -387,44 +387,32 @@ pub async fn get_device_list_updates(
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
-    let max_stream_id: i64 = sqlx::query_scalar!(
-        r#"
-        SELECT COALESCE(MAX(stream_id), 0) FROM device_lists_stream
-        "#
-    )
-    .fetch_one(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get device list stream position", &e))?
-    .unwrap_or(0);
+    let max_stream_id = state
+        .services
+        .device_storage
+        .get_max_device_list_stream_id()
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get device list stream position", &e))?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
-    let change_rows = sqlx::query!(
-        r#"
-        SELECT user_id, device_id, change_type, stream_id
-        FROM device_lists_changes
-        WHERE stream_id > $1
-          AND stream_id <= $2
-          AND user_id = ANY($3)
-        ORDER BY stream_id ASC
-        "#,
-        since,
-        to,
-        &users
-    )
-    .fetch_all(&*state.services.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get device list changes", &e))?;
+    let change_rows = state
+        .services
+        .device_storage
+        .get_device_list_changes(since, to, &users)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get device list changes", &e))?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
-    for row in change_rows {
-        let Some(device_id) = row.device_id else {
+    for (user_id, device_id, change_type, _stream_id) in change_rows {
+        let Some(device_id) = device_id else {
             continue;
         };
-        latest.insert((row.user_id, device_id), row.change_type);
+        latest.insert((user_id, device_id), change_type);
     }
 
     let mut deleted: Vec<Value> = Vec::new();
+    let mut active_pairs: Vec<(String, String)> = Vec::new();
     for ((user_id, device_id), change_type) in latest {
         if change_type == "deleted" {
             deleted.push(json!({
@@ -434,26 +422,26 @@ pub async fn get_device_list_updates(
             continue;
         }
 
-        let row = sqlx::query!(
-            r#"
-            SELECT display_name, last_seen_ts
-            FROM devices
-            WHERE user_id = $1 AND device_id = $2
-            "#,
-            &user_id,
-            &device_id
-        )
-        .fetch_optional(&*state.services.device_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device data", &e))?;
+        active_pairs.push((user_id, device_id));
+    }
 
-        if let Some(r) = row {
+    if !active_pairs.is_empty() {
+        let user_ids: Vec<&str> = active_pairs.iter().map(|(user_id, _)| user_id.as_str()).collect();
+        let device_ids: Vec<&str> = active_pairs.iter().map(|(_, device_id)| device_id.as_str()).collect();
+        let device_rows = state
+            .services
+            .device_storage
+            .get_devices_by_user_device_pairs(&user_ids, &device_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get device data", &e))?;
+
+        for (user_id, device_id, display_name, last_seen_ts) in device_rows {
             changed.push(json!({
                 "user_id": user_id,
                 "device_id": device_id,
                 "device_data": {
-                    "display_name": r.display_name,
-                    "last_seen_ts": r.last_seen_ts,
+                    "display_name": display_name,
+                    "last_seen_ts": last_seen_ts,
                 }
             }));
         }

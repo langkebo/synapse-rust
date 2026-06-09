@@ -1,8 +1,7 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use crate::common::crypto::hash_password;
 use crate::common::ApiError;
-use crate::storage::User;
+use crate::services::{decode_user_cursor, encode_user_cursor, AdminUserCursor, AdminUserRecord};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -12,39 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use validator::Validate;
-
-fn decode_user_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
-    let cursor = cursor?;
-    let (ts, user_id) = cursor.split_once('|')?;
-    let ts = ts.parse::<i64>().ok()?;
-    if user_id.is_empty() {
-        return None;
-    }
-    Some((ts, user_id))
-}
-
-fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
-    format!("{created_ts}|{user_id}")
-}
-
-#[cfg(test)]
-mod cursor_tests {
-    use super::{decode_user_cursor, encode_user_cursor};
-
-    #[test]
-    fn test_user_cursor_round_trip() {
-        let cursor = encode_user_cursor(1_700_000_000_000, "@alice:example.com");
-        assert_eq!(decode_user_cursor(Some(&cursor)), Some((1_700_000_000_000, "@alice:example.com")));
-    }
-
-    #[test]
-    fn test_user_cursor_rejects_invalid_value() {
-        assert_eq!(decode_user_cursor(Some("bad-cursor")), None);
-        assert_eq!(decode_user_cursor(Some("123|")), None);
-    }
-}
 
 pub fn create_user_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -215,7 +182,7 @@ pub struct CreateUpdateUserRequest {
     pub password: Option<String>,
 }
 
-async fn resolve_user(state: &AppState, identifier: &str) -> Result<User, ApiError> {
+async fn resolve_user(state: &AppState, identifier: &str) -> Result<AdminUserRecord, ApiError> {
     state
         .services
         .user_storage
@@ -244,7 +211,11 @@ pub async fn get_users(
     let users = state
         .services
         .user_storage
-        .get_users_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, user_id)| user_id))
+        .get_users_paginated(
+            limit,
+            cursor.as_ref().map(|cursor| cursor.created_ts),
+            cursor.as_ref().map(|cursor| cursor.user_id.as_str()),
+        )
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -272,7 +243,12 @@ pub async fn get_users(
         .collect();
 
     let next_batch = if users.len() as i64 == limit {
-        users.last().map(|u| encode_user_cursor(u.created_ts, &u.user_id))
+        users.last().map(|u| {
+            encode_user_cursor(&AdminUserCursor {
+                created_ts: u.created_ts,
+                user_id: u.user_id.clone(),
+            })
+        })
     } else {
         None
     };
@@ -687,73 +663,35 @@ pub async fn get_users_v2(
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let cursor = decode_user_cursor(params.get("from").map(String::as_str));
+    let page = state
+        .services
+        .admin
+        .admin_user_service
+        .list_users_v2(limit, cursor, params.get("name").map(String::as_str))
+        .await?;
 
-    let mut query = sqlx::QueryBuilder::new(
-        "SELECT user_id, username, created_ts, is_admin, updated_ts, is_guest, user_type, is_deactivated, displayname, avatar_url FROM users WHERE 1=1"
-    );
-
-    if let Some(name) = params.get("name") {
-        query.push(" AND username LIKE ");
-        query.push_bind(format!("%{name}%"));
-    }
-
-    if let Some((ts, user_id)) = cursor {
-        query.push(" AND (created_ts < ");
-        query.push_bind(ts);
-        query.push(" OR (created_ts = ");
-        query.push_bind(ts);
-        query.push(" AND user_id < ");
-        query.push_bind(user_id);
-        query.push("))");
-    }
-
-    query.push(" ORDER BY created_ts DESC, user_id DESC LIMIT ");
-    query.push_bind(limit);
-
-    let rows = query
-        .build()
-        .fetch_all(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let users: Vec<Value> = rows
+    let users: Vec<Value> = page
+        .users
         .iter()
-        .map(|row| {
+        .map(|user| {
             json!({
-                "name": row.get::<Option<String>, _>("user_id"),
-                "user_id": row.get::<Option<String>, _>("user_id"),
-                "creation_ts": row.get::<Option<i64>, _>("created_ts"),
-                "admin": row.get::<Option<bool>, _>("is_admin").unwrap_or(false),
-                "is_guest": row.get::<Option<bool>, _>("is_guest").unwrap_or(false),
-                "user_type": row.get::<Option<String>, _>("user_type"),
-                "deactivated": row.get::<Option<bool>, _>("is_deactivated").unwrap_or(false),
-                "displayname": row.get::<Option<String>, _>("displayname"),
-                "avatar_url": row.get::<Option<String>, _>("avatar_url")
+                "name": user.user_id,
+                "user_id": user.user_id,
+                "creation_ts": user.created_ts,
+                "admin": user.is_admin,
+                "is_guest": user.is_guest,
+                "user_type": user.user_type,
+                "deactivated": user.is_deactivated,
+                "displayname": user.displayname,
+                "avatar_url": user.avatar_url
             })
         })
         .collect();
 
-    let row = sqlx::query!(r#"SELECT COUNT(*) AS "total_count!" FROM users"#)
-        .fetch_one(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-    let total_count: i64 = row.total_count;
-
-    let next_token = if rows.len() as i64 == limit {
-        rows.last().map(|row| {
-            encode_user_cursor(
-                row.get::<Option<i64>, _>("created_ts").unwrap_or_default(),
-                &row.get::<Option<String>, _>("user_id").unwrap_or_default(),
-            )
-        })
-    } else {
-        None
-    };
-
     Ok(Json(json!({
         "users": users,
-        "total": total_count,
-        "next_token": next_token
+        "total": page.total,
+        "next_token": page.next_token
     })))
 }
 
@@ -765,21 +703,16 @@ pub async fn get_user_v2(
 ) -> Result<Json<Value>, ApiError> {
     let user = state
         .services
-        .user_storage
-        .get_user_by_identifier(&user_id)
+        .admin
+        .admin_user_service
+        .get_user_v2(&user_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        ?;
 
     match user {
-        Some(u) => {
-            let devices = state
-                .services
-                .device_storage
-                .get_user_devices(&u.user_id)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-            let device_list: Vec<Value> = devices
+        Some(details) => {
+            let device_list: Vec<Value> = details
+                .devices
                 .iter()
                 .map(|d| {
                     json!({
@@ -791,15 +724,15 @@ pub async fn get_user_v2(
                 .collect();
 
             Ok(Json(json!({
-                "name": u.user_id,
-                "user_id": u.user_id,
-                "is_guest": u.is_guest,
-                "admin": u.is_admin,
-                "deactivated": u.is_deactivated,
-                "displayname": u.displayname,
-                "avatar_url": u.avatar_url,
-                "created_ts": u.created_ts,
-                "user_type": u.user_type,
+                "name": details.user.user_id,
+                "user_id": details.user.user_id,
+                "is_guest": details.user.is_guest,
+                "admin": details.user.is_admin,
+                "deactivated": details.user.is_deactivated,
+                "displayname": details.user.displayname,
+                "avatar_url": details.user.avatar_url,
+                "created_ts": details.user.created_ts,
+                "user_type": details.user.user_type,
                 "devices": device_list,
                 "threepids": [],
                 "external_ids": []
@@ -820,119 +753,41 @@ pub async fn create_or_update_user_v2(
         ensure_super_admin_for_privilege_change(&admin)?;
     }
 
-    let now = chrono::Utc::now().timestamp_millis();
-
-    let existing_user = state
+    state
         .services
-        .user_storage
-        .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if let Some(_user) = existing_user {
-        sqlx::query!(
-            r#"
-            UPDATE users SET
-                displayname = COALESCE($2, displayname),
-                avatar_url = COALESCE($3, avatar_url),
-                is_admin = COALESCE($4, is_admin),
-                is_deactivated = COALESCE($5, is_deactivated),
-                user_type = COALESCE($6, user_type),
-                updated_ts = $7
-            WHERE username = $1 OR user_id = $1
-            "#,
+        .admin
+        .admin_user_service
+        .create_or_update_user_v2(
             &user_id,
             body.displayname.as_deref(),
             body.avatar_url.as_deref(),
             body.admin,
             body.deactivated,
             body.user_type.as_deref(),
-            now,
+            body.password.as_deref(),
         )
-        .execute(&*state.services.user_storage.pool)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update user", &e))?;
+        ?;
 
-        Ok(Json(json!({})))
-    } else {
-        let user_id_full = if user_id.starts_with('@') {
-            user_id.clone()
-        } else {
-            format!("@{}:{}", user_id, state.services.config.server.name)
-        };
-
-        let username = user_id_full.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(&user_id).to_string();
-
-        let password_hash = if let Some(ref pwd) = body.password {
-            crate::common::crypto::hash_password(pwd)
-                .map_err(|e| ApiError::internal_with_log("Password hashing failed", &e))?
-        } else {
-            crate::common::crypto::hash_password(&crate::common::random_string(16))
-                .map_err(|e| ApiError::internal_with_log("Password hashing failed", &e))?
-        };
-
-        sqlx::query!(
-            r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, avatar_url, is_admin, is_deactivated, user_type, created_ts, updated_ts, generation)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
-            "#,
-            &user_id_full,
-            &username,
-            &password_hash,
-            body.displayname.as_deref(),
-            body.avatar_url.as_deref(),
-            body.admin.unwrap_or(false),
-            body.deactivated.unwrap_or(false),
-            body.user_type.as_deref(),
-            now,
-            now,
-        )
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create user", &e))?;
-
-        Ok(Json(json!({})))
-    }
+    Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = sqlx::query!(
-        r#"
-        SELECT
-            COUNT(*) AS "total_users!",
-            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS "active_users!",
-            COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS "admin_users!",
-            COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS "deactivated_users!",
-            COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS "guest_users!"
-        FROM users
-        "#
-    )
-    .fetch_one(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get user stats", &e))?;
-
-    let total_users = stats.total_users;
-    let active_users = stats.active_users;
-    let admin_users = stats.admin_users;
-    let deactivated_users = stats.deactivated_users;
-    let guest_users = stats.guest_users;
-
-    let room_count = state
-        .services.rooms.room_storage
-        .get_room_count()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
-
-    let average_rooms_per_user = if total_users > 0 { (room_count as f64 / total_users as f64).round() } else { 0.0 };
+    let stats = state
+        .services
+        .admin
+        .admin_user_service
+        .get_user_stats()
+        .await?;
 
     Ok(Json(json!({
-        "total_users": total_users,
-        "active_users": active_users,
-        "admin_users": admin_users,
-        "deactivated_users": deactivated_users,
-        "guest_users": guest_users,
-        "average_rooms_per_user": average_rooms_per_user,
+        "total_users": stats.total_users,
+        "active_users": stats.active_users,
+        "admin_users": stats.admin_users,
+        "deactivated_users": stats.deactivated_users,
+        "guest_users": stats.guest_users,
+        "average_rooms_per_user": stats.average_rooms_per_user,
         "user_registration_enabled": state.services.config.server.enable_registration
     })))
 }
@@ -944,42 +799,24 @@ pub async fn get_single_user_stats(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-
-    let rooms_joined: i64 = state
-        .services.rooms.member_storage
-        .get_joined_room_count(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to count rooms", &e))?;
-
-    let pool = &*state.services.rooms.room_storage.pool;
-
-    let msg_row = sqlx::query!(
-        r#"SELECT COUNT(*) AS "messages_sent!" FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false"#,
-        &user.user_id
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
-    let messages_sent: i64 = msg_row.messages_sent;
-
-    let last_seen: Option<i64> =
-        sqlx::query_scalar!("SELECT last_seen_ts FROM devices WHERE user_id = $1 ORDER BY last_seen_ts DESC LIMIT 1", &user.user_id)
-            .fetch_optional(pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get last seen", &e))?
-            .flatten();
+    let stats = state
+        .services
+        .admin
+        .admin_user_service
+        .get_single_user_stats(&user)
+        .await?;
 
     Ok(Json(json!({
-        "user_id": user.user_id,
-        "rooms_joined": rooms_joined,
-        "messages_sent": messages_sent,
-        "last_seen_ts": last_seen,
-        "creation_ts": user.created_ts,
-        "is_admin": user.is_admin,
+        "user_id": stats.user.user_id,
+        "rooms_joined": stats.rooms_joined,
+        "messages_sent": stats.messages_sent,
+        "last_seen_ts": stats.last_seen_ts,
+        "creation_ts": stats.user.created_ts,
+        "is_admin": stats.user.is_admin,
         "dashboard": {
-            "total_rooms": rooms_joined,
-            "total_messages": messages_sent,
-            "last_seen": last_seen
+            "total_rooms": stats.rooms_joined,
+            "total_messages": stats.messages_sent,
+            "last_seen": stats.last_seen_ts
         }
     })))
 }
@@ -1009,45 +846,28 @@ pub async fn batch_create_users(
         ensure_super_admin_for_privilege_change(&admin)?;
     }
 
-    let mut created = Vec::new();
-    let mut failed = Vec::new();
-    let now = chrono::Utc::now().timestamp_millis();
-
-    for user in &body.users {
-        let password = user.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        let username = user.username.clone();
-
-        let password_hash =
-            hash_password(&password).map_err(|e| ApiError::internal_with_log("Failed to hash password", &e))?;
-
-        let full_user_id = format!("@{}:{}", username, state.services.config.server.name);
-        let result = sqlx::query!(
-            r#"
-            INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (username) DO NOTHING
-            "#,
-            &full_user_id,
-            &username,
-            &password_hash,
-            user.displayname.as_deref().unwrap_or(&username),
-            user.admin.unwrap_or(false),
-            now,
-            now,
-        )
-        .execute(&*state.services.user_storage.pool)
-        .await;
-
-        match result {
-            Ok(r) if r.rows_affected() > 0 => created.push(username.clone()),
-            Ok(_) => failed.push(username),
-            Err(_) => failed.push(username),
-        }
-    }
+    let users: Vec<(String, String, Option<String>, bool)> = body
+        .users
+        .iter()
+        .map(|user| {
+            (
+                user.username.clone(),
+                user.password.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+                user.displayname.clone(),
+                user.admin.unwrap_or(false),
+            )
+        })
+        .collect();
+    let result = state
+        .services
+        .admin
+        .admin_user_service
+        .batch_create_users(&users)
+        .await?;
 
     Ok(Json(json!({
-        "created": created,
-        "failed": failed,
+        "created": result.succeeded,
+        "failed": result.failed,
         "total": body.users.len()
     })))
 }
@@ -1065,32 +885,20 @@ pub async fn batch_deactivate_users(
     State(state): State<AppState>,
     Json(body): Json<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut deactivated = Vec::new();
-    let mut failed = Vec::new();
-
     if body.users.len() > 100 {
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
     }
 
-    for user_id in &body.users {
-        if !user_id.starts_with('@') || !user_id.contains(':') {
-            failed.push(user_id.clone());
-            continue;
-        }
-
-        let result = sqlx::query!("UPDATE users SET is_deactivated = true WHERE user_id = $1", user_id)
-            .execute(&*state.services.user_storage.pool)
-            .await;
-
-        match result {
-            Ok(r) if r.rows_affected() > 0 => deactivated.push(user_id.clone()),
-            _ => failed.push(user_id.clone()),
-        }
-    }
+    let result = state
+        .services
+        .admin
+        .admin_user_service
+        .batch_deactivate_users(&body.users)
+        .await?;
 
     Ok(Json(json!({
-        "deactivated": deactivated,
-        "failed": failed,
+        "deactivated": result.succeeded,
+        "failed": result.failed,
         "total": body.users.len()
     })))
 }
@@ -1209,19 +1017,22 @@ pub async fn update_account(
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
-    if let Some(displayname) = &body.displayname {
-        sqlx::query!("UPDATE users SET displayname = $1 WHERE user_id = $2", displayname, canonical_user_id)
-            .execute(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    if body.admin.is_some() {
+        ensure_super_admin_for_privilege_change(&admin)?;
     }
+    state
+        .services
+        .admin
+        .admin_user_service
+        .update_account(
+            canonical_user_id,
+            body.displayname.as_deref(),
+            body.avatar_url.as_deref(),
+            body.admin,
+        )
+        .await?;
 
     if let Some(admin_status) = body.admin {
-        ensure_super_admin_for_privilege_change(&admin)?;
-        sqlx::query!("UPDATE users SET is_admin = $1 WHERE user_id = $2", admin_status, canonical_user_id)
-            .execute(&*state.services.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         state.cache.set(&format!("user:admin:{canonical_user_id}"), admin_status, 3600).await?;
     }
 

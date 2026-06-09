@@ -3,9 +3,9 @@ use crate::common::error::ApiError;
 use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::presence::PresenceStorage;
+pub use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::storage::sliding_sync::{
-    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
-    SlidingSyncRoom, SlidingSyncStorage,
+    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage,
 };
 use crate::storage::{EventStorage, RoomEvent, StateEvent};
 use serde::{Deserialize, Serialize};

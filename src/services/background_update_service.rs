@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::background_update::*;
+pub use crate::storage::background_update::*;
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;

@@ -5,7 +5,7 @@ use super::providers::{
 };
 use super::queue::{PushQueue, QueueConfig};
 use crate::common::error::ApiError;
-use crate::storage::push_notification::*;
+pub use crate::storage::push_notification::*;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use std::time::Instant;

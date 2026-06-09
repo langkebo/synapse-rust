@@ -747,9 +747,9 @@ fn test_redacted_annotation_excluded_from_exists() {
             key: "👍".to_string(),
             origin_server_ts: 22000,
         };
-        service.send_annotation(request).await.unwrap();
+        let annotation = service.send_annotation(request).await.unwrap();
 
-        service.redact_relation(&room_id, &format!("$annotation_{suffix}:localhost"), &sender).await.unwrap();
+        service.redact_relation(&room_id, &annotation.event_id, &sender).await.unwrap();
 
         let storage = RelationsStorage::new(&pool);
         let relations = storage

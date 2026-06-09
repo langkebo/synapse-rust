@@ -1,4 +1,8 @@
 use crate::common::ApiError;
+pub use crate::storage::application_service::{
+    ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
+    UpdateApplicationServiceRequest,
+};
 use crate::storage::application_service::*;
 use reqwest::Client;
 use serde_json::json;

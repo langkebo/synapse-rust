@@ -168,9 +168,10 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
 
-    let openid_storage = crate::storage::OpenIdTokenStorage::new(&state.services.user_storage.pool);
-    let token = openid_storage
-        .validate_token(access_token)
+    let token = state
+        .services
+        .account_data_service
+        .validate_openid_token(access_token)
         .await?
         .ok_or_else(|| ApiError::unauthorized("Invalid or expired OpenID token".to_string()))?;
 

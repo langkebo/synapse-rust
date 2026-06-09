@@ -1,6 +1,10 @@
 use crate::common::ApiError;
 use crate::storage::event::EventStorage;
 use crate::storage::membership::RoomMemberStorage;
+pub use crate::storage::room_summary::{
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
+    RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
+};
 use crate::storage::room_summary::*;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};

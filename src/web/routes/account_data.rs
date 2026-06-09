@@ -73,17 +73,7 @@ async fn list_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = sqlx::query!(r#"SELECT data_type AS "data_type!", content AS "content!" FROM account_data WHERE user_id = $1"#,
-        &user_id,
-    )
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let account_data: serde_json::Map<String, Value> = result
-        .into_iter()
-        .map(|row| (row.data_type, row.content))
-        .collect();
+    let account_data = state.services.account_data_service.list_account_data(&user_id).await?;
 
     Ok(Json(json!({
         "account_data": account_data
@@ -100,31 +90,7 @@ async fn set_account_data(
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    if data_type.len() > 128 {
-        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
-    }
-
-    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
-    if body_str.len() > 65536 {
-        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
-    }
-
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query!(
-        r"
-        INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT (user_id, data_type) DO UPDATE SET content = $3, updated_ts = $4
-        ",
-        &user_id,
-        &data_type,
-        &body,
-        now,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to save account data", &e))?;
+    state.services.account_data_service.set_account_data(&user_id, &data_type, &body).await?;
 
     Ok(Json(json!({})))
 }
@@ -138,16 +104,10 @@ async fn get_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = sqlx::query!(r#"SELECT content AS "content" FROM account_data WHERE user_id = $1 AND data_type = $2"#,
-        &user_id,
-        &data_type,
-    )
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = state.services.account_data_service.get_account_data(&user_id, &data_type).await?;
 
     match result {
-        Some(row) => Ok(Json(row.content)),
+        Some(content) => Ok(Json(content)),
         None => {
             if data_type == "m.push_rules" {
                 Ok(Json(json!({
@@ -176,34 +136,11 @@ async fn set_room_account_data(
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    // 对称于 set_account_data 的尺寸/长度校验——避免其他客户端通过
-    // room account data 路径绕过限制写入巨大或非法 key。
-    if data_type.len() > 128 {
-        return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
-    }
-
-    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
-    if body_str.len() > 65536 {
-        return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
-    }
-
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query!(
-        r"
-        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $5)
-        ON CONFLICT (user_id, room_id, data_type) DO UPDATE SET data = $4, updated_ts = $5
-        ",
-        &user_id,
-        &room_id,
-        &data_type,
-        &body,
-        now,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))?;
+    state
+        .services
+        .account_data_service
+        .set_room_account_data(&user_id, &room_id, &data_type, &body)
+        .await?;
 
     Ok(Json(json!({})))
 }
@@ -217,18 +154,14 @@ async fn get_room_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result =
-        sqlx::query!(r#"SELECT data AS "data" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-            &user_id,
-            &room_id,
-            &data_type,
-        )
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = state
+        .services
+        .account_data_service
+        .get_room_account_data(&user_id, &room_id, &data_type)
+        .await?;
 
     match result {
-        Some(row) => Ok(Json(row.data)),
+        Some(data) => Ok(Json(data)),
         None => Err(ApiError::not_found("Room account data not found".to_string())),
     }
 }
@@ -243,22 +176,7 @@ async fn create_filter(
         return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
     }
 
-    let filter_id = crate::common::random_string(16);
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query!(
-        r"
-        INSERT INTO filters (filter_id, user_id, content, created_ts)
-        VALUES ($1, $2, $3, $4)
-        ",
-        &filter_id,
-        &user_id,
-        &body,
-        now,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to save filter", &e))?;
+    let filter_id = state.services.account_data_service.create_filter(&user_id, body).await?;
 
     Ok(Json(json!({
         "filter_id": filter_id
@@ -274,16 +192,10 @@ async fn get_filter(
         return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
     }
 
-    let result = sqlx::query!(r#"SELECT content AS "content" FROM filters WHERE filter_id = $1 AND user_id = $2"#,
-        &filter_id,
-        &user_id,
-    )
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = state.services.account_data_service.get_filter(&user_id, &filter_id).await?;
 
     match result {
-        Some(row) => Ok(Json(row.content)),
+        Some(content) => Ok(Json(content)),
         None => Err(ApiError::not_found("Filter not found".to_string())),
     }
 }
@@ -297,15 +209,9 @@ async fn delete_account_data(
         return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
     }
 
-    let result = sqlx::query!("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2",
-        &user_id,
-        &data_type,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
+    let deleted = state.services.account_data_service.delete_account_data(&user_id, &data_type).await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Account data not found".to_string()));
     }
 
@@ -321,16 +227,13 @@ async fn delete_room_account_data(
         return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
 
-    let result = sqlx::query!("DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-        &user_id,
-        &room_id,
-        &data_type,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
+    let deleted = state
+        .services
+        .account_data_service
+        .delete_room_account_data(&user_id, &room_id, &data_type)
+        .await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Room account data not found".to_string()));
     }
 
@@ -346,15 +249,9 @@ async fn delete_filter(
         return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
     }
 
-    let result = sqlx::query!("DELETE FROM filters WHERE filter_id = $1 AND user_id = $2",
-        &filter_id,
-        &user_id,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to delete filter", &e))?;
+    let deleted = state.services.account_data_service.delete_filter(&user_id, &filter_id).await?;
 
-    if result.rows_affected() == 0 {
+    if !deleted {
         return Err(ApiError::not_found("Filter not found".to_string()));
     }
 
@@ -370,23 +267,11 @@ async fn get_openid_token(
         return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }
 
-    let token = crate::common::random_string(32);
-    let expires_in = 3600;
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query!(
-        r"
-        INSERT INTO openid_tokens (token, user_id, created_ts, expires_at, is_valid)
-        VALUES ($1, $2, $3, $4, TRUE)
-        ",
-        &token,
-        &user_id,
-        now,
-        now + (expires_in * 1000),
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to create OpenID token", &e))?;
+    let (token, expires_in) = state
+        .services
+        .account_data_service
+        .create_openid_token(&user_id, None, 3600)
+        .await?;
 
     Ok(Json(json!({
         "access_token": token,

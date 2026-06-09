@@ -18,48 +18,6 @@ async fn ensure_typing_room_access(
         .await
 }
 
-async fn write_typing_ephemeral(
-    state: &AppState,
-    room_id: &str,
-    user_id: &str,
-    typing_user_ids: &[String],
-    timeout_ms: i64,
-) {
-    let content = json!({
-        "user_ids": typing_user_ids
-    });
-    let now = chrono::Utc::now().timestamp_millis();
-    let _ = sqlx::query!(
-        r#"
-        INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
-        VALUES ($1, 'm.typing', $2, $3, $4, $5, $6)
-        ON CONFLICT (room_id, event_type, user_id) DO UPDATE
-        SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts, expires_at = EXCLUDED.expires_at
-        "#,
-        room_id,
-        user_id,
-        &content,
-        now,
-        now,
-        now + timeout_ms
-    )
-    .execute(&*state.services.rooms.event_storage.pool)
-    .await;
-}
-
-async fn clear_typing_ephemeral(state: &AppState, room_id: &str, user_id: &str) {
-    let _ = sqlx::query!(
-        r#"
-        DELETE FROM room_ephemeral
-        WHERE room_id = $1 AND event_type = 'm.typing' AND user_id = $2
-        "#,
-        room_id,
-        user_id
-    )
-    .execute(&*state.services.rooms.event_storage.pool)
-    .await;
-}
-
 /// Set typing indicator
 /// PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn set_typing(
@@ -81,7 +39,12 @@ pub async fn set_typing(
     if is_typing {
         state.services.rooms.typing_service.set_typing(&room_id, &user_id, timeout).await?;
 
-        write_typing_ephemeral(&state, &room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64).await;
+        state
+            .services
+            .rooms
+            .room_service
+            .set_typing_ephemeral_event(&room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64)
+            .await?;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",
@@ -104,7 +67,12 @@ pub async fn set_typing(
     } else {
         state.services.rooms.typing_service.clear_typing(&room_id, &user_id).await?;
 
-        clear_typing_ephemeral(&state, &room_id, &user_id).await;
+        state
+            .services
+            .rooms
+            .room_service
+            .clear_typing_ephemeral_event(&room_id, &user_id)
+            .await?;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",

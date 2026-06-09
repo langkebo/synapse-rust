@@ -218,14 +218,14 @@ impl FederationBlacklistStorage {
             SELECT
                 id AS "id!",
                 server_name AS "server_name!",
-                'blacklist' AS "block_type!",
+                block_type AS "block_type!",
                 reason AS "reason?",
                 COALESCE(added_by, 'system') AS "blocked_by!",
-                added_ts AS "created_ts!",
+                COALESCE(created_ts, added_ts) AS "created_ts!",
                 COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                NULL::BIGINT AS "expires_at?",
-                TRUE AS "is_enabled!",
-                '{}'::jsonb AS "metadata!"
+                expires_at AS "expires_at?",
+                is_enabled AS "is_enabled!",
+                metadata AS "metadata!"
             FROM federation_blacklist
             WHERE server_name = $1
             "#,
@@ -287,14 +287,14 @@ impl FederationBlacklistStorage {
                 SELECT
                     id AS "id!",
                     server_name AS "server_name!",
-                    'blacklist' AS "block_type!",
+                    block_type AS "block_type!",
                     reason AS "reason?",
                     COALESCE(added_by, 'system') AS "blocked_by!",
-                    added_ts AS "created_ts!",
+                    COALESCE(created_ts, added_ts) AS "created_ts!",
                     COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    NULL::BIGINT AS "expires_at?",
-                    TRUE AS "is_enabled!",
-                    '{}'::jsonb AS "metadata!"
+                    expires_at AS "expires_at?",
+                    is_enabled AS "is_enabled!",
+                    metadata AS "metadata!"
                 FROM federation_blacklist
                 WHERE (added_ts, server_name) < ($1, $2)
                 ORDER BY added_ts DESC, server_name DESC
@@ -314,14 +314,14 @@ impl FederationBlacklistStorage {
                 SELECT
                     id AS "id!",
                     server_name AS "server_name!",
-                    'blacklist' AS "block_type!",
+                    block_type AS "block_type!",
                     reason AS "reason?",
                     COALESCE(added_by, 'system') AS "blocked_by!",
-                    added_ts AS "created_ts!",
+                    COALESCE(created_ts, added_ts) AS "created_ts!",
                     COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    NULL::BIGINT AS "expires_at?",
-                    TRUE AS "is_enabled!",
-                    '{}'::jsonb AS "metadata!"
+                    expires_at AS "expires_at?",
+                    is_enabled AS "is_enabled!",
+                    metadata AS "metadata!"
                 FROM federation_blacklist
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
@@ -334,7 +334,7 @@ impl FederationBlacklistStorage {
         };
 
         let next_batch = if rows.len() > limit as usize {
-            rows.get(limit as usize).map(|last| {
+            rows.get(limit as usize - 1).map(|last| {
                 encode_federation_blacklist_cursor(&FederationBlacklistCursor {
                     created_ts: last.created_ts,
                     server_name: last.server_name.clone(),
@@ -421,7 +421,7 @@ impl FederationBlacklistStorage {
             now,
             if request.is_success { Some(now) } else { None },
             if request.is_success { None } else { Some(now) },
-            request.response_time_ms,
+            request.response_time_ms.unwrap_or(0.0),
             if request.is_success { 0.0 } else { 1.0 }
         )
         .fetch_one(&*self.pool)

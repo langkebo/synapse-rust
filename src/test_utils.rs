@@ -471,7 +471,6 @@ pub async fn prepare_empty_isolated_test_pool() -> Result<Arc<PgPool>, String> {
     .map_err(|error| format!("failed to connect isolated pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
-    ensure_test_schema_contract(&pool).await?;
     Ok(pool)
 }
 

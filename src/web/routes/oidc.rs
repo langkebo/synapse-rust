@@ -497,29 +497,19 @@ async fn oidc_token(
 
             // 查询 (issuer, subject) -> user_id 绑定，防止外部 IdP 攻击者通过
             // 控制 preferred_username 等映射字段冒用本地已存在账号。
-            let pool = &*state.services.user_storage.pool;
-            let bound_user_id: Option<String> =
-                sqlx::query_scalar!("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
-                    &issuer,
-                    &subject
-                )
-                .fetch_optional(pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
+            let bound_user_id = state
+                .services
+                .oidc_mapping_service
+                .get_bound_user_id(&issuer, &subject)
+                .await?;
 
             let matrix_user_id = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                sqlx::query!(
-                    "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
-                     authentication_count = authentication_count + 1 \
-                     WHERE issuer = $2 AND subject = $3",
-                    now_ts,
-                    &issuer,
-                    &subject
-                )
-                .execute(pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
+                state
+                    .services
+                    .oidc_mapping_service
+                    .record_authentication(&issuer, &subject, now_ts)
+                    .await?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
@@ -546,18 +536,11 @@ async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                sqlx::query!(
-                    "INSERT INTO oidc_user_mapping \
-                     (issuer, subject, user_id, first_seen_ts, last_authenticated_ts, authentication_count) \
-                     VALUES ($1, $2, $3, $4, $4, 1)",
-                    &issuer,
-                    &subject,
-                    &matrix_user_id,
-                    now_ts
-                )
-                .execute(pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;
+                state
+                    .services
+                    .oidc_mapping_service
+                    .create_mapping(&issuer, &subject, &matrix_user_id, now_ts)
+                    .await?;
                 matrix_user_id
             };
 

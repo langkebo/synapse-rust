@@ -96,6 +96,7 @@ pub struct ServiceContainer {
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<BurnAfterReadService>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    pub oidc_mapping_service: Arc<crate::services::oidc_mapping_service::OidcMappingService>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -105,6 +106,9 @@ pub struct ServiceContainer {
     pub uia_service: Arc<crate::services::uia_service::UiaService>,
     pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
     pub event_notifier: crate::services::event_notifier::EventNotifier,
+    pub account_data_service: Arc<crate::services::account_data_service::AccountDataService>,
+    pub client_push_service: Arc<crate::services::client_push_service::ClientPushService>,
+    pub room_tag_service: Arc<crate::services::room_tag_service::RoomTagService>,
 }
 
 // =============================================================================
@@ -227,6 +231,7 @@ fn assemble_room_and_sync(
     presence_storage: &PresenceStorage,
     to_device_storage: &crate::e2ee::to_device::ToDeviceStorage,
     metrics: &Arc<MetricsCollector>,
+    event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
 ) -> RoomSyncServices {
     let server_name_for_storage = config.server.get_server_name().to_string();
     let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
@@ -256,6 +261,7 @@ fn assemble_room_and_sync(
             server_name: config.server.name.clone(),
             task_queue: task_queue.clone(),
             relations_storage: relations_storage.clone(),
+            event_broadcaster,
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
@@ -381,6 +387,12 @@ pub struct AdminServices {
     pub admin_registration_service: crate::services::admin_registration_service::AdminRegistrationService,
     pub audit_storage: crate::storage::audit::AuditEventStorage,
     pub admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
+    pub admin_federation_service: Arc<crate::services::admin_federation_service::AdminFederationService>,
+    pub admin_media_service: Arc<crate::services::admin_media_service::AdminMediaService>,
+    pub admin_security_service: Arc<crate::services::admin_security_service::AdminSecurityService>,
+    pub admin_server_service: Arc<crate::services::admin_server_service::AdminServerService>,
+    pub admin_token_service: Arc<crate::services::admin_token_service::AdminTokenService>,
+    pub admin_user_service: Arc<crate::services::admin_user_service::AdminUserService>,
     pub feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
     pub feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: crate::storage::event_report::EventReportStorage,
@@ -423,6 +435,7 @@ fn assemble_admin_support(
     let admin_registration_service = crate::services::admin_registration_service::AdminRegistrationService::new(
         auth_service.clone(),
         config.admin_registration.clone(),
+        UserStorage::new(pool, cache.clone()),
         cache.clone(),
         metrics.clone(),
     );
@@ -483,6 +496,35 @@ fn assemble_admin_support(
         Arc::new(crate::services::federation_blacklist_service::FederationBlacklistService::new(Arc::new(
             federation_blacklist_storage.clone(),
         )));
+    let admin_federation_service = Arc::new(crate::services::admin_federation_service::AdminFederationService::new(
+        pool.clone(),
+        Arc::new(federation_blacklist_storage.clone()),
+        federation_blacklist_service.clone(),
+    ));
+    let admin_media_service = Arc::new(crate::services::admin_media_service::AdminMediaService::new(
+        pool.clone(),
+        UserStorage::new(pool, cache.clone()),
+    ));
+    let admin_security_service = Arc::new(crate::services::admin_security_service::AdminSecurityService::new(
+        pool.clone(),
+        cache.clone(),
+    ));
+    let admin_server_service =
+        Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
+    let admin_token_service = Arc::new(crate::services::admin_token_service::AdminTokenService::new(
+        pool.clone(),
+        AccessTokenStorage::new(pool),
+        Arc::new(refresh_token_storage.clone()),
+        registration_token_service.clone(),
+    ));
+    let admin_user_service = Arc::new(crate::services::admin_user_service::AdminUserService::new(
+        pool.clone(),
+        UserStorage::new(pool, cache.clone()),
+        DeviceStorage::new(pool),
+        RoomStorage::new(pool),
+        RoomMemberStorage::new(pool, config.server.get_server_name()),
+        config.server.name.clone(),
+    ));
 
     let push_notification_storage = crate::storage::push_notification::PushNotificationStorage::new(pool);
     let push_notification_service = Arc::new(crate::services::push_notification_service::PushNotificationService::new(
@@ -514,6 +556,12 @@ fn assemble_admin_support(
         admin_registration_service,
         audit_storage,
         admin_audit_service,
+        admin_federation_service,
+        admin_media_service,
+        admin_security_service,
+        admin_server_service,
+        admin_token_service,
+        admin_user_service,
         feature_flag_storage,
         feature_flag_service,
         event_report_storage,
@@ -552,6 +600,10 @@ fn assemble_admin_support(
 // =============================================================================
 
 impl ServiceContainer {
+    pub fn database_pool(&self) -> Arc<sqlx::PgPool> {
+        self.user_storage.pool.clone()
+    }
+
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
@@ -612,6 +664,19 @@ impl ServiceContainer {
             });
         }
 
+        // Federation — domain assembly
+        let federation = assemble_federation(pool, &cache, &config, &task_queue);
+
+        // Event broadcaster (federation)
+        let broadcaster_federation_client = federation.federation_client.clone();
+        let broadcaster_origin = config.server.get_server_name().to_string();
+        let broadcaster_member_storage = RoomMemberStorage::new(pool, &broadcaster_origin);
+        let event_broadcaster = Arc::new(crate::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name.clone())
+            .with_client(broadcaster_federation_client)
+            .with_pool(pool.as_ref().clone())
+            .with_membership_storage(Arc::new(broadcaster_member_storage)));
+        event_broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
+
         // Room & Sync — domain assembly
         let rooms = assemble_room_and_sync(
             pool,
@@ -622,6 +687,7 @@ impl ServiceContainer {
             &presence_storage,
             &e2ee.to_device_storage,
             &metrics,
+            event_broadcaster.clone(),
         );
 
         // Media service
@@ -651,9 +717,6 @@ impl ServiceContainer {
             admin.media_quota_service.clone(),
             chunked_upload_service.clone(),
         ));
-
-        // Federation — domain assembly
-        let federation = assemble_federation(pool, &cache, &config, &task_queue);
 
         // Registration service
         let registration_service = Arc::new(crate::services::registration_service::RegistrationService::new(
@@ -760,6 +823,7 @@ impl ServiceContainer {
         } else {
             None
         };
+        let oidc_mapping_service = Arc::new(crate::services::oidc_mapping_service::OidcMappingService::new(pool.clone()));
 
         #[cfg(feature = "builtin-oidc")]
         let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
@@ -814,11 +878,19 @@ impl ServiceContainer {
             ::tracing::info!("Translation service disabled (passthrough mode)");
         }
 
-        // Event broadcaster (federation)
-        let broadcaster_federation_client = federation.federation_client.clone();
-        let broadcaster_member_storage = rooms.member_storage.clone();
-        let broadcaster_origin = config.server.get_server_name().to_string();
+        // Account data & Push services
+        let account_data_service = Arc::new(crate::services::account_data_service::AccountDataService::new(
+            pool.clone(),
+            user_storage.clone(),
+            rooms.room_storage.clone(),
+            crate::storage::filter::FilterStorage::new(pool),
+            crate::storage::openid_token::OpenIdTokenStorage::new(pool),
+        ));
 
+        let client_push_service = Arc::new(crate::services::client_push_service::ClientPushService::new(pool.clone()));
+        let room_tag_service = Arc::new(crate::services::room_tag_service::RoomTagService::new(pool.clone()));
+
+        // Event broadcaster (federation)
         let container = Self {
             e2ee,
             rooms,
@@ -877,6 +949,7 @@ impl ServiceContainer {
             #[cfg(feature = "burn-after-read")]
             burn_after_read,
             oidc_service,
+            oidc_mapping_service,
             builtin_oidc_provider,
             identity_service,
             translation_service,
@@ -884,15 +957,11 @@ impl ServiceContainer {
                 cache.clone(),
                 ui_auth_session_timeout,
             )),
-            event_broadcaster: {
-                let broadcaster = crate::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
-                    .with_client(broadcaster_federation_client)
-                    .with_pool(pool.as_ref().clone())
-                    .with_membership_storage(Arc::new(broadcaster_member_storage));
-                broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
-                Arc::new(broadcaster)
-            },
+            event_broadcaster,
             event_notifier: crate::services::event_notifier::EventNotifier::new(),
+            account_data_service,
+            client_push_service,
+            room_tag_service,
         };
 
         #[cfg(feature = "burn-after-read")]

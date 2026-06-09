@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use crate::cache::CacheManager;
 use crate::federation::friend::FriendFederationClient;
 use crate::services::RoomService;
@@ -9,14 +10,37 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
     pub limit: usize,
-    pub offset: usize,
+    pub offset: Option<usize>,
+    pub from: Option<FriendListCursor>,
     pub sort_by: String,
 }
 
 impl Default for FriendListRequest {
     fn default() -> Self {
-        Self { limit: 50, offset: 0, sort_by: "alphabet".to_string() }
+        Self { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FriendListCursor {
+    pub sort_by: String,
+    pub sort_letter: String,
+    pub display_key: String,
+    pub online: bool,
+    pub last_active_ts: Option<i64>,
+    pub added_ts: Option<i64>,
+    pub user_id: String,
+}
+
+pub fn encode_friend_list_cursor(cursor: &FriendListCursor) -> String {
+    let raw = serde_json::to_string(cursor).expect("friend list cursor serialization should succeed");
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+pub fn decode_friend_list_cursor(cursor: Option<&str>) -> Option<FriendListCursor> {
+    let cursor = cursor?;
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    serde_json::from_slice::<FriendListCursor>(&decoded).ok()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +73,9 @@ pub struct FriendListPage {
     pub items: Vec<FriendListEntry>,
     pub total: usize,
     pub limit: usize,
-    pub offset: usize,
+    pub offset: Option<usize>,
     pub next_offset: Option<usize>,
+    pub next_batch: Option<String>,
     pub version: i64,
     pub cached: bool,
     pub generated_ts: i64,

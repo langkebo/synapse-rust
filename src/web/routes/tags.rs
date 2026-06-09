@@ -3,23 +3,12 @@ use axum::{
     routing::{delete, get, put},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use serde::Deserialize;
 
 use crate::common::ApiError;
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AppState;
 use crate::web::routes::AuthenticatedUser;
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct RoomTag {
-    pub user_id: String,
-    pub room_id: String,
-    pub tag: String,
-    #[sqlx(rename = "order_value")]
-    pub order: Option<f64>,
-    pub created_ts: i64,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct TagContent {
@@ -68,9 +57,7 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = get_all_user_tags(&state.services.user_storage.pool, &user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get tags", &e))?;
+    let tags = state.services.room_tag_service.get_all_user_tags(&user_id).await?;
 
     let mut rooms_map = serde_json::Map::new();
     for tag in tags {
@@ -101,9 +88,7 @@ async fn get_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = get_room_tags(&state.services.user_storage.pool, &user_id, &room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get tags", &e))?;
+    let tags = state.services.room_tag_service.get_room_tags(&user_id, &room_id).await?;
 
     let tags_map: serde_json::Map<String, serde_json::Value> = tags
         .into_iter()
@@ -128,11 +113,11 @@ async fn put_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let now = chrono::Utc::now().timestamp_millis();
-
-    upsert_room_tag(&state.services.user_storage.pool, &user_id, &room_id, &tag, content.order, now)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to set tag", &e))?;
+    state
+        .services
+        .room_tag_service
+        .put_room_tag(&user_id, &room_id, &tag, content.order)
+        .await?;
 
     Ok(empty_json())
 }
@@ -146,85 +131,9 @@ async fn delete_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    delete_room_tag(&state.services.user_storage.pool, &user_id, &room_id, &tag)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to delete tag", &e))?;
+    state.services.room_tag_service.delete_room_tag(&user_id, &room_id, &tag).await?;
 
     Ok(empty_json())
-}
-
-async fn get_room_tags(pool: &PgPool, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as!(
-        RoomTag,
-        r#"
-        SELECT user_id, room_id, tag, order_value AS "order", created_ts
-        FROM room_tags
-        WHERE user_id = $1 AND room_id = $2
-        ORDER BY tag
-        "#,
-        user_id,
-        room_id
-    )
-    .fetch_all(pool)
-    .await
-}
-
-async fn get_all_user_tags(pool: &PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as!(
-        RoomTag,
-        r#"
-        SELECT user_id, room_id, tag, order_value AS "order", created_ts
-        FROM room_tags
-        WHERE user_id = $1
-        ORDER BY room_id, tag
-        "#,
-        user_id
-    )
-    .fetch_all(pool)
-    .await
-}
-
-async fn upsert_room_tag(
-    pool: &PgPool,
-    user_id: &str,
-    room_id: &str,
-    tag: &str,
-    order: Option<f64>,
-    created_ts: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        r#"
-        INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, room_id, tag)
-        DO UPDATE SET order_value = $4, created_ts = $5
-        "#,
-        user_id,
-        room_id,
-        tag,
-        order,
-        created_ts
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-async fn delete_room_tag(pool: &PgPool, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        r#"
-        DELETE FROM room_tags
-        WHERE user_id = $1 AND room_id = $2 AND tag = $3
-        "#,
-        user_id,
-        room_id,
-        tag
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
 }
 
 #[cfg(test)]

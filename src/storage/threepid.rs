@@ -419,7 +419,7 @@ impl ThreepidStorage {
     }
 
     pub async fn cleanup_expired_validation_sessions(&self) -> Result<u64, ApiError> {
-        let result = sqlx::query!("DELETE FROM threepid_validation_session WHERE expires_at < $1", chrono::Utc::now().timestamp_millis() - 86_400_000)
+        let result = sqlx::query!("DELETE FROM threepid_validation_session WHERE expires_at < $1", chrono::Utc::now().timestamp_millis())
             .execute(&*self.pool)
             .await
             .map(|r| r.rows_affected())

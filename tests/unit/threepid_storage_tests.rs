@@ -65,7 +65,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             user_id TEXT NOT NULL,
             medium TEXT NOT NULL,
             address TEXT NOT NULL,
-            validated_ts BIGINT,
+            validated_at BIGINT,
             added_ts BIGINT NOT NULL,
             is_verified BOOLEAN DEFAULT FALSE,
             verification_token TEXT,
