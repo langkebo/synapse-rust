@@ -20,7 +20,7 @@
 
 | 类型 | 位置 | 目的 | 覆盖率要求 |
 |-----|------|------|-----------|
-| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | ≥80% |
+| 单元测试 | `tests/unit/*.rs` | 验证独立组件逻辑 | 目标 ≥80%，当前自动门槛以 `tarpaulin.toml` 的 `70%` 为准 |
 | 集成测试 | `tests/integration/*.rs` | 验证 API 完整流程与高风险契约 | 主链与高风险能力域必覆盖 |
 | 端到端测试 | `tests/e2e/*.rs` | 模拟真实用户操作 | 关键路径 |
 | 性能测试 | `tests/performance/*.rs` | 验证性能指标 | P95≤500ms |
@@ -124,13 +124,16 @@ TEST_DB_TEMPLATE_SCHEMA=public cargo test --locked --features test-utils --test 
 cargo install cargo-tarpaulin
 
 # 生成覆盖率报告
-cargo tarpaulin --output-dir coverage/ --html
+cargo tarpaulin --locked --out Html --out Json --output-dir coverage --lib
 
 # 查看HTML报告
 open coverage/tarpaulin-report.html
 ```
 
-**覆盖率质量门禁**：≥80%
+**覆盖率口径**：
+- 团队质量目标：≥80%
+- 当前自动门槛：`tarpaulin.toml` 中 `fail-under = 70`
+- 2026-06-09 最新实测：`cargo tarpaulin --locked --out Json --output-dir coverage --lib` 为 `20.11%`（`10352/51472`）
 
 ### 2.3 性能基准测试
 

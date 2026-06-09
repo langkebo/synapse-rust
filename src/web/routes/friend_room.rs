@@ -399,6 +399,9 @@ async fn get_friends(
         (Some(from), None, offset) => from.parse::<usize>().ok().or(offset),
         (None, None, offset) => offset,
     };
+    if params.offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor"));
+    }
     if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
         return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
     }

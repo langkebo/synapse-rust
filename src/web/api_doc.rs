@@ -54,6 +54,10 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             get_push_rules_scope,
             get_push_rules_kind,
             get_push_rule,
+            get_devices,
+            get_device,
+            get_global_tags,
+            get_room_tags,
         ),
         components(
             schemas(
@@ -423,5 +427,119 @@ pub fn get_push_rules_kind() -> axum::Json<serde_json::Value> {
     ),
 )]
 pub fn get_push_rule() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/devices` — List devices for the authenticated user.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/devices",
+    tag = "Client-Server",
+    responses(
+        (status = 200, description = "User devices",
+            body = serde_json::Value,
+            example = json!({
+                "devices": [{
+                    "device_id": "DEVICEID",
+                    "display_name": "Primary phone",
+                    "last_seen_ts": 1718000000000_i64,
+                    "last_seen_ip": "203.0.113.10"
+                }]
+            })
+        ),
+    ),
+)]
+pub fn get_devices() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/devices/{device_id}` — Read one device.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/devices/{device_id}",
+    tag = "Client-Server",
+    params(
+        ("device_id" = String, Path, description = "Matrix device ID")
+    ),
+    responses(
+        (status = 200, description = "Device details",
+            body = serde_json::Value,
+            example = json!({
+                "device": {
+                    "device_id": "DEVICEID",
+                    "display_name": "Primary phone",
+                    "last_seen_ts": 1718000000000_i64
+                },
+                "device_id": "DEVICEID",
+                "display_name": "Primary phone",
+                "last_seen_ts": 1718000000000_i64
+            })
+        ),
+        (status = 404, description = "Device not found")
+    ),
+)]
+pub fn get_device() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/tags` — List all tags grouped by room for the authenticated user.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/tags",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID")
+    ),
+    responses(
+        (status = 200, description = "All room tags for the user",
+            body = serde_json::Value,
+            example = json!({
+                "tags": {
+                    "!room:example.com": {
+                        "m.favourite": {
+                            "order": 0.5
+                        }
+                    }
+                }
+            })
+        ),
+        (status = 403, description = "Access denied")
+    ),
+)]
+pub fn get_global_tags() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags` — List tags for one room.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID"),
+        ("room_id" = String, Path, description = "Matrix room ID")
+    ),
+    responses(
+        (status = 200, description = "Room tags",
+            body = serde_json::Value,
+            example = json!({
+                "tags": {
+                    "m.favourite": {
+                        "order": 0.5
+                    },
+                    "u.work": {
+                        "order": 1.0
+                    }
+                }
+            })
+        ),
+        (status = 403, description = "Access denied")
+    ),
+)]
+pub fn get_room_tags() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }

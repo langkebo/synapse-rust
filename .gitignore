@@ -75,6 +75,11 @@ analyze_results.py
 prepare_test_accounts.py
 register_test_accounts.py
 
+# 代码覆盖率和变异测试产物
+coverage/
+mutants.out/
+*.profraw
+
 # 测试结果日志（根目录）
 test-results-*.log
 test-results-fixed/
