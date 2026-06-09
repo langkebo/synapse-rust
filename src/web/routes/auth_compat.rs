@@ -1,6 +1,4 @@
 use crate::common::ApiError;
-use crate::storage::device::DeviceStorage;
-use crate::storage::user::UserStorage;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;
@@ -24,36 +22,7 @@ pub(crate) async fn register(
         if !state.services.config.server.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
-
-        let guest_num = rand::random::<u64>();
-        let username = format!("guest_{guest_num}");
-        let user_id = format!("@{}:{}", username, state.services.server_name);
-        let device_id = format!("guest_device_{guest_num}");
-
-        let user = UserStorage::create_user(&state.services.user_storage, &user_id, &username, None, false)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
-
-        sqlx::query!(
-            r#"
-            UPDATE users SET is_guest = TRUE WHERE user_id = $1
-            "#,
-            &user.user_id
-        )
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
-
-        DeviceStorage::create_device(&state.services.device_storage, &device_id, &user.user_id, Some("Guest Device"))
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
-
-        let access_token = state
-            .services
-            .auth_service
-            .generate_access_token(&user.user_id, &device_id, false)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate guest token", &e))?;
+        let (user, device_id, access_token) = state.services.auth_service.register_guest_account().await?;
 
         return Ok(Json(json!({
             "access_token": access_token,

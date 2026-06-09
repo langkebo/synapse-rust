@@ -255,11 +255,11 @@ mod schema_contract_p0_suite {
     }
 
     async fn cleanup_room_summary_fixtures(pool: &sqlx::PgPool, room_id: &str, user_ids: &[String]) {
-        sqlx::query("DELETE FROM room_children WHERE parent_room_id = $1 OR child_room_id = $1")
+        sqlx::query("DELETE FROM space_children WHERE space_id = $1 OR room_id = $1")
             .bind(room_id)
             .execute(pool)
             .await
-            .expect("Failed to cleanup room_children");
+            .expect("Failed to cleanup space_children");
 
         sqlx::query("DELETE FROM room_summary_update_queue WHERE room_id = $1")
             .bind(room_id)
@@ -805,7 +805,7 @@ mod schema_contract_p0_suite {
             &pool,
             "device_verification_request",
             "expires_at",
-            &["timestamp with time zone"],
+            &["bigint"],
             false,
             None,
             None,
@@ -815,7 +815,7 @@ mod schema_contract_p0_suite {
             &pool,
             "device_verification_request",
             "completed_at",
-            &["timestamp with time zone"],
+            &["bigint"],
             true,
             None,
             None,
@@ -1199,26 +1199,24 @@ mod schema_contract_p0_suite {
             "Expected room_summary_update_queue index idx_room_summary_update_queue_status_priority_created"
         );
 
-        assert_column(&pool, "room_children", "id", &["bigint"], false, Some("nextval("), None).await;
-        assert_column(&pool, "room_children", "parent_room_id", &["text", "character varying"], false, None, None)
-            .await;
-        assert_column(&pool, "room_children", "child_room_id", &["text", "character varying"], false, None, None).await;
-        assert_column(&pool, "room_children", "state_key", &["text", "character varying"], true, None, None).await;
-        assert_column(&pool, "room_children", "content", &["jsonb"], false, Some("'{}'::jsonb"), None).await;
-        assert_column(&pool, "room_children", "suggested", &["boolean"], false, Some("false"), None).await;
-        assert_column(&pool, "room_children", "created_ts", &["bigint"], false, Some("0"), None).await;
-        assert_column(&pool, "room_children", "updated_ts", &["bigint"], true, None, None).await;
+        assert_column(&pool, "space_children", "id", &["bigint"], false, Some("nextval("), None).await;
+        assert_column(&pool, "space_children", "space_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "room_id", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "sender", &["text", "character varying"], false, None, None).await;
+        assert_column(&pool, "space_children", "is_suggested", &["boolean"], true, Some("false"), None).await;
+        assert_column(&pool, "space_children", "via_servers", &["jsonb"], true, Some("'[]'::jsonb"), None).await;
+        assert_column(&pool, "space_children", "added_ts", &["bigint"], false, None, None).await;
         assert!(
-            has_unique_constraint_on(&pool, "room_children", &["parent_room_id", "child_room_id"]).await,
-            "Expected room_children UNIQUE(parent_room_id,child_room_id)"
+            has_unique_constraint_on(&pool, "space_children", &["space_id", "room_id"]).await,
+            "Expected space_children UNIQUE(space_id,room_id)"
         );
         assert!(
-            has_index_named(&pool, "idx_room_children_parent_suggested").await,
-            "Expected room_children index idx_room_children_parent_suggested"
+            has_index_named(&pool, "idx_space_children_space").await,
+            "Expected space_children index idx_space_children_space"
         );
         assert!(
-            has_index_named(&pool, "idx_room_children_child").await,
-            "Expected room_children index idx_room_children_child"
+            has_index_named(&pool, "idx_space_children_room").await,
+            "Expected space_children index idx_space_children_room"
         );
     }
 
@@ -1288,77 +1286,57 @@ mod schema_contract_p0_suite {
         assert_eq!(failed_row.get::<Option<String>, _>("error_message").as_deref(), Some("schema-contract failure"));
         assert_eq!(failed_row.get::<i32, _>("retry_count"), 1);
 
-        sqlx::query(
-            r#"
-            INSERT INTO room_children (parent_room_id, child_room_id, state_key, content, suggested, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, NULL)
-            ON CONFLICT (parent_room_id, child_room_id) DO UPDATE SET
-                state_key = EXCLUDED.state_key,
-                content = EXCLUDED.content,
-                suggested = EXCLUDED.suggested,
-                updated_ts = EXCLUDED.created_ts
-            "#,
-        )
-        .bind(&room_id)
-        .bind(&child_room_id)
-        .bind("child-state")
-        .bind(serde_json::json!({ "via": ["localhost"], "order": "1" }))
-        .bind(true)
-        .bind(100_i64)
-        .execute(&*pool)
-        .await
-        .expect("Failed to insert room_children fixture");
+        let space_storage = SpaceStorage::new(&pool);
+        space_storage
+            .add_child(AddChildRequest {
+                space_id: room_id.clone(),
+                room_id: child_room_id.clone(),
+                sender: creator.clone(),
+                is_suggested: true,
+                via_servers: vec!["localhost".to_string()],
+            })
+            .await
+            .expect("Failed to add space child fixture");
 
-        sqlx::query(
-            r#"
-            INSERT INTO room_children (parent_room_id, child_room_id, state_key, content, suggested, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, NULL)
-            ON CONFLICT (parent_room_id, child_room_id) DO UPDATE SET
-                state_key = EXCLUDED.state_key,
-                content = EXCLUDED.content,
-                suggested = EXCLUDED.suggested,
-                updated_ts = EXCLUDED.created_ts
-            "#,
-        )
-        .bind(&room_id)
-        .bind(&child_room_id)
-        .bind("child-state-updated")
-        .bind(serde_json::json!({ "via": ["localhost"], "order": "2" }))
-        .bind(false)
-        .bind(200_i64)
-        .execute(&*pool)
-        .await
-        .expect("Failed to upsert room_children fixture");
+        space_storage
+            .add_child(AddChildRequest {
+                space_id: room_id.clone(),
+                room_id: child_room_id.clone(),
+                sender: creator.clone(),
+                is_suggested: false,
+                via_servers: vec!["localhost".to_string(), "matrix.org".to_string()],
+            })
+            .await
+            .expect("Failed to upsert space child fixture");
 
         let child_row = sqlx::query(
             r#"
-            SELECT state_key, content, suggested, created_ts, updated_ts
-            FROM room_children
-            WHERE parent_room_id = $1 AND child_room_id = $2
+            SELECT sender, is_suggested, via_servers, added_ts
+            FROM space_children
+            WHERE space_id = $1 AND room_id = $2
             "#,
         )
         .bind(&room_id)
         .bind(&child_room_id)
         .fetch_one(&*pool)
         .await
-        .expect("Failed to fetch room_children row");
-        assert_eq!(child_row.get::<Option<String>, _>("state_key").as_deref(), Some("child-state-updated"));
+        .expect("Failed to fetch space_children row");
+        assert_eq!(child_row.get::<String, _>("sender"), creator);
+        assert!(!child_row.get::<bool, _>("is_suggested"));
         assert_eq!(
-            child_row.get::<serde_json::Value, _>("content"),
-            serde_json::json!({ "via": ["localhost"], "order": "2" })
+            child_row.get::<serde_json::Value, _>("via_servers"),
+            serde_json::json!(["localhost", "matrix.org"])
         );
-        assert!(!child_row.get::<bool, _>("suggested"));
-        assert_eq!(child_row.get::<i64, _>("created_ts"), 100_i64);
-        assert_eq!(child_row.get::<Option<i64>, _>("updated_ts"), Some(200_i64));
+        assert!(child_row.get::<i64, _>("added_ts") > 0);
 
         let child_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM room_children WHERE parent_room_id = $1 AND child_room_id = $2")
+            sqlx::query_scalar("SELECT COUNT(*) FROM space_children WHERE space_id = $1 AND room_id = $2")
                 .bind(&room_id)
                 .bind(&child_room_id)
                 .fetch_one(&*pool)
                 .await
-                .expect("Failed to count room_children rows");
-        assert_eq!(child_count, 1, "Expected room_children upsert to keep one row");
+                .expect("Failed to count space_children rows");
+        assert_eq!(child_count, 1, "Expected space_children upsert to keep one row");
 
         cleanup_room_summary_fixtures(&pool, &room_id, &[creator, hero]).await;
         cleanup_room_summary_fixtures(&pool, &child_room_id, &[child_creator, child_hero]).await;

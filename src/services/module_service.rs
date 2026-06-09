@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use crate::storage::module::*;
+pub use crate::storage::module::*;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

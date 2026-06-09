@@ -37,9 +37,10 @@ pub struct SyncRateLimitOverride {
 
 impl AppState {
     pub fn new(services: ServiceContainer, cache: Arc<CacheManager>) -> Self {
+        let pool = services.database_pool();
         let mut health_checker = HealthChecker::new("0.1.0".to_string());
 
-        health_checker.add_check(Box::new(DatabaseHealthCheck::new((*services.user_storage.pool).clone())));
+        health_checker.add_check(Box::new(DatabaseHealthCheck::new((*pool).clone())));
         health_checker.add_check(Box::new(CacheHealthCheck::new((*cache).clone())));
 
         let federation_signature_cache =
@@ -53,8 +54,6 @@ impl AppState {
         // cached signature verification results are invalidated on key rotation.
         services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
 
-        #[cfg(feature = "openclaw-routes")]
-        let pool = services.user_storage.pool.clone();
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
             let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));

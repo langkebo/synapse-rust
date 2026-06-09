@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -8,9 +8,8 @@ use tracing::info;
 /// `PushDevice` 结构体映射数据库 push_devices 表。
 ///
 /// 字段命名兼容性说明：
-/// - `enabled` → 数据库列 `is_enabled`：通过 `#[sqlx(rename = "is_enabled")]`
-///   将 Rust 字段 `enabled` 映射到数据库列 `is_enabled`，保持 JSON 序列化兼容性。
-///   Rust 侧保留 `enabled` 是为了与 Matrix API JSON 格式保持一致。
+/// - `is_enabled` → 数据库列 `is_enabled`：直映射。
+/// - 通过 `#[serde(rename = "enabled")]` 保持 JSON API 兼容性（Matrix API 使用 `enabled`）。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushDevice {
     pub id: i64,
@@ -24,8 +23,8 @@ pub struct PushDevice {
     pub app_version: Option<String>,
     pub locale: Option<String>,
     pub timezone: Option<String>,
-    #[sqlx(rename = "is_enabled")]
-    pub enabled: bool,
+    #[serde(rename = "enabled")]
+    pub is_enabled: bool,
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
     pub last_used_at: Option<i64>,
@@ -37,9 +36,8 @@ pub struct PushDevice {
 /// `PushRule` 结构体映射数据库 push_rules 表。
 ///
 /// 字段命名兼容性说明：
-/// - `enabled` → 数据库列 `is_enabled`：通过 `#[sqlx(rename = "is_enabled")]`
-///   将 Rust 字段 `enabled` 映射到数据库列 `is_enabled`，保持 JSON 序列化兼容性。
-///   Rust 侧保留 `enabled` 是为了与 Matrix API JSON 格式保持一致。
+/// - `is_enabled` → 数据库列 `is_enabled`：直映射。
+/// - 通过 `#[serde(rename = "enabled")]` 保持 JSON API 兼容性（Matrix API 使用 `enabled`）。
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct PushRule {
     pub id: i64,
@@ -51,8 +49,8 @@ pub struct PushRule {
     pub priority_class: i32,
     pub conditions: serde_json::Value,
     pub actions: serde_json::Value,
-    #[sqlx(rename = "is_enabled")]
-    pub enabled: bool,
+    #[serde(rename = "enabled")]
+    pub is_enabled: bool,
     pub is_default: bool,
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
@@ -72,9 +70,9 @@ pub struct PushNotificationQueue {
     pub status: String,
     pub attempts: i32,
     pub max_attempts: i32,
-    pub next_attempt_at: DateTime<Utc>,
+    pub next_attempt_at: i64,
     pub created_ts: i64,
-    pub sent_at: Option<DateTime<Utc>>,
+    pub sent_at: Option<i64>,
     pub error_message: Option<String>,
 }
 
@@ -87,7 +85,7 @@ pub struct PushNotificationLog {
     pub room_id: Option<String>,
     pub notification_type: Option<String>,
     pub push_type: String,
-    pub sent_at: DateTime<Utc>,
+    pub sent_at: i64,
     pub is_success: bool,
     pub error_message: Option<String>,
     pub provider_response: Option<String>,
@@ -229,7 +227,7 @@ impl PushNotificationStorage {
                 metadata = $12
             RETURNING id, user_id, device_id, push_token, push_type, app_id, platform,
                 platform_version, app_version, locale, timezone,
-                is_enabled AS enabled, created_ts, updated_ts, last_used_at, last_error,
+                is_enabled AS "is_enabled!", created_ts, updated_ts, last_used_at, last_error,
                 error_count, metadata"#,
             &request.user_id,
             &request.device_id,
@@ -271,7 +269,7 @@ impl PushNotificationStorage {
             PushDevice,
             r#"SELECT id, user_id, device_id, push_token, push_type, app_id, platform,
                 platform_version, app_version, locale, timezone,
-                is_enabled AS enabled, created_ts, updated_ts, last_used_at, last_error,
+                is_enabled AS "is_enabled!", created_ts, updated_ts, last_used_at, last_error,
                 error_count, metadata
             FROM push_device WHERE user_id = $1 AND is_enabled = true"#,
             user_id,
@@ -288,7 +286,7 @@ impl PushNotificationStorage {
             PushDevice,
             r#"SELECT id, user_id, device_id, push_token, push_type, app_id, platform,
                 platform_version, app_version, locale, timezone,
-                is_enabled AS enabled, created_ts, updated_ts, last_used_at, last_error,
+                is_enabled AS "is_enabled!", created_ts, updated_ts, last_used_at, last_error,
                 error_count, metadata
             FROM push_device WHERE user_id = $1 AND device_id = $2 AND is_enabled = true"#,
             user_id,
@@ -354,7 +352,7 @@ impl PushNotificationStorage {
                 COALESCE(priority, 0) AS "priority!",
                 COALESCE(priority_class, 0) AS "priority_class!",
                 conditions, actions,
-                COALESCE(is_enabled, true) AS "enabled!: bool",
+                COALESCE(is_enabled, true) AS "is_enabled!: bool",
                 COALESCE(is_default, false) AS "is_default!: bool",
                 created_ts AS "created_ts!", updated_ts, pattern
             "#,
@@ -384,7 +382,7 @@ impl PushNotificationStorage {
                 COALESCE(priority, 0) AS "priority!",
                 COALESCE(priority_class, 0) AS "priority_class!",
                 conditions, actions,
-                COALESCE(is_enabled, true) AS "enabled!: bool",
+                COALESCE(is_enabled, true) AS "is_enabled!: bool",
                 COALESCE(is_default, false) AS "is_default!: bool",
                 created_ts AS "created_ts!", updated_ts, pattern
             FROM push_rules
@@ -450,7 +448,7 @@ impl PushNotificationStorage {
             request.notification_type.as_deref(),
             &request.content,
             request.priority,
-            now,
+            now_ts,
             now_ts,
         )
         .fetch_one(&*self.pool)
@@ -461,7 +459,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn get_pending_notifications(&self, limit: i64) -> Result<Vec<PushNotificationQueue>, ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         let rows = sqlx::query_as!(
             PushNotificationQueue,
@@ -490,7 +488,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
 
         sqlx::query!("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2", now, id)
             .execute(&*self.pool)
@@ -504,10 +502,11 @@ impl PushNotificationStorage {
         let now = Utc::now();
 
         if retry {
+            let retry_at = now.timestamp_millis() + 60000;
             sqlx::query!(
                 r#"UPDATE push_notification_queue SET status = 'pending', attempts = attempts + 1, error_message = $1, next_attempt_at = $2 WHERE id = $3 AND attempts < max_attempts"#,
                 error,
-                now + chrono::Duration::seconds(60),
+                retry_at,
                 id
             )
             .execute(&*self.pool)
@@ -555,7 +554,7 @@ impl PushNotificationStorage {
             request.error_message.as_deref(),
             request.provider_response.as_deref(),
             request.response_time_ms,
-            Utc::now(),
+            Utc::now().timestamp_millis(),
         )
         .fetch_one(&*self.pool)
         .await
@@ -592,7 +591,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
-        let cutoff = Utc::now() - chrono::Duration::days(days as i64);
+        let cutoff = Utc::now().timestamp_millis() - (days as i64) * 86400000;
 
         let result = sqlx::query!("DELETE FROM push_notification_log WHERE sent_at < $1", cutoff)
             .execute(&*self.pool)
@@ -827,7 +826,7 @@ mod tests {
             app_version: Some("1.0.0".to_string()),
             locale: Some("en-US".to_string()),
             timezone: Some("America/New_York".to_string()),
-            enabled: true,
+            is_enabled: true,
             created_ts: 1700000000000,
             updated_ts: Some(1700000001000),
             last_used_at: None,
@@ -843,7 +842,7 @@ mod tests {
         assert_eq!(deserialized.user_id, device.user_id);
         assert_eq!(deserialized.device_id, device.device_id);
         assert_eq!(deserialized.push_type, device.push_type);
-        assert_eq!(deserialized.enabled, device.enabled);
+        assert_eq!(deserialized.is_enabled, device.is_enabled);
     }
 
     #[test]
@@ -858,7 +857,7 @@ mod tests {
             priority_class: 0,
             conditions: json!([{"kind": "event_match"}]),
             actions: json!(["notify"]),
-            enabled: true,
+            is_enabled: true,
             is_default: false,
             created_ts: 1700000000000,
             updated_ts: None,
@@ -872,7 +871,7 @@ mod tests {
         assert_eq!(deserialized.rule_id, rule.rule_id);
         assert_eq!(deserialized.scope, rule.scope);
         assert_eq!(deserialized.kind, rule.kind);
-        assert_eq!(deserialized.enabled, rule.enabled);
+        assert_eq!(deserialized.is_enabled, rule.is_enabled);
         assert_eq!(deserialized.pattern, rule.pattern);
     }
 
@@ -894,7 +893,7 @@ mod tests {
                 status: status.to_string(),
                 attempts: 0,
                 max_attempts: 3,
-                next_attempt_at: now,
+                next_attempt_at: now.timestamp_millis(),
                 created_ts: now.timestamp_millis(),
                 sent_at: None,
                 error_message: None,
@@ -918,7 +917,7 @@ mod tests {
             status: "pending".to_string(),
             attempts: 2,
             max_attempts: 5,
-            next_attempt_at: Utc::now(),
+            next_attempt_at: Utc::now().timestamp_millis(),
             created_ts: Utc::now().timestamp_millis(),
             sent_at: None,
             error_message: Some("Temporary failure".to_string()),
@@ -939,7 +938,7 @@ mod tests {
             room_id: Some("!room123:example.com".to_string()),
             notification_type: Some("m.room.message".to_string()),
             push_type: "apns".to_string(),
-            sent_at: Utc::now(),
+            sent_at: Utc::now().timestamp_millis(),
             is_success: true,
             error_message: None,
             provider_response: Some("{\"status\": \"ok\"}".to_string()),
@@ -962,7 +961,7 @@ mod tests {
             room_id: None,
             notification_type: None,
             push_type: "fcm".to_string(),
-            sent_at: Utc::now(),
+            sent_at: Utc::now().timestamp_millis(),
             is_success: false,
             error_message: Some("InvalidRegistration".to_string()),
             provider_response: Some("{\"error\": \"InvalidRegistration\"}".to_string()),
@@ -989,7 +988,7 @@ mod tests {
             app_version: None,
             locale: None,
             timezone: None,
-            enabled: true,
+            is_enabled: true,
             created_ts: 1700000000000,
             updated_ts: None,
             last_used_at: None,
@@ -1000,7 +999,7 @@ mod tests {
 
         assert!(device.last_error.is_some());
         assert!(device.error_count > 0);
-        assert!(device.enabled);
+        assert!(device.is_enabled);
     }
 
     #[test]
@@ -1015,7 +1014,7 @@ mod tests {
             priority_class: 0,
             conditions: json!([]),
             actions: json!(["notify"]),
-            enabled: true,
+            is_enabled: true,
             is_default: false,
             created_ts: 1700000000000,
             updated_ts: None,
@@ -1032,7 +1031,7 @@ mod tests {
             priority_class: 0,
             conditions: json!([]),
             actions: json!(["notify"]),
-            enabled: true,
+            is_enabled: true,
             is_default: false,
             created_ts: 1700000000000,
             updated_ts: None,

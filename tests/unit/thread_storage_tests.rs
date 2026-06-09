@@ -2,11 +2,14 @@
 mod thread_storage_suite {
     use crate::common::get_test_pool_async;
     use sqlx::Row;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use synapse_rust::storage::thread::{CreateThreadReplyParams, CreateThreadRootParams, ThreadStorage};
 
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
+
     fn unique_suffix() -> u128 {
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        let base = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        base + TEST_COUNTER.fetch_add(1, Ordering::SeqCst) as u128
     }
 
     async fn connect_pool() -> Option<std::sync::Arc<sqlx::PgPool>> {

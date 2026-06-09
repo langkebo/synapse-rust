@@ -770,11 +770,25 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn get_batch(&self, batch_id: &str) -> Result<Option<RegistrationTokenBatch>, sqlx::Error> {
-        let row = sqlx::query_as!(
-            RegistrationTokenBatch,
-            "SELECT * FROM registration_token_batches WHERE batch_id = $1",
-            batch_id,
+        let row = sqlx::query_as::<_, RegistrationTokenBatch>(
+            r#"
+            SELECT
+                id,
+                batch_id,
+                description,
+                token_count,
+                tokens_used,
+                created_by,
+                created_ts,
+                expires_at,
+                is_enabled,
+                allowed_email_domains,
+                auto_join_rooms
+            FROM registration_token_batches
+            WHERE batch_id = $1
+            "#,
         )
+        .bind(batch_id)
         .fetch_optional(&*self.pool)
         .await?;
 

@@ -1,7 +1,8 @@
 use crate::common::ApiError;
+pub use crate::storage::cas::{CasRegisteredService, RegisterServiceRequest};
 use crate::storage::cas::{
-    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
-    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStorage, CasTicket, CasUserAttribute, CreatePgtRequest,
+    CreateProxyTicketRequest, CreateTicketRequest,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;

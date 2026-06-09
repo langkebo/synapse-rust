@@ -133,7 +133,7 @@ fn worker_profile_matches_fixture() {
 }
 
 #[test]
-#[cfg(not(feature = "all-extensions"))]
+#[cfg(all(not(feature = "all-extensions"), feature = "openclaw-routes"))]
 fn openclaw_profile_matches_fixture() {
     let fixture = include_bytes!("fixtures/ledger_export/openclaw.json");
     assert_fixture_matches("openclaw", fixture);
@@ -178,15 +178,19 @@ fn worker_fixture_strictly_supersets_default_fixture() {
 #[test]
 #[cfg(not(feature = "all-extensions"))]
 fn all_fixture_contains_every_other_profile_entry() {
-    let combos = [
-        "fixtures/ledger_export/default.json",
-        "fixtures/ledger_export/worker.json",
-        "fixtures/ledger_export/openclaw.json",
-    ];
+    let combos: &[&str] = if cfg!(feature = "openclaw-routes") {
+        &[
+            "fixtures/ledger_export/default.json",
+            "fixtures/ledger_export/worker.json",
+            "fixtures/ledger_export/openclaw.json",
+        ]
+    } else {
+        &["fixtures/ledger_export/default.json", "fixtures/ledger_export/worker.json"]
+    };
     let all: LedgerArtifact = serde_json::from_slice(include_bytes!("fixtures/ledger_export/all.json")).unwrap();
     let all_set: std::collections::BTreeSet<(String, String)> =
         all.entries.iter().map(|e| (e.method.clone(), e.path.clone())).collect();
-    for label in combos {
+    for &label in combos.iter() {
         let bytes: &[u8] = match label {
             "fixtures/ledger_export/default.json" => {
                 include_bytes!("fixtures/ledger_export/default.json")

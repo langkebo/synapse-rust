@@ -287,17 +287,22 @@ mod tests {
     use std::sync::Arc;
 
     async fn make_test_state() -> AppState {
-        let mut config = Config::default();
-        config.experimental.msc3814_enabled = true;
-
         let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
+            let db_url = std::env::var("TEST_DATABASE_URL")
+                .or_else(|_| std::env::var("DATABASE_URL"))
+                .unwrap_or_else(|_| "postgres://localhost/test".to_string());
             Arc::new(
                 sqlx::postgres::PgPoolOptions::new()
-                    .connect_lazy("postgres://localhost/test")
+                    .max_connections(crate::test_utils::configured_test_pool_max_connections())
+                    .min_connections(crate::test_utils::configured_test_pool_min_connections())
+                    .connect_lazy(&db_url)
                     .expect("Failed to create test database pool"),
             )
         });
+
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let mut config = Config::default();
+        config.experimental.msc3814_enabled = true;
         let services = ServiceContainer::new(&pool, cache.clone(), config, None).await;
         AppState::new(services, cache)
     }

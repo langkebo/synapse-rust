@@ -56,7 +56,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             new_status TEXT,
             reason TEXT,
             performed_by TEXT NOT NULL,
-            performed_ts BIGINT NOT NULL,
+            performed_ts BIGINT NOT NULL DEFAULT 0,
             ip_address TEXT,
             user_agent TEXT,
             metadata JSONB NOT NULL DEFAULT '{}'

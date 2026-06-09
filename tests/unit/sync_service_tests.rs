@@ -361,6 +361,7 @@ fn create_room_service(
         server_name: "localhost".to_string(),
         task_queue: None,
         relations_storage: RelationsStorage::new(pool),
+        event_broadcaster: Arc::new(synapse_rust::federation::event_broadcaster::EventBroadcaster::new("localhost".to_string())),
         beacon_service: None,
     })
 }

@@ -74,6 +74,99 @@ impl EventStorage {
         Ok(event)
     }
 
+    pub async fn add_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, now, None)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn upsert_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+        created_ts: i64,
+        expires_at: Option<i64>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO room_ephemeral (room_id, event_type, user_id, content, stream_id, created_ts, expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (room_id, event_type, user_id) DO UPDATE
+            SET content = EXCLUDED.content, stream_id = EXCLUDED.stream_id, created_ts = EXCLUDED.created_ts, expires_at = EXCLUDED.expires_at
+            "#,
+            room_id,
+            event_type,
+            user_id,
+            content,
+            stream_id,
+            created_ts,
+            expires_at
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_ephemeral_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        user_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            DELETE FROM room_ephemeral
+            WHERE room_id = $1 AND event_type = $2 AND user_id = $3
+            "#,
+            room_id,
+            event_type,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_ephemeral_events(
+        &self,
+        room_id: &str,
+        now: i64,
+        limit: i64,
+    ) -> Result<Vec<RoomEphemeralEvent>, sqlx::Error> {
+        sqlx::query_as!(
+            RoomEphemeralEvent,
+            r#"
+            SELECT
+                event_type as "event_type!",
+                user_id as "user_id!",
+                content as "content!",
+                stream_id as "stream_id!",
+                created_ts as "created_ts!"
+            FROM room_ephemeral
+            WHERE room_id = $1
+              AND (expires_at IS NULL OR expires_at > $2)
+            ORDER BY stream_id DESC
+            LIMIT $3
+            "#,
+            room_id,
+            now,
+            limit
+        )
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
         let result = sqlx::query!(
             "DELETE FROM events WHERE room_id = $1 AND origin_server_ts < $2 AND event_type != 'm.room.create'",

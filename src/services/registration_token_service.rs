@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+pub use crate::storage::registration_token::decode_registration_token_cursor;
 use crate::storage::registration_token::*;
 use std::sync::Arc;
 use tracing::{info, instrument};

@@ -75,7 +75,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
             used_ts BIGINT NOT NULL,
             ip_address TEXT,
             user_agent TEXT,
-            success BOOLEAN DEFAULT TRUE,
+            is_success BOOLEAN DEFAULT TRUE,
             error_message TEXT
         )
         "#,
@@ -95,7 +95,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
             last_refresh_ts BIGINT,
             refresh_count INTEGER DEFAULT 0,
             is_compromised BOOLEAN DEFAULT FALSE,
-            compromised_ts BIGINT
+            compromised_at BIGINT
         )
         "#,
     )
@@ -1000,7 +1000,7 @@ fn test_record_usage() {
         assert_eq!(history[0].user_id, user_id);
         assert_eq!(history[0].old_access_token_id, Some("old_atid_abc".to_string()));
         assert_eq!(history[0].new_access_token_id, Some("new_atid_123".to_string()));
-        assert!(history[0].success);
+        assert!(history[0].is_success);
     });
 }
 

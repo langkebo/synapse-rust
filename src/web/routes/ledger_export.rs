@@ -41,6 +41,7 @@ pub struct ProfileFlagsJson {
     pub worker_enabled: bool,
     pub saml_enabled: bool,
     #[cfg(feature = "openclaw-routes")]
+    #[serde(default)]
     pub openclaw_enabled: bool,
 }
 

@@ -3,7 +3,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::Postgres;
+use sqlx::{Postgres, QueryBuilder};
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
@@ -68,9 +68,75 @@ pub struct SearchResultItem {
     pub room_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RoomEventsSearchFilter {
+    pub rooms: Option<Vec<String>>,
+    pub not_rooms: Option<Vec<String>>,
+    pub types: Option<Vec<String>>,
+    pub senders: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRoomEvent {
+    pub event_id: String,
+    pub room_id: String,
+    pub sender: String,
+    pub event_type: String,
+    pub content: Value,
+    pub origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRoomEventsPage {
+    pub results: Vec<SearchRoomEvent>,
+    pub next_batch: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimestampDirection {
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimestampEventMatch {
+    pub event_id: String,
+    pub origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventContextEntry {
+    pub event_id: String,
+    pub sender: String,
+    pub event_type: String,
+    pub content: Value,
+    pub origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventContextWindow {
+    pub events_before: Vec<EventContextEntry>,
+    pub events_after: Vec<EventContextEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRoomSummary {
+    pub room_id: String,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub avatar_url: Option<String>,
+    pub is_public: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct PostgresSearchCursor {
     rank: f64,
+    origin_server_ts: i64,
+    event_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RoomEventsCursor {
     origin_server_ts: i64,
     event_id: String,
 }
@@ -100,6 +166,21 @@ fn decode_postgres_search_cursor(cursor: Option<&str>) -> Option<PostgresSearchC
         origin_server_ts: origin_server_ts.parse().ok()?,
         event_id: event_id.to_string(),
     })
+}
+
+fn encode_room_events_cursor(cursor: &RoomEventsCursor) -> String {
+    format!("{}|{}", cursor.origin_server_ts, cursor.event_id)
+}
+
+fn decode_room_events_cursor(cursor: Option<&str>) -> Option<RoomEventsCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.splitn(2, '|');
+    let origin_server_ts = parts.next()?.parse::<i64>().ok()?;
+    let event_id = parts.next()?.to_string();
+    if event_id.is_empty() {
+        return None;
+    }
+    Some(RoomEventsCursor { origin_server_ts, event_id })
 }
 
 fn encode_elasticsearch_search_cursor(cursor: &ElasticsearchSearchCursor) -> String {
@@ -143,6 +224,40 @@ pub struct SearchService {
     provider: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct SearchRoomEventRecord {
+    event_id: String,
+    room_id: String,
+    sender: String,
+    event_type: String,
+    content: Value,
+    origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct TimestampEventMatchRecord {
+    event_id: String,
+    origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct EventContextEntryRecord {
+    event_id: String,
+    sender: String,
+    event_type: String,
+    content: Value,
+    origin_server_ts: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct SearchRoomSummaryRecord {
+    room_id: String,
+    name: Option<String>,
+    topic: Option<String>,
+    avatar_url: Option<String>,
+    is_public: bool,
+}
+
 impl SearchService {
     pub fn new(url: &str, enabled: bool, index_name: &str) -> Self {
         Self::with_postgres(url, enabled, index_name, None, "postgres".to_string())
@@ -165,6 +280,12 @@ impl SearchService {
             postgres_pool,
             provider,
         }
+    }
+
+    fn postgres_pool(&self) -> ApiResult<&sqlx::Pool<Postgres>> {
+        self.postgres_pool
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))
     }
 
     /// 使用 PostgreSQL 全文搜索搜索消息
@@ -512,6 +633,319 @@ impl SearchService {
         self.advanced_search(&options, next_batch).await
     }
 
+    pub async fn search_room_events(
+        &self,
+        user_id: &str,
+        search_term: &str,
+        filter: Option<&RoomEventsSearchFilter>,
+        limit: i64,
+        next_batch: Option<&str>,
+    ) -> ApiResult<SearchRoomEventsPage> {
+        let pool = self.postgres_pool()?;
+        let cursor = decode_room_events_cursor(next_batch);
+
+        if next_batch.is_some() && cursor.is_none() {
+            return Err(ApiError::bad_request("Invalid next_batch cursor"));
+        }
+
+        let joined_rooms: Vec<String> = sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT room_id
+            FROM room_memberships
+            WHERE user_id = $1 AND membership = 'join'
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))?;
+
+        if joined_rooms.is_empty() {
+            return Ok(SearchRoomEventsPage { results: Vec::new(), next_batch: None });
+        }
+
+        let search_pattern = format!("%{}%", search_term.to_lowercase());
+        let mut query_builder = QueryBuilder::<Postgres>::new(
+            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
+        );
+
+        query_builder.push("(LOWER(content::text) LIKE ");
+        query_builder.push_bind(&search_pattern);
+        query_builder.push(" OR LOWER(sender) LIKE ");
+        query_builder.push_bind(&search_pattern);
+        query_builder.push(")");
+
+        query_builder.push(" AND room_id IN (");
+        {
+            let mut separated = query_builder.separated(", ");
+            for room in &joined_rooms {
+                separated.push_bind(room);
+            }
+        }
+        query_builder.push(")");
+
+        let has_explicit_types = filter.and_then(|value| value.types.as_ref()).is_some_and(|types| !types.is_empty());
+        if !has_explicit_types {
+            query_builder.push(" AND event_type = 'm.room.message'");
+        }
+
+        if let Some(filter) = filter {
+            if let Some(rooms) = &filter.rooms {
+                if !rooms.is_empty() {
+                    query_builder.push(" AND room_id IN (");
+                    {
+                        let mut separated = query_builder.separated(", ");
+                        for room in rooms {
+                            separated.push_bind(room);
+                        }
+                    }
+                    query_builder.push(")");
+                }
+            }
+
+            if let Some(not_rooms) = &filter.not_rooms {
+                if !not_rooms.is_empty() {
+                    query_builder.push(" AND room_id NOT IN (");
+                    {
+                        let mut separated = query_builder.separated(", ");
+                        for room in not_rooms {
+                            separated.push_bind(room);
+                        }
+                    }
+                    query_builder.push(")");
+                }
+            }
+
+            if let Some(types) = &filter.types {
+                if !types.is_empty() {
+                    query_builder.push(" AND event_type IN (");
+                    {
+                        let mut separated = query_builder.separated(", ");
+                        for event_type in types {
+                            separated.push_bind(event_type);
+                        }
+                    }
+                    query_builder.push(")");
+                }
+            }
+
+            if let Some(senders) = &filter.senders {
+                if !senders.is_empty() {
+                    query_builder.push(" AND sender IN (");
+                    {
+                        let mut separated = query_builder.separated(", ");
+                        for sender in senders {
+                            separated.push_bind(sender);
+                        }
+                    }
+                    query_builder.push(")");
+                }
+            }
+        }
+
+        if let Some(cursor) = cursor {
+            query_builder.push(" AND (origin_server_ts, event_id) < (");
+            query_builder.push_bind(cursor.origin_server_ts);
+            query_builder.push(", ");
+            query_builder.push_bind(cursor.event_id);
+            query_builder.push(")");
+        }
+
+        query_builder.push(" ORDER BY origin_server_ts DESC, event_id DESC LIMIT ");
+        query_builder.push_bind(limit + 1);
+
+        let rows: Vec<SearchRoomEventRecord> = query_builder
+            .build_query_as()
+            .fetch_all(pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        let has_more = rows.len() > limit as usize;
+        let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
+        let results = visible_rows
+            .iter()
+            .map(|row| SearchRoomEvent {
+                event_id: row.event_id.clone(),
+                room_id: row.room_id.clone(),
+                sender: row.sender.clone(),
+                event_type: row.event_type.clone(),
+                content: row.content.clone(),
+                origin_server_ts: row.origin_server_ts,
+            })
+            .collect();
+        let next_batch = if has_more {
+            visible_rows.last().map(|row| {
+                encode_room_events_cursor(&RoomEventsCursor {
+                    origin_server_ts: row.origin_server_ts,
+                    event_id: row.event_id.clone(),
+                })
+            })
+        } else {
+            None
+        };
+
+        Ok(SearchRoomEventsPage { results, next_batch })
+    }
+
+    pub async fn find_event_by_timestamp(
+        &self,
+        room_id: &str,
+        ts: i64,
+        direction: TimestampDirection,
+    ) -> ApiResult<Option<TimestampEventMatch>> {
+        let pool = self.postgres_pool()?;
+        let row = match direction {
+            TimestampDirection::Backward => {
+                sqlx::query_as::<_, TimestampEventMatchRecord>(
+                    r#"
+                    SELECT event_id, origin_server_ts
+                    FROM events
+                    WHERE room_id = $1 AND origin_server_ts <= $2
+                    ORDER BY origin_server_ts DESC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(room_id)
+                .bind(ts)
+                .fetch_optional(pool)
+                .await
+            }
+            TimestampDirection::Forward => {
+                sqlx::query_as::<_, TimestampEventMatchRecord>(
+                    r#"
+                    SELECT event_id, origin_server_ts
+                    FROM events
+                    WHERE room_id = $1 AND origin_server_ts >= $2
+                    ORDER BY origin_server_ts ASC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(room_id)
+                .bind(ts)
+                .fetch_optional(pool)
+                .await
+            }
+        }
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        Ok(row.map(|row| TimestampEventMatch {
+            event_id: row.event_id,
+            origin_server_ts: row.origin_server_ts,
+        }))
+    }
+
+    pub async fn get_event_context_window(
+        &self,
+        room_id: &str,
+        target_ts: i64,
+        limit: i64,
+    ) -> ApiResult<EventContextWindow> {
+        let pool = self.postgres_pool()?;
+
+        let events_before = sqlx::query_as::<_, EventContextEntryRecord>(
+            r#"
+            SELECT event_id, sender, event_type, content, origin_server_ts
+            FROM events
+            WHERE room_id = $1 AND origin_server_ts < $2
+            ORDER BY origin_server_ts DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(target_ts)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        let events_after = sqlx::query_as::<_, EventContextEntryRecord>(
+            r#"
+            SELECT event_id, sender, event_type, content, origin_server_ts
+            FROM events
+            WHERE room_id = $1 AND origin_server_ts > $2
+            ORDER BY origin_server_ts ASC
+            LIMIT $3
+            "#,
+        )
+        .bind(room_id)
+        .bind(target_ts)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        Ok(EventContextWindow {
+            events_before: events_before
+                .into_iter()
+                .map(|row| EventContextEntry {
+                    event_id: row.event_id,
+                    sender: row.sender,
+                    event_type: row.event_type,
+                    content: row.content,
+                    origin_server_ts: row.origin_server_ts,
+                })
+                .collect(),
+            events_after: events_after
+                .into_iter()
+                .map(|row| EventContextEntry {
+                    event_id: row.event_id,
+                    sender: row.sender,
+                    event_type: row.event_type,
+                    content: row.content,
+                    origin_server_ts: row.origin_server_ts,
+                })
+                .collect(),
+        })
+    }
+
+    pub async fn search_rooms_for_user(
+        &self,
+        user_id: &str,
+        search_term: &str,
+        limit: i64,
+    ) -> ApiResult<Vec<SearchRoomSummary>> {
+        let pool = self.postgres_pool()?;
+        let search_pattern = format!("%{}%", search_term.to_lowercase());
+
+        let rows = sqlx::query_as::<_, SearchRoomSummaryRecord>(
+            r#"
+            SELECT room_id, name, topic, avatar_url, is_public
+            FROM rooms
+            WHERE
+                (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)
+                AND (
+                    is_public = true
+                    OR EXISTS (
+                        SELECT 1
+                        FROM room_memberships
+                        WHERE room_memberships.room_id = rooms.room_id
+                          AND room_memberships.user_id = $2
+                          AND room_memberships.membership = 'join'
+                    )
+                )
+            ORDER BY name
+            LIMIT $3
+            "#,
+        )
+        .bind(search_pattern)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| SearchRoomSummary {
+                room_id: row.room_id,
+                name: row.name,
+                topic: row.topic,
+                avatar_url: row.avatar_url,
+                is_public: row.is_public,
+            })
+            .collect())
+    }
+
     pub async fn advanced_search(
         &self,
         options: &AdvancedSearchOptions,
@@ -679,6 +1113,54 @@ impl SearchService {
 
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub async fn search_room_messages(
+        &self,
+        room_id: &str,
+        search_term: &str,
+        limit: i64,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        let pool = self
+            .postgres_pool
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))?;
+
+        let search_pattern = format!("%{}%", search_term.to_lowercase());
+        let rows = sqlx::query!(
+            r#"
+            SELECT event_id AS "event_id!", room_id AS "room_id!", sender AS "sender!", event_type AS "event_type!", content AS "content!", origin_server_ts AS "origin_server_ts!"
+            FROM events
+            WHERE room_id = $1
+              AND event_type = 'm.room.message'
+              AND LOWER(content::text) LIKE $2
+            ORDER BY origin_server_ts DESC
+            LIMIT $3
+            "#,
+            room_id,
+            search_pattern,
+            limit,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                json!({
+                    "rank": 1.0,
+                    "result": {
+                        "event_id": row.event_id,
+                        "room_id": row.room_id,
+                        "sender": row.sender,
+                        "type": row.event_type,
+                        "content": row.content,
+                        "origin_server_ts": row.origin_server_ts
+                    }
+                })
+            })
+            .collect())
     }
 }
 
@@ -972,5 +1454,19 @@ mod tests {
     fn test_elasticsearch_search_cursor_rejects_invalid_value() {
         assert_eq!(decode_elasticsearch_search_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_elasticsearch_search_cursor(Some("")), None);
+    }
+
+    #[test]
+    fn test_room_events_cursor_round_trip() {
+        let cursor =
+            RoomEventsCursor { origin_server_ts: 1_746_700_000_000, event_id: "$event:example.com".to_string() };
+        let encoded = encode_room_events_cursor(&cursor);
+        assert_eq!(decode_room_events_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
+    fn test_room_events_cursor_rejects_invalid_values() {
+        assert_eq!(decode_room_events_cursor(Some("bad")), None);
+        assert_eq!(decode_room_events_cursor(Some("123|")), None);
     }
 }

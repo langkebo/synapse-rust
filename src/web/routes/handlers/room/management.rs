@@ -32,30 +32,21 @@ pub(crate) async fn get_room_info(
 
     let user_id = &auth_user.user_id;
 
-    let membership = sqlx::query!(
-        r#"
-        SELECT membership AS "membership?"
-        FROM room_memberships
-        WHERE room_id = $1 AND user_id = $2
-        "#,
-        &room_id,
-        user_id,
-    )
-    .fetch_optional(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to check room membership"))?;
-
-    let membership = match membership {
-        Some(row) => row.membership,
-        None => None,
-    };
+    let membership = state
+        .services
+        .rooms
+        .room_service
+        .get_room_membership(&room_id, user_id)
+        .await?;
 
     if membership.is_none() {
         return Err(ApiError::not_found("Room not found or not a member".to_string()));
     }
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -63,16 +54,12 @@ pub(crate) async fn get_room_info(
 
     let summary = state.services.rooms.room_summary_storage.get_summary(&room_id).await.ok().flatten();
 
-    let invited_members_count = sqlx::query_scalar!(
-        r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
-        &room_id,
-    )
-    .fetch_one(&*state.services.rooms.room_storage.pool)
-    .await
-    .unwrap_or(0);
+    let invited_members_count = state.services.rooms.room_service.get_invited_members_count(&room_id).await?;
 
     let guest_can_join = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "m.room.guest_access")
         .await
         .ok()
@@ -104,21 +91,21 @@ pub(crate) async fn get_room_version(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let membership = sqlx::query!(
-        r#"SELECT 1 AS "_exists" FROM room_memberships WHERE room_id = $1 AND user_id = $2 LIMIT 1"#,
-        &room_id,
-        &auth_user.user_id,
-    )
-    .fetch_optional(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to check room membership"))?;
+    let membership = state
+        .services
+        .rooms
+        .room_service
+        .get_room_membership(&room_id, &auth_user.user_id)
+        .await?;
 
     if membership.is_none() {
         return Err(ApiError::not_found("Room not found or not a member".to_string()));
     }
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -134,17 +121,7 @@ pub(crate) async fn get_joined_rooms(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = &auth_user.user_id;
-
-    let rooms = sqlx::query!(
-        r#"SELECT DISTINCT room_id AS "room_id!" FROM room_memberships WHERE user_id = $1 AND membership = 'join' ORDER BY room_id"#,
-        user_id,
-    )
-    .fetch_all(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to get joined rooms"))?;
-
-    let room_ids: Vec<String> = rooms.into_iter().map(|row| row.room_id).collect();
+    let room_ids = state.services.rooms.room_service.get_joined_rooms(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "joined_rooms": room_ids
@@ -155,36 +132,7 @@ pub(crate) async fn get_my_rooms(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let user_id = &auth_user.user_id;
-
-    let rooms = sqlx::query!(
-        r#"
-        SELECT rm.room_id AS "room_id!", rm.membership AS "membership!",
-               COALESCE(r.name, '') AS "name!",
-               COALESCE(r.avatar_url, '') AS "avatar_url!",
-               rm.updated_ts AS "updated_ts?"
-        FROM room_memberships rm
-        LEFT JOIN rooms r ON rm.room_id = r.room_id
-        WHERE rm.user_id = $1
-        ORDER BY rm.updated_ts DESC
-        "#,
-        user_id,
-    )
-    .fetch_all(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to get rooms"))?;
-
-    let room_list: Vec<Value> = rooms
-        .into_iter()
-        .map(|row| {
-            json!({
-                "room_id": row.room_id,
-                "membership": row.membership,
-                "name": row.name,
-                "avatar_url": row.avatar_url
-            })
-        })
-        .collect();
+    let room_list = state.services.rooms.room_service.get_user_room_list(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "rooms": room_list,
@@ -527,48 +475,15 @@ pub(crate) async fn get_room_capabilities(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let is_encrypted = sqlx::query!(
-        r#"SELECT 1 AS "_exists" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
-        &room_id,
-    )
-    .fetch_optional(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to check room encryption"))?
-    .is_some();
-
-    let encryption_content = sqlx::query!(
-        r#"SELECT content AS "content!" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
-        &room_id,
-    )
-    .fetch_optional(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(map_internal!("Failed to get encryption event content"))?;
-
-    let encryption_status = crate::storage::room::RoomEncryptionStatus::from_encryption_event(
-        is_encrypted,
-        if is_encrypted {
-            encryption_content
-                .as_ref()
-                .and_then(|row| {
-                    row.content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string())
-                })
-                .or_else(|| room.encryption.clone())
-        } else {
-            None
-        },
-        encryption_content.as_ref().and_then(|row| {
-            row.content.get("rotation_period_ms").and_then(|v| v.as_i64())
-        }),
-        encryption_content.as_ref().and_then(|row| {
-            row.content.get("rotation_period_msgs").and_then(|v| v.as_i64())
-        }),
-    );
+    let encryption_status = state.services.rooms.room_service.get_room_encryption_status(&room_id).await?;
 
     let join_rule = if room.is_public { "public" } else { "invite" };
 
@@ -583,7 +498,7 @@ pub(crate) async fn get_room_capabilities(
             "typing_notifications": true
         },
         "features": {
-            "encryption": is_encrypted,
+            "encryption": encryption_status.is_encrypted,
             "federation": true,
             "guest_access": false
         },
@@ -711,29 +626,16 @@ pub(crate) async fn set_room_account_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let now = chrono::Utc::now().timestamp_millis();
-
-    sqlx::query!(
-        r"
-        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $5)
-        ON CONFLICT (user_id, room_id, data_type)
-        DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
-        ",
-        &auth_user.user_id,
-        &room_id,
-        &data_type,
-        &body,
-        now,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(map_internal!("Database error"))?;
+    state
+        .services
+        .account_data_service
+        .set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id,
         "data_type": data_type,
-        "updated_ts": now
+        "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }
 
@@ -755,18 +657,14 @@ pub(crate) async fn get_room_account_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let result =
-        sqlx::query!(r#"SELECT data AS "data" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-            &auth_user.user_id,
-            &room_id,
-            &data_type,
-        )
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(map_internal!("Database error"))?;
+    let result = state
+        .services
+        .account_data_service
+        .get_room_account_data(&auth_user.user_id, &room_id, &data_type)
+        .await?;
 
     match result {
-        Some(row) => Ok(Json(row.data)),
+        Some(data) => Ok(Json(data)),
         None => Err(ApiError::not_found("Room account data not found".to_string())),
     }
 }
@@ -891,21 +789,17 @@ pub(crate) async fn get_room_vault_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let result = sqlx::query!(
-        r#"SELECT data AS "data", updated_ts AS "updated_ts?" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-        &auth_user.user_id,
-        &room_id,
-        "m.room.vault_data",
-    )
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(map_internal!("Database error"))?;
+    let result = state
+        .services
+        .account_data_service
+        .get_room_account_data_with_ts(&auth_user.user_id, &room_id, "m.room.vault_data")
+        .await?;
 
     match result {
-        Some(row) => Ok(Json(json!({
+        Some((data, updated_ts)) => Ok(Json(json!({
             "room_id": room_id,
-            "vault_data": row.data,
-            "updated_ts": row.updated_ts
+            "vault_data": data,
+            "updated_ts": updated_ts
         }))),
         None => Ok(Json(json!({
             "room_id": room_id,
@@ -933,28 +827,16 @@ pub(crate) async fn set_room_vault_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let now = chrono::Utc::now().timestamp_millis();
-    sqlx::query!(
-        r"
-        INSERT INTO room_account_data (user_id, room_id, data_type, data, created_ts, updated_ts)
-        VALUES ($1, $2, $3, $4, $5, $5)
-        ON CONFLICT (user_id, room_id, data_type)
-        DO UPDATE SET data = EXCLUDED.data, updated_ts = EXCLUDED.updated_ts
-        ",
-        &auth_user.user_id,
-        &room_id,
-        "m.room.vault_data",
-        &body,
-        now,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(map_internal!("Database error"))?;
+    state
+        .services
+        .account_data_service
+        .set_room_account_data(&auth_user.user_id, &room_id, "m.room.vault_data", &body)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id,
         "vault_data": body,
-        "updated_ts": now
+        "updated_ts": chrono::Utc::now().timestamp_millis()
     })))
 }
 
@@ -1274,41 +1156,11 @@ pub(crate) async fn search_room_messages(
         .unwrap_or(10)
         .min(100) as i64;
 
-    let search_pattern = format!("%{}%", search_term.to_lowercase());
-    let rows = sqlx::query!(
-        r#"
-        SELECT event_id AS "event_id?", room_id AS "room_id?", sender AS "sender?", event_type AS "event_type?", content AS "content", origin_server_ts AS "origin_server_ts?"
-        FROM events
-        WHERE room_id = $1
-          AND event_type = 'm.room.message'
-          AND LOWER(content::text) LIKE $2
-        ORDER BY origin_server_ts DESC
-        LIMIT $3
-        "#,
-        &room_id,
-        search_pattern,
-        limit,
-    )
-    .fetch_all(&*state.services.user_storage.pool)
-    .await
-    .map_err(map_internal!("Database error"))?;
-
-    let results: Vec<Value> = rows
-        .into_iter()
-        .map(|row| {
-            json!({
-                "rank": 1.0,
-                "result": {
-                    "event_id": row.event_id,
-                    "room_id": row.room_id,
-                    "sender": row.sender,
-                    "type": row.event_type,
-                    "content": row.content,
-                    "origin_server_ts": row.origin_server_ts.unwrap_or(0)
-                }
-            })
-        })
-        .collect();
+    let results = state
+        .services
+        .search_service
+        .search_room_messages(&room_id, search_term, limit)
+        .await?;
 
     Ok(Json(json!({
         "search_categories": {

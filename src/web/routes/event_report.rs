@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::event_report::{
+use crate::services::event_report_service::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
 };
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};

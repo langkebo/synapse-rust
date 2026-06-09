@@ -168,7 +168,9 @@ fn test_build_uia_response_structure() {
     assert_eq!(response["errcode"], "M_UIA_REQUIRED");
     assert_eq!(response["error"], "Authentication required");
     assert_eq!(response["session"], "sid-123");
-    assert_eq!(response["params"], serde_json::json!({}));
+    // v10: params now includes threepid identity service mappings per Matrix spec.
+    assert_eq!(response["params"]["m.login.email.identity"]["threepidCreds"], serde_json::json!([]));
+    assert_eq!(response["params"]["m.login.msisdn"]["threepidCreds"], serde_json::json!([]));
     assert_eq!(response["completed"], serde_json::json!(["m.login.password"]));
     let flows = response["flows"].as_array().unwrap();
     assert_eq!(flows.len(), 2);
