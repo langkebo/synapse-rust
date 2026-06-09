@@ -412,11 +412,7 @@ mod tests {
 
     async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
         let database_url = test_utils::resolve_test_database_url().await?;
-        let schema_name = format!(
-            "media_test_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_else(|| chrono::Utc::now().timestamp_micros() * 1000)
-        );
+        let schema_name = format!("media_test_{}", uuid::Uuid::new_v4().simple());
 
         let admin_pool = PgPoolOptions::new()
             .max_connections(1)
@@ -431,7 +427,8 @@ mod tests {
             .map_err(|error| format!("failed to create schema {schema_name}: {error}"))?;
 
         let search_path_sql = format!("SET search_path TO {schema_name}, public");
-        let pool = PgPoolOptions::new()
+        let pool = Arc::new(
+            PgPoolOptions::new()
             .max_connections(4)
             .min_connections(0)
             .acquire_timeout(Duration::from_secs(30))
@@ -444,7 +441,8 @@ mod tests {
             })
             .connect(&database_url)
             .await
-            .map_err(|error| format!("failed to connect media test pool for {schema_name}: {error}"))?;
+            .map_err(|error| format!("failed to connect media test pool for {schema_name}: {error}"))?,
+        );
 
         sqlx::raw_sql(
             r"
@@ -588,11 +586,11 @@ mod tests {
             VALUES (1, 10995116277760, 1073741824, 1000000, 0, 0, 80, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000);
             ",
         )
-        .execute(&pool)
+        .execute(pool.as_ref())
         .await
-        .map_err(|error| format!("failed to create media test schema objects in {schema_name}: {error}"))?;
+        .map_err(|error| format!("failed to create media test schema objects: {error}"))?;
 
-        Ok(Arc::new(pool))
+        Ok(pool)
     }
 
     async fn setup_test_media_domain_users_with_quota(
@@ -826,5 +824,47 @@ mod tests {
             .await
             .expect("media should remain downloadable after forbidden delete");
         assert_eq!(downloaded.content, b"private media");
+    }
+
+    #[test]
+    fn test_guess_content_type_prefers_detected_bytes_over_filename_extension() {
+        let png_bytes = b"\x89PNG\r\n\x1a\nrest";
+
+        assert_eq!(guess_content_type("document.txt", png_bytes), "image/png");
+    }
+
+    #[test]
+    fn test_guess_content_type_falls_back_to_filename_extension() {
+        assert_eq!(guess_content_type("notes.json", b"plain text"), "application/json");
+        assert_eq!(guess_content_type("archive.unknown", b"plain text"), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_sanitize_attachment_filename_removes_control_and_path_characters() {
+        let sanitized = sanitize_attachment_filename("..\u{0000}/bad\\name\".txt");
+
+        assert_eq!(sanitized, "..badname.txt");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_uses_inline_for_safe_media_types() {
+        let headers = build_media_response_headers("image/png".to_string(), 42, Some("photo.png"));
+
+        assert_eq!(headers.content_type, "image/png");
+        assert_eq!(headers.content_length, 42);
+        assert_eq!(headers.content_disposition, "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png");
+        assert_eq!(headers.x_content_type_options, "nosniff");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_uses_attachment_for_unsafe_types_and_encodes_filename() {
+        let headers = build_media_response_headers("text/html".to_string(), 99, Some("report 2026.html"));
+
+        assert_eq!(
+            headers.content_disposition,
+            "attachment; filename=\"report 2026.html\"; filename*=UTF-8''report%202026.html"
+        );
+        assert_eq!(headers.cross_origin_resource_policy, "cross-origin");
+        assert_eq!(headers.referrer_policy, "no-referrer");
     }
 }

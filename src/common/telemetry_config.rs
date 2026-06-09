@@ -123,3 +123,112 @@ impl Default for PrometheusConfig {
         Self { enabled: false, port: 9090, path: "/metrics".to_string(), include_namespace: true }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{OpenTelemetryConfig, PrometheusConfig};
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_otlp_env_var<T>(value: Option<&str>, test: impl FnOnce() -> T) -> T {
+        let _guard = env_lock().lock().expect("env lock should not be poisoned");
+        let previous = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+
+        match value {
+            Some(endpoint) => {
+                // SAFETY: tests serialize environment mutation with a global mutex.
+                unsafe { std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint) }
+            }
+            None => {
+                // SAFETY: tests serialize environment mutation with a global mutex.
+                unsafe { std::env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT") }
+            }
+        }
+
+        let result = test();
+
+        match previous {
+            Some(endpoint) => {
+                // SAFETY: tests serialize environment mutation with a global mutex.
+                unsafe { std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint) }
+            }
+            None => {
+                // SAFETY: tests serialize environment mutation with a global mutex.
+                unsafe { std::env::remove_var("OTEL_EXPORTER_OTLP_ENDPOINT") }
+            }
+        }
+
+        result
+    }
+
+    #[test]
+    fn open_telemetry_config_prefers_explicit_endpoint_over_environment() {
+        with_otlp_env_var(Some("http://env:4317"), || {
+            let config = OpenTelemetryConfig {
+                enabled: true,
+                otlp_endpoint: Some("http://config:4317".to_string()),
+                ..Default::default()
+            };
+
+            assert_eq!(config.resolve_otlp_endpoint().as_deref(), Some("http://config:4317"));
+        });
+    }
+
+    #[test]
+    fn open_telemetry_config_uses_environment_endpoint_when_config_is_absent() {
+        with_otlp_env_var(Some("http://env:4317"), || {
+            let config = OpenTelemetryConfig::default();
+
+            assert_eq!(config.resolve_otlp_endpoint().as_deref(), Some("http://env:4317"));
+        });
+    }
+
+    #[test]
+    fn open_telemetry_config_uses_debug_default_when_unset() {
+        with_otlp_env_var(None, || {
+            let config = OpenTelemetryConfig::default();
+
+            #[cfg(debug_assertions)]
+            assert_eq!(config.resolve_otlp_endpoint().as_deref(), Some("http://localhost:4317"));
+
+            #[cfg(not(debug_assertions))]
+            assert_eq!(config.resolve_otlp_endpoint(), None);
+        });
+    }
+
+    #[test]
+    fn open_telemetry_config_merges_resource_attributes_with_service_metadata() {
+        let mut resource_attributes = HashMap::new();
+        resource_attributes.insert("deployment.environment".to_string(), "dev".to_string());
+        resource_attributes.insert("service.name".to_string(), "should-be-overridden".to_string());
+
+        let config = OpenTelemetryConfig {
+            service_name: "synapse-rust-test".to_string(),
+            service_version: "9.9.9".to_string(),
+            service_namespace: "matrix-test".to_string(),
+            resource_attributes: Some(resource_attributes),
+            ..Default::default()
+        };
+
+        let attrs = config.get_resource_attributes();
+        assert_eq!(attrs.get("deployment.environment").map(String::as_str), Some("dev"));
+        assert_eq!(attrs.get("service.name").map(String::as_str), Some("synapse-rust-test"));
+        assert_eq!(attrs.get("service.version").map(String::as_str), Some("9.9.9"));
+        assert_eq!(attrs.get("service.namespace").map(String::as_str), Some("matrix-test"));
+    }
+
+    #[test]
+    fn prometheus_config_defaults_match_metrics_endpoint_convention() {
+        let config = PrometheusConfig::default();
+
+        assert!(!config.enabled);
+        assert_eq!(config.port, 9090);
+        assert_eq!(config.path, "/metrics");
+        assert!(config.include_namespace);
+    }
+}
