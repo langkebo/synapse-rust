@@ -135,6 +135,9 @@ pub async fn get_destinations(
         (Some(from), None, offset) => from.parse::<i64>().ok().or(offset),
         (None, None, offset) => offset,
     };
+    if query.offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor".to_string()));
+    }
     if query.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
         return Err(ApiError::bad_request("Invalid destination pagination cursor".to_string()));
     }
