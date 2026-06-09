@@ -30,7 +30,7 @@
 - `C-5`：Megolm 运行时主路径已切到 vodozemac，但跨 Element 端到端互操作 harness 尚未完全接线；Phase 4 仍需完成自研/协议辅助代码边界梳理、feature/comment 口径清理和跨端验收。
 - `C-4 / M-4`：`use crate::storage` 这一类路由层直引已完成清零，`check_route_storage_boundary.sh` 可直接拦截新增违例；当前工作区 grep 口径下，`src/web/routes/` 业务路由层真实 `sqlx::query*` / `.pool` / `PgPool` 直用路径已全部清空，仅测试代码中可能存在测试辅助用的数据库连接构造。
 - `M-4 / P2 #35`：覆盖率与 mutation testing 仍停留在“门禁配置完成”，缺少本轮可复核的执行结果。
-- `M-5`：列表接口统一 keyset 分页尚未完成；此前的 `LIMIT 200` 只是硬上限治理，不等于全量分页模型统一。本轮已将 `admin/federation` 的 destinations 列表从纯 `OFFSET` 迁移为“keyset 优先 + legacy offset 兜底”，将 `friend_room` 好友列表升级为 `next_batch` cursor 优先、`offset/next_offset` 兼容输出，并将 `openclaw` 消息列表切到统一 `from` / `next_batch` cursor；同时收紧 `openclaw` conversations / messages / generations 的 legacy `offset` 口径，非零 offset 现在明确报错而非静默忽略。
+- `M-5`：列表接口统一 keyset 分页尚未完成；此前的 `LIMIT 200` 只是硬上限治理，不等于全量分页模型统一。本轮已将 `admin/federation` 的 destinations 列表从纯 `OFFSET` 迁移为“keyset 优先 + legacy offset 兜底”，将 `friend_room` 好友列表升级为 `next_batch` cursor 优先、`offset/next_offset` 兼容输出，并将 `openclaw` 消息列表切到统一 `from` / `next_batch` cursor；同时收紧 `openclaw` conversations / messages / generations 与 `admin/room` 房间列表/全局房间搜索的 legacy `offset` 口径，非零 offset 现在明确报错而非静默忽略。
 - `M-8 / M-9`：`ApiError` 完整结构化重构、关键 service 全量 `#[instrument]` 仍未完成；本轮已为 `account_data_service`、`room_tag_service`、`oidc_mapping_service` 补齐基础埋点，但当前仍只能视为“部分治理到位”。
 - `P2 #37`：OpenAPI 已从最初的 4 个示例端点扩展到 17 个公开稳定读端点，但离“覆盖完成”仍有明显距离，不应表述为“优化任务全部完成”。
 
@@ -77,6 +77,7 @@
 - 将 `src/services/friend_room_service/{models,mod}.rs` / `src/web/routes/friend_room.rs` 中好友列表分页升级为 cursor 优先：新增可编码 `sort_by` + 排序键的 `next_batch`，统一 `alphabet` / `recent` / `activity` 三种排序下的分页语义，同时保留 legacy `offset` / `next_offset` 兼容现有客户端。
 - 将 `src/storage/openclaw.rs` / `src/services/openclaw_service.rs` / `src/web/routes/openclaw.rs` 中消息列表分页升级为 cursor 优先：新增 `(created_ts, id)` 消息 cursor，支持 `from` / `next_batch`，同时继续兼容 legacy `before` 参数。
 - 收紧 `src/web/routes/openclaw.rs` 中 conversations / messages / generations 列表的 legacy `offset` 语义：`offset=0` 仅作为兼容占位保留，非零 offset 明确返回 `400`，避免对外继续暴露“已无效但看似可用”的旧分页模型。
+- 收紧 `src/web/routes/admin/room/mod.rs` 中 `get_rooms` 与 `search_all_rooms` 的 legacy `offset` 语义：在未提供 `from` cursor 的情况下，非零 offset 明确返回 `400`，避免管理端列表继续静默忽略旧分页参数。
 - 扩展 `src/web/api_doc.rs` 的公开文档面，新增 `account_data` / `filter` / `push` 稳定读接口以及先前补齐的 versions / capabilities / well-known 注解；当前公开稳定示例端点已从 4 个增至 17 个。
 - 为 `src/services/account_data_service.rs`、`src/services/room_tag_service.rs`、`src/services/oidc_mapping_service.rs` 补充 `#[instrument]`，提升本轮新增薄 service 的可观测性；同时修复 `src/web/routes/handlers/versions.rs` 测试辅助误用私有 helper 的隐藏编译问题，复核后 `cargo test --locked --lib --no-run` 通过。
 
@@ -94,7 +95,7 @@
 | 架构合理性 | ★★★★★ | `ServiceContainer` 已分层拆分 8 核心字段 + 4 子结构体（M-1 ✅）；`common/config/mod.rs` 已拆 18 子模块（M-2 ✅）；workspace 多 crate 已拆分 |
 | 安全性 | ★★★★★ | 联邦 X-Matrix 时间戳校验已实现（±30s + nonce 缓存）、Canonical JSON 已修复、JWT 旧 token 默认拒绝、TOTP 恒时比较、Push 鉴权已加固、Redis 健康检查已就位 |
 | E2EE | ★★★★☆ | Megolm 运行时主路径已直接封装 `MegolmVodozemacService`；本地 vodozemac 互操作测试存在；跨 Element Web/Android/iOS harness 与自研辅助代码边界清理仍未完成 |
-| 性能 | ★★★★☆ | N+1/无限流已做硬上限治理，主 `src/` 口径编译期 SQL 宏 1355 处、动态 SQL 188 处、动态占比约 12.2%，已达 ≤ 30% 目标；`admin/federation` destinations、`friend_room` 好友列表、`openclaw` 消息列表已切到 cursor / keyset 优先，`openclaw` 其余列表的 legacy offset 口径也已收紧，但统一分页仍未全量完成 |
+| 性能 | ★★★★☆ | N+1/无限流已做硬上限治理，主 `src/` 口径编译期 SQL 宏 1355 处、动态 SQL 188 处、动态占比约 12.2%，已达 ≤ 30% 目标；`admin/federation` destinations、`friend_room` 好友列表、`openclaw` 消息列表已切到 cursor / keyset 优先，`openclaw` 与 `admin/room` 的遗留 offset 口径也已进一步收紧，但统一分页仍未全量完成 |
 | 代码质量 | ★★★★☆ | ServiceContainer 核心字段已从 48 降至 8（+4 子结构体），config/mod.rs 已拆 18 子模块，SELECT * 业务查询已清零；路由层存量直连与 ApiError 深层结构化仍是债务 |
 | 可观测性 | ★★★★☆ | `#[instrument]` 已扩展到约 283 处（主 `src/` 口径），错误日志已有结构化字段，OTLP dev 默认端点已接入；全链路 request id 与关键 service 覆盖仍未完成 |
 | 测试覆盖 | ★★★☆☆ | 套套逻辑已删除 ~600 行，cargo-mutants + tarpaulin 已配置，99 个可变异点已识别（E2EE 45 + federation 54），覆盖率门槛待达标 |
