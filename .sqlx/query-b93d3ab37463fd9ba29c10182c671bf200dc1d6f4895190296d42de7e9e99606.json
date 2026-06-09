@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                user_id,\n                COUNT(*) as \"total_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW()) * 1000) as \"active_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = TRUE) as \"revoked_tokens!\",\n                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW()) * 1000) as \"expired_tokens!\",\n                COALESCE(SUM(use_count), 0) as \"total_uses!\"\n            FROM refresh_tokens\n            WHERE user_id = $1\n            GROUP BY user_id",
+  "query": "SELECT\n                user_id,\n                COUNT(*) as \"total_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as \"active_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = TRUE) as \"revoked_tokens!\",\n                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as \"expired_tokens!\",\n                COALESCE(SUM(use_count), 0) as \"total_uses!\"\n            FROM refresh_tokens\n            WHERE user_id = $1\n            GROUP BY user_id",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       null
     ]
   },
-  "hash": "518805abbb20917d5aaf9ae8ac2583ae641138c3caf85a101a7c2b80d6e22ef8"
+  "hash": "b93d3ab37463fd9ba29c10182c671bf200dc1d6f4895190296d42de7e9e99606"
 }

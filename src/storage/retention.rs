@@ -211,6 +211,19 @@ impl RetentionStorage {
         Ok(row)
     }
 
+    pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, sqlx::Error> {
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"SELECT id AS "id!", max_lifetime AS "max_lifetime?", min_lifetime AS "min_lifetime!",
+                      is_expire_on_clients AS "is_expire_on_clients!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+               FROM server_retention_policy ORDER BY id LIMIT 1"#,
+        )
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
     pub async fn update_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
@@ -229,6 +242,39 @@ impl RetentionStorage {
             request.max_lifetime,
             request.min_lifetime,
             request.is_expire_on_clients
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn upsert_server_policy(
+        &self,
+        request: UpdateServerRetentionPolicyRequest,
+    ) -> Result<ServerRetentionPolicy, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+
+        let row = sqlx::query_as!(
+            ServerRetentionPolicy,
+            r#"
+            INSERT INTO server_retention_policy (
+                id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts
+            )
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (id) DO UPDATE SET
+                max_lifetime = EXCLUDED.max_lifetime,
+                min_lifetime = EXCLUDED.min_lifetime,
+                is_expire_on_clients = EXCLUDED.is_expire_on_clients,
+                updated_ts = EXCLUDED.updated_ts
+            RETURNING id AS "id!", max_lifetime AS "max_lifetime?", min_lifetime AS "min_lifetime!",
+                      is_expire_on_clients AS "is_expire_on_clients!", created_ts AS "created_ts!", updated_ts AS "updated_ts!"
+            "#,
+            1_i64,
+            request.max_lifetime,
+            request.min_lifetime.unwrap_or(0),
+            request.is_expire_on_clients.unwrap_or(false),
+            now
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -277,6 +323,24 @@ impl RetentionStorage {
         .await?;
 
         Ok(rows)
+    }
+
+    pub async fn count_room_policies(&self) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM room_retention_policies")
+            .fetch_one(&*self.pool)
+            .await?
+            .unwrap_or(0);
+
+        Ok(count)
+    }
+
+    pub async fn has_server_policy(&self) -> Result<bool, sqlx::Error> {
+        let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
+            .fetch_one(&*self.pool)
+            .await?
+            .unwrap_or(false);
+
+        Ok(exists)
     }
 }
 

@@ -16,31 +16,27 @@ pub async fn detailed_health_check(
     let mut checks = serde_json::Map::new();
     let mut overall_status = "healthy";
 
-    let pool = state.services.user_storage.pool.clone();
-
     let db_start = std::time::Instant::now();
-    match sqlx::query("SELECT 1").fetch_one(&*pool).await {
-        Ok(_) => {
-            checks.insert(
-                "database".to_string(),
-                json!({
-                    "status": "healthy",
-                    "message": "Connection successful",
-                    "duration_ms": db_start.elapsed().as_millis()
-                }),
-            );
-        }
-        Err(e) => {
-            overall_status = "unhealthy";
-            checks.insert(
-                "database".to_string(),
-                json!({
-                    "status": "unhealthy",
-                    "message": format!("Connection failed: {}", e),
-                    "duration_ms": db_start.elapsed().as_millis()
-                }),
-            );
-        }
+    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    if db_ok {
+        checks.insert(
+            "database".to_string(),
+            json!({
+                "status": "healthy",
+                "message": "Connection successful",
+                "duration_ms": db_start.elapsed().as_millis()
+            }),
+        );
+    } else {
+        overall_status = "unhealthy";
+        checks.insert(
+            "database".to_string(),
+            json!({
+                "status": "unhealthy",
+                "message": "Connection failed",
+                "duration_ms": db_start.elapsed().as_millis()
+            }),
+        );
     }
 
     let schema_start = std::time::Instant::now();
@@ -57,21 +53,13 @@ pub async fn detailed_health_check(
         "secure_key_backups",
         "media_metadata",
     ];
-    let mut missing_tables = Vec::new();
-    for table in &required_tables {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1)",
-            table
-        )
-        .fetch_one(&*pool)
-        .await;
-        match exists {
-            Ok(Some(true)) => {}
-            _ => {
-                missing_tables.push(table.to_string());
-            }
-        }
-    }
+    let missing_tables = state
+        .services
+        .admin
+        .admin_server_service
+        .validate_required_tables(&required_tables)
+        .await
+        .unwrap_or_else(|_| required_tables.iter().map(|table| (*table).to_string()).collect());
     if missing_tables.is_empty() {
         checks.insert(
             "schema".to_string(),

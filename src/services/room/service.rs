@@ -52,6 +52,7 @@ pub struct RoomServiceConfig {
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: crate::storage::relations::RelationsStorage,
+    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -70,6 +71,7 @@ pub struct RoomService {
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub(crate) relations_storage: crate::storage::relations::RelationsStorage,
+    pub(crate) event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
 }
@@ -88,6 +90,7 @@ impl RoomService {
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             relations_storage: config.relations_storage,
+            event_broadcaster: config.event_broadcaster,
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
         }
@@ -828,7 +831,7 @@ impl RoomService {
         room_id: &str,
         user_id: &str,
         banned_by: &str,
-        _reason: Option<&str>,
+        reason: Option<&str>,
     ) -> ApiResult<()> {
         if !self
             .room_storage
@@ -854,7 +857,251 @@ impl RoomService {
             .ban_member(room_id, user_id, banned_by)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to ban user", &e))?;
+
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({
+            "membership": "ban",
+            "reason": reason.unwrap_or("")
+        });
+
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: banned_by.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content,
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
+
         Ok(())
+    }
+
+    pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
+        self.auth_service.can_unban_user(room_id, unbanned_by, user_id).await?;
+
+        self.member_storage
+            .unban_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to unban user", &e))?;
+
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({
+            "membership": "leave"
+        });
+
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: unbanned_by.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content,
+                    state_key: Some(user_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
+
+        Ok(())
+    }
+
+    pub async fn kick_user(
+        &self,
+        room_id: &str,
+        target_user_id: &str,
+        kicked_by: &str,
+        reason: Option<&str>,
+    ) -> ApiResult<()> {
+        if !self
+            .room_storage
+            .room_exists(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
+        {
+            return Err(ApiError::not_found("Room not found".to_string()));
+        }
+
+        if !self
+            .user_storage
+            .user_exists(target_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))?
+        {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
+        self.auth_service.can_kick_user(room_id, kicked_by, target_user_id).await?;
+
+        self.member_storage
+            .remove_member(room_id, target_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to kick user", &e))?;
+
+        let event_id = generate_event_id(&self.server_name);
+        let content = json!({
+            "membership": "leave",
+            "reason": reason.unwrap_or("")
+        });
+
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: kicked_by.to_string(),
+                    event_type: "m.room.member".to_string(),
+                    content,
+                    state_key: Some(target_user_id.to_string()),
+                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
+
+        Ok(())
+    }
+
+    pub async fn get_joined_members_with_profiles(&self, room_id: &str) -> ApiResult<Vec<RoomMember>> {
+        self.member_storage
+            .get_joined_members(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get joined members", &e))
+    }
+
+    pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> ApiResult<Vec<RoomMember>> {
+        self.member_storage
+            .get_membership_history(room_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get membership history", &e))
+    }
+
+    pub async fn get_room_members_by_membership(
+        &self,
+        room_id: &str,
+        membership: &str,
+    ) -> ApiResult<Vec<RoomMember>> {
+        self.member_storage
+            .get_room_members(room_id, membership)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))
+    }
+
+    pub async fn get_ephemeral_events_for_client(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let rows = self
+            .event_storage
+            .get_ephemeral_events(room_id, now, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let event_id = format!("$ephemeral_{}", row.stream_id);
+                json!({
+                    "type": row.event_type,
+                    "sender": row.user_id,
+                    "content": row.content,
+                    "origin_server_ts": row.created_ts,
+                    "stream_id": row.stream_id,
+                    "event_id": event_id,
+                })
+            })
+            .collect())
+    }
+
+    pub async fn set_typing_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        typing_user_ids: &[String],
+        timeout_ms: i64,
+    ) -> ApiResult<()> {
+        let content = json!({
+            "user_ids": typing_user_ids
+        });
+        let now = chrono::Utc::now().timestamp_millis();
+        self.event_storage
+            .upsert_ephemeral_event(room_id, user_id, "m.typing", &content, now, now, Some(now + timeout_ms))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to store typing ephemeral event", &e))
+    }
+
+    pub async fn clear_typing_ephemeral_event(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.event_storage
+            .delete_ephemeral_event(room_id, "m.typing", user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to clear typing ephemeral event", &e))
+    }
+
+    pub async fn send_receipt(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        receipt_type: &str,
+        body: &serde_json::Value,
+    ) -> ApiResult<()> {
+        self.room_storage
+            .add_receipt(user_id, user_id, room_id, event_id, receipt_type, body)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to store receipt", &e))?;
+
+        let now_ts = chrono::Utc::now().timestamp_millis();
+        let mut receipt_entry = body.as_object().cloned().unwrap_or_default();
+        receipt_entry.insert("ts".to_string(), json!(now_ts));
+        let receipt_content = json!({
+            event_id: {
+                receipt_type: {
+                    user_id: receipt_entry
+                }
+            }
+        });
+
+        self.event_storage
+            .add_ephemeral_event(room_id, user_id, "m.receipt", &receipt_content, now_ts)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to store ephemeral receipt", &e))?;
+
+        let receipt_edu = json!({
+            "edu_type": "m.receipt",
+            "room_id": room_id,
+            "content": receipt_content
+        });
+
+        let _ = self
+            .event_broadcaster
+            .broadcast_edu_to_room(room_id, &receipt_edu, &self.server_name)
+            .await;
+
+        Ok(())
+    }
+
+    pub async fn get_receipts(
+        &self,
+        room_id: &str,
+        receipt_type: &str,
+        event_id: &str,
+    ) -> ApiResult<Vec<Receipt>> {
+        self.room_storage
+            .get_receipts(room_id, receipt_type, event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get receipts", &e))
     }
 
     pub async fn get_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
@@ -878,6 +1125,144 @@ impl RoomService {
             .collect();
 
         Ok(event_list)
+    }
+
+    pub async fn get_state_events_by_type(
+        &self,
+        room_id: &str,
+        event_type: &str,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        let events = self
+            .event_storage
+            .get_state_events_by_type(room_id, event_type)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get state events by type", &e))?;
+
+        let event_list: Vec<serde_json::Value> = events
+            .iter()
+            .map(|e| {
+                json!({
+                    "event_id": e.event_id,
+                    "sender": e.user_id,
+                    "type": e.event_type,
+                    "content": e.content,
+                    "state_key": e.state_key
+                })
+            })
+            .collect();
+
+        Ok(event_list)
+    }
+
+    pub async fn get_pinned_event_ids(&self, room_id: &str) -> ApiResult<Vec<String>> {
+        let state_events = self.get_state_events_by_type(room_id, "m.room.pinned_events").await?;
+        let pinned = state_events
+            .first()
+            .and_then(|event| event.get("content"))
+            .and_then(|content| content.get("pinned").or_else(|| content.get("pinned_events")))
+            .and_then(|value| value.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|value| value.as_str().map(ToString::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(pinned)
+    }
+
+    pub async fn set_pinned_event_ids(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        pinned_event_ids: &[String],
+    ) -> ApiResult<()> {
+        let event_id = generate_event_id(&self.server_name);
+        let now = chrono::Utc::now().timestamp_millis();
+        self.event_storage
+            .create_event(
+                CreateEventParams {
+                    event_id,
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.pinned_events".to_string(),
+                    content: json!({ "pinned": pinned_event_ids }),
+                    state_key: Some(String::new()),
+                    origin_server_ts: now,
+                },
+                None,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to persist pinned events state", &e))?;
+        Ok(())
+    }
+
+    pub async fn get_event(
+        &self,
+        room_id: &str,
+        event_id: &str,
+    ) -> ApiResult<serde_json::Value> {
+        let event = self.event_storage
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
+            .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+        if event.room_id != room_id {
+            return Err(ApiError::not_found("Event not found in this room".to_string()));
+        }
+
+        Ok(json!({
+            "event_id": event.event_id,
+            "sender": event.user_id,
+            "type": event.event_type,
+            "content": event.content,
+            "room_id": event.room_id,
+            "origin_server_ts": event.origin_server_ts,
+            "state_key": event.state_key,
+        }))
+    }
+
+    pub async fn check_room_has_encryption(&self, room_id: &str) -> ApiResult<bool> {
+        self.event_storage
+            .check_room_has_encryption(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check room encryption status", &e))
+    }
+
+    pub async fn get_pending_events(&self, room_id: &str, limit: i64) -> ApiResult<Vec<RoomEvent>> {
+        self.event_storage
+            .get_pending_room_events(room_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get pending events", &e))
+    }
+
+    pub async fn count_events_by_status(&self, room_id: &str, status: &str) -> i64 {
+        self.event_storage.count_room_events_by_status(room_id, status).await.unwrap_or(0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_event_signature(
+        &self,
+        event_id: &str,
+        user_id: &str,
+        device_id: &str,
+        signature: &str,
+        key_id: &str,
+        algorithm: &str,
+        created_ts: i64,
+    ) -> ApiResult<()> {
+        self.event_storage
+            .save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to save signature", &e))
+    }
+
+    pub async fn get_event_signatures(&self, event_id: &str) -> ApiResult<Vec<crate::storage::event::EventSignature>> {
+        self.event_storage
+            .get_event_signatures(event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get signatures", &e))
     }
 
     pub async fn get_public_rooms(&self, limit: i64) -> ApiResult<serde_json::Value> {
@@ -940,6 +1325,98 @@ impl RoomService {
             .get_joined_rooms(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))
+    }
+
+    pub async fn get_user_room_list(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        let rooms = sqlx::query!(
+            r#"
+            SELECT rm.room_id AS "room_id!", rm.membership AS "membership!",
+                   COALESCE(r.name, '') AS "name!",
+                   COALESCE(r.avatar_url, '') AS "avatar_url!",
+                   rm.updated_ts AS "updated_ts?"
+            FROM room_memberships rm
+            LEFT JOIN rooms r ON rm.room_id = r.room_id
+            WHERE rm.user_id = $1
+            ORDER BY rm.updated_ts DESC
+            "#,
+            user_id,
+        )
+        .fetch_all(&*self.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get user rooms", &e))?;
+
+        Ok(rooms
+            .into_iter()
+            .map(|row| {
+                json!({
+                    "room_id": row.room_id,
+                    "membership": row.membership,
+                    "name": row.name,
+                    "avatar_url": row.avatar_url
+                })
+            })
+            .collect())
+    }
+
+    pub async fn get_room_membership(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
+        self.member_storage
+            .get_membership_state(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check room membership", &e))
+    }
+
+    pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
+        let count = sqlx::query_scalar!(
+            r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
+            room_id,
+        )
+        .fetch_one(&*self.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get invited members count", &e))?;
+        Ok(count)
+    }
+
+    pub async fn get_room_encryption_status(
+        &self,
+        room_id: &str,
+    ) -> ApiResult<crate::storage::room::RoomEncryptionStatus> {
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
+            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
+
+        let is_encrypted = sqlx::query!(
+            r#"SELECT 1 AS "_exists" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
+            room_id,
+        )
+        .fetch_optional(&*self.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check room encryption", &e))?
+        .is_some();
+
+        let encryption_content = sqlx::query!(
+            r#"SELECT content AS "content!" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
+            room_id,
+        )
+        .fetch_optional(&*self.room_storage.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get encryption event content", &e))?;
+
+        Ok(crate::storage::room::RoomEncryptionStatus::from_encryption_event(
+            is_encrypted,
+            if is_encrypted {
+                encryption_content
+                    .as_ref()
+                    .and_then(|row| row.content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .or_else(|| room.encryption.clone())
+            } else {
+                None
+            },
+            encryption_content.as_ref().and_then(|row| row.content.get("rotation_period_ms").and_then(|v| v.as_i64())),
+            encryption_content.as_ref().and_then(|row| row.content.get("rotation_period_msgs").and_then(|v| v.as_i64())),
+        ))
     }
 
     pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
@@ -1102,6 +1579,58 @@ impl RoomService {
         }
 
         Ok(None)
+    }
+
+    pub async fn update_read_marker(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
+    ) -> ApiResult<()> {
+        self.room_storage
+            .update_read_marker_with_type(room_id, user_id, event_id, marker_type)
+            .await
+            .map_err(|e| ApiError::internal_with_log(&format!("Failed to set {marker_type} marker"), &e))
+    }
+
+    pub async fn set_read_markers(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        body: &serde_json::Value,
+    ) -> ApiResult<()> {
+        if let Some(event_id) = body.get("m.fully_read").and_then(|v| v.as_str()) {
+            if event_id.starts_with('$') {
+                self.update_read_marker(room_id, user_id, event_id, "m.fully_read").await?;
+            }
+        }
+
+        if let Some(event_id) = body.get("m.private_read").and_then(|v| v.as_str()) {
+            if event_id.starts_with('$') {
+                self.update_read_marker(room_id, user_id, event_id, "m.private_read").await?;
+            }
+        }
+
+        if let Some(marked_unread) = body.get("m.marked_unread").and_then(|v| v.as_object()) {
+            if let Some(events) = marked_unread.get("events").and_then(|v| v.as_array()) {
+                for event in events {
+                    if let Some(event_id) = event.as_str() {
+                        if event_id.starts_with('$') {
+                            self.update_read_marker(room_id, user_id, event_id, "m.marked_unread").await?;
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(event_id) = body.get("m.read").and_then(|v| v.as_str()) {
+            if event_id.starts_with('$') {
+                self.update_read_marker(room_id, user_id, event_id, "m.fully_read").await?;
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn migrate_room_content(

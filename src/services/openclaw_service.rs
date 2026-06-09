@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::storage::openclaw::{
-    decode_conversation_cursor, decode_generation_cursor, AiChatRole, AiConversation, AiGeneration, AiMessage,
+    decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, AiChatRole, AiConversation, AiGeneration, AiMessage,
     OpenClawConnection, OpenClawStorage,
 };
 use sha2::{Digest, Sha256};
@@ -362,13 +362,35 @@ impl OpenClawService {
         conversation_id: i64,
         auth_user_id: &str,
         limit: i64,
+        from: Option<String>,
         before: Option<i64>,
-    ) -> Result<Vec<AiMessage>, ApiError> {
+    ) -> Result<(Vec<AiMessage>, Option<String>), ApiError> {
         // Ownership check via conversation
         let _ = self.get_conversation_for_user(conversation_id, auth_user_id).await?;
 
+        let cursor = match (from, before) {
+            (Some(from), _) => {
+                Some(decode_message_cursor(Some(&from)).ok_or_else(|| ApiError::bad_request("Invalid from cursor"))?)
+            }
+            (None, Some(before_id)) => {
+                let message = self
+                    .storage
+                    .get_message(before_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to resolve legacy before cursor", &e))?
+                    .ok_or_else(|| ApiError::not_found("Message not found"))?;
+
+                if message.conversation_id != conversation_id {
+                    return Err(ApiError::bad_request("Legacy before cursor does not belong to this conversation"));
+                }
+
+                Some(crate::storage::openclaw::MessageCursor { created_ts: message.created_ts, id: message.id })
+            }
+            (None, None) => None,
+        };
+
         self.storage
-            .get_conversation_messages(conversation_id, limit, before)
+            .get_conversation_messages(conversation_id, limit, cursor)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))
     }

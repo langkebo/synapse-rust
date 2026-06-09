@@ -4,8 +4,10 @@ pub mod spaces;
 
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::storage::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
-use crate::storage::sliding_sync::{decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor};
+use crate::services::{
+    decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomSearchCursor,
+    RoomSearchOrder, RoomTokenSyncCursor,
+};
 use crate::web::routes::admin::room::types::{
     RoomTokenSyncQueryParams, SearchAllRoomsRequest, SearchRoomMessagesRequest,
 };
@@ -23,7 +25,7 @@ mod cursor_tests {
         decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomSearchCursor,
         RoomTokenSyncCursor,
     };
-    use crate::storage::room::encode_room_search_cursor;
+    use crate::services::encode_room_search_cursor;
 
     #[test]
     fn test_room_search_created_cursor_round_trip() {

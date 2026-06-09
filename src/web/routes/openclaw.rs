@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::common::ApiError;
+use crate::services::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
 use crate::services::openclaw_service::OpenClawService;
-use crate::storage::openclaw::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::AppState;
 
@@ -257,7 +257,7 @@ pub struct PaginationQuery {
     #[serde(default = "default_limit")]
     pub limit: i64,
     #[serde(default)]
-    pub offset: i64,
+    pub offset: Option<i64>,
     #[serde(default)]
     pub from: Option<String>,
     pub before: Option<i64>,
@@ -273,7 +273,7 @@ pub struct PaginatedResponse<T> {
     pub items: Vec<T>,
     pub total: i64,
     pub limit: i64,
-    pub offset: i64,
+    pub offset: Option<i64>,
     pub next_batch: Option<String>,
 }
 
@@ -436,11 +436,15 @@ async fn list_conversations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let has_from = query.from.is_some();
+    if query.offset.unwrap_or(0) > 0 && !has_from {
+        return Err(ApiError::bad_request("Offset pagination is no longer supported for this endpoint; use from"));
+    }
     let (conversations, next_batch) = svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: conversations.len() as i64,
         limit: query.limit,
-        offset: query.offset,
+        offset: (!has_from).then_some(query.offset.unwrap_or(0)),
         next_batch,
         items: conversations.into_iter().map(ConversationResponse::from).collect(),
     }))
@@ -514,12 +518,20 @@ async fn list_messages(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let messages = svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.before).await?;
+    let has_from = query.from.is_some();
+    let has_before = query.before.is_some();
+    if query.offset.unwrap_or(0) > 0 && !has_from && !has_before {
+        return Err(ApiError::bad_request(
+            "Offset pagination is no longer supported for this endpoint; use from or legacy before",
+        ));
+    }
+    let (messages, next_batch) =
+        svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.from, query.before).await?;
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
         limit: query.limit,
-        offset: query.offset,
-        next_batch: None,
+        offset: (!has_from && !has_before).then_some(query.offset.unwrap_or(0)),
+        next_batch,
         items: messages.into_iter().map(MessageResponse::from).collect(),
     }))
 }
@@ -560,12 +572,16 @@ async fn list_generations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
+    let has_from = query.from.is_some();
+    if query.offset.unwrap_or(0) > 0 && !has_from {
+        return Err(ApiError::bad_request("Offset pagination is no longer supported for this endpoint; use from"));
+    }
     let (generations, next_batch) =
         svc(&state).list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: generations.len() as i64,
         limit: query.limit,
-        offset: query.offset,
+        offset: (!has_from).then_some(query.offset.unwrap_or(0)),
         next_batch,
         items: generations.into_iter().map(GenerationResponse::from).collect(),
     }))

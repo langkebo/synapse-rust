@@ -814,20 +814,34 @@ impl SpaceStorage {
     }
 
     pub async fn get_space_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query!(r"SELECT * FROM space_statistics ORDER BY member_count DESC")
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                space_id,
+                name,
+                is_public,
+                child_room_count,
+                member_count,
+                created_ts,
+                updated_ts
+            FROM space_statistics
+            ORDER BY member_count DESC
+            "#
+        )
             .fetch_all(&*self.pool)
             .await?;
         Ok(rows
             .into_iter()
             .map(|row| {
+                use sqlx::Row;
                 serde_json::json!({
-                    "space_id": row.space_id,
-                    "name": row.name,
-                    "is_public": row.is_public,
-                    "child_room_count": row.child_room_count,
-                    "member_count": row.member_count,
-                    "created_ts": row.created_ts,
-                    "updated_ts": row.updated_ts,
+                    "space_id": row.get::<String, _>("space_id"),
+                    "name": row.get::<Option<String>, _>("name"),
+                    "is_public": row.get::<bool, _>("is_public"),
+                    "child_room_count": row.get::<Option<i64>, _>("child_room_count"),
+                    "member_count": row.get::<Option<i64>, _>("member_count"),
+                    "created_ts": row.get::<i64, _>("created_ts"),
+                    "updated_ts": row.get::<Option<i64>, _>("updated_ts"),
                 })
             })
             .collect())

@@ -214,6 +214,25 @@ impl RendezvousStorage {
         Ok(())
     }
 
+    pub async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error> {
+        RendezvousMessageStorage::new(self.pool.clone())
+            .store_message(session_id, direction, message)
+            .await
+    }
+
+    pub async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
+        RendezvousMessageStorage::new(self.pool.clone()).get_messages(session_id, after_id).await
+    }
+
     pub async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 

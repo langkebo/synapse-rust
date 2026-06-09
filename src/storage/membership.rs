@@ -199,7 +199,7 @@ impl RoomMemberStorage {
 
     pub async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
-            r#"UPDATE room_memberships SET membership = 'leave', banned_by = NULL WHERE room_id = $1 AND user_id = $2"#,
+            r#"UPDATE room_memberships SET membership = 'leave', banned_by = NULL WHERE room_id = $1 AND user_id = $2 AND membership = 'ban'"#,
             room_id,
             user_id
         )

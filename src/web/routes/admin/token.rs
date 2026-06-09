@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::storage::registration_token::decode_registration_token_cursor;
+use crate::services::registration_token_service::decode_registration_token_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -120,29 +120,22 @@ pub async fn create_registration_token(
     State(state): State<AppState>,
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let now = chrono::Utc::now().timestamp_millis();
     let token = body.token.unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
     let max_uses = body.uses_allowed.unwrap_or(0);
-
-    sqlx::query!(
-        "INSERT INTO registration_tokens (token, max_uses, uses_count, is_used, is_enabled, created_ts, updated_ts, expires_at, created_by) VALUES ($1, $2, 0, FALSE, TRUE, $3, $3, $4, $5)",
-        &token,
-        max_uses,
-        now,
-        body.expiry_time,
-        &admin.user_id,
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let registration_token = state
+        .services
+        .admin
+        .admin_token_service
+        .create_registration_token(Some(token), max_uses, body.expiry_time, &admin.user_id)
+        .await?;
 
     Ok(Json(json!({
-        "token": token,
-        "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
+        "token": registration_token.token,
+        "uses_allowed": if registration_token.max_uses == 0 { None } else { Some(registration_token.max_uses) },
         "pending": 0,
-        "completed": 0,
-        "expiry_time": body.expiry_time,
-        "created_ts": now
+        "completed": registration_token.uses_count,
+        "expiry_time": registration_token.expires_at,
+        "created_ts": registration_token.created_ts
     })))
 }
 
@@ -152,20 +145,18 @@ pub async fn get_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query!(
-        r#"SELECT token AS "token!", COALESCE(max_uses, 0) AS "max_uses!", COALESCE(uses_count, 0) AS "uses_count!", expires_at, created_ts AS "created_ts!" FROM registration_tokens WHERE token = $1"#,
-        &token,
-    )
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let result = state
+        .services
+        .admin
+        .admin_token_service
+        .get_registration_token(&token)
+        .await?;
 
     match result {
         Some(row) => {
-            let max_uses = row.max_uses;
             Ok(Json(json!({
                 "token": &row.token,
-                "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
+                "uses_allowed": if row.max_uses == 0 { None } else { Some(row.max_uses) },
                 "pending": 0,
                 "completed": row.uses_count,
                 "expiry_time": row.expires_at,
@@ -182,14 +173,12 @@ pub async fn delete_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query!("DELETE FROM registration_tokens WHERE token = $1", &token)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("Token not found".to_string()));
-    }
+    state
+        .services
+        .admin
+        .admin_token_service
+        .delete_registration_token(&token)
+        .await?;
 
     Ok(Json(json!({})))
 }
@@ -201,31 +190,21 @@ pub async fn update_registration_token(
     Path(token): Path<String>,
     Json(body): Json<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query!(
-        r#"UPDATE registration_tokens SET max_uses = COALESCE($2, max_uses), expires_at = COALESCE($3, expires_at), updated_ts = $4 WHERE token = $1 RETURNING token AS "token!", COALESCE(max_uses, 0) AS "max_uses!", COALESCE(uses_count, 0) AS "uses_count!", expires_at, created_ts AS "created_ts!""#,
-        &token,
-        body.uses_allowed,
-        body.expiry_time,
-        chrono::Utc::now().timestamp_millis(),
-    )
-    .fetch_optional(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let row = state
+        .services
+        .admin
+        .admin_token_service
+        .update_registration_token(&token, body.uses_allowed, body.expiry_time)
+        .await?;
 
-    match result {
-        Some(row) => {
-            let max_uses = row.max_uses;
-            Ok(Json(json!({
-                "token": &row.token,
-                "uses_allowed": if max_uses == 0 { None } else { Some(max_uses) },
-                "pending": 0,
-                "completed": row.uses_count,
-                "expiry_time": row.expires_at,
-                "created_ts": row.created_ts
-            })))
-        }
-        None => Err(ApiError::not_found("Token not found".to_string())),
-    }
+    Ok(Json(json!({
+        "token": &row.token,
+        "uses_allowed": if row.max_uses == 0 { None } else { Some(row.max_uses) },
+        "pending": 0,
+        "completed": row.uses_count,
+        "expiry_time": row.expires_at,
+        "created_ts": row.created_ts
+    })))
 }
 
 #[axum::debug_handler]
@@ -236,13 +215,12 @@ pub async fn get_user_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = sqlx::query!(
-        r#"SELECT id AS "id!", device_id, created_ts AS "created_ts!", expires_at, COALESCE(is_revoked, FALSE) AS "is_revoked!" FROM access_tokens WHERE user_id = $1 ORDER BY created_ts DESC"#,
-        &user_id,
-    )
-    .fetch_all(&*state.services.token_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let tokens = state
+        .services
+        .admin
+        .admin_token_service
+        .get_user_access_tokens(&user_id)
+        .await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -268,14 +246,12 @@ pub async fn delete_user_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let result = sqlx::query!("DELETE FROM access_tokens WHERE id = $1 AND user_id = $2", token_id, &user_id)
-        .execute(&*state.services.token_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("Token not found".to_string()));
-    }
+    state
+        .services
+        .admin
+        .admin_token_service
+        .delete_user_access_token(&user_id, token_id)
+        .await?;
 
     Ok(Json(json!({})))
 }
@@ -288,13 +264,12 @@ pub async fn get_user_refresh_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = sqlx::query!(
-        r#"SELECT id AS "id!", device_id, created_ts AS "created_ts!", expires_at, COALESCE(is_revoked, FALSE) AS "is_revoked!" FROM refresh_tokens WHERE user_id = $1 ORDER BY created_ts DESC"#,
-        &user_id,
-    )
-    .fetch_all(&*state.services.token_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let tokens = state
+        .services
+        .admin
+        .admin_token_service
+        .get_user_refresh_tokens(&user_id)
+        .await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -320,14 +295,12 @@ pub async fn delete_refresh_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let result = sqlx::query!("DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2", token_id, &user_id)
-        .execute(&*state.services.token_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("Refresh token not found".to_string()));
-    }
+    state
+        .services
+        .admin
+        .admin_token_service
+        .delete_refresh_token(&user_id, token_id)
+        .await?;
 
     Ok(Json(json!({})))
 }

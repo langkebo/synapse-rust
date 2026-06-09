@@ -5,7 +5,8 @@
 // 安全说明：此 API 默认仅允许从 localhost (127.0.0.1) 调用
 // 如需从外部调用，请修改 allow_external_access 配置
 
-use crate::auth::AuthService;
+use crate::common::ApiError;
+use crate::services::AdminRegisterRequest;
 use crate::services::captcha_service::VerifyCaptchaRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
@@ -18,47 +19,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use hmac::{Hmac, Mac};
 use ipnetwork::IpNetwork;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
 use url::Url;
 use validator::Validate;
-
-// HMAC 类型，保持与 Synapse 共享密钥注册接口一致
-type HmacSha256 = Hmac<Sha256>;
-
-// nonce 存储 (内存中，生产环境应该用 Redis)
-//
-// Intentionally using std::sync::Mutex instead of tokio::sync::Mutex:
-// - The lock is held for very short durations (HashMap insert/get/remove only)
-// - No async operations are performed while holding the lock
-// - std::sync::Mutex is preferred over tokio::sync::Mutex for such cases
-//   because it avoids the overhead of an async-aware lock when the critical
-//   section never yields. See tokio docs: "use std::sync::Mutex when the
-//   lock is held across very short sections of code"
-static NONCES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, NonceData>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-#[derive(Clone)]
-struct NonceData {
-    created_at: u64,
-    expires_at: u64,
-}
-
-/// Remove nonce entries created more than 10 minutes ago.
-fn cleanup_expired_nonces() {
-    let Ok(mut nonces) = NONCES.lock() else {
-        return;
-    };
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    let ten_minutes_ago = now.saturating_sub(600);
-    nonces.retain(|_, data| data.created_at > ten_minutes_ago);
-}
 
 pub fn create_register_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -137,54 +103,19 @@ fn register_error_response(status: u16, errcode: &str, error: impl Into<String>)
     response
 }
 
-/// 生成随机 nonce
-fn generate_nonce() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
-    use std::fmt::Write;
-    let mut s = String::with_capacity(64);
-    for byte in bytes {
-        let _ = write!(&mut s, "{byte:02x}");
-    }
-    s
-}
+#[allow(clippy::needless_pass_by_value)]
+fn map_admin_register_service_error(error: ApiError) -> Response<Body> {
+    let message = error.message();
 
-/// 验证 HMAC-SHA256
-///
-/// 使用 `Mac::verify_slice` 进行常量时间比较，避免基于 hex 字符串
-/// 的逐字节比较带来的额外分配与潜在的时序信号。
-#[allow(clippy::expect_used)]
-fn verify_mac(
-    shared_secret: &str,
-    nonce: &str,
-    username: &str,
-    password: &str,
-    admin: bool,
-    user_type: &Option<String>,
-    mac_hex: &str,
-) -> bool {
-    let Ok(provided) = crate::common::crypto::decode_hex(mac_hex) else {
-        return false;
-    };
-
-    let mut mac = HmacSha256::new_from_slice(shared_secret.as_bytes()).expect("HMAC-SHA256 accepts keys of any size");
-    mac.update(nonce.as_bytes());
-    mac.update(b"\x00");
-    mac.update(username.as_bytes());
-    mac.update(b"\x00");
-    mac.update(password.as_bytes());
-    mac.update(b"\x00");
-    if admin {
-        mac.update(b"admin\x00\x00\x00");
-    } else {
-        mac.update(b"notadmin");
+    match message.as_str() {
+        "Unrecognised nonce" => register_error_response(400, "M_UNKNOWN", message),
+        "HMAC incorrect" => register_error_response(400, "M_UNKNOWN", message),
+        "Admin registration is not enabled" => register_error_response(400, "M_UNKNOWN", message),
+        _ if matches!(error, ApiError::Conflict(_) | ApiError::UserInUse(_)) => {
+            register_error_response(400, "M_USER_IN_USE", "User already exists")
+        }
+        _ => register_error_response(error.http_status().as_u16(), error.code(), message),
     }
-    if let Some(ref ut) = user_type {
-        mac.update(b"\x00");
-        mac.update(ut.as_bytes());
-    }
-
-    mac.verify_slice(&provided).is_ok()
 }
 
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
@@ -447,23 +378,15 @@ async fn get_nonce(
     )
     .map_err(|response| *response)?;
 
-    let nonce = generate_nonce();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| register_error_response(500, "M_UNKNOWN", "System time error"))?
-        .as_secs();
-    let timeout = config.admin_registration.nonce_timeout_seconds;
+    let response = state
+        .services
+        .admin
+        .admin_registration_service
+        .generate_nonce()
+        .await
+        .map_err(map_admin_register_service_error)?;
 
-    // 清理过期 nonce
-    cleanup_expired_nonces();
-
-    // 存储 nonce
-    {
-        let mut nonces = NONCES.lock().map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
-        nonces.insert(nonce.clone(), NonceData { created_at: now, expires_at: now + timeout });
-    }
-
-    Ok(Json(NonceResponse { nonce }))
+    Ok(Json(NonceResponse { nonce: response.nonce }))
 }
 
 /// 注册管理员账号
@@ -495,98 +418,31 @@ async fn register(
     .map_err(|response| *response)?;
     verify_additional_registration_controls(&state, &payload).await?;
 
-    // 验证 nonce
-    let nonce_valid = {
-        let mut nonces = NONCES.lock().map_err(|_| register_error_response(500, "M_UNKNOWN", "Lock poisoned"))?;
-        if let Some(data) = nonces.get(&payload.nonce) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| register_error_response(500, "M_UNKNOWN", "System time error"))?
-                .as_secs();
-            if now <= data.expires_at {
-                nonces.remove(&payload.nonce); // 使用后删除
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    };
+    let display_name = payload.displayname.clone().unwrap_or_else(|| payload.username.clone());
+    let response = state
+        .services
+        .admin
+        .admin_registration_service
+        .register_admin_user(AdminRegisterRequest {
+            nonce: payload.nonce.clone(),
+            username: payload.username.clone(),
+            password: payload.password.clone(),
+            admin: Some(payload.admin),
+            user_type: payload.user_type.clone(),
+            displayname: Some(display_name),
+            mac: payload.mac.clone(),
+        })
+        .await
+        .map_err(map_admin_register_service_error)?;
 
-    if !nonce_valid {
-        return Err(register_error_response(400, "M_UNKNOWN", "Unrecognised nonce"));
-    }
-
-    // 验证 HMAC
-    if !verify_mac(
-        &config.admin_registration.shared_secret,
-        &payload.nonce,
-        &payload.username,
-        &payload.password,
-        payload.admin,
-        &payload.user_type,
-        &payload.mac,
-    ) {
-        return Err(register_error_response(400, "M_UNKNOWN", "HMAC incorrect"));
-    }
-
-    // 创建用户。保持与上游 shared-secret registration 一致，只允许部署侧显式调用。
-    let user_id = format!("@{}:{}", payload.username, config.server.name);
-    let display_name = payload.displayname.unwrap_or(payload.username.clone());
-
-    // 使用 AuthService 注册用户
-    let auth_service = AuthService::new_with_lifetime(
-        &state.services.user_storage.pool,
-        state.cache.clone(),
-        state.services.metrics.clone(),
-        &config.security,
-        &config.server.name,
-        config.access_token_lifetime_seconds(),
-    );
-
-    let register_result =
-        auth_service.register(&payload.username, &payload.password, payload.admin, Some(&display_name)).await;
-
-    match register_result {
-        Ok((_user, access_token, refresh_token, device_id)) => {
-            if let Some(user_type) = payload.user_type.as_deref() {
-                sqlx::query!("UPDATE users SET user_type = $1 WHERE user_id = $2",
-                    user_type,
-                    &user_id
-                )
-                .execute(&*state.services.user_storage.pool)
-                .await
-                .map_err(|e| {
-                    register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
-                })?;
-            }
-
-            Ok(Json(RegisterResponse {
-                access_token,
-                refresh_token,
-                expires_in: config.access_token_lifetime_seconds().max(0) as u64,
-                device_id,
-                user_id: user_id.clone(),
-                home_server: config.server.name.clone(),
-            }))
-        }
-        Err(e) => {
-            let error_msg = e.to_string();
-            let error_msg_lower = error_msg.to_lowercase();
-            let user_conflict = error_msg_lower.contains("already exists")
-                || error_msg_lower.contains("already taken")
-                || error_msg_lower.contains("duplicate key value")
-                || error_msg_lower.contains("unique constraint")
-                || error_msg_lower.contains("user_in_use")
-                || error_msg_lower.contains("m_user_in_use");
-            if user_conflict {
-                Err(register_error_response(400, "M_USER_IN_USE", "User already exists"))
-            } else {
-                Err(register_error_response(500, "M_UNKNOWN", format!("Failed to create user: {error_msg}")))
-            }
-        }
-    }
+    Ok(Json(RegisterResponse {
+        access_token: response.access_token,
+        refresh_token: response.refresh_token,
+        expires_in: response.expires_in.max(0) as u64,
+        device_id: response.device_id,
+        user_id: response.user_id,
+        home_server: response.home_server,
+    }))
 }
 
 #[cfg(test)]

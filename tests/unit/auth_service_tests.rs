@@ -66,7 +66,7 @@ fn test_auth_service_register_invalid_username() {
         assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
 
         let result = auth.register("", "password", false, None).await;
-        assert!(matches!(result, Err(ApiError::BadRequest(_))));
+        assert!(matches!(result, Err(ApiError::MissingParam(_))));
     });
 }
 

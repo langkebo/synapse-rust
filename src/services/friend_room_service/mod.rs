@@ -10,6 +10,7 @@ use crate::services::RoomService;
 use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
 use serde_json::{json, Map, Value};
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -764,9 +765,19 @@ impl FriendRoomService {
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
         let safe_limit = request.limit.clamp(1, 100);
+        if let Some(cursor) = request.from.as_ref() {
+            if cursor.sort_by != request.sort_by {
+                return Err(ApiError::bad_request("Friend list cursor sort order does not match request"));
+            }
+        }
+        let page_key = request
+            .from
+            .as_ref()
+            .map(|cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)))
+            .unwrap_or_else(|| format!("offset:{}", request.offset.unwrap_or(0)));
         let cache_key = format!(
-            "friends:list:v2:{}:{}:{}:{}:{}:{}",
-            user_id, room_id, version, request.sort_by, request.offset, safe_limit
+            "friends:list:v3:{}:{}:{}:{}:{}",
+            user_id, room_id, version, request.sort_by, page_key
         );
 
         if let Ok(Some(mut cached)) = self.cache.get::<FriendListPage>(&cache_key).await {
@@ -795,17 +806,37 @@ impl FriendRoomService {
         Self::sort_friend_entries(&mut items, &request.sort_by);
 
         let total = items.len();
-        let offset = request.offset.min(total);
-        let paged_items = items.into_iter().skip(offset).take(safe_limit).collect::<Vec<_>>();
-        let next_offset = (offset + paged_items.len() < total).then_some(offset + paged_items.len());
+        let offset = request.offset.unwrap_or(0).min(total);
+        let start_index = if let Some(cursor) = request.from.as_ref() {
+            items
+                .iter()
+                .position(|item| Self::compare_friend_entry_to_cursor(item, cursor, &request.sort_by) == Ordering::Greater)
+                .unwrap_or(total)
+        } else {
+            offset
+        };
+        let paged_items = items.iter().skip(start_index).take(safe_limit).cloned().collect::<Vec<_>>();
+        let next_offset = request
+            .from
+            .is_none()
+            .then_some(start_index + paged_items.len())
+            .filter(|next| *next < total);
+        let next_batch = if start_index + paged_items.len() < total {
+            paged_items
+                .last()
+                .map(|item| encode_friend_list_cursor(&Self::cursor_from_friend_entry(item, &request.sort_by)))
+        } else {
+            None
+        };
 
         let page = FriendListPage {
             room_id,
             items: paged_items,
             total,
             limit: safe_limit,
-            offset,
+            offset: request.from.is_none().then_some(start_index),
             next_offset,
+            next_batch,
             version,
             cached: false,
             generated_ts: chrono::Utc::now().timestamp_millis(),
@@ -1131,37 +1162,68 @@ impl FriendRoomService {
     }
 
     fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
+        items.sort_by(|left, right| Self::compare_friend_entries(left, right, sort_by));
+    }
+
+    fn compare_friend_entries(left: &FriendListEntry, right: &FriendListEntry, sort_by: &str) -> Ordering {
         match sort_by {
-            "activity" => items.sort_by(|left, right| {
-                right
-                    .online
-                    .cmp(&left.online)
-                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
-                    .then_with(|| right.added_ts.cmp(&left.added_ts))
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
-            "recent" => items.sort_by(|left, right| {
-                right
-                    .added_ts
-                    .cmp(&left.added_ts)
-                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
-            _ => items.sort_by(|left, right| {
-                left.sort_letter
-                    .cmp(&right.sort_letter)
-                    .then_with(|| {
-                        left.display_name.as_deref().or(left.username.as_deref()).unwrap_or(left.user_id.as_str()).cmp(
-                            right
-                                .display_name
-                                .as_deref()
-                                .or(right.username.as_deref())
-                                .unwrap_or(right.user_id.as_str()),
-                        )
-                    })
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
+            "activity" => right
+                .online
+                .cmp(&left.online)
+                .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                .then_with(|| right.added_ts.cmp(&left.added_ts))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
+            "recent" => right
+                .added_ts
+                .cmp(&left.added_ts)
+                .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
+            _ => left
+                .sort_letter
+                .cmp(&right.sort_letter)
+                .then_with(|| Self::friend_display_key(left).cmp(&Self::friend_display_key(right)))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
         }
+    }
+
+    fn compare_friend_entry_to_cursor(item: &FriendListEntry, cursor: &FriendListCursor, sort_by: &str) -> Ordering {
+        match sort_by {
+            "activity" => cursor
+                .online
+                .cmp(&item.online)
+                .then_with(|| cursor.last_active_ts.cmp(&item.last_active_ts))
+                .then_with(|| cursor.added_ts.cmp(&item.added_ts))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+            "recent" => cursor
+                .added_ts
+                .cmp(&item.added_ts)
+                .then_with(|| cursor.last_active_ts.cmp(&item.last_active_ts))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+            _ => item
+                .sort_letter
+                .cmp(&cursor.sort_letter)
+                .then_with(|| Self::friend_display_key(item).cmp(cursor.display_key.as_str()))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+        }
+    }
+
+    fn cursor_from_friend_entry(item: &FriendListEntry, sort_by: &str) -> FriendListCursor {
+        FriendListCursor {
+            sort_by: sort_by.to_string(),
+            sort_letter: item.sort_letter.clone(),
+            display_key: Self::friend_display_key(item).to_string(),
+            online: item.online,
+            last_active_ts: item.last_active_ts,
+            added_ts: item.added_ts,
+            user_id: item.user_id.clone(),
+        }
+    }
+
+    fn friend_display_key(item: &FriendListEntry) -> &str {
+        item.display_name
+            .as_deref()
+            .or(item.username.as_deref())
+            .unwrap_or(item.user_id.as_str())
     }
 
     fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {

@@ -8,9 +8,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::room_summary::{
+use crate::services::room_summary_service::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
-    RoomSummaryStats, UpdateSummaryMemberRequest,
+    RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 use crate::web::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
 use crate::web::routes::AppState;
@@ -29,8 +29,8 @@ pub struct UpdateSummaryBody {
 }
 
 impl UpdateSummaryBody {
-    fn into_request(self) -> crate::storage::room_summary::UpdateRoomSummaryRequest {
-        crate::storage::room_summary::UpdateRoomSummaryRequest {
+    fn into_request(self) -> UpdateRoomSummaryRequest {
+        UpdateRoomSummaryRequest {
             name: self.name,
             topic: self.topic,
             avatar_url: self.avatar_url,

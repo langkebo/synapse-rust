@@ -2,11 +2,17 @@
 mod schema_contract_room_summary_queue_driver_suite {
     use crate::common::get_test_pool_async;
     use sqlx::Row;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use synapse_rust::services::room_summary_service::RoomSummaryService;
     use synapse_rust::storage::event::{CreateEventParams, EventStorage};
     use synapse_rust::storage::room_summary::{CreateRoomSummaryRequest, RoomSummaryStorage};
     use uuid::Uuid;
+
+    // Serialise room-summary queue-driver tests because
+    // process_pending_updates operates on the global
+    // room_summary_update_queue table and concurrent tests
+    // would interfere with each other.
+    static QUEUE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     async fn connect_pool() -> Option<Arc<sqlx::PgPool>> {
         match get_test_pool_async().await {
@@ -72,12 +78,6 @@ mod schema_contract_room_summary_queue_driver_suite {
     }
 
     async fn cleanup_room_summary_fixtures(pool: &sqlx::PgPool, room_id: &str, user_ids: &[String]) {
-        sqlx::query("DELETE FROM room_children WHERE parent_room_id = $1 OR child_room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await
-            .expect("Failed to cleanup room_children");
-
         sqlx::query("DELETE FROM room_summary_update_queue WHERE room_id = $1")
             .bind(room_id)
             .execute(pool)
@@ -151,6 +151,7 @@ mod schema_contract_room_summary_queue_driver_suite {
 
     #[tokio::test]
     async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts() {
+        let _guard = QUEUE_TEST_LOCK.lock().unwrap();
         let pool = match connect_pool().await {
             Some(pool) => pool,
             None => return,
@@ -298,6 +299,7 @@ mod schema_contract_room_summary_queue_driver_suite {
 
     #[tokio::test]
     async fn test_schema_contract_room_summary_queue_failed_items_are_not_reprocessed() {
+        let _guard = QUEUE_TEST_LOCK.lock().unwrap();
         let pool = match connect_pool().await {
             Some(pool) => pool,
             None => return,

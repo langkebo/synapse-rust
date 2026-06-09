@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::background_update::{
+use crate::services::background_update_service::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
 };
 use crate::web::routes::AdminUser;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT\n                    id AS \"id!\",\n                    server_name AS \"server_name!\",\n                    'blacklist' AS \"block_type!\",\n                    reason AS \"reason?\",\n                    COALESCE(added_by, 'system') AS \"blocked_by!\",\n                    added_ts AS \"created_ts!\",\n                    COALESCE(updated_ts, added_ts) AS \"updated_ts!\",\n                    NULL::BIGINT AS \"expires_at?\",\n                    TRUE AS \"is_enabled!\",\n                    '{}'::jsonb AS \"metadata!\"\n                FROM federation_blacklist\n                WHERE (added_ts, server_name) < ($1, $2)\n                ORDER BY added_ts DESC, server_name DESC\n                LIMIT $3\n                ",
+  "query": "\n            SELECT\n                id AS \"id!\",\n                server_name AS \"server_name!\",\n                block_type AS \"block_type!\",\n                reason AS \"reason?\",\n                COALESCE(added_by, 'system') AS \"blocked_by!\",\n                COALESCE(created_ts, added_ts) AS \"created_ts!\",\n                COALESCE(updated_ts, added_ts) AS \"updated_ts!\",\n                expires_at AS \"expires_at?\",\n                is_enabled AS \"is_enabled!\",\n                metadata AS \"metadata!\"\n            FROM federation_blacklist\n            WHERE server_name = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -56,23 +56,21 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Text",
-        "Int8"
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
-      null,
+      false,
       true,
       null,
+      null,
+      null,
+      true,
       false,
-      null,
-      null,
-      null,
-      null
+      false
     ]
   },
-  "hash": "990cb0393409b6b07bc4fbe206c89d27025ee2aea239ef0a488c5a6033f29d5f"
+  "hash": "14ccc23486a58c73f0f7b25f9bc0e9829ac748ce61b06d680720322380bea8c2"
 }

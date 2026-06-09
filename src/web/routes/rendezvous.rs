@@ -1,5 +1,7 @@
 use crate::common::ApiError;
-use crate::storage::rendezvous::*;
+use crate::services::{
+    CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
+};
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -238,9 +240,10 @@ async fn send_message(
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
 
-    let msg_storage = RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
-
-    msg_storage
+    state
+        .services
+        .admin
+        .rendezvous_storage
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
@@ -263,9 +266,10 @@ async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read messages").await?;
 
-    let msg_storage = RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
-
-    let messages = msg_storage
+    let messages = state
+        .services
+        .admin
+        .rendezvous_storage
         .get_messages(&session_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;

@@ -1,6 +1,7 @@
 use crate::common::error::ApiError;
-use crate::services::push_notification_service::SendNotificationRequest;
-use crate::storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
+use crate::services::push_notification_service::{
+    CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest, SendNotificationRequest,
+};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -78,7 +79,7 @@ impl From<PushDevice> for DeviceResponse {
             device_id: device.device_id,
             push_type: device.push_type,
             platform: device.platform,
-            enabled: device.enabled,
+            enabled: device.is_enabled,
             created_ts: device.created_ts,
             last_used_ts: device.last_used_at,
         }
@@ -105,7 +106,7 @@ impl From<PushRule> for RuleResponse {
             priority: rule.priority,
             conditions: rule.conditions,
             actions: rule.actions,
-            enabled: rule.enabled,
+            enabled: rule.is_enabled,
         }
     }
 }

@@ -1,4 +1,7 @@
 use crate::common::ApiError;
+pub use crate::storage::event_report::{
+    CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
+};
 use crate::storage::event_report::*;
 use std::sync::Arc;
 use tracing::{info, instrument};
@@ -214,6 +217,12 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn delete_report(&self, id: i64) -> Result<(), ApiError> {
+        self.storage
+            .get_report(id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get report", &e))?
+            .ok_or_else(|| ApiError::not_found("Report not found"))?;
+
         self.storage.delete_report(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete report", &e))?;
 
         info!("Deleted event report: {}", id);

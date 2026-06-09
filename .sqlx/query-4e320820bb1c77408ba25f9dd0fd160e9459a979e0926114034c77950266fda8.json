@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, refresh_token_id, user_id, old_access_token_id, new_access_token_id,\n                used_ts AS \"used_ts!\", ip_address, user_agent,\n                is_success AS \"success!: bool\", error_message\n            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2",
+  "query": "SELECT id, refresh_token_id, user_id, old_access_token_id, new_access_token_id,\n                used_ts AS \"used_ts!\", ip_address, user_agent,\n                is_success AS \"is_success!: bool\", error_message\n            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "success!: bool",
+        "name": "is_success!: bool",
         "type_info": "Bool"
       },
       {
@@ -73,5 +73,5 @@
       true
     ]
   },
-  "hash": "b61bee8cb33bce78d549dfa7c9cafe0ed71fed7e66285f764d123d6f716d6145"
+  "hash": "4e320820bb1c77408ba25f9dd0fd160e9459a979e0926114034c77950266fda8"
 }

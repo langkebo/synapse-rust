@@ -106,7 +106,6 @@ pub struct ThirdPartyRuleResult {
     pub event_type: String,
     pub rule_name: String,
     #[serde(rename = "allowed")]
-    #[sqlx(rename = "is_allowed")]
     pub is_allowed: bool,
     pub reason: Option<String>,
     pub modified_content: Option<serde_json::Value>,
@@ -156,14 +155,12 @@ pub struct CreateExecutionLogRequest {
 pub struct AccountValidity {
     pub user_id: String,
     pub expiration_at: i64,
-    #[sqlx(rename = "last_check_at")]
-    pub email_sent_ts: Option<i64>,
+    pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
     #[sqlx(skip)]
     pub renewal_token_ts: Option<i64>,
     pub is_valid: bool,
     pub created_ts: i64,
-    #[sqlx(rename = "updated_ts")]
     pub updated_ts: i64,
 }
 
@@ -651,7 +648,7 @@ impl ModuleStorage {
             RETURNING
                 user_id as "user_id!",
                 expiration_at as "expiration_at!",
-                last_check_at as "email_sent_ts?",
+                last_check_at as "last_check_at?",
                 renewal_token as "renewal_token?",
                 NULL::BIGINT as "renewal_token_ts?",
                 is_valid as "is_valid!",
@@ -676,7 +673,7 @@ impl ModuleStorage {
             SELECT
                 user_id as "user_id!",
                 expiration_at as "expiration_at!",
-                last_check_at as "email_sent_ts?",
+                last_check_at as "last_check_at?",
                 renewal_token as "renewal_token?",
                 NULL::BIGINT as "renewal_token_ts?",
                 is_valid as "is_valid!",
@@ -710,7 +707,7 @@ impl ModuleStorage {
             RETURNING
                 user_id as "user_id!",
                 expiration_at as "expiration_at!",
-                last_check_at as "email_sent_ts?",
+                last_check_at as "last_check_at?",
                 renewal_token as "renewal_token?",
                 NULL::BIGINT as "renewal_token_ts?",
                 is_valid as "is_valid!",
@@ -743,7 +740,7 @@ impl ModuleStorage {
             SELECT
                 user_id as "user_id!",
                 expiration_at as "expiration_at!",
-                last_check_at as "email_sent_ts?",
+                last_check_at as "last_check_at?",
                 renewal_token as "renewal_token?",
                 NULL::BIGINT as "renewal_token_ts?",
                 is_valid as "is_valid!",
@@ -960,7 +957,7 @@ mod tests {
         let validity = AccountValidity {
             user_id: "@alice:example.com".to_string(),
             expiration_at: 1234567890,
-            email_sent_ts: Some(1234567890),
+            last_check_at: Some(1234567890),
             renewal_token: Some("token123".to_string()),
             renewal_token_ts: Some(1234567890),
             is_valid: true,

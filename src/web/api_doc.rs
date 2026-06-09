@@ -3,9 +3,9 @@
 //! Enabled via the `openapi-docs` feature flag. When enabled, the Swagger UI
 //! is served at `/_swagger` and the OpenAPI JSON schema at `/_api-doc/openapi.json`.
 //!
-//! Route annotation is progressive — only the health, versions, and well-known
-//! endpoints are annotated as canonical examples. Additional routes should be
-//! annotated incrementally through follow-up patches.
+//! Route annotation is progressive — health, versions, capabilities, and
+//! well-known endpoints are annotated as canonical examples. Additional routes
+//! should be annotated incrementally through follow-up patches.
 
 use crate::web::routes::AppState;
 
@@ -40,7 +40,20 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             health_check,
             detailed_health_check,
             get_client_versions,
+            get_server_version,
+            get_capabilities,
             get_well_known_server,
+            get_well_known_client,
+            get_well_known_support,
+            list_account_data,
+            get_account_data,
+            get_room_account_data,
+            get_filter,
+            get_pushers,
+            get_push_rules,
+            get_push_rules_scope,
+            get_push_rules_kind,
+            get_push_rule,
         ),
         components(
             schemas(
@@ -138,5 +151,277 @@ pub fn detailed_health_check() -> axum::Json<crate::common::health::HealthStatus
     ),
 )]
 pub fn get_well_known_server() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/server_version` — Return homeserver version metadata.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/server_version",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Homeserver version metadata",
+            body = serde_json::Value,
+            example = json!({
+                "server_version": "6.0.4",
+                "python_version": "Rust",
+                "server_name": "example.com"
+            })
+        ),
+    ),
+)]
+pub fn get_server_version() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/capabilities` — Return client capability surface.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/capabilities",
+    tag = "Client-Server",
+    responses(
+        (status = 200, description = "Client capabilities",
+            body = serde_json::Value,
+            example = json!({
+                "capabilities": {
+                    "m.change_password": { "enabled": true },
+                    "m.set_displayname": { "enabled": true },
+                    "m.set_avatar_url": { "enabled": true },
+                    "m.room_versions": {
+                        "default": "11",
+                        "available": {
+                            "10": "stable",
+                            "11": "stable"
+                        }
+                    }
+                },
+                "unstable_features": {
+                    "org.matrix.msc3886.sliding_sync": true
+                }
+            })
+        ),
+    ),
+)]
+pub fn get_capabilities() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /.well-known/matrix/client` — Client discovery.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/.well-known/matrix/client",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Client well-known information",
+            body = serde_json::Value,
+            example = json!({
+                "m.homeserver": {
+                    "base_url": "https://matrix.example.com"
+                }
+            })
+        ),
+    ),
+)]
+pub fn get_well_known_client() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /.well-known/matrix/support` — Support discovery.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/.well-known/matrix/support",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Support metadata",
+            body = serde_json::Value,
+            example = json!({
+                "url": "https://matrix.org"
+            })
+        ),
+    ),
+)]
+pub fn get_well_known_support() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/account_data/` — List account data for the authenticated user.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/account_data/",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID")
+    ),
+    responses(
+        (status = 200, description = "Account data map",
+            body = serde_json::Value,
+            example = json!({
+                "account_data": {
+                    "m.push_rules": {
+                        "global": {
+                            "override": []
+                        }
+                    }
+                }
+            })
+        ),
+    ),
+)]
+pub fn list_account_data() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/account_data/{type}` — Read one account data event.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/account_data/{type}",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID"),
+        ("type" = String, Path, description = "Account data event type")
+    ),
+    responses(
+        (status = 200, description = "Account data content", body = serde_json::Value),
+        (status = 404, description = "Account data not found")
+    ),
+)]
+pub fn get_account_data() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}` — Read one room-scoped account data event.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type}",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID"),
+        ("room_id" = String, Path, description = "Matrix room ID"),
+        ("type" = String, Path, description = "Room account data event type")
+    ),
+    responses(
+        (status = 200, description = "Room account data content", body = serde_json::Value),
+        (status = 404, description = "Room account data not found")
+    ),
+)]
+pub fn get_room_account_data() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/user/{user_id}/filter/{filter_id}` — Read one saved sync filter.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/user/{user_id}/filter/{filter_id}",
+    tag = "Client-Server",
+    params(
+        ("user_id" = String, Path, description = "Authenticated Matrix user ID"),
+        ("filter_id" = String, Path, description = "Filter ID")
+    ),
+    responses(
+        (status = 200, description = "Saved filter document", body = serde_json::Value),
+        (status = 404, description = "Filter not found")
+    ),
+)]
+pub fn get_filter() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/pushers` — List pushers for the authenticated device.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/pushers",
+    tag = "Client-Server",
+    responses(
+        (status = 200, description = "Pushers",
+            body = serde_json::Value,
+            example = json!({
+                "pushers": [{
+                    "pushkey": "push-key",
+                    "kind": "http",
+                    "app_id": "com.example.app"
+                }]
+            })
+        ),
+    ),
+)]
+pub fn get_pushers() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/pushrules` — Read all push rules.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/pushrules",
+    tag = "Client-Server",
+    responses(
+        (status = 200, description = "All push rules", body = serde_json::Value)
+    ),
+)]
+pub fn get_push_rules() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/pushrules/{scope}` — Read one push rule scope.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/pushrules/{scope}",
+    tag = "Client-Server",
+    params(
+        ("scope" = String, Path, description = "Push rule scope, for example global")
+    ),
+    responses(
+        (status = 200, description = "Push rule scope", body = serde_json::Value)
+    ),
+)]
+pub fn get_push_rules_scope() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/pushrules/{scope}/{kind}` — Read rules of one kind within a scope.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/pushrules/{scope}/{kind}",
+    tag = "Client-Server",
+    params(
+        ("scope" = String, Path, description = "Push rule scope"),
+        ("kind" = String, Path, description = "Push rule kind")
+    ),
+    responses(
+        (status = 200, description = "Push rule kind listing", body = serde_json::Value)
+    ),
+)]
+pub fn get_push_rules_kind() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}` — Read one push rule.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/pushrules/{scope}/{kind}/{rule_id}",
+    tag = "Client-Server",
+    params(
+        ("scope" = String, Path, description = "Push rule scope"),
+        ("kind" = String, Path, description = "Push rule kind"),
+        ("rule_id" = String, Path, description = "Push rule ID")
+    ),
+    responses(
+        (status = 200, description = "Push rule", body = serde_json::Value),
+        (status = 404, description = "Push rule not found")
+    ),
+)]
+pub fn get_push_rule() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }

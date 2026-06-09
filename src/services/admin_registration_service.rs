@@ -16,6 +16,7 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct AdminRegistrationService {
     auth_service: AuthService,
     config: AdminRegistrationConfig,
+    user_storage: UserStorage,
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }
@@ -50,10 +51,11 @@ impl AdminRegistrationService {
     pub fn new(
         auth_service: AuthService,
         config: AdminRegistrationConfig,
+        user_storage: UserStorage,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self { auth_service, config, cache, metrics }
+        Self { auth_service, config, user_storage, cache, metrics }
     }
 
     pub fn start_nonce_cleanup_task(self: Arc<Self>) {
@@ -134,6 +136,13 @@ impl AdminRegistrationService {
 
         let (user, access_token, refresh_token, device_id) =
             self.auth_service.register(&request.username, &request.password, admin, displayname).await?;
+
+        if let Some(user_type) = request.user_type.as_deref() {
+            self.user_storage
+                .set_user_type(&user.user_id(), Some(user_type))
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to persist user_type", &e))?;
+        }
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("admin_register_duration_seconds") {

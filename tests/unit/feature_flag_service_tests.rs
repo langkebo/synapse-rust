@@ -993,7 +993,7 @@ async fn test_list_flags_with_scope_filter() {
     };
     let service = create_service(&pool);
     let uid = unique_id();
-    let scope = format!("scope-filter-{uid}");
+    let scope = "room".to_string();
     let flag_key = format!("test-list-scope-{uid}");
     let request = CreateFeatureFlagRequest {
         flag_key: flag_key.clone(),
@@ -1026,7 +1026,7 @@ async fn test_list_flags_with_status_filter() {
     };
     let service = create_service(&pool);
     let uid = unique_id();
-    let scope = format!("status-filter-{uid}");
+    let scope = "room".to_string();
     let flag_key_a = format!("test-list-stata-{uid}");
     let flag_key_b = format!("test-list-statb-{uid}");
     let req_a = CreateFeatureFlagRequest {
@@ -1231,7 +1231,7 @@ async fn test_list_flags_empty_result() {
     };
     let service = create_service(&pool);
     let filters = FeatureFlagFilters {
-        target_scope: Some(format!("empty-scope-{}", unique_id())),
+        target_scope: Some("tenant".to_string()),
         status: None,
         limit: 10,
         cursor_updated_ts: None,

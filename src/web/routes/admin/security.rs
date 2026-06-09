@@ -68,16 +68,12 @@ pub async fn shadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query!("UPDATE users SET is_shadow_banned = true WHERE user_id = $1", user_id)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
-
-    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{user_id}")).await;
+    state
+        .services
+        .admin
+        .admin_security_service
+        .set_shadow_ban(&user_id, true)
+        .await?;
 
     record_audit_event(
         &state,
@@ -100,16 +96,12 @@ pub async fn unshadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query!("UPDATE users SET is_shadow_banned = false WHERE user_id = $1", user_id)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    if result.rows_affected() == 0 {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
-
-    state.services.auth_service.cache.delete(&format!("user:shadow_banned:{user_id}")).await;
+    state
+        .services
+        .admin
+        .admin_security_service
+        .set_shadow_ban(&user_id, false)
+        .await?;
 
     record_audit_event(
         &state,
@@ -133,21 +125,17 @@ pub async fn get_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let limit = sqlx::query!("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1", user_id)
-        .fetch_optional(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let limit = state
+        .services
+        .admin
+        .admin_security_service
+        .get_user_rate_limit(&user_id)
+        .await?;
 
-    match limit {
-        Some(row) => Ok(Json(json!({
-            "messages_per_second": row.messages_per_second.unwrap_or(5.0),
-            "burst_count": row.burst_count.unwrap_or(10)
-        }))),
-        None => Ok(Json(json!({
-            "messages_per_second": 5.0,
-            "burst_count": 10
-        }))),
-    }
+    Ok(Json(json!({
+        "messages_per_second": limit.messages_per_second,
+        "burst_count": limit.burst_count
+    })))
 }
 
 #[axum::debug_handler]
@@ -163,15 +151,12 @@ pub async fn set_user_rate_limit(
     let messages_per_second = body.messages_per_second.unwrap_or(5.0);
     let burst_count = body.burst_count.unwrap_or(10);
 
-    sqlx::query!(
-        "INSERT INTO rate_limits (user_id, messages_per_second, burst_count) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET messages_per_second = $2, burst_count = $3",
-        user_id,
-        messages_per_second,
-        burst_count
-    )
-    .execute(&*state.services.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let limit = state
+        .services
+        .admin
+        .admin_security_service
+        .set_user_rate_limit(&user_id, messages_per_second, burst_count)
+        .await?;
 
     record_audit_event(
         &state,
@@ -188,8 +173,8 @@ pub async fn set_user_rate_limit(
     .await?;
 
     Ok(Json(json!({
-        "messages_per_second": messages_per_second,
-        "burst_count": burst_count
+        "messages_per_second": limit.messages_per_second,
+        "burst_count": limit.burst_count
     })))
 }
 
@@ -202,10 +187,12 @@ pub async fn delete_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    sqlx::query!("DELETE FROM rate_limits WHERE user_id = $1", user_id)
-        .execute(&*state.services.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    state
+        .services
+        .admin
+        .admin_security_service
+        .delete_user_rate_limit(&user_id)
+        .await?;
 
     record_audit_event(
         &state,

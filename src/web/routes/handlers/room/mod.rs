@@ -13,9 +13,6 @@ pub(crate) use receipts::*;
 pub(crate) use state::*;
 
 use crate::common::{parse_stream_token, ApiError};
-use crate::map_internal;
-use crate::storage::event::EventStorage;
-use crate::storage::event::RoomEvent;
 use crate::web::routes::{ensure_room_member, ensure_room_member_strict, AppState, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 
@@ -63,21 +60,11 @@ pub(crate) async fn ensure_room_state_write_access(
 }
 
 pub(crate) async fn get_room_event(
-    event_storage: &EventStorage,
+    state: &AppState,
     room_id: &str,
     event_id: &str,
-) -> Result<RoomEvent, ApiError> {
-    let event = event_storage
-        .get_event(event_id)
-        .await
-        .map_err(map_internal!("Failed to get event"))?
-        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
-
-    if event.room_id != room_id {
-        return Err(ApiError::not_found("Event not found in this room".to_string()));
-    }
-
-    Ok(event)
+) -> Result<serde_json::Value, ApiError> {
+    state.services.rooms.room_service.get_event(room_id, event_id).await
 }
 
 #[derive(Debug, Deserialize)]
