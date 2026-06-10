@@ -146,16 +146,16 @@ async fn sso_redirect(
     State(state): State<AppState>,
     Query(query): Query<SsoRedirectQuery>,
 ) -> Result<Redirect, ApiError> {
-    let redirect_uri = resolve_sso_redirect_url(&state, &query);
+    let redirect_uri: String = resolve_sso_redirect_url(&state, &query);
 
     if let Some(oidc_service) = state.services.oidc_service.as_ref() {
-        let state_value = OidcService::generate_state();
-        let nonce_value = OidcService::generate_state();
-        let (code_verifier, code_challenge) = OidcService::generate_pkce();
+        let state_value: String = OidcService::generate_state();
+        let nonce_value: String = OidcService::generate_state();
+        let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
 
         store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
 
-        let authorization_url = oidc_service
+        let authorization_url: String = oidc_service
             .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
             .await?;
 
@@ -164,7 +164,7 @@ async fn sso_redirect(
 
     #[cfg(feature = "saml-sso")]
     if state.services.saml_service.is_enabled() {
-        let auth_request = state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
+        let auth_request: crate::services::saml_service::SamlAuthRequest = state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
 
@@ -364,16 +364,17 @@ async fn oidc_userinfo(
     // 目前先使用 registration_service 获取本地 profile
 
     // 获取用户 profile 信息
-    let profile = state
+    let profile_res: Result<serde_json::Value, ApiError> = state
         .services
         .registration_service
         .get_profile(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get profile", &e))?;
+        .await;
+    let profile_val = profile_res?;
+    let profile = profile_val.as_object().ok_or_else(|| ApiError::internal("Profile is not an object"))?;
 
-    let name = profile.get("displayname").and_then(|v| v.as_str()).map(String::from);
+    let name: Option<String> = profile.get("displayname").and_then(|v| v.as_str()).map(String::from);
 
-    let picture = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
+    let picture: Option<String> = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
         if let Ok(loc) = crate::common::media_locator::MediaLocator::parse(s) {
             loc.to_mxc_url()
         } else if s.starts_with("mxc://") {
@@ -383,7 +384,7 @@ async fn oidc_userinfo(
         }
     });
 
-    let email = profile.get("email").and_then(|v| v.as_str()).map(String::from);
+    let email: Option<String> = profile.get("email").and_then(|v| v.as_str()).map(String::from);
 
     Ok(Json(OidcUserInfoResponse { sub: user_id.clone(), name, picture, email }))
 }
@@ -460,7 +461,7 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service =
+    let oidc_service: &crate::services::oidc_service::OidcService =
         state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcTokenRequest { grant_type, code, redirect_uri, refresh_token, scope, code_verifier, .. } = body;
@@ -468,42 +469,41 @@ async fn oidc_token(
     match grant_type.as_str() {
         "authorization_code" => {
             // 授权码模式
-            let code = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter".to_string()))?;
-            let redirect_uri = redirect_uri.unwrap_or_default();
+            let code: String = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter".to_string()))?;
+            let redirect_uri: String = redirect_uri.unwrap_or_default();
 
             // 使用 OIDC 服务兑换令牌
-            let token_response = oidc_service
+            let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
                 .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
             // 获取用户信息
-            let user_info = oidc_service
+            let user_info: crate::services::oidc_service::OidcUserInfo = oidc_service
                 .get_user_info(&token_response.access_token)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get user info", &e))?;
 
             // 映射到 Matrix 用户
-            let oidc_user = oidc_service.map_user(&user_info);
+            let oidc_user: crate::services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
 
-            let localpart = oidc_user.localpart.clone();
-            let issuer = oidc_service.get_config().issuer.clone();
-            let subject = oidc_user.subject.clone();
-            let server_name =
+            let localpart: String = oidc_user.localpart.clone();
+            let issuer: String = oidc_service.get_config().issuer.clone();
+            let subject: String = oidc_user.subject.clone();
+            let server_name: String =
                 state.services.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
-            let matrix_user_id = format!("@{localpart}:{server_name}");
-            let displayname = oidc_user.displayname.clone().unwrap_or(localpart.clone());
-            let now_ts = current_unix_ts() as i64;
+            let matrix_user_id: String = format!("@{localpart}:{server_name}");
+            let displayname: String = oidc_user.displayname.clone().unwrap_or(localpart.clone());
+            let now_ts: i64 = current_unix_ts() as i64;
 
-            // 查询 (issuer, subject) -> user_id 绑定，防止外部 IdP 攻击者通过
-            // 控制 preferred_username 等映射字段冒用本地已存在账号。
-            let bound_user_id = state
+            // 检查 OIDC 绑定记录
+            let bound_user_id: Option<String> = state
                 .services
                 .oidc_mapping_service
                 .get_bound_user_id(&issuer, &subject)
                 .await?;
 
-            let matrix_user_id = if let Some(existing) = bound_user_id {
+            let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
                 state
                     .services
@@ -513,7 +513,9 @@ async fn oidc_token(
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
-                if state.services.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None).is_some() {
+                let existing_user: Option<crate::storage::user::User> =
+                    state.services.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None);
+                if existing_user.is_some() {
                     ::tracing::warn!(
                         target: "security_audit",
                         event = "oidc_localpart_collision_refused",
@@ -528,7 +530,7 @@ async fn oidc_token(
                 }
 
                 tracing::info!("Creating new Matrix user from OIDC: {}", matrix_user_id);
-                let random_password = uuid::Uuid::new_v4().to_string();
+                let random_password: String = uuid::Uuid::new_v4().to_string();
                 state
                     .services
                     .registration_service
@@ -544,11 +546,11 @@ async fn oidc_token(
                 matrix_user_id
             };
 
-            let localpart =
+            let localpart: String =
                 matrix_user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or(&localpart).to_string();
 
             // 生成设备ID
-            let device_id = format!("OIDC{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
+            let device_id: String = format!("OIDC{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
 
             // 注册设备
             state
@@ -559,15 +561,16 @@ async fn oidc_token(
                 .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
             // 生成 Matrix Access Token
-            let is_admin = state
+            let user_info: Option<crate::storage::user::User> = state
                 .services
                 .user_storage
                 .get_user_by_username(&localpart)
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?
-                .is_some_and(|u| u.is_admin);
+                .map_err(|e| ApiError::internal_with_log("Failed to get user", &e))?;
 
-            let matrix_token =
+            let is_admin: bool = user_info.is_some_and(|u| u.is_admin);
+
+            let matrix_token: String =
                 state.services.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
 
             tracing::info!(
@@ -589,11 +592,11 @@ async fn oidc_token(
         }
         "refresh_token" => {
             // 刷新令牌模式
-            let refresh_token =
+            let refresh_token: String =
                 refresh_token.ok_or_else(|| ApiError::bad_request("Missing 'refresh_token' parameter".to_string()))?;
 
             // 使用 OIDC 服务刷新令牌
-            let token_response = oidc_service
+            let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
                 .refresh_token(&refresh_token)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token refresh failed", &e))?;
@@ -647,7 +650,7 @@ async fn oidc_authorize(
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service =
+    let oidc_service: &crate::services::oidc_service::OidcService =
         state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
@@ -659,15 +662,15 @@ async fn oidc_authorize(
     }
 
     // 生成 state 和 nonce
-    let state_value = auth_state.unwrap_or_else(OidcService::generate_state);
-    let nonce_value = nonce.unwrap_or_else(OidcService::generate_state);
+    let state_value: String = auth_state.unwrap_or_else(OidcService::generate_state);
+    let nonce_value: String = nonce.unwrap_or_else(OidcService::generate_state);
 
     // 生成 PKCE code_verifier 和 code_challenge
-    let (code_verifier, code_challenge) = OidcService::generate_pkce();
+    let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
     store_oidc_auth_session(&state_value, &nonce_value, &code_verifier, &code_challenge, "S256", &redirect_uri)?;
 
     // 生成授权 URL (包含 PKCE)
-    let authorization_url = oidc_service
+    let authorization_url: String = oidc_service
         .get_authorization_url(&state_value, &redirect_uri, Some(&code_challenge), Some("S256"))
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to generate authorization URL", &e))?;
@@ -837,7 +840,7 @@ async fn oidc_callback(
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service =
+    let oidc_service: &crate::services::oidc_service::OidcService =
         state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcCallbackRequest { code, state: callback_state, error, error_description } = query.0;
@@ -852,14 +855,14 @@ async fn oidc_callback(
     }
 
     // 需要授权码
-    let code = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
-    let callback_state = callback_state
+    let code: String = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
+    let callback_state: String = callback_state
         .ok_or_else(|| ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string()))?;
-    let auth_session = consume_oidc_auth_session(&callback_state)?;
+    let auth_session: OidcAuthSession = consume_oidc_auth_session(&callback_state)?;
     validate_state_pkce_binding(&auth_session)?;
 
     // 获取配置的回调 URL
-    let callback_url = if auth_session.redirect_uri.is_empty() {
+    let callback_url: String = if auth_session.redirect_uri.is_empty() {
         oidc_service
             .get_config()
             .callback_url
@@ -870,19 +873,19 @@ async fn oidc_callback(
     };
 
     // 兑换令牌
-    let token_response = oidc_service
+    let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
         .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()))
         .await
         .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
     // 获取用户信息
-    let user_info = oidc_service
+    let user_info: crate::services::oidc_service::OidcUserInfo = oidc_service
         .get_user_info(&token_response.access_token)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get user info", &e))?;
 
     // 映射到 Matrix 用户
-    let oidc_user = oidc_service.map_user(&user_info);
+    let oidc_user: crate::services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
 
     tracing::info!(
         "OIDC callback successful for sub: {}, localpart: {}, email: {:?}, nonce_len: {}",
@@ -894,26 +897,26 @@ async fn oidc_callback(
 
     // 创建或登录 Matrix 用户
     // First check if user exists by localpart
-    let user_id = format!("@{}:{}", oidc_user.localpart, state.services.server_name);
+    let user_id: String = format!("@{}:{}", oidc_user.localpart, state.services.server_name);
 
-    let existing_user = state
+    let existing_user: Option<crate::storage::user::User> = state
         .services
         .user_storage
         .get_user_by_username(&oidc_user.localpart)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let (user, access_token, refresh_token, device_id) = if let Some(existing) = existing_user {
+    let (user, access_token, refresh_token, device_id): (crate::storage::user::User, String, String, String) = if let Some(existing) = existing_user {
         // User exists, generate tokens for them using a simple token generation
         // Use the existing user's admin status
-        let device_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-        let access_token = state
+        let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let access_token: String = state
             .services
             .auth_service
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-        let refresh_token = state
+        let refresh_token: String = state
             .services
             .auth_service
             .generate_refresh_token(&user_id, &device_id)
@@ -922,20 +925,20 @@ async fn oidc_callback(
         (existing, access_token, refresh_token, device_id)
     } else {
         // Create new user - use a random password since authentication is done by OIDC provider
-        let random_password = OidcService::generate_state();
+        let random_password: String = OidcService::generate_state();
 
         // Get displayname from OIDC user info
-        let displayname = oidc_user.displayname.as_deref();
+        let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
         match state.services.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)
-                let error_msg = e.to_string();
+                let error_msg: String = e.to_string();
                 if error_msg.contains("already taken") || error_msg.contains("in use") || error_msg.contains("conflict")
                 {
                     // User was created by another request, try to get them
-                    let existing = state
+                    let existing: crate::storage::user::User = state
                         .services
                         .user_storage
                         .get_user_by_username(&oidc_user.localpart)
@@ -943,14 +946,14 @@ async fn oidc_callback(
                         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
                         .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
 
-                    let device_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-                    let access_token = state
+                    let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
+                    let access_token: String = state
                         .services
                         .auth_service
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-                    let refresh_token = state
+                    let refresh_token: String = state
                         .services
                         .auth_service
                         .generate_refresh_token(&user_id, &device_id)
@@ -964,7 +967,7 @@ async fn oidc_callback(
         }
     };
 
-    let user_id_for_log = user.user_id();
+    let user_id_for_log: String = user.user_id();
     tracing::info!("OIDC user logged in: {}, device_id: {}", user_id_for_log, device_id);
 
     Ok(Json(serde_json::json!({

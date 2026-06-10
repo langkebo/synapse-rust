@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO server_retention_policy (\n                id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $5)\n            ON CONFLICT (id) DO UPDATE SET\n                max_lifetime = EXCLUDED.max_lifetime,\n                min_lifetime = EXCLUDED.min_lifetime,\n                is_expire_on_clients = EXCLUDED.is_expire_on_clients,\n                updated_ts = EXCLUDED.updated_ts\n            RETURNING id AS \"id!\", max_lifetime AS \"max_lifetime?\", min_lifetime AS \"min_lifetime!\",\n                      is_expire_on_clients AS \"is_expire_on_clients!\", created_ts AS \"created_ts!\", updated_ts AS \"updated_ts!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_lifetime?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "min_lifetime!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_expire_on_clients!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1eec4744ba13a963a379714a1669ef67f17664985a635a8f62defc8ee449af9b"
+}

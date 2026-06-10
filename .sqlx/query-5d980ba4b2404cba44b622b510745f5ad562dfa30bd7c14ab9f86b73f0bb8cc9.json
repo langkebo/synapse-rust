@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT server_name AS \"server_name?\", last_failed_connect_at AS \"last_failed_connect_at?\", last_successful_connect_at AS \"last_successful_connect_at?\", failure_count AS \"failure_count?\", status AS \"status?\", updated_ts AS \"updated_ts?\" FROM federation_servers ORDER BY server_name ASC OFFSET $1 LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_name?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_failed_connect_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_successful_connect_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "failure_count?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "status?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "5d980ba4b2404cba44b622b510745f5ad562dfa30bd7c14ab9f86b73f0bb8cc9"
+}

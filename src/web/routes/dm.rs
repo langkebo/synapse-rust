@@ -285,15 +285,15 @@ async fn load_direct_room_snapshot(
 ) -> Result<(Map<String, Value>, Vec<String>, bool), ApiError> {
     #[cfg(feature = "friends")]
     {
-        let snapshot = state.services.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
+        let snapshot: crate::services::friend_room_service::DirectRoomSnapshot = state.services.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
     {
-        let direct_map = load_effective_direct_map(state, user_id).await?;
-        let users = get_room_direct_users(&direct_map, room_id);
-        let is_direct = !users.is_empty();
+        let direct_map: Map<String, Value> = load_effective_direct_map(state, user_id).await?;
+        let users: Vec<String> = get_room_direct_users(&direct_map, room_id);
+        let is_direct: bool = !users.is_empty();
         Ok((direct_map, users, is_direct))
     }
 }
@@ -306,7 +306,7 @@ async fn update_direct_room_snapshot(
 ) -> Result<(Map<String, Value>, Vec<String>, bool), ApiError> {
     #[cfg(feature = "friends")]
     {
-        let action = match action {
+        let action: crate::services::friend_room_service::DirectMapUpdateAction = match action {
             DirectMapUpdateAction::ReplaceRoomTargets(target_user_ids) => {
                 crate::services::friend_room_service::DirectMapUpdateAction::ReplaceRoomTargets {
                     room_id: room_id.to_string(),
@@ -318,15 +318,15 @@ async fn update_direct_room_snapshot(
             }
         };
 
-        let snapshot = state.services.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
+        let snapshot: crate::services::friend_room_service::DirectRoomSnapshot = state.services.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
     {
-        let direct_map = apply_direct_map_update(state, user_id, room_id, action).await?;
-        let users = get_room_direct_users(&direct_map, room_id);
-        let is_direct = !users.is_empty();
+        let direct_map: Map<String, Value> = apply_direct_map_update(state, user_id, room_id, action).await?;
+        let users: Vec<String> = get_room_direct_users(&direct_map, room_id);
+        let is_direct: bool = !users.is_empty();
         Ok((direct_map, users, is_direct))
     }
 }

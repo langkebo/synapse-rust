@@ -127,7 +127,7 @@
 **验收**:
 - `e2ee` 全部 storage 走编译期宏
 - `cargo test --features test-utils --test integration e2ee` 全绿
-- `cargo test --features vodozemac-megolm e2ee::vodozemac_interop_tests` 19/19 pass
+- `cargo test e2ee::vodozemac_interop_tests` 19/19 pass
 
 ---
 

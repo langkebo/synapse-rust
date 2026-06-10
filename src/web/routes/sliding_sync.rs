@@ -51,23 +51,23 @@ async fn sliding_sync(
         file_config.as_ref().map_or(state.services.config.rate_limit.sync.enabled, |config| config.sync.enabled);
 
     if sync_rate_limit_enabled {
-        let (per_second, burst_size) =
+        let (per_second, burst_size): (u32, u32) =
             resolve_sliding_sync_rate_limit(&state, file_config.as_ref(), body.pos.is_none());
-        let kind = if body.pos.is_none() { "initial" } else { "incremental" };
-        let rate_limit_key = format!("ratelimit:sliding_sync:{}:{}:{}", auth_user.user_id, device_id, kind);
-        let decision = state
+        let kind: &str = if body.pos.is_none() { "initial" } else { "incremental" };
+        let rate_limit_key: String = format!("ratelimit:sliding_sync:{}:{}:{}", auth_user.user_id, device_id, kind);
+        let decision: crate::cache::RateLimitDecision = state
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
             .await
             .map_err(|e| ApiError::internal_with_log("Sliding sync rate limit failed", &e))?;
         if !decision.allowed {
-            let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
+            let retry_after_ms: u64 = decision.retry_after_seconds.saturating_mul(1000);
             return Err(ApiError::rate_limited_with_retry(retry_after_ms));
         }
     }
 
     // Call the sliding sync service
-    let response = state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
+    let response: SlidingSyncResponse = state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
 
     Ok(Json(response))
 }

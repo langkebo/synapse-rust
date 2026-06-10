@@ -1,8 +1,8 @@
 pub mod argon2_config;
 pub mod background_job;
+pub mod backpressure;
 pub mod collections;
 pub mod concurrency;
-pub mod config;
 pub mod constants;
 pub mod crypto;
 pub mod early_exit;
@@ -16,7 +16,7 @@ pub mod logging;
 pub mod macros;
 pub mod media_link_signer;
 pub mod media_locator;
-pub mod metrics;
+pub mod nonce_cache;
 pub mod password_hash_pool;
 pub mod rate_limit;
 pub mod rate_limit_config;
@@ -24,7 +24,6 @@ pub mod regex_cache;
 pub mod room_versions;
 pub mod sanitizer;
 pub mod security;
-pub mod server_metrics;
 pub mod task_queue;
 pub mod telemetry_config;
 pub mod time;
@@ -34,6 +33,11 @@ pub mod transaction;
 pub mod types;
 pub mod validation;
 pub mod xml_parser;
+
+pub use synapse_common::metrics;
+pub use synapse_common::server_metrics;
+
+pub mod config;
 
 // HTML/text sanitizer: ammonia-based whitelist implementation (the only implementation).
 #[allow(ambiguous_glob_reexports)]

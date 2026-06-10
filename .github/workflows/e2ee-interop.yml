@@ -27,6 +27,7 @@ env:
   E2EE_INTEROP_CLIENT: 'element-web'
   E2EE_INTEROP_LOG: artifacts/e2ee-interop
   MATRIX_HOMESERVER_URL: 'http://localhost:8008'
+  SDK_REPOSITORY: langkebo/matrix-js-sdk
 
 jobs:
   vodozemac-vector-roundtrip:
@@ -72,31 +73,37 @@ jobs:
           retention-days: 14
 
   element-web-interop:
-    # Full Element Web x synapse-rust interop. Slow (~20 min) so it
-    # only runs on the dedicated branch, weekly schedule, and manual
-    # dispatch.
-    name: Element Web x synapse-rust
+    # CI-backed cross-client verification now runs in two layers:
+    # 1) matrix-js-sdk real-backend verification against a live backend.
+    # 2) a browser-level Element Web login smoke via Playwright.
+    name: Element ecosystem verification
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/heads/feature/e2ee-vodozemac/')
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: synapse
-          POSTGRES_PASSWORD: synapse
-          POSTGRES_DB: synapse
-        ports: [5432:5432]
-        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-      redis:
-        image: redis:7
-        ports: [6379:6379]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout matrix-js-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SDK_REPOSITORY }}
+          path: matrix-js-sdk
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: matrix-js-sdk/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -114,36 +121,37 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-e2ee-interop-
 
-      - name: Build synapse-rust (release)
+      - name: Run matrix-js-sdk real-backend verification
         env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-        run: |
-          cargo build --release --locked \
-            --features server,all-extensions \
-            --bin synapse-rust
-
-      - name: Run integration tests
-        env:
-          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
-          REDIS_URL: redis://localhost:6379
+          SDK_ROOT: ${{ github.workspace }}/matrix-js-sdk
+          SDK_REPOSITORY: ${{ env.SDK_REPOSITORY }}
+          DOCKER_ENV_FILE: ${{ github.workspace }}/docker/.env
+          BASE_URL: http://localhost:8008
+          WAIT_SECONDS: 240
+          KEEP_STACK_RUNNING: '1'
         run: |
           mkdir -p "${E2EE_INTEROP_LOG}"
-          cargo test --all-features --locked --tests \
-            'e2ee::interop' \
-            -- --nocapture 2>&1 | tee "${E2EE_INTEROP_LOG}/element-web.log"
-        # NOTE: full Element Web harness lives behind a feature flag
-        # until the harness is wired up. The interop module is
-        # present (see src/e2ee/vodozemac_interop_tests.rs) and the
-        # vodozemac-vector-roundtrip job already runs the local
-        # half. To enable the full Element Web pass, install
-        # `playwright` and a running Element instance, then add the
-        # runner below; tracked in
-        # docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md §5.3.
+          bash scripts/test/run_sdk_verification_real_backend.sh \
+            2>&1 | tee "${E2EE_INTEROP_LOG}/matrix-js-sdk.log"
+
+      - name: Run Element Web browser login smoke
+        env:
+          DOCKER_ENV_FILE: ${{ github.workspace }}/docker/.env
+          WAIT_SECONDS: 240
+          BROWSER_ONLY_OVERLAY: '1'
+          ELEMENT_HARNESS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/e2ee-interop
+        run: |
+          mkdir -p "${E2EE_INTEROP_LOG}"
+          bash scripts/test/run_element_web_browser_harness.sh \
+            2>&1 | tee "${E2EE_INTEROP_LOG}/element-web-browser.log"
 
       - name: Upload Element Web interop log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2ee-interop-element-web
-          path: ${{ env.E2EE_INTEROP_LOG }}/element-web.log
+          path: |
+            ${{ env.E2EE_INTEROP_LOG }}/matrix-js-sdk.log
+            ${{ env.E2EE_INTEROP_LOG }}/element-web-browser.log
+            artifacts/e2ee-interop/element-web-login-failure.png
           retention-days: 30

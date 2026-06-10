@@ -2,7 +2,7 @@ use crate::crypto::CryptoError;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -21,15 +21,16 @@ pub struct Ed25519PublicKey {
 }
 
 impl Ed25519PublicKey {
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
     }
 
-    pub fn to_base64(&self) -> String {
+    #[cfg(test)]
+    pub(crate) fn to_base64(&self) -> String {
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, self.bytes)
     }
 
@@ -45,12 +46,13 @@ impl Ed25519PublicKey {
 }
 
 #[derive(Debug, Zeroize)]
-pub struct Ed25519SecretKey {
+struct Ed25519SecretKey {
     bytes: [u8; 32],
 }
 
 impl Ed25519SecretKey {
-    pub fn generate() -> Self {
+    #[cfg(test)]
+    fn generate() -> Self {
         let mut rng = OsRng {};
         let mut key_bytes = [0u8; 32];
         rng.fill_bytes(&mut key_bytes);
@@ -58,12 +60,18 @@ impl Ed25519SecretKey {
         Self { bytes: signing_key.to_bytes() }
     }
 
-    pub fn from_bytes(bytes: &[u8; 32]) -> Self {
+    fn from_signing_key(signing_key: &SigningKey) -> Self {
+        Self { bytes: signing_key.to_bytes() }
+    }
+
+    #[cfg(test)]
+    fn from_bytes(bytes: &[u8; 32]) -> Self {
         let key = SigningKey::from_bytes(bytes);
         Self { bytes: key.to_bytes() }
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    #[cfg(test)]
+    fn as_bytes(&self) -> &[u8; 32] {
         &self.bytes
     }
 
@@ -88,7 +96,7 @@ impl Ed25519KeyPair {
         let verifying_key = signing_key.verifying_key();
         Self {
             public: Ed25519PublicKey::from_bytes(*verifying_key.as_bytes()),
-            secret: Ed25519SecretKey::from_bytes(signing_key.as_bytes()),
+            secret: Ed25519SecretKey::from_signing_key(&signing_key),
         }
     }
 
@@ -100,7 +108,8 @@ impl Ed25519KeyPair {
         self.secret.sign(message)
     }
 
-    pub fn verify(
+    #[cfg(test)]
+    pub(crate) fn verify(
         &self,
         message: impl AsRef<[u8]>,
         signature: &ed25519_dalek::Signature,

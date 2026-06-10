@@ -31,12 +31,6 @@ runtime-ddl = []
 performance-tests = []
 test-utils = []
 
-# P0: vodozemac-based Megolm (default-enabled for production).
-# Disable only during migration if the legacy AES-GCM megolm path is
-# still needed. Once all deployments have migrated, the legacy path
-# should be removed and this feature becomes unconditional.
-vodozemac-megolm = []
-
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
 friends = []
@@ -59,8 +53,7 @@ all-extensions = [
     "saml-sso", "cas-sso",
     "beacons", "voip-tracking", "widgets", "server-notifications",
     "burn-after-read", "privacy-ext", "external-services",
-    "builtin-oidc", "geo-ip",
-    "vodozemac-megolm"
+    "builtin-oidc", "geo-ip"
 ]
 
 # OpenAPI documentation generation (Swagger UI at /_swagger)
@@ -144,6 +137,7 @@ validator = { version = "0.20.0", features = ["derive"] }
 ammonia = "4.1"
 infer = "0.19.0"
 textwrap = "0.16"
+synapse-common = { path = "synapse-common" }
 
 image = "0.25"
 hex = "0.4.3"

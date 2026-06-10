@@ -400,12 +400,13 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<WorkerTaskAssignment, ApiError> {
-        let task = self
+        let task: Option<WorkerTaskAssignment> = self
             .storage
             .claim_next_pending_task(worker_id)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?
-            .ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
+            .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?;
+
+        let task: WorkerTaskAssignment = task.ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
 
         info!("Task {} claimed atomically by worker {}", task.task_id, worker_id);
         Ok(task)

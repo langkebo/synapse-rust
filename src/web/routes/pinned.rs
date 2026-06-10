@@ -26,7 +26,7 @@ pub async fn get_pinned_events(
     validate_room_id(&room_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view pinned events").await?;
 
-    let pinned_list = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
+    let pinned_list: Vec<String> = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
 
     Ok(Json(PinnedEventsResponse { pinned_events: pinned_list }))
 }
@@ -43,7 +43,7 @@ pub async fn pin_event(
         .await?;
     state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
 
-    let mut pinned_list = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
+    let mut pinned_list: Vec<String> = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
 
     if !pinned_list.contains(&body.event_id) {
         pinned_list.push(body.event_id.clone());
@@ -72,7 +72,7 @@ pub async fn unpin_event(
         .await?;
     state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
 
-    let mut pinned_list = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
+    let mut pinned_list: Vec<String> = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
 
     pinned_list.retain(|e| e != &event_id);
 

@@ -212,13 +212,13 @@ impl MediaStorageBackend for FilesystemBackend {
                 std::fs::read_dir(path).map_err(|e| ApiError::internal_with_log("Failed to read directory", &e))?;
 
             for entry in entries {
-                let entry = entry.map_err(|e| ApiError::internal_with_log("Failed to read entry", &e))?;
+                let entry: std::fs::DirEntry = entry.map_err(|e| ApiError::internal_with_log("Failed to read entry", &e))?;
 
-                let path = entry.path();
+                let path: PathBuf = entry.path();
                 if path.is_dir() {
                     process_directory(&path, total_files, total_size, oldest, newest)?;
                 } else {
-                    let metadata = std::fs::metadata(&path)
+                    let metadata: std::fs::Metadata = std::fs::metadata(&path)
                         .map_err(|e| ApiError::internal_with_log("Failed to get metadata", &e))?;
 
                     *total_files += 1;
@@ -227,10 +227,10 @@ impl MediaStorageBackend for FilesystemBackend {
                     if let Ok(modified) = metadata.modified() {
                         let datetime: chrono::DateTime<chrono::Utc> = modified.into();
 
-                        if oldest.as_ref().is_none_or(|&old| datetime < old) {
+                        if oldest.as_ref().map_or(true, |&old| datetime < old) {
                             *oldest = Some(datetime);
                         }
-                        if newest.as_ref().is_none_or(|&new| datetime > new) {
+                        if newest.as_ref().map_or(true, |&new| datetime > new) {
                             *newest = Some(datetime);
                         }
                     }

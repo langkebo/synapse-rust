@@ -187,9 +187,7 @@ fn test_verify_token_stage_missing_token() {
     let result = service.verify_token_stage(&auth, "@user:localhost");
     assert!(result.is_err());
     match result.unwrap_err() {
-        ApiError::BadRequest(msg) => {
-            assert!(msg.contains("Token required"));
-        }
+        e if e.is_bad_request() && e.internal_message().contains("Token required") => {}
         _ => panic!("Expected BadRequest error"),
     }
 }
@@ -203,9 +201,7 @@ fn test_verify_token_stage_missing_txn_id() {
     let result = service.verify_token_stage(&auth, "@user:localhost");
     assert!(result.is_err());
     match result.unwrap_err() {
-        ApiError::BadRequest(msg) => {
-            assert!(msg.contains("Transaction ID required"));
-        }
+        e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
         _ => panic!("Expected BadRequest error"),
     }
 }
@@ -220,9 +216,7 @@ fn test_verify_token_stage_empty_txn_id() {
     let result = service.verify_token_stage(&auth, "@user:localhost");
     assert!(result.is_err());
     match result.unwrap_err() {
-        ApiError::BadRequest(msg) => {
-            assert!(msg.contains("Transaction ID required"));
-        }
+        e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
         _ => panic!("Expected BadRequest error"),
     }
 }
@@ -551,9 +545,7 @@ fn test_verify_password_stage_missing_password() {
         let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ApiError::BadRequest(msg) => {
-                assert!(msg.contains("Password required"));
-            }
+            e if e.is_bad_request() && e.internal_message().contains("Password required") => {}
             _ => panic!("Expected BadRequest error"),
         }
     });
@@ -578,9 +570,7 @@ fn test_verify_password_stage_user_mismatch_identifier() {
         let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ApiError::Forbidden(msg) => {
-                assert!(msg.contains("User mismatch"));
-            }
+            e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
             _ => panic!("Expected Forbidden error"),
         }
     });
@@ -603,9 +593,7 @@ fn test_verify_password_stage_user_mismatch_legacy_user_field() {
         let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            ApiError::Forbidden(msg) => {
-                assert!(msg.contains("User mismatch"));
-            }
+            e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
             _ => panic!("Expected Forbidden error"),
         }
     });

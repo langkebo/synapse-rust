@@ -92,10 +92,8 @@ mod tests {
     fn test_require_found_returns_not_found_error() {
         let error = require_found::<Source>(None, "missing").expect_err("missing should fail");
 
-        match error {
-            ApiError::NotFound(message) => assert!(message.contains("missing")),
-            other => panic!("expected not found error, got {other:?}"),
-        }
+        assert!(error.is_not_found());
+        assert!(error.internal_message().contains("missing"));
     }
 
     #[test]

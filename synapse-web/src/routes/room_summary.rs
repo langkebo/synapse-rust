@@ -764,9 +764,7 @@ mod tests {
             .expect_err("mismatched room_id should fail");
 
         match error {
-            ApiError::BadRequest(message) => {
-                assert!(message.contains("Path room_id does not match body room_id"));
-            }
+            e if e.is_bad_request() && e.message().contains("Path room_id does not match body room_id") => {}
             other => panic!("expected bad request error, got {other:?}"),
         }
     }

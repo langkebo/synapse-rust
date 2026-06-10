@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO saml_identity_providers (\n                entity_id, display_name, description, metadata_url, metadata_xml,\n                is_enabled, priority, attribute_mapping, created_ts, updated_ts\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)\n            ON CONFLICT (entity_id) DO UPDATE SET\n                display_name = EXCLUDED.display_name,\n                description = EXCLUDED.description,\n                metadata_url = EXCLUDED.metadata_url,\n                metadata_xml = EXCLUDED.metadata_xml,\n                is_enabled = EXCLUDED.is_enabled,\n                priority = EXCLUDED.priority,\n                attribute_mapping = EXCLUDED.attribute_mapping,\n                updated_ts = (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)\n            RETURNING id as \"id!\", entity_id as \"entity_id!\", display_name, description, metadata_url, metadata_xml,\n                is_enabled as \"is_enabled!\", priority as \"priority!\", attribute_mapping as \"attribute_mapping!\",\n                created_ts as \"created_ts!\", updated_ts,\n                last_metadata_refresh_at as \"last_metadata_refresh_ts?\",\n                metadata_valid_until_at as \"metadata_valid_until?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "entity_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "metadata_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata_xml",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "priority!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "attribute_mapping!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_metadata_refresh_ts?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "metadata_valid_until?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Int4",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "a2d657ad165512cb8d9bb4ae894c3e81df33752a1103925927846ce875a81afa"
+}

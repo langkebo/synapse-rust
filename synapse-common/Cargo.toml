@@ -18,7 +18,6 @@ openclaw = []
 openclaw-routes = []
 runtime-ddl = []
 test-utils = []
-vodozemac-megolm = []
 friends = []
 voice-extended = []
 saml-sso = []
@@ -85,7 +84,7 @@ tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["metrics", "logs"] }
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics", "logs"] }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "registry"] }
 
 chrono = { version = "0.4", features = ["serde"] }
 

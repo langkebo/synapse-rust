@@ -74,7 +74,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         if fail_open {
             return next.run(request).await;
         }
-        return ApiError::RateLimited.into_response();
+        return ApiError::rate_limited("").into_response();
     }
 
     let decision = match state.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
@@ -84,13 +84,13 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
                 tracing::warn!("Rate limiter error, allowing request: {}", e);
                 return next.run(request).await;
             }
-            return ApiError::RateLimited.into_response();
+            return ApiError::rate_limited("").into_response();
         }
     };
 
     if !decision.allowed {
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);
-        let mut response = ApiError::RateLimitedWithRetry(retry_after_ms).into_response();
+        let mut response = ApiError::rate_limited_with_retry(retry_after_ms).into_response();
         if let Ok(v) = decision.retry_after_seconds.to_string().parse() {
             response.headers_mut().insert("retry-after", v);
         }

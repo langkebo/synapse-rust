@@ -72,9 +72,9 @@ fn pickle_to_string(pickle: &GroupSessionPickle) -> String {
 /// Deserialise a `GroupSessionPickle` from a base64-encoded string.
 fn pickle_from_string(s: &str) -> Result<GroupSessionPickle, ApiError> {
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s)
-        .map_err(|_| ApiError::DecryptionError("Invalid pickle base64".to_string()))?;
+        .map_err(|_| ApiError::decryption_error("Invalid pickle base64".to_string()))?;
     serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::DecryptionError("Invalid group session pickle".to_string()))
+        .map_err(|_| ApiError::decryption_error("Invalid group session pickle".to_string()))
 }
 
 /// Serialise an `InboundGroupSessionPickle` to a base64-encoded string.
@@ -86,9 +86,9 @@ fn inbound_pickle_to_string(pickle: &InboundGroupSessionPickle) -> String {
 /// Deserialise an `InboundGroupSessionPickle` from a base64-encoded string.
 fn inbound_pickle_from_string(s: &str) -> Result<InboundGroupSessionPickle, ApiError> {
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s)
-        .map_err(|_| ApiError::DecryptionError("Invalid pickle base64".to_string()))?;
+        .map_err(|_| ApiError::decryption_error("Invalid pickle base64".to_string()))?;
     serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::DecryptionError("Invalid inbound group session pickle".to_string()))
+        .map_err(|_| ApiError::decryption_error("Invalid inbound group session pickle".to_string()))
 }
 
 /// A vodozemac-backed Megolm service.
@@ -171,7 +171,7 @@ impl MegolmVodozemacService {
         // 解码 session_key 为 32 字节原始对称密钥
         // vodozemac 使用 URL-safe base64 (无 padding)
         let raw_session_key = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &session_key_b64)
-            .map_err(|_| ApiError::EncryptionError("Invalid vodozemac session_key base64".to_string()))?;
+            .map_err(|_| ApiError::encryption_error("Invalid vodozemac session_key base64".to_string()))?;
 
         // Phase 2: 双写 legacy 加密格式（仅当 E2EE_DUAL_WRITE=true 且 encryption_key 已设置）
         let (legacy_session_key, pickle_format) = match self.dual_write_legacy_session_key(&raw_session_key) {
@@ -225,7 +225,7 @@ impl MegolmVodozemacService {
         let session_id = uuid::Uuid::new_v4().to_string();
 
         let key = vodozemac::megolm::SessionKey::from_base64(session_key)
-            .map_err(|_| ApiError::DecryptionError("Invalid session key".to_string()))?;
+            .map_err(|_| ApiError::decryption_error("Invalid session key".to_string()))?;
 
         let inbound = InboundGroupSession::new(&key, SessionConfig::default());
         let pickle_str = inbound_pickle_to_string(&inbound.pickle());
@@ -289,7 +289,7 @@ impl MegolmVodozemacService {
             .storage
             .get_session(session_id)
             .await?
-            .ok_or_else(|| ApiError::NotFound("Session not found".to_string()))?;
+            .ok_or_else(|| ApiError::not_found("Session not found".to_string()))?;
 
         let _ = self.cache.set(&cache_key, &session, 600).await;
         Ok(session)
@@ -396,11 +396,11 @@ impl MegolmVodozemacService {
         let (session, mut inbound) = self.load_inbound(session_id).await?;
 
         let msg = vodozemac::megolm::MegolmMessage::from_bytes(ciphertext)
-            .map_err(|_| ApiError::DecryptionError("Invalid megolm ciphertext".to_string()))?;
+            .map_err(|_| ApiError::decryption_error("Invalid megolm ciphertext".to_string()))?;
 
         let decrypted = inbound
             .decrypt(&msg)
-            .map_err(|e| ApiError::DecryptionError(format!("vodozemac megolm decrypt failed: {e}")))?;
+            .map_err(|e| ApiError::decryption_error(format!("vodozemac megolm decrypt failed: {e}")))?;
 
         // Persist the updated pickle.
         let new_pickle_str = inbound_pickle_to_string(&inbound.pickle());

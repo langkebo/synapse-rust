@@ -289,6 +289,15 @@ impl SearchService {
     }
 
     /// 使用 PostgreSQL 全文搜索搜索消息
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            query_len = query.len(),
+            limit = limit,
+            has_next_batch = next_batch.is_some()
+        )
+    )]
     pub async fn search_postgres(
         &self,
         user_id: &str,
@@ -410,6 +419,7 @@ impl SearchService {
     }
 
     /// 创建 PostgreSQL 全文搜索索引
+    #[::tracing::instrument(skip_all)]
     pub async fn create_fts_index(&self) -> ApiResult<()> {
         let pool =
             self.postgres_pool.as_ref().ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
@@ -436,6 +446,7 @@ impl SearchService {
         self.provider == "postgres" && self.postgres_pool.is_some()
     }
 
+    #[::tracing::instrument(skip_all, fields(enabled = self.enabled, provider = %self.provider))]
     pub async fn init_indices(&self) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -483,6 +494,15 @@ impl SearchService {
         Ok(())
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            event_id = %event.event_id,
+            room_id = %event.room_id,
+            event_type = %event.event_type,
+            keys_len = event.keys.len()
+        )
+    )]
     pub async fn index_event(&self, event: &IndexedEvent) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -516,6 +536,7 @@ impl SearchService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(batch_size = events.len()))]
     pub async fn bulk_index(&self, events: &[IndexedEvent]) -> ApiResult<()> {
         if !self.enabled || events.is_empty() {
             return Ok(());
@@ -558,6 +579,7 @@ impl SearchService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(event_id = %event_id))]
     pub async fn delete_event(&self, event_id: &str) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -580,6 +602,16 @@ impl SearchService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            event_id = %event_id,
+            room_id = %room_id,
+            sender = %sender,
+            event_type = %event_type,
+            has_message_type = message_type.is_some()
+        )
+    )]
     pub async fn index_message(
         &self,
         event_id: &str,
@@ -609,6 +641,16 @@ impl SearchService {
         content.split_whitespace().take(10).map(|s| s.to_lowercase()).collect()
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            query_len = query.len(),
+            limit = limit,
+            has_next_batch = next_batch.is_some(),
+            postgres_enabled = self.is_postgres_enabled()
+        )
+    )]
     pub async fn search_messages(
         &self,
         user_id: &str,
@@ -633,6 +675,16 @@ impl SearchService {
         self.advanced_search(&options, next_batch).await
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            search_term_len = search_term.len(),
+            has_filter = filter.is_some(),
+            limit = limit,
+            has_next_batch = next_batch.is_some()
+        )
+    )]
     pub async fn search_room_events(
         &self,
         user_id: &str,
@@ -787,6 +839,7 @@ impl SearchService {
         Ok(SearchRoomEventsPage { results, next_batch })
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, ts = ts, direction = ?direction))]
     pub async fn find_event_by_timestamp(
         &self,
         room_id: &str,
@@ -834,6 +887,7 @@ impl SearchService {
         }))
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, target_ts = target_ts, limit = limit))]
     pub async fn get_event_context_window(
         &self,
         room_id: &str,
@@ -898,6 +952,7 @@ impl SearchService {
         })
     }
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id, search_term_len = search_term.len(), limit = limit))]
     pub async fn search_rooms_for_user(
         &self,
         user_id: &str,
@@ -946,6 +1001,17 @@ impl SearchService {
             .collect())
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            query_len = options.query.len(),
+            limit = options.limit,
+            offset = options.offset,
+            highlight = options.highlight,
+            fuzzy = options.fuzzy,
+            has_next_batch = next_batch.is_some()
+        )
+    )]
     pub async fn advanced_search(
         &self,
         options: &AdvancedSearchOptions,
@@ -1086,6 +1152,7 @@ impl SearchService {
         Ok(SearchResult { results, total_count, next_batch })
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id))]
     pub async fn delete_room_index(&self, room_id: &str) -> ApiResult<()> {
         if !self.enabled {
             return Ok(());
@@ -1115,6 +1182,7 @@ impl SearchService {
         self.enabled
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, search_term_len = search_term.len(), limit = limit))]
     pub async fn search_room_messages(
         &self,
         room_id: &str,

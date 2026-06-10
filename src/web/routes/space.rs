@@ -5,6 +5,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use validator::Validate;
@@ -29,18 +30,26 @@ pub(super) async fn resolve_space_by_room(
     state: &AppState,
     space_room_id: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
-    state
+    let space: Option<crate::storage::space::Space> = state
         .services.rooms.space_service
         .get_space_by_room(space_room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Space not found"))
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get space by room", &e))?;
+
+    space.ok_or_else(|| ApiError::not_found("Space not found"))
 }
 
 pub(super) async fn resolve_space(
     state: &AppState,
     space_identifier: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
-    if let Some(space) = state.services.rooms.space_service.get_space(space_identifier).await? {
+    let space: Option<crate::storage::space::Space> = state
+        .services.rooms.space_service
+        .get_space(space_identifier)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))?;
+
+    if let Some(space) = space {
         return Ok(space);
     }
 
@@ -111,6 +120,32 @@ where
     T: Validate,
 {
     request.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))
+}
+
+pub(super) fn encode_space_member_cursor(joined_ts: i64, user_id: &str) -> String {
+    BASE64.encode(format!("{}:{}", joined_ts, user_id))
+}
+
+pub(super) fn decode_space_member_cursor(cursor: &str) -> Option<(i64, String)> {
+    let decoded = BASE64.decode(cursor).ok()?;
+    let s = String::from_utf8(decoded).ok()?;
+    let mut parts = s.splitn(2, ':');
+    let ts = parts.next()?.parse().ok()?;
+    let user_id = parts.next()?.to_string();
+    Some((ts, user_id))
+}
+
+pub(super) fn encode_space_child_cursor(added_ts: i64, id: i64) -> String {
+    BASE64.encode(format!("{}:{}", added_ts, id))
+}
+
+pub(super) fn decode_space_child_cursor(cursor: &str) -> Option<(i64, i64)> {
+    let decoded = BASE64.decode(cursor).ok()?;
+    let s = String::from_utf8(decoded).ok()?;
+    let mut parts = s.splitn(2, ':');
+    let ts = parts.next()?.parse().ok()?;
+    let id = parts.next()?.parse().ok()?;
+    Some((ts, id))
 }
 
 pub fn create_space_router(state: AppState) -> Router<AppState> {

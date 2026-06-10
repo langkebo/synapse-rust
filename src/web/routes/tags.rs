@@ -57,11 +57,11 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = state.services.room_tag_service.get_all_user_tags(&user_id).await?;
+    let tags: Vec<crate::storage::room_tag::RoomTag> = state.services.room_tag_service.get_all_user_tags(&user_id).await?;
 
-    let mut rooms_map = serde_json::Map::new();
+    let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for tag in tags {
-        let room_tags =
+        let room_tags: &mut serde_json::Value =
             rooms_map.entry(tag.room_id.clone()).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
 
         if let Some(room_tags_map) = room_tags.as_object_mut() {
@@ -88,12 +88,12 @@ async fn get_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = state.services.room_tag_service.get_room_tags(&user_id, &room_id).await?;
+    let tags: Vec<crate::storage::room_tag::RoomTag> = state.services.room_tag_service.get_room_tags(&user_id, &room_id).await?;
 
     let tags_map: serde_json::Map<String, serde_json::Value> = tags
         .into_iter()
         .map(|t| {
-            let order = t.order.unwrap_or(0.0);
+            let order: f64 = t.order.unwrap_or(0.0);
             (t.tag, serde_json::json!({ "order": order }))
         })
         .collect();

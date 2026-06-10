@@ -1,0 +1,68 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO saml_user_mapping (\n                name_id, user_id, issuer, first_seen_ts, last_authenticated_ts,\n                authentication_count, attributes\n            )\n            VALUES ($1, $2, $3, $4, $4, 1, $5)\n            ON CONFLICT (name_id, issuer) DO UPDATE SET\n                last_authenticated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000,\n                authentication_count = saml_user_mapping.authentication_count + 1,\n                attributes = EXCLUDED.attributes\n            RETURNING id as \"id!\", name_id as \"name_id!\", user_id as \"user_id!\", issuer as \"issuer!\", first_seen_ts as \"first_seen_ts!\", last_authenticated_ts as \"last_authenticated_ts!\",\n                COALESCE(authentication_count, 1) as \"authentication_count!\",\n                COALESCE(attributes, '{}'::jsonb) as \"attributes!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "issuer!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "first_seen_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_authenticated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "authentication_count!",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "attributes!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "4d92ea09300e1923a56590fce4b1fda3752975e87c5de36802361edda250f144"
+}

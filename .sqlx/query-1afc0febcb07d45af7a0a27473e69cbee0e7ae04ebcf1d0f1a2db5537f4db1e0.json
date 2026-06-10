@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id AS \"id!\",\n                service_id AS \"service_id!\",\n                name AS \"name!\",\n                description AS \"description?\",\n                service_url_pattern AS \"service_url_pattern!\",\n                allowed_attributes AS \"allowed_attributes!\",\n                allowed_proxy_callbacks AS \"allowed_proxy_callbacks!\",\n                COALESCE(is_enabled, false) AS \"is_enabled!\",\n                COALESCE(is_require_secure, true) AS \"is_require_secure!\",\n                COALESCE(is_single_logout, false) AS \"is_single_logout!\",\n                created_ts AS \"created_ts!\",\n                updated_ts AS \"updated_ts?\"\n            FROM cas_services\n            ORDER BY created_ts DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "service_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "service_url_pattern!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "allowed_attributes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "allowed_proxy_callbacks!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_require_secure!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_single_logout!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      null,
+      null,
+      null,
+      false,
+      true
+    ]
+  },
+  "hash": "1afc0febcb07d45af7a0a27473e69cbee0e7ae04ebcf1d0f1a2db5537f4db1e0"
+}

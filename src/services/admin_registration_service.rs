@@ -97,6 +97,7 @@ impl AdminRegistrationService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn generate_nonce(&self) -> ApiResult<NonceResponse> {
         let start = std::time::Instant::now();
         let nonce = {
@@ -121,6 +122,7 @@ impl AdminRegistrationService {
         Ok(NonceResponse { nonce })
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn register_admin_user(&self, request: AdminRegisterRequest) -> ApiResult<AdminRegisterResponse> {
         if !self.config.enabled {
             return Err(ApiError::forbidden("Admin registration is not enabled".to_string()));

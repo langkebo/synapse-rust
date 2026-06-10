@@ -475,7 +475,7 @@ impl CasStorage {
         let now = Utc::now().timestamp_millis();
         let expires_at = Utc::now().timestamp_millis() + request.expires_in_seconds * 1000;
 
-        let pgt = sqlx::query_as!(
+        let pgt: CasProxyGrantingTicket = sqlx::query_as!(
             CasProxyGrantingTicket,
             r#"
             INSERT INTO cas_proxy_granting_tickets (pgt_id, user_id, service_url, iou, created_ts, expires_at)
@@ -505,7 +505,7 @@ impl CasStorage {
     }
 
     pub async fn get_pgt(&self, pgt_id: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
-        let pgt = sqlx::query_as!(
+        let pgt: Option<CasProxyGrantingTicket> = sqlx::query_as!(
             CasProxyGrantingTicket,
             r#"
             SELECT
@@ -530,7 +530,7 @@ impl CasStorage {
     }
 
     pub async fn get_pgt_by_iou(&self, iou: &str) -> Result<Option<CasProxyGrantingTicket>, ApiError> {
-        let pgt = sqlx::query_as!(
+        let pgt: Option<CasProxyGrantingTicket> = sqlx::query_as!(
             CasProxyGrantingTicket,
             r#"
             SELECT
@@ -561,7 +561,7 @@ impl CasStorage {
             serde_json::to_value(request.allowed_proxy_callbacks.unwrap_or_default()).unwrap_or(serde_json::json!([]));
         let now = Utc::now().timestamp_millis();
 
-        let service = sqlx::query_as!(
+        let service: CasRegisteredServiceRow = sqlx::query_as!(
             CasRegisteredServiceRow,
             r#"
             INSERT INTO cas_services (
@@ -602,7 +602,7 @@ impl CasStorage {
     }
 
     pub async fn get_service(&self, service_id: &str) -> Result<Option<CasRegisteredService>, ApiError> {
-        let service = sqlx::query_as!(
+        let service: Option<CasRegisteredServiceRow> = sqlx::query_as!(
             CasRegisteredServiceRow,
             r#"
             SELECT
@@ -631,7 +631,7 @@ impl CasStorage {
     }
 
     pub async fn get_service_by_url(&self, service_url: &str) -> Result<Option<CasRegisteredService>, ApiError> {
-        let service = sqlx::query_as!(
+        let service: Option<CasRegisteredServiceRow> = sqlx::query_as!(
             CasRegisteredServiceRow,
             r#"
             SELECT
@@ -660,7 +660,7 @@ impl CasStorage {
     }
 
     pub async fn list_services(&self) -> Result<Vec<CasRegisteredService>, ApiError> {
-        let services = sqlx::query_as!(
+        let services: Vec<CasRegisteredServiceRow> = sqlx::query_as!(
             CasRegisteredServiceRow,
             r#"
             SELECT
@@ -688,7 +688,7 @@ impl CasStorage {
     }
 
     pub async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query!(
+        let result: sqlx::postgres::PgQueryResult = sqlx::query!(
             r#"
             DELETE FROM cas_services
             WHERE service_id = $1
@@ -710,7 +710,7 @@ impl CasStorage {
     ) -> Result<CasUserAttribute, ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        let attr = sqlx::query_as!(
+        let attr: CasUserAttributeRow = sqlx::query_as!(
             CasUserAttributeRow,
             r#"
             INSERT INTO cas_user_attributes (user_id, attribute_name, attribute_value, created_ts, updated_ts)
@@ -738,7 +738,7 @@ impl CasStorage {
     }
 
     pub async fn get_user_attributes(&self, user_id: &str) -> Result<Vec<CasUserAttribute>, ApiError> {
-        let attrs = sqlx::query_as!(
+        let attrs: Vec<CasUserAttributeRow> = sqlx::query_as!(
             CasUserAttributeRow,
             r#"
             SELECT
@@ -768,7 +768,7 @@ impl CasStorage {
         ticket_id: Option<&str>,
     ) -> Result<CasSloSession, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let session = sqlx::query_as!(
+        let session: CasSloSessionRow = sqlx::query_as!(
             CasSloSessionRow,
             r#"
             INSERT INTO cas_slo_sessions (session_id, user_id, service_url, ticket_id, created_ts)
@@ -797,7 +797,7 @@ impl CasStorage {
 
     pub async fn mark_slo_sent(&self, session_id: &str) -> Result<bool, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query!(
+        let result: sqlx::postgres::PgQueryResult = sqlx::query!(
             r#"
             UPDATE cas_slo_sessions
             SET logout_sent_at = $1
@@ -814,7 +814,7 @@ impl CasStorage {
     }
 
     pub async fn get_active_slo_sessions(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
-        let sessions = sqlx::query_as!(
+        let sessions: Vec<CasSloSessionRow> = sqlx::query_as!(
             CasSloSessionRow,
             r#"
             SELECT

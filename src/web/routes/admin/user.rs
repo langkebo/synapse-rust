@@ -208,6 +208,10 @@ pub async fn get_users(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let cursor = decode_user_cursor(params.get("since").map(String::as_str));
 
+    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since cursor".to_string()));
+    }
+
     let users = state
         .services
         .user_storage
@@ -501,16 +505,37 @@ pub async fn get_user_rooms_admin(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let rooms = state
-        .services.rooms.room_storage
-        .get_user_rooms(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(1, 500);
+    let from = params.get("from").map(|s| s.as_str());
 
-    Ok(Json(json!({ "rooms": rooms })))
+    let room_ids = state
+        .services.rooms.room_storage
+        .get_user_rooms_paginated(&user.user_id, limit, from)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+    let next_batch = if room_ids.len() as i64 == limit {
+        room_ids.last().cloned()
+    } else {
+        None
+    };
+
+    Ok(Json(json!({
+        "joined_rooms": room_ids,
+        "total": room_ids.len(),
+        "next_batch": next_batch
+    })))
 }
 
 #[axum::debug_handler]
@@ -663,6 +688,11 @@ pub async fn get_users_v2(
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let cursor = decode_user_cursor(params.get("from").map(String::as_str));
+
+    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor".to_string()));
+    }
+
     let page = state
         .services
         .admin

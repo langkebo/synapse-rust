@@ -13,7 +13,6 @@ panic = "deny"
 
 [features]
 default = []
-vodozemac-megolm = ["synapse-common/vodozemac-megolm"]
 test-utils = ["synapse-common/test-utils", "synapse-storage/test-utils"]
 
 [dependencies]

@@ -132,6 +132,7 @@ impl OpenClawService {
     // Health check
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(skip_all, fields(base_url = %base_url))]
     pub async fn test_connection_health(&self, base_url: &str) -> bool {
         use reqwest::Client;
         use std::time::Duration;
@@ -153,6 +154,7 @@ impl OpenClawService {
     // Connection CRUD
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn list_connections(&self, user_id: &str) -> Result<Vec<OpenClawConnection>, ApiError> {
         self.storage
             .get_user_connections(user_id)
@@ -161,6 +163,18 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            name = %name,
+            provider = %provider,
+            base_url = %base_url,
+            has_api_key = api_key.is_some(),
+            has_config = config.is_some(),
+            is_default = is_default
+        )
+    )]
     pub async fn create_connection(
         &self,
         user_id: &str,
@@ -188,6 +202,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn get_connection_for_user(&self, id: i64, auth_user_id: &str) -> Result<OpenClawConnection, ApiError> {
         let conn = self
             .storage
@@ -201,6 +216,19 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            id = id,
+            auth_user_id = %auth_user_id,
+            has_name = name.is_some(),
+            has_base_url = base_url.is_some(),
+            has_api_key = api_key.is_some(),
+            has_config = config.is_some(),
+            has_is_default = is_default.is_some(),
+            has_is_active = is_active.is_some()
+        )
+    )]
     pub async fn update_connection(
         &self,
         id: i64,
@@ -235,6 +263,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update connection", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_connection(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_connection_for_user(id, auth_user_id).await?;
@@ -245,6 +274,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn test_connection(
         &self,
         id: i64,
@@ -264,6 +294,7 @@ impl OpenClawService {
     // Conversation CRUD
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id, limit = limit, has_from = from.is_some()))]
     pub async fn list_conversations(
         &self,
         user_id: &str,
@@ -282,6 +313,18 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            has_connection_id = connection_id.is_some(),
+            has_title = title.is_some(),
+            has_model_id = model_id.is_some(),
+            has_system_prompt = system_prompt.is_some(),
+            has_temperature = temperature.is_some(),
+            has_max_tokens = max_tokens.is_some()
+        )
+    )]
     pub async fn create_conversation(
         &self,
         user_id: &str,
@@ -311,6 +354,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create conversation", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn get_conversation_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiConversation, ApiError> {
         let conv = self
             .storage
@@ -324,6 +368,18 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            id = id,
+            auth_user_id = %auth_user_id,
+            has_title = title.is_some(),
+            has_system_prompt = system_prompt.is_some(),
+            has_temperature = temperature.is_some(),
+            has_max_tokens = max_tokens.is_some(),
+            has_is_pinned = is_pinned.is_some()
+        )
+    )]
     pub async fn update_conversation(
         &self,
         id: i64,
@@ -343,6 +399,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update conversation", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_conversation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_conversation_for_user(id, auth_user_id).await?;
@@ -357,6 +414,16 @@ impl OpenClawService {
     // Message CRUD
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            conversation_id = conversation_id,
+            auth_user_id = %auth_user_id,
+            limit = limit,
+            has_from = from.is_some(),
+            has_before = before.is_some()
+        )
+    )]
     pub async fn list_messages(
         &self,
         conversation_id: i64,
@@ -395,6 +462,17 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            conversation_id = conversation_id,
+            auth_user_id = %auth_user_id,
+            content_len = content.len(),
+            has_role = role.is_some(),
+            has_tool_calls = tool_calls.is_some(),
+            has_tool_call_id = tool_call_id.is_some()
+        )
+    )]
     pub async fn send_message(
         &self,
         conversation_id: i64,
@@ -415,6 +493,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create message", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_message(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         let msg = self
             .storage
@@ -433,6 +512,15 @@ impl OpenClawService {
     // Generation CRUD
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            has_gen_type = gen_type.is_some(),
+            limit = limit,
+            has_from = from.is_some()
+        )
+    )]
     pub async fn list_generations(
         &self,
         user_id: &str,
@@ -451,6 +539,15 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to get generations", &e))
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            has_conversation_id = conversation_id.is_some(),
+            gen_type = %gen_type,
+            prompt_len = prompt.len()
+        )
+    )]
     pub async fn create_generation(
         &self,
         user_id: &str,
@@ -469,6 +566,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create generation", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn get_generation_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiGeneration, ApiError> {
         let gen = self
             .storage
@@ -481,6 +579,7 @@ impl OpenClawService {
         Ok(gen)
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_generation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let _ = self.get_generation_for_user(id, auth_user_id).await?;
@@ -495,6 +594,7 @@ impl OpenClawService {
     // Chat Role CRUD
     // -----------------------------------------------------------------------
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn list_chat_roles(&self, user_id: &str) -> Result<Vec<AiChatRole>, ApiError> {
         self.storage
             .get_user_chat_roles(user_id)
@@ -503,6 +603,20 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            name = %name,
+            has_description = description.is_some(),
+            has_model_id = model_id.is_some(),
+            has_avatar_url = avatar_url.is_some(),
+            has_category = category.is_some(),
+            has_temperature = temperature.is_some(),
+            has_max_tokens = max_tokens.is_some(),
+            is_public = is_public
+        )
+    )]
     pub async fn create_chat_role(
         &self,
         user_id: &str,
@@ -533,6 +647,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to create chat role", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn get_chat_role_for_user(&self, id: i64, auth_user_id: &str) -> Result<AiChatRole, ApiError> {
         let role = self
             .storage
@@ -549,6 +664,22 @@ impl OpenClawService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            id = id,
+            auth_user_id = %auth_user_id,
+            has_name = name.is_some(),
+            has_description = description.is_some(),
+            has_system_message = system_message.is_some(),
+            has_model_id = model_id.is_some(),
+            has_avatar_url = avatar_url.is_some(),
+            has_category = category.is_some(),
+            has_temperature = temperature.is_some(),
+            has_max_tokens = max_tokens.is_some(),
+            has_is_public = is_public.is_some()
+        )
+    )]
     pub async fn update_chat_role(
         &self,
         id: i64,
@@ -590,6 +721,7 @@ impl OpenClawService {
             .map_err(|e| ApiError::internal_with_log("Failed to update chat role", &e))
     }
 
+    #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_chat_role(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
         let existing = self

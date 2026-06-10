@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.93
+ARG RUST_VERSION=1.93.0
 ARG RUNTIME_BASE_IMAGE=gcr.io/distroless/cc-debian12
 ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,openclaw,voice-extended,cas-sso,saml-sso --no-default-features"
 
@@ -8,15 +8,18 @@ ARG CARGO_FEATURE_ARGS="--features server,core-private-chat,openclaw,voice-exten
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
 ARG CARGO_FEATURE_ARGS
+ARG CARGO_BUILD_JOBS=2
 
 WORKDIR /workspace
 
 ENV CARGO_INCREMENTAL=0 \
+    CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS} \
     CARGO_NET_RETRY=10 \
     CARGO_HTTP_CHECK_REVOKE=false \
     CARGO_TERM_COLOR=always \
-    CARGO_PROFILE_RELEASE_LTO=thin \
-    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
+    SQLX_OFFLINE=true \
+    CARGO_PROFILE_RELEASE_LTO=false \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8 \
     CARGO_PROFILE_RELEASE_STRIP=symbols \
     CARGO_PROFILE_RELEASE_DEBUG=false \
     CARGO_PROFILE_RELEASE_PANIC=abort \
@@ -34,40 +37,52 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 依赖缓存机制: 先用空骨架预编译所有 crate, 后续源码改动不会触发依赖重编
 # BuildKit cache mounts 大幅加速重复构建 (cargo registry / git / target)
 COPY Cargo.toml Cargo.lock ./
+COPY .sqlx ./.sqlx
+COPY synapse-common/Cargo.toml      ./synapse-common/Cargo.toml
+COPY synapse-cache/Cargo.toml       ./synapse-cache/Cargo.toml
+COPY synapse-storage/Cargo.toml     ./synapse-storage/Cargo.toml
+COPY synapse-e2ee/Cargo.toml        ./synapse-e2ee/Cargo.toml
+COPY synapse-federation/Cargo.toml  ./synapse-federation/Cargo.toml
+COPY synapse-services/Cargo.toml    ./synapse-services/Cargo.toml
+COPY synapse-web/Cargo.toml         ./synapse-web/Cargo.toml
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/workspace/target,sharing=locked \
-    mkdir src && echo "fn main() {}" > src/main.rs && \
-    mkdir -p src/bin && echo "fn main() {}" > src/bin/healthcheck.rs && \
-    cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
-    rm -rf src/
+    mkdir -p src src/bin synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
+             synapse-federation/src synapse-services/src synapse-web/src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "fn main() {}" > src/bin/healthcheck.rs && \
+    echo "pub fn stub() {}" > synapse-common/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-cache/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-storage/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-e2ee/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-federation/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-services/src/lib.rs && \
+    echo "pub fn stub() {}" > synapse-web/src/lib.rs && \
+    cargo fetch --locked && \
+    rm -rf src/ synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
+           synapse-federation/src synapse-services/src synapse-web/src
 
 # 复制真正的源码 + 迁移脚本 + 启动脚本
-COPY src ./src
-COPY migrations ./migrations
-COPY benches ./benches
-COPY docker/db_migrate.sh \
-     docker/deploy/scripts/container-migrate.sh \
-     docker/healthcheck.sh \
-     docker/entrypoint.sh \
-     ./docker/
-COPY docker/config/rate_limit.yaml ./docker/config_defaults/rate_limit.yaml
+COPY . .
+
+# The builder image is already pinned to the requested Rust version.
+# Removing the workspace rust-toolchain file avoids rustup trying to
+# refresh toolchain metadata during docker builds, which breaks offline
+# or flaky-network browser harness runs.
+RUN rm -f rust-toolchain rust-toolchain.toml
 
 # 强制重新链接最终二进制 (force_relink hack 触发 build script 在缓存中也重新执行)
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-    --mount=type=cache,target=/workspace/target,sharing=locked \
-    rm -rf target/release/.fingerprint/synapse-rust* target/release/deps/synapse_rust* && \
-    touch src/main.rs && \
     cargo build --release --locked ${CARGO_FEATURE_ARGS} --bin synapse-rust --bin healthcheck && \
     install -Dm755 target/release/synapse-rust          /out/app/synapse-rust && \
     install -Dm755 target/release/healthcheck           /out/app/healthcheck && \
     install -Dm755 docker/db_migrate.sh                 /out/app/scripts/db_migrate.sh && \
-    install -Dm755 docker/container-migrate.sh          /out/app/scripts/container-migrate.sh && \
+    install -Dm755 docker/deploy/scripts/container-migrate.sh /out/app/scripts/container-migrate.sh && \
     install -Dm755 docker/healthcheck.sh                /out/app/scripts/healthcheck.sh && \
     install -Dm755 docker/entrypoint.sh                 /out/app/entrypoint.sh && \
-    install -Dm644 docker/config_defaults/rate_limit.yaml /out/app/config_defaults/rate_limit.yaml && \
+    install -Dm644 docker/config/rate_limit.yaml          /out/app/config_defaults/rate_limit.yaml && \
     mkdir -p /out/app/config /out/app/data /out/app/logs /out/app/migrations && \
     cp -R migrations/. /out/app/migrations/
 

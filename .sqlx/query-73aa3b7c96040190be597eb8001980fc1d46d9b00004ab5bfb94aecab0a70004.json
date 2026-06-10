@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id as \"id!\", conversation_id as \"conversation_id!\", role as \"role!\",\n                              content as \"content!\", token_count as \"token_count?\",\n                              tool_calls as \"tool_calls?\", tool_call_id as \"tool_call_id?\",\n                              metadata as \"metadata?\", created_ts as \"created_ts!\"\n                       FROM ai_messages\n                       WHERE conversation_id = $1\n                         AND (created_ts, id) < ($2, $3)\n                       ORDER BY created_ts DESC, id DESC\n                       LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "conversation_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "role!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "content!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "token_count?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "tool_calls?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "tool_call_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "metadata?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "73aa3b7c96040190be597eb8001980fc1d46d9b00004ab5bfb94aecab0a70004"
+}

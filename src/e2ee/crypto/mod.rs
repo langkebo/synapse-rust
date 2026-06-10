@@ -1,10 +1,8 @@
 pub mod aes;
-pub mod argon2;
 pub mod ed25519;
 
-pub use aes::*;
-pub use argon2::*;
-pub use ed25519::*;
+pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce};
+pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};
 
 use thiserror::Error;
 

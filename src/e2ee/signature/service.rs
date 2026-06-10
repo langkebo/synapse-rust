@@ -2,6 +2,7 @@ use super::models::*;
 use super::storage::SignatureStorage;
 use crate::e2ee::crypto::ed25519::Ed25519KeyPair;
 use crate::error::ApiError;
+use crate::error::ed25519_error_to_api_error;
 use chrono::Utc;
 use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey;
@@ -23,7 +24,7 @@ impl SignatureService {
         key_pair: &Ed25519KeyPair,
     ) -> Result<(), ApiError> {
         let message = event_id.as_bytes();
-        let signature = key_pair.sign(message)?;
+        let signature = key_pair.sign(message).map_err(ed25519_error_to_api_error)?;
 
         let event_signature = EventSignature {
             id: uuid::Uuid::new_v4(),
@@ -66,7 +67,7 @@ impl SignatureService {
 
     pub fn sign_key(&self, key: &str, signing_key: &Ed25519KeyPair) -> Result<String, ApiError> {
         let message = key.as_bytes();
-        let signature = signing_key.sign(message)?;
+        let signature = signing_key.sign(message).map_err(ed25519_error_to_api_error)?;
 
         Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, signature.to_bytes()))
     }

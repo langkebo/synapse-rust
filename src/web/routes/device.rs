@@ -194,7 +194,7 @@ fn create_device_compat_router() -> Router<AppState> {
 }
 
 pub async fn get_devices(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let devices = state
+    let devices: Vec<crate::storage::device::Device> = state
         .services
         .device_storage
         .get_user_devices(&auth_user.user_id)
@@ -223,7 +223,7 @@ pub async fn get_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let device = state
+    let device: Option<crate::storage::device::Device> = state
         .services
         .device_storage
         .get_device(&device_id)
@@ -256,22 +256,19 @@ pub async fn update_device(
         if display_name.len() > 100 {
             return Err(ApiError::bad_request("display_name must not exceed 100 characters".to_string()));
         }
-        state
+        let rows_affected: u64 = state
             .services
             .device_storage
             .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
             .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update device", &e))
-            .and_then(|rows_affected| {
-                if rows_affected == 0 {
-                    Err(ApiError::not_found("Device not found".to_string()))
-                } else {
-                    Ok(())
-                }
-            })?;
+            .map_err(|e| ApiError::internal_with_log("Failed to update device", &e))?;
+
+        if rows_affected == 0 {
+            return Err(ApiError::not_found("Device not found".to_string()));
+        }
     }
 
-    let device = state
+    let device: crate::storage::device::Device = state
         .services
         .device_storage
         .get_device(&device_id)
@@ -298,7 +295,7 @@ pub async fn delete_device(
         return Ok(challenge);
     }
 
-    let rows = state.services.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
+    let rows: u64 = state.services.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
