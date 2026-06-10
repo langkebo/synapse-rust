@@ -175,7 +175,7 @@ fn test_download_media_not_found() {
         assert!(result.is_err(), "Should return error for non-existent media");
 
         let error = result.unwrap_err();
-        assert!(matches!(error, synapse_rust::common::ApiError::NotFound { .. }));
+        assert!(error.is_not_found());
     });
 }
 
@@ -210,7 +210,7 @@ fn test_get_thumbnail_not_found() {
         assert!(result.is_err(), "Should return error for non-existent media");
 
         let error = result.unwrap_err();
-        assert!(matches!(error, synapse_rust::common::ApiError::NotFound { .. }));
+        assert!(error.is_not_found());
     });
 }
 

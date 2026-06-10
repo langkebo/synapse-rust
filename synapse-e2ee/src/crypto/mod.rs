@@ -1,10 +1,9 @@
+use synapse_common::ApiError;
 pub mod aes;
-pub mod argon2;
 pub mod ed25519;
 
-pub use aes::*;
-pub use argon2::*;
-pub use ed25519::*;
+pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce};
+pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};
 
 use thiserror::Error;
 
@@ -55,12 +54,12 @@ impl PartialEq for CryptoError {
     }
 }
 
-impl From<CryptoError> for synapse_common::ApiError {
+impl From<CryptoError> for ApiError {
     fn from(err: CryptoError) -> Self {
         match err {
-            CryptoError::EncryptionError(msg) => Self::EncryptionError(msg),
-            CryptoError::DecryptionError(msg) => Self::DecryptionError(msg),
-            _ => Self::Crypto(err.to_string()),
+            CryptoError::EncryptionError(msg) => Self::encryption_error(msg),
+            CryptoError::DecryptionError(msg) => Self::decryption_error(msg),
+            _ => Self::crypto(err.to_string()),
         }
     }
 }

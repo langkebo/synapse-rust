@@ -85,7 +85,7 @@ pub async fn enable_burn(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
+    let room_exists: bool = state
         .services
         .rooms
         .room_service
@@ -121,7 +121,7 @@ pub async fn get_burn_settings(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
+    let room_exists: bool = state
         .services
         .rooms
         .room_service
@@ -133,7 +133,7 @@ pub async fn get_burn_settings(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings = state
+    let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
         .services
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
@@ -159,7 +159,7 @@ pub async fn mark_burn_read(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
+    let room_exists: bool = state
         .services
         .rooms
         .room_service
@@ -171,7 +171,7 @@ pub async fn mark_burn_read(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings = state
+    let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
         .services
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
@@ -209,7 +209,7 @@ pub async fn get_pending_burns(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
+    let room_exists: bool = state
         .services
         .rooms
         .room_service
@@ -221,7 +221,7 @@ pub async fn get_pending_burns(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let pending = state
+    let pending: Vec<crate::services::burn_after_read_service::BurnEvent> = state
         .services
         .burn_after_read
         .get_pending_burns(&auth_user.user_id, &room_id)
@@ -251,7 +251,7 @@ pub async fn cancel_burn(
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
+    let room_exists: bool = state
         .services
         .rooms
         .room_service
@@ -282,7 +282,7 @@ pub async fn set_global_burn_config(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let default_burn_ms = body.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
+    let default_burn_ms: i64 = body.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
 
     state
         .services
@@ -302,7 +302,7 @@ pub async fn get_burn_stats(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = state
+    let stats: crate::services::burn_after_read_service::BurnStats = state
         .services
         .burn_after_read
         .get_user_stats(&auth_user.user_id)

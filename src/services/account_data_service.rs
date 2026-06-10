@@ -4,9 +4,11 @@ use crate::storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenId
 use crate::storage::room::RoomStorage;
 use crate::storage::user::UserStorage;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use tracing::instrument;
+
+type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
     pool: Arc<PgPool>,
@@ -91,12 +93,12 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT data AS "data!" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-            user_id,
-            room_id,
-            data_type,
+        let result = sqlx::query_scalar::<_, Value>(
+            r#"SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
         )
+        .bind(user_id)
+        .bind(room_id)
+        .bind(data_type)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -109,17 +111,21 @@ impl AccountDataService {
         user_id: &str,
         room_id: &str,
         data_type: &str,
-    ) -> Result<Option<(Value, Option<i64>)>, ApiError> {
-        let result = sqlx::query!(
-            r#"SELECT data AS "data!", updated_ts AS "updated_ts?" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-            user_id,
-            room_id,
-            data_type,
+    ) -> Result<Option<AccountDataWithTimestamp>, ApiError> {
+        let result = sqlx::query(
+            r#"SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
         )
+        .bind(user_id)
+        .bind(room_id)
+        .bind(data_type)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-        Ok(result.map(|row| (row.data, row.updated_ts)))
+        Ok(result.map(|row| {
+            let data = row.get::<Value, _>("data");
+            let updated_ts = row.try_get::<Option<i64>, _>("updated_ts").ok().flatten();
+            (data, updated_ts)
+        }))
     }
 
     #[instrument(skip(self))]

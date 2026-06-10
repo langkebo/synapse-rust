@@ -4,10 +4,8 @@
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::Semaphore;
-use tokio::time;
-
 /// 背压配置
 #[derive(Debug, Clone)]
 pub struct BackpressureConfig {
@@ -54,7 +52,7 @@ pub struct BackpressureMetrics {
     pub rejected_requests: u64,
     pub timed_out_requests: u64,
     pub state: BackpressureState,
-    pubutilization: f64,
+    pub utilization: f64,
 }
 
 impl Default for BackpressureMetrics {
@@ -157,7 +155,7 @@ impl RateLimiter {
     /// 获取许可（阻塞）
     pub async fn acquire(&self) -> Result<RateLimiterPermit, RateLimitError> {
         match tokio::time::timeout(self.config.timeout, self.semaphore.acquire()).await {
-            Ok(Ok(permit)) => {
+            Ok(Ok(_permit)) => {
                 self.metrics.acquired.fetch_add(1, Ordering::Relaxed);
                 self.metrics.active_requests.fetch_add(1, Ordering::Relaxed);
                 Ok(RateLimiterPermit { metrics: self.metrics.clone() })
@@ -233,6 +231,7 @@ impl std::error::Error for RateLimitError {}
 /// 连接池水位控制器
 pub struct PoolWatermarkController {
     /// 低水位线
+    #[allow(dead_code)]
     low_watermark: usize,
     /// 高水位线
     high_watermark: usize,
@@ -340,7 +339,7 @@ impl<T> BackpressureQueue<T> {
                 self.metrics.current_size.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err(e) => {
+            Err(_e) => {
                 self.metrics.dropped.fetch_add(1, Ordering::Relaxed);
                 Err(QueueError::Full)
             }

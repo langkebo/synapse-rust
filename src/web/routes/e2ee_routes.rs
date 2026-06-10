@@ -11,6 +11,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -693,32 +694,52 @@ async fn create_room_key_request(
     })))
 }
 
-#[axum::debug_handler]
+fn encode_key_request_cursor(ts: i64, id: &str) -> String {
+    BASE64.encode(format!("{}:{}", ts, id))
+}
+
+fn decode_key_request_cursor(cursor: &str) -> Option<(i64, String)> {
+    let decoded = BASE64.decode(cursor).ok()?;
+    let s = String::from_utf8(decoded).ok()?;
+    let mut parts = s.splitn(2, ':');
+    let ts = parts.next()?.parse().ok()?;
+    let id = parts.next()?.to_string();
+    Some((ts, id))
+}
+
 async fn get_room_key_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Query(params): Query<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let mut requests =
-        state.services.e2ee.key_request_service.get_requests(&auth_user.user_id, params.status.as_deref()).await?;
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
+    let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
 
-    if let Some(room_id) = params.room_id.as_deref() {
-        requests.retain(|request| request.room_id == room_id);
-    }
+    let requests = state
+        .services.e2ee.key_request_service
+        .get_requests_paginated(
+            &auth_user.user_id,
+            limit as i64,
+            cursor.as_ref().map(|c| c.0),
+            cursor.as_ref().map(|c| c.1.as_str()),
+            params.status.as_deref(),
+            params.room_id.as_deref(),
+            params.session_id.as_deref(),
+        )
+        .await?;
 
-    if let Some(session_id) = params.session_id.as_deref() {
-        requests.retain(|request| request.session_id == session_id);
-    }
-
-    if let Some(limit) = params.limit {
-        requests.truncate(limit);
-    }
+    let next_batch = if requests.len() == limit {
+        requests.last().map(|r| encode_key_request_cursor(r.created_ts, &r.request_id))
+    } else {
+        None
+    };
 
     Ok(Json(serde_json::json!({
         "requests": requests
             .into_iter()
             .map(serialize_room_key_request)
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
+        "next_batch": next_batch
     })))
 }
 
@@ -756,6 +777,7 @@ struct GetRoomKeyRequestsQuery {
     room_id: Option<String>,
     session_id: Option<String>,
     limit: Option<usize>,
+    from: Option<String>,
 }
 
 fn serialize_room_key_request(request: crate::e2ee::key_request::KeyRequestInfo) -> Value {
@@ -1119,6 +1141,44 @@ async fn delete_secure_backup(
     state.services.e2ee.secure_backup_service.delete_backup(&auth_user.user_id, &backup_id).await?;
 
     Ok(empty_json())
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AuditPaginationQuery {
+    limit: Option<usize>,
+    from: Option<String>,
+}
+
+#[axum::debug_handler]
+#[allow(dead_code)]
+async fn get_key_history(
+    State(state): State<AppState>,
+    auth_user: AuthenticatedUser,
+    Query(params): Query<AuditPaginationQuery>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
+    let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
+
+    let audit_service = crate::services::e2ee::E2eeAuditService::new(state.services.database_pool());
+    let history: Vec<crate::services::e2ee::KeyAuditEntry> = audit_service
+        .get_key_history_paginated(
+            &auth_user.user_id,
+            limit as i64,
+            cursor.as_ref().map(|c| c.0),
+            cursor.as_ref().and_then(|c| c.1.parse::<i64>().ok()),
+        )
+        .await?;
+
+    let next_batch = if history.len() == limit {
+        history.last().map(|h| encode_key_request_cursor(h.created_ts, &h.id.to_string()))
+    } else {
+        None
+    };
+
+    Ok(Json(serde_json::json!({
+        "history": history,
+        "next_batch": next_batch
+    })))
 }
 
 // Key-backup version + per-session handlers live in

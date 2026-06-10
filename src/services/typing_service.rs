@@ -91,6 +91,7 @@ impl TypingService {
     }
 
     /// 清除房间中所有用户的打字状态
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id))]
     pub async fn clear_room_typing(&self, room_id: &str) -> usize {
         let key = room_typing_key(room_id);
         self.cache.delete(&key).await;
@@ -98,6 +99,7 @@ impl TypingService {
         0
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, user_id = %user_id, timeout_ms = timeout_ms))]
     pub async fn set_typing(&self, room_id: &str, user_id: &str, timeout_ms: u64) -> ApiResult<()> {
         let key = room_typing_key(room_id);
 
@@ -127,6 +129,7 @@ impl TypingService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, user_id = %user_id))]
     pub async fn clear_typing(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         let key = room_typing_key(room_id);
 
@@ -147,6 +150,7 @@ impl TypingService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id))]
     pub async fn get_typing_users(&self, room_id: &str) -> ApiResult<HashMap<String, u64>> {
         let now = chrono::Utc::now().timestamp_millis();
         let key = room_typing_key(room_id);
@@ -182,6 +186,7 @@ impl TypingService {
         Ok(result)
     }
 
+    #[::tracing::instrument(skip_all, fields(batch_size = room_ids.len()))]
     pub async fn get_typing_users_batch(&self, room_ids: &[String]) -> ApiResult<HashMap<String, Vec<String>>> {
         let now = chrono::Utc::now().timestamp_millis();
         let mut result: HashMap<String, Vec<String>> = HashMap::with_capacity(room_ids.len());
@@ -214,6 +219,7 @@ impl TypingService {
         Ok(result)
     }
 
+    #[::tracing::instrument(skip_all, fields(room_id = %room_id, user_id = %user_id))]
     pub async fn get_user_typing(&self, room_id: &str, user_id: &str) -> ApiResult<Option<u64>> {
         let now = chrono::Utc::now().timestamp_millis();
         let key = room_typing_key(room_id);

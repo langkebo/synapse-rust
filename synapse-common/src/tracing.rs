@@ -1,6 +1,52 @@
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry::{global, Context};
-use tracing::{info_span, Span};
+use std::fmt;
+use tracing::span::{Attributes, Id};
+use tracing::{info_span, Span, Subscriber};
+use tracing_subscriber::layer::Context as LayerContext;
+use tracing_subscriber::Layer;
+
+/// Value type used to store request_id in span extensions for
+/// cross-span propagation without relying on the field-value visitor pattern.
+#[derive(Debug, Clone)]
+pub struct RequestId(pub String);
+
+impl fmt::Display for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A tracing-subscriber layer that propagates `RequestId` from parent spans
+/// to child spans. This ensures the `request_id` appears in all log events
+/// regardless of how deep the span nesting goes.
+///
+/// Usage: insert this layer *before* the fmt/otel layers so that child
+/// spans inherit the request_id when the subscriber emits events.
+pub struct RequestIdPropagationLayer;
+
+impl<S> Layer<S> for RequestIdPropagationLayer
+where
+    S: Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
+    fn on_new_span(&self, _attrs: &Attributes<'_>, id: &Id, ctx: LayerContext<'_, S>) {
+        let span = match ctx.span(id) {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Walk up the parent chain to propagate RequestId from the nearest
+        // ancestor that has one.
+        let mut parent = ctx.lookup_current();
+        while let Some(ref p) = parent {
+            if let Some(rid) = p.extensions().get::<RequestId>() {
+                span.extensions_mut().insert(rid.clone());
+                return;
+            }
+            parent = p.parent();
+        }
+    }
+}
 
 pub struct DistributedTracer {
     _service_name: String,

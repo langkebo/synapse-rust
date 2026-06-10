@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE cas_slo_sessions\n            SET logout_sent_at = $1\n            WHERE session_id = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6569af6106a8ee469d5968eda6015f158aeaad937655b99e5709d286307d306d"
+}

@@ -27,7 +27,7 @@ fn test_search_service_disabled() {
         let result = search_service.search_messages("@alice:localhost", "Hello", 10, None).await;
         assert!(result.is_err());
         match result {
-            Err(ApiError::Internal(msg)) => assert_eq!(msg, "Elasticsearch is disabled"),
+            Err(e) if e.is_internal() => assert_eq!(e.internal_message(), "Elasticsearch is disabled"),
             _ => panic!("Expected Internal error"),
         }
     });

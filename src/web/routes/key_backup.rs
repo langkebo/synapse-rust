@@ -1,10 +1,9 @@
 use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
 use crate::common::ApiError;
-use crate::services::uia_service::UiaService;
 use axum::{
     extract::{Path, Query, State},
-    http::{Method, StatusCode},
+    http::Method,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -171,16 +170,6 @@ async fn create_backup_version(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    let auth = body.get("auth");
-    if let Err(uia_response) = state
-        .services
-        .uia_service
-        .require_uia(auth, &auth_user.user_id, UiaService::get_default_flows(), &state.services.auth_service)
-        .await
-    {
-        return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
-    }
-
     let algorithm = body.get("algorithm").and_then(|v| v.as_str()).unwrap_or("m.megolm_backup.v1.curve25519-aes-sha2");
     let auth_data = body.get("auth_data").cloned();
 

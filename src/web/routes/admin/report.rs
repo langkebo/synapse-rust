@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::storage::event_report::EventReport;
+use crate::services::event_report_service::EventReport;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -62,6 +62,11 @@ pub async fn get_all_reports(
     let since_score = params.get("since_score").and_then(|v| v.parse::<i32>().ok());
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
+
+    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string()));
+    }
+
     let reports = state
         .services
         .admin
@@ -122,6 +127,11 @@ pub async fn get_room_reports(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let since_ts = params.get("since_ts").and_then(|v| v.parse::<i64>().ok());
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
+
+    if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string()));
+    }
+
     let reports = state
         .services
         .admin

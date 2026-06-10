@@ -46,7 +46,7 @@ pub async fn get_sticky_events(
 
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
-        let sticky_event = state
+        let sticky_event: Option<crate::storage::sticky_event::StickyEvent> = state
             .services
             .sticky_event_storage
             .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
@@ -68,7 +68,7 @@ pub async fn get_sticky_events(
         }
     } else {
         // Get all sticky events
-        let sticky_events = state
+        let sticky_events: Vec<crate::storage::sticky_event::StickyEvent> = state
             .services
             .sticky_event_storage
             .get_all_is_sticky_events(&room_id, &auth_user.user_id)
@@ -104,28 +104,28 @@ pub async fn set_sticky_events(
     validate_room_id(&room_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let events = body
+    let events: &Vec<Value> = body
         .get("events")
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("Missing events array".to_string()))?;
 
     for event in events {
-        let event_type = event
+        let event_type: &str = event
             .get("event_type")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Missing event_type".to_string()))?;
 
-        let event_id = event
+        let event_id_str: &str = event
             .get("event_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
-        validate_event_id(event_id)?;
+        validate_event_id(event_id_str)?;
 
-        let stored_event = state
+        let stored_event: Option<crate::storage::event::RoomEvent> = state
             .services
             .rooms
             .event_storage
-            .get_event(event_id)
+            .get_event(event_id_str)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load sticky event", &e))?;
         let Some(stored_event) = stored_event.filter(|stored_event| stored_event.room_id == room_id) else {

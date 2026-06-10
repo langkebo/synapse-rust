@@ -85,17 +85,21 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
-        if let Err(e) = &result {
-            ::tracing::error!("m.room.create event failed: {}", e);
-            let _ = tx.rollback().await;
-            return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
+        
+        match result {
+            Ok(_) => {},
+            Err(e) => {
+                ::tracing::error!("m.room.create event failed: {}", e);
+                let _ = tx.rollback().await;
+                return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
+            }
         }
 
         let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
-        if let Err(e) = &result {
+        if let Err(e) = result {
             ::tracing::error!("add_creator_to_room failed: {}", e);
             let _ = tx.rollback().await;
-            return Err(e.clone());
+            return Err(e);
         }
 
         let result = self
@@ -116,6 +120,7 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
+        
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.member event", &e));
@@ -163,6 +168,7 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
+        
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.power_levels event", &e));
@@ -183,6 +189,7 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
+        
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.join_rules event", &e));
@@ -210,6 +217,7 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
+        
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.history_visibility event", &e));
@@ -231,6 +239,7 @@ impl RoomService {
                 Some(&mut tx),
             )
             .await;
+        
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.guest_access event", &e));
@@ -360,13 +369,20 @@ impl RoomService {
                     Some(&mut tx),
                 )
                 .await;
-            if let Err(e) = result {
-                let _ = tx.rollback().await;
-                return Err(ApiError::internal_with_log("Failed to set privacy marker", &e));
+            
+            match result {
+                Ok(_) => {},
+                Err(e) => {
+                    let _ = tx.rollback().await;
+                    return Err(ApiError::internal_with_log("Failed to set privacy marker", &e));
+                }
             }
         }
 
-        tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit transaction", &e))?;
+        let commit_res = tx.commit().await;
+        if let Err(e) = commit_res {
+            return Err(ApiError::internal_with_log("Failed to commit transaction", &e));
+        }
 
         let summary_request = crate::storage::room_summary::CreateRoomSummaryRequest {
             room_id: room_id.clone(),
@@ -381,7 +397,8 @@ impl RoomService {
             is_direct: config.is_direct,
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
-        if let Err(e) = self.room_summary_service.create_summary(summary_request).await {
+        let summary_res: ApiResult<crate::storage::room_summary::RoomSummaryResponse> = self.room_summary_service.create_summary(summary_request).await;
+        if let Err(e) = summary_res {
             ::tracing::warn!("Failed to create room summary: {}", e);
         }
 

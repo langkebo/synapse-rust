@@ -3,12 +3,30 @@ use super::*;
 pub(super) async fn get_space_members(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    Query(query): Query<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let members = state.services.rooms.space_service.get_space_members(&space.space_id).await?;
+        let limit = query.limit.unwrap_or(100).clamp(1, 1000);
+        let cursor = query.from.as_deref().and_then(decode_space_member_cursor);
 
-        Ok(json_vec_from::<_, SpaceMemberResponse>(members))
+        let members: Vec<crate::storage::space::SpaceMember> = state
+            .services.rooms.space_service
+            .get_space_members_paginated(&space.space_id, limit, cursor.as_ref().map(|c| c.0), cursor.as_ref().map(|c| c.1.as_str()))
+            .await?;
+
+        let next_batch = if members.len() as i64 == limit {
+            members.last().map(|m| encode_space_member_cursor(m.joined_ts, &m.user_id))
+        } else {
+            None
+        };
+
+        let items: Vec<SpaceMemberResponse> = members.into_iter().map(SpaceMemberResponse::from).collect();
+
+        Ok(Json(serde_json::json!({
+            "members": items,
+            "next_batch": next_batch,
+        })))
     })
     .await
 }
@@ -16,16 +34,30 @@ pub(super) async fn get_space_members(
 pub(super) async fn get_space_rooms(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
+    Query(query): Query<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let children = state.services.rooms.space_service.get_space_children(&space.space_id).await?;
+        let limit = query.limit.unwrap_or(100).clamp(1, 1000);
+        let cursor = query.from.as_deref().and_then(decode_space_child_cursor);
+
+        let children: Vec<crate::storage::space::SpaceChild> = state
+            .services.rooms.space_service
+            .get_space_children_paginated(&space.space_id, limit, cursor.map(|c| c.0), cursor.map(|c| c.1))
+            .await?;
+
+        let next_batch = if children.len() as i64 == limit {
+            children.last().map(|c| encode_space_child_cursor(c.added_ts, c.id))
+        } else {
+            None
+        };
 
         let rooms: Vec<String> = children.into_iter().map(|child| child.room_id).collect();
 
         Ok(Json(serde_json::json!({
             "space_id": space.space_id,
             "rooms": rooms,
+            "next_batch": next_batch,
         })))
     })
     .await
@@ -37,8 +69,9 @@ pub(super) async fn get_space_state(
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
-        let space_state =
-            state.services.rooms.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await?;
+        let space_state_res: Result<Vec<serde_json::Value>, ApiError> =
+            state.services.rooms.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await;
+        let space_state = space_state_res?;
 
         Ok(Json(space_state))
     })
@@ -54,10 +87,10 @@ pub(super) async fn invite_user(
     validate_request(&body)?;
 
     with_resolved_space(state, space_id, |state, space| async move {
-        let member =
+        let member: crate::storage::space::SpaceMember =
             state.services.rooms.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
 
-        Ok(created_json_from::<_, SpaceMemberResponse>(member))
+        Ok(created_json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
     })
     .await
 }
@@ -68,9 +101,9 @@ pub(super) async fn join_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(state, space_id, |state, space| async move {
-        let member = state.services.rooms.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
+        let member: crate::storage::space::SpaceMember = state.services.rooms.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
 
-        Ok(json_from::<_, SpaceMemberResponse>(member))
+        Ok(json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
     })
     .await
 }

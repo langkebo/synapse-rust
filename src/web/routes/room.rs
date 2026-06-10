@@ -326,7 +326,7 @@ async fn get_anti_screenshot(
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
-    let events = state
+    let events: Vec<crate::storage::event::StateEvent> = state
         .services.rooms.event_storage
         .get_state_events_by_type(&room_id, "com.hula.privacy")
         .await
@@ -347,10 +347,10 @@ async fn set_anti_screenshot(
     Path(room_id): Path<String>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let action = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
+    let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
-    let now_ts = chrono::Utc::now().timestamp_millis();
+    let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
+    let now_ts: i64 = chrono::Utc::now().timestamp_millis();
 
     state
         .services.rooms.event_storage

@@ -6,6 +6,7 @@
 // 如需从外部调用，请修改 allow_external_access 配置
 
 use crate::common::ApiError;
+use crate::common::error::MatrixErrorCode;
 use crate::services::AdminRegisterRequest;
 use crate::services::captcha_service::VerifyCaptchaRequest;
 use crate::web::routes::AppState;
@@ -111,10 +112,10 @@ fn map_admin_register_service_error(error: ApiError) -> Response<Body> {
         "Unrecognised nonce" => register_error_response(400, "M_UNKNOWN", message),
         "HMAC incorrect" => register_error_response(400, "M_UNKNOWN", message),
         "Admin registration is not enabled" => register_error_response(400, "M_UNKNOWN", message),
-        _ if matches!(error, ApiError::Conflict(_) | ApiError::UserInUse(_)) => {
+        _ if error.is_conflict() || error.code_is(MatrixErrorCode::UserInUse) => {
             register_error_response(400, "M_USER_IN_USE", "User already exists")
         }
-        _ => register_error_response(error.http_status().as_u16(), error.code(), message),
+        _ => register_error_response(error.http_status().as_u16(), error.code().as_str(), message),
     }
 }
 

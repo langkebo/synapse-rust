@@ -1,17 +1,17 @@
 use crate::auth::*;
 use crate::cache::*;
 use crate::common::config::Config;
+use synapse_common::metrics::MetricsCollector;
+use synapse_common::server_metrics::ServerMetrics;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::common::config::{
     AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig, RedisConfig, SearchConfig,
     SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
-use crate::common::metrics::MetricsCollector;
 
 const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::common::config::PostgresFtsConfig;
-use crate::common::server_metrics::ServerMetrics;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;

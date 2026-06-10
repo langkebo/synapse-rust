@@ -85,19 +85,61 @@ impl E2eeAuditService {
     }
 
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
-        sqlx::query_as!(
-            KeyAuditEntry,
+        sqlx::query_as::<_, KeyAuditEntry>(
             r#"
-            SELECT id as "id!", user_id as "user_id!", device_id, operation as "operation!", key_id, room_id, details, ip_address, created_ts as "created_ts!" FROM e2ee_audit_log
+            SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+            FROM e2ee_audit_log
             WHERE user_id = $1
-            ORDER BY created_ts DESC
+            ORDER BY created_ts DESC, id DESC
             LIMIT 100
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+    }
+
+    pub async fn get_key_history_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        if let (Some(ts), Some(id)) = (from_ts, from_id) {
+            sqlx::query_as::<_, KeyAuditEntry>(
+                r#"
+                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+                FROM e2ee_audit_log
+                WHERE user_id = $1 AND (created_ts < $2 OR (created_ts = $2 AND id < $3))
+                ORDER BY created_ts DESC, id DESC
+                LIMIT $4
+                "#,
+            )
+            .bind(user_id)
+            .bind(ts)
+            .bind(id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+        } else {
+            sqlx::query_as::<_, KeyAuditEntry>(
+                r#"
+                SELECT id, user_id, device_id, operation, key_id, room_id, details, ip_address, created_ts
+                FROM e2ee_audit_log
+                WHERE user_id = $1
+                ORDER BY created_ts DESC, id DESC
+                LIMIT $2
+                "#,
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get key history", &e))
+        }
     }
 
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {

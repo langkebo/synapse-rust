@@ -214,11 +214,13 @@ impl Clone for WorkerBus {
 }
 
 pub fn parse_bus_message(data: &[u8]) -> Result<BusMessage, ApiError> {
-    serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))
+    let msg: BusMessage = serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))?;
+    Ok(msg)
 }
 
 pub fn parse_replication_command(data: &[u8]) -> Result<ReplicationCommand, ApiError> {
-    serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))
+    let cmd: ReplicationCommand = serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))?;
+    Ok(cmd)
 }
 
 // ---------------------------------------------------------------------------

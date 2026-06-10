@@ -1,3 +1,4 @@
+use tracing::instrument;
 use crate::cache::CacheManager;
 use crate::common::ApiError;
 use sqlx::PgPool;
@@ -19,6 +20,7 @@ impl AdminSecurityService {
         Self { pool, cache }
     }
 
+    #[instrument(skip(self))]
     pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<(), ApiError> {
         let result = sqlx::query!(
             "UPDATE users SET is_shadow_banned = $2 WHERE user_id = $1",
@@ -37,6 +39,7 @@ impl AdminSecurityService {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<UserRateLimit, ApiError> {
         let limit = sqlx::query!(
             "SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1",
@@ -58,6 +61,7 @@ impl AdminSecurityService {
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn set_user_rate_limit(
         &self,
         user_id: &str,
@@ -77,6 +81,7 @@ impl AdminSecurityService {
         Ok(UserRateLimit { messages_per_second, burst_count })
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), ApiError> {
         sqlx::query!("DELETE FROM rate_limits WHERE user_id = $1", user_id)
             .execute(&*self.pool)

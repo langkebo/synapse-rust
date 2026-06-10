@@ -115,7 +115,10 @@
 
 新文件 `.github/workflows/e2ee-interop.yml`：
 - trigger：push 到 `feature/e2ee-vodozemac/**` 与每周 cron
-- job：启动 2 实例 homeserver + 1 个 Element Web 实例，跑 4.2 全 case
+- job 1：运行本地 `vodozemac` smoke，对拍低层 Olm/Megolm reference 行为
+- job 2：checkout `matrix-js-sdk`，启动真实 `synapse-rust` docker stack，执行 `pnpm test:real-backend:verification`
+- job 3：在同一 live backend 上叠加 `docker-compose.web.yml`，通过 `scripts/test/run_element_web_browser_harness.sh` 启动 Element Web + nginx，并用 `tests/element-web-harness/login-smoke.mjs` 跑最小浏览器登录 smoke
+- 说明：当前 CI 已接入 SDK-backed real-backend verification 和最小 Element Web 浏览器级 harness；Android/iOS 真机矩阵与更完整的浏览器互操作矩阵仍是 Phase 3 后续项
 
 ## 六、灰度与回滚
 
@@ -188,8 +191,8 @@
 
 | 步骤 | 命令 | 结果 |
 |---|---|---|
-| 类型检查 | `cargo check --features vodozemac-megolm` | ✅ 通过 |
-| Lint | `cargo clippy --features vodozemac-megolm --locked -- -D warnings` | ✅ 通过 |
+| 类型检查 | `cargo check --locked --lib` | ✅ 通过 |
+| Lint | `cargo clippy --locked --lib -- -D warnings` | ✅ 通过 |
 | vodozemac 内部对拍 | `vodozemac_megolm_roundtrip` / `pickle_roundtrip` / `message_index_monotonic`（lib test 编译受阻于预存 drift，未跑成） | ⏸ 阻塞 |
 | 4.2 跨客户端互操作 | I-1 ~ I-8 | ⏸ 留待 Phase 3 |
 

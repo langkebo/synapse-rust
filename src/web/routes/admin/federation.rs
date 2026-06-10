@@ -122,30 +122,35 @@ pub struct DestinationsQuery {
     pub offset: Option<i64>,
 }
 
+fn validate_destinations_query(query: &DestinationsQuery) -> Result<(i32, Option<crate::services::DestinationCursor>), ApiError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let cursor = decode_destination_cursor(query.from.as_deref());
+
+    if query.offset.unwrap_or(0) > 0 {
+        return Err(ApiError::bad_request(
+            "Legacy offset pagination is no longer supported; use from cursor".to_string(),
+        ));
+    }
+    if query.from.is_some() && cursor.is_none() {
+        return Err(ApiError::bad_request("Invalid destination pagination cursor".to_string()));
+    }
+
+    Ok((limit, cursor))
+}
+
 #[axum::debug_handler]
 pub async fn get_destinations(
     _admin: AdminUser,
     State(state): State<AppState>,
     Query(query): Query<DestinationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let cursor = decode_destination_cursor(query.from.as_deref());
-    let legacy_offset = match (query.from.as_deref(), cursor.as_ref(), query.offset) {
-        (_, Some(_), offset) => offset,
-        (Some(from), None, offset) => from.parse::<i64>().ok().or(offset),
-        (None, None, offset) => offset,
-    };
-    if query.offset.unwrap_or(0) > 0 && cursor.is_none() {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor".to_string()));
-    }
-    if query.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
-        return Err(ApiError::bad_request("Invalid destination pagination cursor".to_string()));
-    }
-    let (destinations, total, next_batch, next_from) = state
+    let (limit, cursor) = validate_destinations_query(&query)?;
+
+    let (destinations, total, next_batch) = state
         .services
         .admin
         .admin_federation_service
-        .list_destinations(limit, cursor, legacy_offset)
+        .list_destinations(limit, cursor)
         .await?;
 
     Ok(Json(json!({
@@ -153,7 +158,6 @@ pub async fn get_destinations(
         "total": total,
         "total_count": total,
         "next_batch": next_batch.as_ref().map(encode_destination_cursor),
-        "next_from": next_from
     })))
 }
 
@@ -404,4 +408,46 @@ pub async fn delete_federation_cache_entry(
 pub async fn clear_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let deleted = state.services.admin.admin_federation_service.clear_federation_cache().await?;
     Ok(Json(json!({ "deleted": deleted })))
+}
+
+#[cfg(test)]
+mod destinations_query_tests {
+    use super::{validate_destinations_query, DestinationsQuery};
+
+    #[test]
+    fn rejects_legacy_offset_pagination() {
+        let query = DestinationsQuery {
+            limit: Some(50),
+            from: None,
+            offset: Some(10),
+        };
+
+        let err = validate_destinations_query(&query).expect_err("legacy offset must be rejected");
+        assert!(err.to_string().contains("Legacy offset pagination"));
+    }
+
+    #[test]
+    fn rejects_invalid_from_cursor() {
+        let query = DestinationsQuery {
+            limit: Some(50),
+            from: Some("bad-cursor".to_string()),
+            offset: None,
+        };
+
+        let err = validate_destinations_query(&query).expect_err("invalid cursor must be rejected");
+        assert!(err.to_string().contains("Invalid destination pagination cursor"));
+    }
+
+    #[test]
+    fn accepts_valid_cursor() {
+        let query = DestinationsQuery {
+            limit: Some(50),
+            from: Some("v1|matrix.example.com".to_string()),
+            offset: Some(0),
+        };
+
+        let (limit, cursor) = validate_destinations_query(&query).expect("cursor should be accepted");
+        assert_eq!(limit, 50);
+        assert_eq!(cursor.expect("cursor should exist").server_name, "matrix.example.com");
+    }
 }

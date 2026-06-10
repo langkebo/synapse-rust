@@ -278,6 +278,7 @@ mod tests {
         );
 
         let result = registration_service.register_user("test", "pass", None, None).await;
-        assert!(matches!(result, Err(ApiError::Forbidden { .. })));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_forbidden());
     }
 }

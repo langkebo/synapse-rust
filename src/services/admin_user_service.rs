@@ -1,7 +1,8 @@
+use tracing::instrument;
 use crate::common::ApiError;
 use crate::common::crypto::hash_password;
 use crate::storage::{DeviceStorage, RoomMemberStorage, RoomStorage, User, UserStorage};
-use sqlx::{PgPool, QueryBuilder};
+use sqlx::{PgPool, QueryBuilder, Row};
 use std::sync::Arc;
 
 pub use crate::storage::User as AdminUserRecord;
@@ -116,6 +117,7 @@ impl AdminUserService {
         Self { pool, user_storage, device_storage, room_storage, member_storage, server_name }
     }
 
+    #[instrument(skip(self))]
     pub async fn list_users_v2(
         &self,
         limit: i64,
@@ -187,6 +189,7 @@ impl AdminUserService {
         Ok(AdminUsersPage { users, total, next_token })
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_v2(&self, identifier: &str) -> Result<Option<AdminUserDetails>, ApiError> {
         let user = self
             .user_storage
@@ -219,6 +222,7 @@ impl AdminUserService {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self))]
     pub async fn create_or_update_user_v2(
         &self,
         identifier: &str,
@@ -237,7 +241,7 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if existing_user.is_some() {
-            sqlx::query!(
+            sqlx::query(
                 r#"
                 UPDATE users SET
                     displayname = COALESCE($2, displayname),
@@ -248,14 +252,14 @@ impl AdminUserService {
                     updated_ts = $7
                 WHERE username = $1 OR user_id = $1
                 "#,
-                identifier,
-                displayname,
-                avatar_url,
-                is_admin,
-                is_deactivated,
-                user_type,
-                now,
             )
+            .bind(identifier)
+            .bind(displayname)
+            .bind(avatar_url)
+            .bind(is_admin)
+            .bind(is_deactivated)
+            .bind(user_type)
+            .bind(now)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update user", &e))?;
@@ -280,7 +284,7 @@ impl AdminUserService {
                 .map_err(|e| ApiError::internal_with_log("Password hashing failed", &e))?
         };
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO users (
                 user_id, username, password_hash, displayname, avatar_url,
@@ -288,17 +292,17 @@ impl AdminUserService {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             "#,
-            &user_id,
-            &username,
-            &password_hash,
-            displayname,
-            avatar_url,
-            is_admin.unwrap_or(false),
-            is_deactivated.unwrap_or(false),
-            user_type,
-            now,
-            now,
         )
+        .bind(&user_id)
+        .bind(&username)
+        .bind(&password_hash)
+        .bind(displayname)
+        .bind(avatar_url)
+        .bind(is_admin.unwrap_or(false))
+        .bind(is_deactivated.unwrap_or(false))
+        .bind(user_type)
+        .bind(now)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create user", &e))?;
@@ -306,15 +310,16 @@ impl AdminUserService {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_stats(&self) -> Result<AdminUserStats, ApiError> {
-        let stats = sqlx::query!(
+        let stats = sqlx::query(
             r#"
             SELECT
-                COUNT(*) AS "total_users!",
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS "active_users!",
-                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS "admin_users!",
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS "deactivated_users!",
-                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS "guest_users!"
+                COUNT(*) AS total_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS active_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS admin_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS deactivated_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS guest_users
             FROM users
             "#
         )
@@ -327,32 +332,38 @@ impl AdminUserService {
             .get_room_count()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
-        let average_rooms_per_user = if stats.total_users > 0 {
-            (room_count as f64 / stats.total_users as f64).round()
+        let total_users = stats.get::<i64, _>("total_users");
+        let active_users = stats.get::<i64, _>("active_users");
+        let admin_users = stats.get::<i64, _>("admin_users");
+        let deactivated_users = stats.get::<i64, _>("deactivated_users");
+        let guest_users = stats.get::<i64, _>("guest_users");
+        let average_rooms_per_user = if total_users > 0 {
+            (room_count as f64 / total_users as f64).round()
         } else {
             0.0
         };
 
         Ok(AdminUserStats {
-            total_users: stats.total_users,
-            active_users: stats.active_users,
-            admin_users: stats.admin_users,
-            deactivated_users: stats.deactivated_users,
-            guest_users: stats.guest_users,
+            total_users,
+            active_users,
+            admin_users,
+            deactivated_users,
+            guest_users,
             average_rooms_per_user,
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn get_single_user_stats(&self, user: &User) -> Result<AdminSingleUserStats, ApiError> {
         let rooms_joined = self
             .member_storage
             .get_joined_room_count(&user.user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to count rooms", &e))?;
-        let messages_sent = sqlx::query_scalar!(
-            r#"SELECT COUNT(*) AS "count!" FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false"#,
-            &user.user_id,
+        let messages_sent = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COUNT(*) FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false"#,
         )
+        .bind(&user.user_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
@@ -373,6 +384,7 @@ impl AdminUserService {
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn batch_create_users(
         &self,
         users: &[(String, String, Option<String>, bool)],
@@ -387,20 +399,20 @@ impl AdminUserService {
             let full_user_id = format!("@{}:{}", username, self.server_name);
             let effective_displayname = displayname.as_deref().unwrap_or(username.as_str());
 
-            let result = sqlx::query!(
+            let result = sqlx::query(
                 r#"
                 INSERT INTO users (user_id, username, password_hash, displayname, is_admin, created_ts, updated_ts)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (username) DO NOTHING
                 "#,
-                &full_user_id,
-                username,
-                &password_hash,
-                effective_displayname,
-                *is_admin,
-                now,
-                now,
             )
+            .bind(&full_user_id)
+            .bind(username)
+            .bind(&password_hash)
+            .bind(effective_displayname)
+            .bind(*is_admin)
+            .bind(now)
+            .bind(now)
             .execute(&*self.pool)
             .await;
 
@@ -414,6 +426,7 @@ impl AdminUserService {
         Ok(BatchUsersResult { succeeded, failed })
     }
 
+    #[instrument(skip(self))]
     pub async fn batch_deactivate_users(&self, user_ids: &[String]) -> Result<BatchUsersResult, ApiError> {
         let mut succeeded = Vec::new();
         let mut failed = Vec::new();
@@ -440,6 +453,7 @@ impl AdminUserService {
         Ok(BatchUsersResult { succeeded, failed })
     }
 
+    #[instrument(skip(self))]
     pub async fn update_account(
         &self,
         user_id: &str,

@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO cas_user_attributes (user_id, attribute_name, attribute_value, created_ts, updated_ts)\n            VALUES ($1, $2, $3, $4, $4)\n            ON CONFLICT (user_id, attribute_name)\n            DO UPDATE SET attribute_value = $3, updated_ts = $4\n            RETURNING\n                id AS \"id!\",\n                user_id AS \"user_id!\",\n                attribute_name AS \"attribute_name!\",\n                attribute_value AS \"attribute_value!\",\n                created_ts AS \"created_ts!\",\n                updated_ts AS \"updated_ts?\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "attribute_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "attribute_value!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_ts?",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "3a6fc187eaef07a610277b3a4c90be8cd51423c3319f1952055e97d813426b94"
+}
