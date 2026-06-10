@@ -188,9 +188,9 @@ pub async fn register_worker(
     _admin_user: AdminUser,
     Json(body): Json<RegisterWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = body.into_request()?;
+    let request: RegisterWorkerRequest = body.into_request()?;
 
-    let worker = state.services.admin.worker_manager.register(request).await?;
+    let worker: WorkerInfo = state.services.admin.worker_manager.register(request).await?;
 
     Ok(created_json_from::<_, WorkerResponse>(worker))
 }
@@ -200,7 +200,7 @@ pub async fn get_worker(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker = state.services.admin.worker_manager.get(&worker_id).await?;
+    let worker: Option<WorkerInfo> = state.services.admin.worker_manager.get(&worker_id).await?;
 
     Ok(json_from::<_, WorkerResponse>(require_found(worker, "Worker not found")?))
 }
@@ -209,7 +209,7 @@ pub async fn list_workers(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let workers = state.services.admin.worker_manager.get_active().await?;
+    let workers: Vec<WorkerInfo> = state.services.admin.worker_manager.get_active().await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
@@ -219,9 +219,9 @@ pub async fn list_workers_by_type(
     Path(worker_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let wtype = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
+    let wtype: WorkerType = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
 
-    let workers = state.services.admin.worker_manager.get_by_type(wtype).await?;
+    let workers: Vec<WorkerInfo> = state.services.admin.worker_manager.get_by_type(wtype).await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
@@ -231,7 +231,7 @@ pub async fn heartbeat(
     Path(worker_id): Path<String>,
     Json(body): Json<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let status = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
+    let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
 
     state.services.admin.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
 
@@ -254,9 +254,9 @@ pub async fn send_command(
     _admin_user: AdminUser,
     Json(body): Json<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = body.into_request(worker_id);
+    let request: SendCommandRequest = body.into_request(worker_id);
 
-    let command = state.services.admin.worker_manager.send_command(request).await?;
+    let command: WorkerCommand = state.services.admin.worker_manager.send_command(request).await?;
 
     Ok(created_json_from::<_, WorkerCommandResponse>(command))
 }
@@ -266,8 +266,8 @@ pub async fn get_pending_commands(
     Path(worker_id): Path<String>,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
-    let commands = state.services.admin.worker_manager.get_pending_commands(&worker_id, limit).await?;
+    let limit: i64 = query.limit.unwrap_or(100);
+    let commands: Vec<WorkerCommand> = state.services.admin.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
@@ -296,9 +296,9 @@ pub async fn assign_task(
     _admin_user: AdminUser,
     Json(body): Json<AssignTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let request = body.into_request();
+    let request: AssignTaskRequest = body.into_request();
 
-    let task = state.services.admin.worker_manager.assign_task(request).await?;
+    let task: WorkerTaskAssignment = state.services.admin.worker_manager.assign_task(request).await?;
 
     Ok(created_json_from::<_, WorkerTaskResponse>(task))
 }
@@ -308,8 +308,8 @@ pub async fn get_pending_tasks(
     _admin_user: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query.limit.unwrap_or(100);
-    let tasks = state.services.admin.worker_manager.get_pending_tasks(limit).await?;
+    let limit: i64 = query.limit.unwrap_or(100);
+    let tasks: Vec<WorkerTaskAssignment> = state.services.admin.worker_manager.get_pending_tasks(limit).await?;
 
     Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
@@ -319,7 +319,7 @@ pub async fn claim_next_task(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task = state.services.admin.worker_manager.claim_next_pending_task(&worker_id).await?;
+    let task: WorkerTaskAssignment = state.services.admin.worker_manager.claim_next_pending_task(&worker_id).await?;
 
     Ok(Json(WorkerTaskResponse::from(task)))
 }
@@ -378,7 +378,8 @@ pub async fn get_replication_position(
     Path(worker_id): Path<String>,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let position = state.services.admin.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
+    let position_opt: Option<i64> = state.services.admin.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
+    let position = position_opt.unwrap_or(0);
 
     Ok(Json(serde_json::json!({
         "worker_id": worker_id,
@@ -401,8 +402,8 @@ pub async fn get_events(
     State(state): State<AppState>,
     Query(query): Query<QueryStream>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stream_id = query.stream_id.unwrap_or(0);
-    let limit = 100;
+    let stream_id: i64 = query.stream_id.unwrap_or(0);
+    let limit: i64 = 100;
     let events = state.services.admin.worker_manager.get_events_since(stream_id, limit).await?;
 
     Ok(Json(events))
@@ -431,7 +432,8 @@ pub async fn select_worker(
     Path(task_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_id = state.services.admin.worker_manager.select_worker_for_task(&task_type).await?;
+    let worker_id_opt: Option<String> = state.services.admin.worker_manager.select_worker_for_task(&task_type).await?;
+    let worker_id = worker_id_opt.ok_or_else(|| ApiError::not_found("No worker found for task type"))?;
 
     Ok(Json(serde_json::json!({
         "task_type": task_type,
@@ -583,12 +585,8 @@ mod tests {
 
         let error = body.into_request().expect_err("invalid worker type should fail");
 
-        match error {
-            ApiError::BadRequest(message) => {
-                assert!(message.contains("unknown"));
-            }
-            other => panic!("expected bad request error, got {other:?}"),
-        }
+        assert!(error.is_bad_request());
+        assert!(error.internal_message().contains("unknown"));
     }
 
     #[test]

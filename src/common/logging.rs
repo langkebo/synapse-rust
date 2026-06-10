@@ -2,6 +2,7 @@ use crate::common::config::LoggingConfig;
 use crate::services::telemetry_service::TelemetryService;
 use opentelemetry_sdk::trace::SdkTracerProvider as TracerProvider;
 use std::sync::Arc;
+use synapse_common::tracing::RequestIdPropagationLayer;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -36,7 +37,9 @@ pub fn init_logging(
     };
 
     // 2. 创建基础 Registry
-    let subscriber = Registry::default().with(env_filter);
+    let subscriber = Registry::default()
+        .with(RequestIdPropagationLayer)
+        .with(env_filter);
 
     // 3. 添加日志层 (JSON 或 Plain)
     let is_json = config.format.to_lowercase() == "json";

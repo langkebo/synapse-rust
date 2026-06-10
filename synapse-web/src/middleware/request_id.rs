@@ -7,6 +7,7 @@ use axum::{
 };
 use axum::body::Body;
 use std::sync::atomic::{AtomicU64, Ordering};
+use synapse_common::tracing::RequestId;
 use tracing::Span;
 
 static REQUEST_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -39,6 +40,8 @@ pub async fn request_id_middleware(
 
     // Record the request ID in the current span for full-chain tracing
     Span::current().record("request_id", &request_id);
+    // Also store in span extensions for automatic child-span propagation
+    Span::current().extensions_mut().insert(RequestId(request_id.clone()));
     tracing::debug!(%request_id, method = %request.method(), uri = %request.uri(), "Request started");
 
     let mut response = next.run(request).await;

@@ -43,6 +43,7 @@ impl FriendRoomService {
     }
 
     /// 创建或获取好友列表房间
+    #[::tracing::instrument(skip(self))]
     pub async fn create_friend_list_room(&self, user_id: &str) -> ApiResult<String> {
         // 先查 Redis 缓存
         let room_cache_key = format!("friends:room_id:{}", user_id);
@@ -82,6 +83,7 @@ impl FriendRoomService {
     }
 
     /// 发送好友请求 (创建 pending 状态的请求)
+    #[::tracing::instrument(skip(self, message))]
     pub async fn send_friend_request(
         &self,
         sender_id: &str,
@@ -182,6 +184,7 @@ impl FriendRoomService {
     }
 
     /// 接受好友请求
+    #[::tracing::instrument(skip(self))]
     pub async fn accept_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<String> {
         let _pending_request = self
             .friend_storage
@@ -232,6 +235,7 @@ impl FriendRoomService {
     }
 
     /// 拒绝好友请求
+    #[::tracing::instrument(skip(self))]
     pub async fn reject_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<()> {
         let updated = self
             .friend_storage
@@ -247,6 +251,7 @@ impl FriendRoomService {
     }
 
     /// 取消发出的好友请求
+    #[::tracing::instrument(skip(self))]
     pub async fn cancel_friend_request(&self, user_id: &str, target_id: &str) -> ApiResult<()> {
         let updated = self
             .friend_storage
@@ -262,6 +267,7 @@ impl FriendRoomService {
     }
 
     /// 获取收到的好友请求列表
+    #[::tracing::instrument(skip(self))]
     pub async fn get_incoming_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let requests = self
             .friend_storage
@@ -283,6 +289,7 @@ impl FriendRoomService {
     }
 
     /// 获取发出的好友请求列表
+    #[::tracing::instrument(skip(self))]
     pub async fn get_outgoing_requests(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let requests = self
             .friend_storage
@@ -304,6 +311,7 @@ impl FriendRoomService {
     }
 
     /// 添加好友 (直接添加，用于向后兼容)
+    #[::tracing::instrument(skip(self))]
     pub async fn add_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
         if friend_id == user_id {
             return Err(ApiError::bad_request("Cannot add yourself as a friend"));
@@ -353,6 +361,7 @@ impl FriendRoomService {
     }
 
     /// 删除好友
+    #[::tracing::instrument(skip(self))]
     pub async fn remove_friend(&self, user_id: &str, friend_id: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -373,6 +382,7 @@ impl FriendRoomService {
     }
 
     /// 获取好友列表
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friends(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let page = self.get_friends_page(user_id, FriendListRequest::default()).await?;
         Ok(page.items.into_iter().filter_map(|item| serde_json::to_value(item).ok()).collect())
@@ -382,6 +392,7 @@ impl FriendRoomService {
     ///
     /// 该接口只读取现有好友列表房间，不会像 `create_friend_list_room` 那样
     /// 在只读场景里隐式创建新房间，适合 DM 查询路由的收敛读路径使用。
+    #[::tracing::instrument(skip(self))]
     pub async fn get_direct_message_links(&self, user_id: &str) -> ApiResult<Vec<(String, String)>> {
         let Some(room_id) = self
             .friend_storage
@@ -415,6 +426,7 @@ impl FriendRoomService {
         Ok(links)
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
         let row = sqlx::query!("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'", user_id)
             .fetch_optional(&*self.user_storage.pool)
@@ -430,6 +442,7 @@ impl FriendRoomService {
         }
     }
 
+    #[::tracing::instrument(skip(self, direct_map))]
     pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query!(
@@ -450,6 +463,7 @@ impl FriendRoomService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn get_effective_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
         let mut direct_map = self.load_direct_map(user_id).await?;
         merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
@@ -493,11 +507,13 @@ impl FriendRoomService {
         Ok(direct_map)
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn get_direct_room_snapshot(&self, user_id: &str, room_id: &str) -> ApiResult<DirectRoomSnapshot> {
         let direct_map = self.get_effective_direct_map(user_id).await?;
         Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
 
+    #[::tracing::instrument(skip(self, target_user_ids))]
     pub async fn upsert_direct_room_links(
         &self,
         user_id: &str,
@@ -512,6 +528,7 @@ impl FriendRoomService {
         Ok(direct_map)
     }
 
+    #[::tracing::instrument(skip(self, action))]
     pub async fn apply_direct_map_update(
         &self,
         user_id: &str,
@@ -534,6 +551,7 @@ impl FriendRoomService {
         }
     }
 
+    #[::tracing::instrument(skip(self, action))]
     pub async fn update_direct_room_snapshot(
         &self,
         user_id: &str,
@@ -544,6 +562,7 @@ impl FriendRoomService {
         Ok(Self::build_direct_room_snapshot(direct_map, room_id))
     }
 
+    #[::tracing::instrument(skip(self, target_user_ids))]
     pub async fn replace_direct_room_targets(
         &self,
         user_id: &str,
@@ -560,6 +579,7 @@ impl FriendRoomService {
         .await
     }
 
+    #[::tracing::instrument(skip(self, direct_map))]
     pub async fn overwrite_direct_map(
         &self,
         user_id: &str,
@@ -573,6 +593,7 @@ impl FriendRoomService {
     /// 这是一个渐进式收敛入口:
     /// - 若不存在好友列表或好友关系，则返回 `0`，不报错
     /// - 若存在单边或双边好友关系，则将对应好友条目的 `dm_room_*` 字段更新为最新值
+    #[::tracing::instrument(skip(self))]
     pub async fn attach_dm_room_to_existing_friendship(
         &self,
         user_id: &str,
@@ -597,6 +618,7 @@ impl FriendRoomService {
     ///
     /// 优先读取好友持久化视图中的 `dm_room_id`，若不存在则回退到
     /// `room_memberships + room_summaries` 查询。
+    #[::tracing::instrument(skip(self))]
     pub async fn get_existing_dm_room_id(&self, user_id: &str, friend_id: &str) -> ApiResult<Option<String>> {
         if let Some(info) = self.get_friend_info(user_id, friend_id).await? {
             let dm_room_id = info.get("dm_room_id").and_then(|value| value.as_str()).map(ToOwned::to_owned);
@@ -630,6 +652,7 @@ impl FriendRoomService {
         Ok(row.map(|value| value.room_id))
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
         if let Some((partner_user_id, _)) =
             self.get_direct_message_links(user_id).await?.into_iter().find(|(_, dm_room_id)| dm_room_id == room_id)
@@ -682,6 +705,7 @@ impl FriendRoomService {
         }))
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn ensure_direct_room(
         &self,
         owner_user_id: &str,
@@ -724,6 +748,7 @@ impl FriendRoomService {
         Ok(EnsureDirectRoomResult { room_id, created: true })
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn create_or_reuse_direct_message_room(
         &self,
         owner_user_id: &str,
@@ -754,6 +779,7 @@ impl FriendRoomService {
         Ok(EnsureDirectRoomResult { room_id, created: true })
     }
 
+    #[::tracing::instrument(skip(self, request))]
     pub async fn get_friends_page(&self, user_id: &str, request: FriendListRequest) -> ApiResult<FriendListPage> {
         let room_id = self.create_friend_list_room(user_id).await?;
         let content = self
@@ -773,8 +799,7 @@ impl FriendRoomService {
         let page_key = request
             .from
             .as_ref()
-            .map(|cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)))
-            .unwrap_or_else(|| format!("offset:{}", request.offset.unwrap_or(0)));
+            .map_or_else(|| format!("offset:{}", request.offset.unwrap_or(0)), |cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)));
         let cache_key = format!(
             "friends:list:v3:{}:{}:{}:{}:{}",
             user_id, room_id, version, request.sort_by, page_key
@@ -847,6 +872,7 @@ impl FriendRoomService {
         Ok(page)
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn sync_dm_room_membership_change(
         &self,
         dm_room_id: &str,
@@ -911,6 +937,7 @@ impl FriendRoomService {
     }
 
     /// 处理收到的好友请求 (Federation)
+    #[::tracing::instrument(skip(self, content))]
     pub async fn handle_incoming_friend_request(
         &self,
         user_id: &str,
@@ -1181,7 +1208,7 @@ impl FriendRoomService {
             _ => left
                 .sort_letter
                 .cmp(&right.sort_letter)
-                .then_with(|| Self::friend_display_key(left).cmp(&Self::friend_display_key(right)))
+                .then_with(|| Self::friend_display_key(left).cmp(Self::friend_display_key(right)))
                 .then_with(|| left.user_id.cmp(&right.user_id)),
         }
     }

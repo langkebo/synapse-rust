@@ -173,14 +173,14 @@ impl CrossSigningService {
         _key_id: &str,
         signature: &serde_json::Value,
     ) -> Result<(), ApiError> {
-        let key = self.storage.get_cross_signing_key(user_id, "master").await?;
+        let key: Option<CrossSigningKey> = self.storage.get_cross_signing_key(user_id, "master").await?;
         if let Some(mut k) = key {
-            let signatures = k
+            let signatures: serde_json::Map<String, serde_json::Value> = k
                 .signatures
                 .as_object()
                 .ok_or_else(|| ApiError::internal("Invalid signatures format".to_string()))?
                 .clone();
-            let mut sig_map = signatures;
+            let mut sig_map: serde_json::Map<String, serde_json::Value> = signatures;
             sig_map.insert(user_id.to_string(), signature.clone());
             k.signatures = serde_json::Value::Object(sig_map);
             k.updated_ts = Utc::now();

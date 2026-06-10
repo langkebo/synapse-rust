@@ -102,6 +102,83 @@ impl KeyRequestStorage {
         })
     }
 
+    pub async fn get_requests_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<&str>,
+        status_filter: Option<&str>,
+        room_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+        let mut query = sqlx::QueryBuilder::new(
+            r#"
+            SELECT
+                request_id,
+                user_id,
+                device_id,
+                room_id,
+                session_id,
+                algorithm,
+                action,
+                created_ts,
+                COALESCE(is_fulfilled, FALSE) AS is_fulfilled,
+                fulfilled_by_device,
+                fulfilled_ts
+            FROM e2ee_key_requests
+            WHERE user_id = "#,
+        );
+        query.push_bind(user_id);
+
+        if let Some(room) = room_id {
+            query.push(" AND room_id = ");
+            query.push_bind(room);
+        }
+
+        if let Some(session) = session_id {
+            query.push(" AND session_id = ");
+            query.push_bind(session);
+        }
+
+        if let Some(status) = status_filter {
+            match status {
+                "pending" => {
+                    query.push(" AND is_fulfilled = FALSE");
+                }
+                "fulfilled" => {
+                    query.push(" AND is_fulfilled = TRUE");
+                }
+                "cancelled" => {
+                    query.push(" AND (action = 'cancelled' OR action = 'cancellation')");
+                }
+                _ => {}
+            }
+        }
+
+        if let (Some(ts), Some(id)) = (from_ts, from_id) {
+            query.push(" AND (created_ts < ");
+            query.push_bind(ts);
+            query.push(" OR (created_ts = ");
+            query.push_bind(ts);
+            query.push(" AND request_id < ");
+            query.push_bind(id);
+            query.push("))");
+        }
+
+        query.push(" ORDER BY created_ts DESC, request_id DESC LIMIT ");
+        query.push_bind(limit);
+
+        query
+            .build_query_as::<KeyRequestInfo>()
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Database error: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })
+    }
+
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {
         sqlx::query_as!(
             KeyRequestInfo,

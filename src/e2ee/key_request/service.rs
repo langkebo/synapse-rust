@@ -153,6 +153,21 @@ impl KeyRequestService {
         Ok(requests.into_iter().filter(|request| request_matches_status(request, status_filter)).collect())
     }
 
+    pub async fn get_requests_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<&str>,
+        status: Option<&str>,
+        room_id: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+        self.storage
+            .get_requests_paginated(user_id, limit, from_ts, from_id, status, room_id, session_id)
+            .await
+    }
+
     pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let requests = match user_id {
             Some(uid) => self.storage.get_requests_for_user(uid).await?,

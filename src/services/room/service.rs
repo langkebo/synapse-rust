@@ -6,6 +6,7 @@ use crate::common::{generate_event_id, generate_stream_token_from_ts, parse_stre
 use crate::services::*;
 use crate::storage::CreateEventParams;
 use crate::storage::UserStorage;
+use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -122,6 +123,7 @@ impl RoomService {
         })
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn cleanup_completed_tasks(&self) -> usize {
         let mut tasks = self.active_tasks.write().await;
         tasks.retain(|_key, handle| !handle.is_finished());
@@ -146,6 +148,7 @@ impl RoomService {
         }
     }
 
+    #[::tracing::instrument(skip(self, content))]
     pub async fn send_message(
         &self,
         room_id: &str,
@@ -335,6 +338,7 @@ impl RoomService {
         }))
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         if !self
             .room_storage
@@ -354,11 +358,17 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let effective_join_rule = if let Some(event) = self
+        let state_events_res = self
             .event_storage
             .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
+            .await;
+        
+        let state_events = match state_events_res {
+            Ok(events) => events,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to load room join rules", &e)),
+        };
+
+        let effective_join_rule = if let Some(event) = state_events
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
@@ -432,6 +442,7 @@ impl RoomService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn leave_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
         self.member_storage
             .remove_member(room_id, user_id)
@@ -517,11 +528,15 @@ impl RoomService {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
-        let members_with_profiles = self
+        let members_res = self
             .member_storage
             .get_room_members_with_profiles(room_id, "join")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get members", &e))?;
+            .await;
+        
+        let members_with_profiles = match members_res {
+            Ok(m) => m,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get members", &e)),
+        };
 
         let chunk: Vec<serde_json::Value> = members_with_profiles
             .iter()
@@ -769,11 +784,17 @@ impl RoomService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
-        let effective_join_rule = if let Some(event) = self
+        let state_events_res = self
             .event_storage
             .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
+            .await;
+        
+        let state_events = match state_events_res {
+            Ok(events) => events,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to load room join rules", &e)),
+        };
+
+        let effective_join_rule = if let Some(event) = state_events
             .into_iter()
             .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
@@ -1155,7 +1176,8 @@ impl RoomService {
     }
 
     pub async fn get_pinned_event_ids(&self, room_id: &str) -> ApiResult<Vec<String>> {
-        let state_events = self.get_state_events_by_type(room_id, "m.room.pinned_events").await?;
+        let state_events: Vec<serde_json::Value> =
+            self.get_state_events_by_type(room_id, "m.room.pinned_events").await?;
         let pinned = state_events
             .first()
             .and_then(|event| event.get("content"))
@@ -1328,31 +1350,36 @@ impl RoomService {
     }
 
     pub async fn get_user_room_list(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let rooms = sqlx::query!(
+        let rooms_res = sqlx::query(
             r#"
-            SELECT rm.room_id AS "room_id!", rm.membership AS "membership!",
-                   COALESCE(r.name, '') AS "name!",
-                   COALESCE(r.avatar_url, '') AS "avatar_url!",
-                   rm.updated_ts AS "updated_ts?"
+            SELECT rm.room_id, rm.membership,
+                   COALESCE(r.name, '') AS name,
+                   COALESCE(r.avatar_url, '') AS avatar_url,
+                   rm.updated_ts
             FROM room_memberships rm
             LEFT JOIN rooms r ON rm.room_id = r.room_id
             WHERE rm.user_id = $1
             ORDER BY rm.updated_ts DESC
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&*self.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get user rooms", &e))?;
+        .await;
+        
+        let rooms = match rooms_res {
+            Ok(r) => r,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get user rooms", &e)),
+        };
 
         Ok(rooms
             .into_iter()
             .map(|row| {
+                use sqlx::Row;
                 json!({
-                    "room_id": row.room_id,
-                    "membership": row.membership,
-                    "name": row.name,
-                    "avatar_url": row.avatar_url
+                    "room_id": row.get::<String, _>("room_id"),
+                    "membership": row.get::<String, _>("membership"),
+                    "name": row.get::<String, _>("name"),
+                    "avatar_url": row.get::<String, _>("avatar_url")
                 })
             })
             .collect())
@@ -1366,10 +1393,10 @@ impl RoomService {
     }
 
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
-        let count = sqlx::query_scalar!(
-            r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
-            room_id,
+        let count = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COALESCE(COUNT(*), 0) FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
         )
+        .bind(room_id)
         .fetch_one(&*self.room_storage.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get invited members count", &e))?;
@@ -1387,35 +1414,44 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-        let is_encrypted = sqlx::query!(
-            r#"SELECT 1 AS "_exists" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
-            room_id,
+        let is_encrypted_res = sqlx::query_scalar::<sqlx::Postgres, i32>(
+            r#"SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
         )
+        .bind(room_id)
         .fetch_optional(&*self.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room encryption", &e))?
-        .is_some();
+        .await;
+        
+        let is_encrypted = match is_encrypted_res {
+            Ok(res) => res.is_some(),
+            Err(e) => return Err(ApiError::internal_with_log("Failed to check room encryption", &e)),
+        };
 
-        let encryption_content = sqlx::query!(
-            r#"SELECT content AS "content!" FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
-            room_id,
+        let encryption_content_res = sqlx::query_scalar::<sqlx::Postgres, serde_json::Value>(
+            r#"SELECT content FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
         )
+        .bind(room_id)
         .fetch_optional(&*self.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get encryption event content", &e))?;
+        .await;
+        
+        let encryption_content = match encryption_content_res {
+            Ok(content) => content,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get encryption event content", &e)),
+        };
 
         Ok(crate::storage::room::RoomEncryptionStatus::from_encryption_event(
             is_encrypted,
             if is_encrypted {
                 encryption_content
                     .as_ref()
-                    .and_then(|row| row.content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .and_then(|content| content.get("algorithm").and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .or_else(|| room.encryption.clone())
             } else {
                 None
             },
-            encryption_content.as_ref().and_then(|row| row.content.get("rotation_period_ms").and_then(|v| v.as_i64())),
-            encryption_content.as_ref().and_then(|row| row.content.get("rotation_period_msgs").and_then(|v| v.as_i64())),
+            encryption_content.as_ref().and_then(|content| content.get("rotation_period_ms").and_then(|v| v.as_i64())),
+            encryption_content
+                .as_ref()
+                .and_then(|content| content.get("rotation_period_msgs").and_then(|v| v.as_i64())),
         ))
     }
 
@@ -1531,7 +1567,7 @@ impl RoomService {
             ..Default::default()
         };
 
-        let replacement_room = self.create_room(user_id, create_config).await?;
+        let replacement_room: serde_json::Value = self.create_room(user_id, create_config).await?;
         let new_room_id = replacement_room
             .get("room_id")
             .and_then(|value| value.as_str())
@@ -1756,11 +1792,15 @@ impl RoomService {
         let state_key = params.state_key.clone();
         let should_update_summary = tx.is_none();
 
-        let event = self
+        let event_res = self
             .event_storage
             .create_event(params, tx)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create event", &e))?;
+            .await;
+        
+        let event = match event_res {
+            Ok(e) => e,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to create event", &e)),
+        };
 
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());

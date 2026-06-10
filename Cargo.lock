@@ -4608,6 +4608,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "synapse-common",
  "tempfile",
  "textwrap",
  "thiserror",

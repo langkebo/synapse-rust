@@ -169,7 +169,7 @@ impl WorkerStorage {
         let config = request.config.unwrap_or(serde_json::json!({}));
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as!(WorkerRow,
+        let row: WorkerRow = sqlx::query_as!(WorkerRow,
             r#"
             INSERT INTO workers (
                 worker_id, worker_name, worker_type, host, port, status, started_ts, config, metadata, version
@@ -200,7 +200,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_worker(&self, worker_id: &str) -> Result<Option<WorkerInfo>, sqlx::Error> {
-        let row = sqlx::query_as!(WorkerRow,
+        let row: Option<WorkerRow> = sqlx::query_as!(WorkerRow,
             r#"SELECT id as "id!", worker_id as "worker_id!", worker_name as "worker_name!",
                       worker_type as "worker_type!", host as "host!", port as "port!",
                       status as "status!", last_heartbeat_ts as "last_heartbeat_ts?",
@@ -218,7 +218,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_workers_by_type(&self, worker_type: &str) -> Result<Vec<WorkerInfo>, sqlx::Error> {
-        let rows = sqlx::query_as!(WorkerRow,
+        let rows: Vec<WorkerRow> = sqlx::query_as!(WorkerRow,
             r#"SELECT id as "id!", worker_id as "worker_id!", worker_name as "worker_name!",
                       worker_type as "worker_type!", host as "host!", port as "port!",
                       status as "status!", last_heartbeat_ts as "last_heartbeat_ts?",
@@ -236,7 +236,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>, sqlx::Error> {
-        let rows = sqlx::query_as!(WorkerRow,
+        let rows: Vec<WorkerRow> = sqlx::query_as!(WorkerRow,
             r#"SELECT id as "id!", worker_id as "worker_id!", worker_name as "worker_name!",
                       worker_type as "worker_type!", host as "host!", port as "port!",
                       status as "status!", last_heartbeat_ts as "last_heartbeat_ts?",
@@ -300,7 +300,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
         let command_id = uuid::Uuid::new_v4().to_string();
 
-        let row = sqlx::query_as!(WorkerCommandRow,
+        let row: WorkerCommandRow = sqlx::query_as!(WorkerCommandRow,
             r#"
             INSERT INTO worker_commands (
                 command_id, target_worker_id, command_type, command_data, priority, status, created_ts, max_retries
@@ -328,7 +328,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_pending_commands(&self, worker_id: &str, limit: i64) -> Result<Vec<WorkerCommand>, sqlx::Error> {
-        let rows = sqlx::query_as!(WorkerCommandRow,
+        let rows: Vec<WorkerCommandRow> = sqlx::query_as!(WorkerCommandRow,
             r#"
             SELECT id as "id!", command_id as "command_id!", target_worker_id as "target_worker_id!",
                       source_worker_id as "source_worker_id?", command_type as "command_type!",
@@ -524,7 +524,7 @@ impl WorkerStorage {
         let now = Utc::now().timestamp_millis();
         let task_id = uuid::Uuid::new_v4().to_string();
 
-        let row = sqlx::query_as!(WorkerTaskAssignment,
+        let row: WorkerTaskAssignment = sqlx::query_as!(WorkerTaskAssignment,
             r#"
             INSERT INTO worker_task_assignments (
                 task_id, task_type, task_data, priority, status, created_ts
@@ -551,7 +551,7 @@ impl WorkerStorage {
     }
 
     pub async fn get_pending_tasks(&self, limit: i64) -> Result<Vec<WorkerTaskAssignment>, sqlx::Error> {
-        let rows = sqlx::query_as!(WorkerTaskAssignment,
+        let rows: Vec<WorkerTaskAssignment> = sqlx::query_as!(WorkerTaskAssignment,
             r#"
             SELECT id as "id!", task_id as "task_id!", task_type as "task_type!",
                       COALESCE(task_data, '{}'::jsonb) as "task_data!",
@@ -607,7 +607,7 @@ impl WorkerStorage {
     pub async fn assign_task_to_worker(&self, task_id: &str, worker_id: &str) -> Result<bool, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let result = sqlx::query!(
+        let result: sqlx::postgres::PgQueryResult = sqlx::query!(
             r"
             UPDATE worker_task_assignments
             SET assigned_worker_id = $2, assigned_ts = $3, status = 'running'
@@ -721,29 +721,31 @@ impl WorkerStorage {
     }
 
     pub async fn get_type_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        let rows = sqlx::query!(
-            r#"SELECT worker_type as "worker_type!", total_count as "total_count!",
-                      running_count as "running_count!", starting_count as "starting_count!",
-                      stopping_count as "stopping_count!", stopped_count as "stopped_count!",
-                      avg_cpu_usage as "avg_cpu_usage?",
-                      avg_memory_usage as "avg_memory_usage?",
-                      total_connections as "total_connections?"
-               FROM worker_type_statistics"#
-        ).fetch_all(&*self.pool).await?;
+        let rows = sqlx::query(
+            r"
+            SELECT worker_type, total_count, running_count, starting_count,
+                   stopping_count, stopped_count, avg_cpu_usage, avg_memory_usage,
+                   total_connections
+            FROM worker_type_statistics
+            ",
+        )
+        .fetch_all(&*self.pool)
+        .await?;
 
         Ok(rows
             .into_iter()
             .map(|row| {
+                use sqlx::Row;
                 serde_json::json!({
-                    "worker_type": row.worker_type,
-                    "total_count": row.total_count,
-                    "running_count": row.running_count,
-                    "starting_count": row.starting_count,
-                    "stopping_count": row.stopping_count,
-                    "stopped_count": row.stopped_count,
-                    "avg_cpu_usage": row.avg_cpu_usage,
-                    "avg_memory_usage": row.avg_memory_usage,
-                    "total_connections": row.total_connections,
+                    "worker_type": row.get::<String, _>("worker_type"),
+                    "total_count": row.get::<i64, _>("total_count"),
+                    "running_count": row.get::<i64, _>("running_count"),
+                    "starting_count": row.get::<i64, _>("starting_count"),
+                    "stopping_count": row.get::<i64, _>("stopping_count"),
+                    "stopped_count": row.get::<i64, _>("stopped_count"),
+                    "avg_cpu_usage": row.get::<Option<f64>, _>("avg_cpu_usage"),
+                    "avg_memory_usage": row.get::<Option<f64>, _>("avg_memory_usage"),
+                    "total_connections": row.get::<Option<i64>, _>("total_connections"),
                 })
             })
             .collect())

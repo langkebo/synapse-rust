@@ -396,7 +396,7 @@ pub(super) async fn make_join(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 
@@ -508,7 +508,7 @@ pub(super) async fn send_join(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 
@@ -654,7 +654,7 @@ pub(super) async fn send_join_v2(
     super::decrement_gauge(&state, "federation_join_in_flight");
     match &result {
         Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(ApiError::RateLimitedWithRetry(_)) => super::increment_counter(&state, "federation_join_429_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
         Err(_) => super::increment_counter(&state, "federation_join_error_total"),
     }
 

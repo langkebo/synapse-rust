@@ -423,11 +423,9 @@ impl PushNotificationStorage {
         &self,
         request: QueueNotificationRequest,
     ) -> Result<PushNotificationQueue, ApiError> {
-        let now = Utc::now();
-        let now_ts = now.timestamp_millis();
+        let now_ts = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as!(
-            PushNotificationQueue,
+        let row = sqlx::query_as::<_, PushNotificationQueue>(
             r#"
             INSERT INTO push_notification_queue (
                 user_id, device_id, event_id, room_id, notification_type, content, priority, status, next_attempt_at, created_ts
@@ -441,16 +439,16 @@ impl PushNotificationStorage {
                 sent_at,
                 error_message
             "#,
-            &request.user_id,
-            &request.device_id,
-            request.event_id.as_deref(),
-            request.room_id.as_deref(),
-            request.notification_type.as_deref(),
-            &request.content,
-            request.priority,
-            now_ts,
-            now_ts,
         )
+        .bind(&request.user_id)
+        .bind(&request.device_id)
+        .bind(request.event_id.as_deref())
+        .bind(request.room_id.as_deref())
+        .bind(request.notification_type.as_deref())
+        .bind(&request.content)
+        .bind(request.priority)
+        .bind(now_ts)
+        .bind(now_ts)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to queue notification", &e))?;
@@ -461,8 +459,7 @@ impl PushNotificationStorage {
     pub async fn get_pending_notifications(&self, limit: i64) -> Result<Vec<PushNotificationQueue>, ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        let rows = sqlx::query_as!(
-            PushNotificationQueue,
+        let rows = sqlx::query_as::<_, PushNotificationQueue>(
             r#"
             SELECT id, user_id, device_id, event_id, room_id, notification_type,
                 content AS "content!", priority AS "priority!", status, attempts AS "attempts!",
@@ -477,9 +474,9 @@ impl PushNotificationStorage {
             LIMIT $2
             FOR UPDATE SKIP LOCKED
             "#,
-            now,
-            limit
         )
+        .bind(now)
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get pending notifications", &e))?;
@@ -490,7 +487,9 @@ impl PushNotificationStorage {
     pub async fn mark_notification_sent(&self, id: i64) -> Result<(), ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        sqlx::query!("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2", now, id)
+        sqlx::query("UPDATE push_notification_queue SET status = 'sent', sent_at = $1 WHERE id = $2")
+            .bind(now)
+            .bind(id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to mark notification sent", &e))?;
@@ -499,16 +498,14 @@ impl PushNotificationStorage {
     }
 
     pub async fn mark_notification_failed(&self, id: i64, error: &str, retry: bool) -> Result<(), ApiError> {
-        let now = Utc::now();
-
         if retry {
-            let retry_at = now.timestamp_millis() + 60000;
-            sqlx::query!(
+            let retry_at = Utc::now().timestamp_millis() + 60000;
+            sqlx::query(
                 r#"UPDATE push_notification_queue SET status = 'pending', attempts = attempts + 1, error_message = $1, next_attempt_at = $2 WHERE id = $3 AND attempts < max_attempts"#,
-                error,
-                retry_at,
-                id
             )
+            .bind(error)
+            .bind(retry_at)
+            .bind(id)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to mark notification for retry", &e))?;
@@ -530,8 +527,7 @@ impl PushNotificationStorage {
         &self,
         request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError> {
-        let row = sqlx::query_as!(
-            PushNotificationLog,
+        let row = sqlx::query_as::<_, PushNotificationLog>(
             r#"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
@@ -544,18 +540,18 @@ impl PushNotificationStorage {
                 is_success AS "is_success!: bool",
                 error_message, provider_response, response_time_ms, metadata
             "#,
-            &request.user_id,
-            &request.device_id,
-            request.event_id.as_deref(),
-            request.room_id.as_deref(),
-            request.notification_type.as_deref(),
-            &request.push_type,
-            request.is_success,
-            request.error_message.as_deref(),
-            request.provider_response.as_deref(),
-            request.response_time_ms,
-            Utc::now().timestamp_millis(),
         )
+        .bind(&request.user_id)
+        .bind(&request.device_id)
+        .bind(request.event_id.as_deref())
+        .bind(request.room_id.as_deref())
+        .bind(request.notification_type.as_deref())
+        .bind(&request.push_type)
+        .bind(request.is_success)
+        .bind(request.error_message.as_deref())
+        .bind(request.provider_response.as_deref())
+        .bind(request.response_time_ms)
+        .bind(Utc::now().timestamp_millis())
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create notification log", &e))?;
@@ -593,7 +589,8 @@ impl PushNotificationStorage {
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         let cutoff = Utc::now().timestamp_millis() - (days as i64) * 86400000;
 
-        let result = sqlx::query!("DELETE FROM push_notification_log WHERE sent_at < $1", cutoff)
+        let result = sqlx::query("DELETE FROM push_notification_log WHERE sent_at < $1")
+            .bind(cutoff)
             .execute(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup logs", &e))?;

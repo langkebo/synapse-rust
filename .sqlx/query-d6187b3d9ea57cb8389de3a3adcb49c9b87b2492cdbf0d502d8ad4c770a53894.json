@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO users (\n                user_id, username, password_hash, displayname, avatar_url,\n                is_admin, is_deactivated, user_type, created_ts, updated_ts, generation\n            )\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6187b3d9ea57cb8389de3a3adcb49c9b87b2492cdbf0d502d8ad4c770a53894"
+}

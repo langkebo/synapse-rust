@@ -612,9 +612,7 @@ mod tests {
         let error = body.into_request().expect_err("missing sender should fail");
 
         match error {
-            ApiError::BadRequest(message) => {
-                assert!(message.contains("Missing sender or sender_localpart"));
-            }
+            e if e.is_bad_request() && e.message().contains("Missing sender or sender_localpart") => {}
             other => panic!("expected bad request error, got {other:?}"),
         }
     }

@@ -1,3 +1,4 @@
+use tracing::instrument;
 use crate::common::ApiError;
 use crate::storage::UserStorage;
 use sqlx::PgPool;
@@ -86,13 +87,13 @@ impl AdminMediaService {
         Self { pool, user_storage }
     }
 
+    #[instrument(skip(self))]
     pub async fn get_all_media(
         &self,
         limit: i64,
         cursor: Option<MediaCursor>,
     ) -> Result<AdminMediaPage, ApiError> {
-        let media = sqlx::query_as!(
-            AdminMediaRow,
+        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
                FROM media_metadata
                WHERE ($1::BIGINT IS NULL AND $2::TEXT IS NULL)
@@ -100,10 +101,10 @@ impl AdminMediaService {
                   OR (created_ts = $1 AND media_id < $2)
                ORDER BY created_ts DESC, media_id DESC
                LIMIT $3"#,
-            cursor.as_ref().map(|cursor| cursor.created_ts),
-            cursor.as_ref().map(|cursor| cursor.media_id.as_str()),
-            limit
         )
+        .bind(cursor.as_ref().map(|cursor| cursor.created_ts))
+        .bind(cursor.as_ref().map(|cursor| cursor.media_id.as_str()))
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -125,13 +126,13 @@ impl AdminMediaService {
         })
     }
 
+    #[instrument(skip(self))]
     pub async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
-        let media = sqlx::query_as!(
-            AdminMediaRow,
+        let media: Option<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
                FROM media_metadata WHERE media_id = $1"#,
-            media_id
         )
+        .bind(media_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -139,6 +140,7 @@ impl AdminMediaService {
         Ok(media.map(map_media_row))
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_media(&self, media_id: &str) -> Result<(), ApiError> {
         let result = sqlx::query!("DELETE FROM media_metadata WHERE media_id = $1", media_id)
             .execute(&*self.pool)
@@ -152,21 +154,23 @@ impl AdminMediaService {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
-        let total_size = sqlx::query_scalar!("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
+        let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
             .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .unwrap_or(0);
-        let total_count = sqlx::query_scalar!("SELECT COUNT(*)::BIGINT FROM media_metadata")
+            ;
+        let total_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::BIGINT FROM media_metadata")
             .fetch_one(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            .unwrap_or(0);
+            ;
 
         Ok(AdminMediaQuotaSummary { total_size, total_count })
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_media(&self, identifier: &str) -> Result<(String, Vec<AdminMediaInfo>), ApiError> {
         let user = self
             .user_storage
@@ -175,13 +179,12 @@ impl AdminMediaService {
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
             .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-        let media = sqlx::query_as!(
-            AdminMediaRow,
+        let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts,
-               NULL::BIGINT AS "last_accessed_at?", NULL::TEXT AS "quarantine_status?"
+               NULL::BIGINT AS last_accessed_at, NULL::TEXT AS quarantine_status
                FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"#,
-            &user.user_id
         )
+        .bind(&user.user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -189,6 +192,7 @@ impl AdminMediaService {
         Ok((user.user_id, media.into_iter().map(map_media_row).collect()))
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_user_media(&self, identifier: &str) -> Result<u64, ApiError> {
         let user = self
             .user_storage

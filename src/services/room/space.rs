@@ -192,6 +192,42 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
+    pub async fn get_space_children_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_added_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<SpaceChild>, ApiError> {
+        self.space_storage
+            .get_space_children_paginated(space_id, limit, from_added_ts, from_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space children", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, ApiError> {
+        self.space_storage
+            .get_space_members(space_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_members_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_joined_ts: Option<i64>,
+        from_user_id: Option<&str>,
+    ) -> Result<Vec<SpaceMember>, ApiError> {
+        self.space_storage
+            .get_space_members_paginated(space_id, limit, from_joined_ts, from_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))
+    }
+
+    #[instrument(skip(self))]
     pub async fn get_space_state(
         &self,
         space_id: &str,
@@ -290,14 +326,6 @@ impl SpaceService {
         }
 
         Ok(state)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_space_members(&self, space_id: &str) -> Result<Vec<SpaceMember>, ApiError> {
-        self.space_storage
-            .get_space_members(space_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))
     }
 
     #[instrument(skip(self))]
@@ -650,17 +678,25 @@ impl SpaceService {
             }
         }
 
-        let children = self
+        let children_res = self
             .space_storage
             .get_space_children(space_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space children", &e))?;
+            .await;
+        
+        let children = match children_res {
+            Ok(c) => c,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get space children", &e)),
+        };
 
-        let members = self
+        let members_res = self
             .space_storage
             .get_space_members(space_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get space members", &e))?;
+            .await;
+        
+        let members = match members_res {
+            Ok(m) => m,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get space members", &e)),
+        };
 
         let child_rooms = futures::future::join_all(children.iter().map(|child| async {
             if let Some(child_space) = self.space_storage.get_space_by_room(&child.room_id).await.ok().flatten() {

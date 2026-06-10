@@ -1,3 +1,4 @@
+use tracing::instrument;
 use crate::common::ApiError;
 use crate::services::registration_token_service::RegistrationTokenService;
 use crate::storage::refresh_token::RefreshTokenStorage;
@@ -43,6 +44,7 @@ impl AdminTokenService {
         Self { pool, token_storage, refresh_token_storage, registration_token_service }
     }
 
+    #[instrument(skip(self))]
     pub async fn create_registration_token(
         &self,
         token: Option<String>,
@@ -67,10 +69,12 @@ impl AdminTokenService {
             .await
     }
 
+    #[instrument(skip(self))]
     pub async fn get_registration_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
         self.registration_token_service.get_token(token).await
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_registration_token(&self, token: &str) -> Result<(), ApiError> {
         let existing = self
             .registration_token_service
@@ -81,6 +85,7 @@ impl AdminTokenService {
         self.registration_token_service.delete_token(existing.id).await
     }
 
+    #[instrument(skip(self))]
     pub async fn update_registration_token(
         &self,
         token: &str,
@@ -106,6 +111,7 @@ impl AdminTokenService {
             .await
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_access_tokens(&self, user_id: &str) -> Result<Vec<AdminAccessTokenInfo>, ApiError> {
         let tokens = self
             .token_storage
@@ -125,6 +131,7 @@ impl AdminTokenService {
             .collect())
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_user_access_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
         let result = sqlx::query!(
             "DELETE FROM access_tokens WHERE id = $1 AND user_id = $2",
@@ -142,6 +149,7 @@ impl AdminTokenService {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_user_refresh_tokens(&self, user_id: &str) -> Result<Vec<AdminRefreshTokenInfo>, ApiError> {
         let tokens = self
             .refresh_token_storage
@@ -161,6 +169,7 @@ impl AdminTokenService {
             .collect())
     }
 
+    #[instrument(skip(self))]
     pub async fn delete_refresh_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
         let token = self
             .refresh_token_storage

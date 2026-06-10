@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -38,17 +38,17 @@ impl ClientPushService {
     }
 
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
-        let pushers = sqlx::query!(
+        let pushers = sqlx::query(
             r#"
-            SELECT pushkey AS "pushkey!", kind AS "kind!", app_id AS "app_id!", app_display_name AS "app_display_name!", device_display_name AS "device_display_name!",
-                   profile_tag AS "profile_tag?", lang AS "lang!", data AS "data"
+            SELECT pushkey, kind, app_id, app_display_name, device_display_name,
+                   profile_tag, lang, data
             FROM pushers
             WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
             ORDER BY created_ts DESC
             "#,
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -56,15 +56,16 @@ impl ClientPushService {
         Ok(pushers
             .iter()
             .map(|row| {
+                let data = row.try_get::<Option<Value>, _>("data").ok().flatten().unwrap_or_else(|| json!({}));
                 json!({
-                    "pushkey": row.pushkey,
-                    "kind": row.kind,
-                    "app_id": row.app_id,
-                    "app_display_name": row.app_display_name,
-                    "device_display_name": row.device_display_name,
-                    "profile_tag": row.profile_tag,
-                    "lang": row.lang,
-                    "data": row.data.as_ref().unwrap_or(&json!({}))
+                    "pushkey": row.get::<String, _>("pushkey"),
+                    "kind": row.get::<String, _>("kind"),
+                    "app_id": row.get::<String, _>("app_id"),
+                    "app_display_name": row.get::<String, _>("app_display_name"),
+                    "device_display_name": row.get::<String, _>("device_display_name"),
+                    "profile_tag": row.try_get::<Option<String>, _>("profile_tag").ok().flatten(),
+                    "lang": row.get::<String, _>("lang"),
+                    "data": data
                 })
             })
             .collect())
@@ -115,24 +116,25 @@ impl ClientPushService {
     }
 
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
-        sqlx::query_scalar!(r#"SELECT content AS "content!" FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#, user_id)
+        sqlx::query_scalar::<_, Value>(r#"SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#)
+            .bind(user_id)
             .fetch_optional(&*self.pool)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
     }
 
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
-        let rules = sqlx::query!(
+        let rules = sqlx::query(
             r#"
-            SELECT rule_id AS "rule_id!", pattern AS "pattern?", conditions AS "conditions", actions AS "actions", is_enabled AS "is_enabled!", is_default AS "is_default!"
+            SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
             FROM push_rules
             WHERE user_id = $1 AND scope = $2 AND kind = $3
             ORDER BY priority DESC, created_ts ASC
             "#,
-            user_id,
-            scope,
-            kind,
         )
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -140,13 +142,14 @@ impl ClientPushService {
         Ok(rules
             .iter()
             .map(|row| {
+                let actions = row.try_get::<Option<Value>, _>("actions").ok().flatten().unwrap_or_else(|| json!([]));
                 json!({
-                    "rule_id": row.rule_id,
-                    "default": row.is_default,
-                    "enabled": row.is_enabled,
-                    "pattern": row.pattern,
-                    "conditions": row.conditions,
-                    "actions": row.actions.as_ref().unwrap_or(&json!([])).clone()
+                    "rule_id": row.get::<String, _>("rule_id"),
+                    "default": row.get::<bool, _>("is_default"),
+                    "enabled": row.get::<bool, _>("is_enabled"),
+                    "pattern": row.try_get::<Option<String>, _>("pattern").ok().flatten(),
+                    "conditions": row.try_get::<Option<Value>, _>("conditions").ok().flatten(),
+                    "actions": actions
                 })
             })
             .collect())
@@ -154,22 +157,22 @@ impl ClientPushService {
 
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
             ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
                 pattern = $5, conditions = $6, actions = $7
             ",
-            request.user_id,
-            request.scope,
-            request.kind,
-            request.rule_id,
-            request.pattern.as_deref(),
-            request.conditions.as_ref(),
-            &request.actions,
-            now,
         )
+        .bind(request.user_id)
+        .bind(request.scope)
+        .bind(request.kind)
+        .bind(request.rule_id)
+        .bind(request.pattern.as_deref())
+        .bind(request.conditions.as_ref())
+        .bind(&request.actions)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
@@ -225,13 +228,13 @@ impl ClientPushService {
         kind: &str,
         rule_id: &str,
     ) -> Result<Option<bool>, ApiError> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT is_enabled AS "is_enabled!" FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"#,
-            user_id,
-            scope,
-            kind,
-            rule_id,
+        let result = sqlx::query_scalar::<_, bool>(
+            r#"SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"#,
         )
+        .bind(user_id)
+        .bind(scope)
+        .bind(kind)
+        .bind(rule_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -261,17 +264,17 @@ impl ClientPushService {
     }
 
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
-        let notifications = sqlx::query!(
+        let notifications = sqlx::query(
             r#"
-            SELECT id AS "id!", event_id AS "event_id?", room_id AS "room_id?", ts AS "ts?", notification_type AS "notification_type?", is_read AS "is_read?"
+            SELECT id, event_id, room_id, ts, notification_type, is_read
             FROM notifications
             WHERE user_id = $1
             ORDER BY ts DESC
             LIMIT $2
             "#,
-            user_id,
-            limit,
         )
+        .bind(user_id)
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -280,12 +283,12 @@ impl ClientPushService {
             .iter()
             .map(|row| {
                 json!({
-                    "notification_id": row.id,
-                    "event_id": row.event_id,
-                    "room_id": row.room_id,
-                    "ts": row.ts,
-                    "profile_tag": row.notification_type,
-                    "read": row.is_read.unwrap_or(false)
+                    "notification_id": row.get::<i64, _>("id"),
+                    "event_id": row.try_get::<Option<String>, _>("event_id").ok().flatten(),
+                    "room_id": row.try_get::<Option<String>, _>("room_id").ok().flatten(),
+                    "ts": row.try_get::<Option<i64>, _>("ts").ok().flatten(),
+                    "profile_tag": row.try_get::<Option<String>, _>("notification_type").ok().flatten(),
+                    "read": row.try_get::<Option<bool>, _>("is_read").ok().flatten().unwrap_or(false)
                 })
             })
             .collect())

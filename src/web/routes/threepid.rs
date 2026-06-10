@@ -63,11 +63,11 @@ pub async fn request_token(
         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("")
     );
 
-    let token = generate_token();
-    let now = chrono::Utc::now().timestamp_millis();
-    let expires_at = now + 3_600_000; // 1 hour
+    let token: String = generate_token();
+    let now: i64 = chrono::Utc::now().timestamp_millis();
+    let expires_at: i64 = now + 3_600_000; // 1 hour
 
-    let _id = state
+    let _id: i64 = state
         .services
         .threepid_storage
         .create_validation_session(
@@ -100,7 +100,7 @@ pub async fn submit_token(
         return Err(ApiError::bad_request("sid, client_secret, and token are required"));
     }
 
-    let session = state
+    let session: crate::storage::threepid::ThreepidValidationSession = state
         .services
         .threepid_storage
         .get_validation_session(&req.sid, &req.client_secret, &req.token)

@@ -69,13 +69,13 @@ async fn create_session(State(state): State<AppState>, Json(body): Json<Value>) 
     let params =
         CreateRendezvousSessionParams { intent: intent_enum, transport: transport_enum, transport_data, expires_in_ms };
 
-    let session = state
+    let session: RendezvousSession = state
         .services.admin.rendezvous_storage
         .create_session(params)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
 
-    let rendezvous_url = format!("matrix://rendezvous/{}/{}", &state.services.server_name, session.session_id);
+    let rendezvous_url: String = format!("matrix://rendezvous/{}/{}", &state.services.server_name, session.session_id);
 
     Ok(Json(json!({
         "url": rendezvous_url,
@@ -177,12 +177,12 @@ async fn update_session(
     }
 
     if status == "completed" {
-        let session = load_rendezvous_session(&state, &session_id).await?;
+        let session: crate::storage::rendezvous::RendezvousSession = load_rendezvous_session(&state, &session_id).await?;
 
         if let Some(user_id) = &session.user_id {
-            let device_id = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
+            let device_id: String = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
 
-            let token = state
+            let token: String = state
                 .services
                 .auth_service
                 .generate_access_token(user_id, &device_id, false)

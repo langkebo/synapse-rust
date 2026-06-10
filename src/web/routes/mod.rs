@@ -92,6 +92,14 @@ pub mod burn_after_read;
 #[cfg(feature = "external-services")]
 pub mod external_service;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct PaginatedResponse<T> {
+    pub items: Vec<T>,
+    pub total: Option<i64>,
+    pub limit: i64,
+    pub next_batch: Option<String>,
+}
+
 pub use crate::common::ApiError;
 pub(crate) use account_compat::{
     add_threepid, change_password_uia, deactivate_account, delete_threepid, get_avatar_url, get_displayname,

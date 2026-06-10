@@ -61,12 +61,6 @@ pub mod thread_service;
 pub mod translation_service;
 
 pub mod directory_service;
-// Compatibility-only in-memory DM helper. Runtime DM semantics now converge on
-// friend_room_service plus m.direct account data, so this legacy helper is only
-// compiled for test-oriented builds. It is NO LONGER part of the pub services::*
-// surface.
-#[cfg(any(test, feature = "test-utils"))]
-pub mod dm_service;
 pub mod typing_service;
 pub mod uia_service;
 

@@ -25,7 +25,8 @@ pub(crate) async fn authorize_admin_request(
     state: &AppState,
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
-    let (user_id, device_id, is_admin, _, _) = state.services.auth_service.validate_token(&access_token).await?;
+    let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
+        state.services.auth_service.validate_token(&access_token).await?;
 
     if !is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));

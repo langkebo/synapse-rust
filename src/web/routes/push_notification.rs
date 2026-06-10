@@ -130,7 +130,7 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device = state.services.admin.push_notification_service.register_device(request).await?;
+    let device: crate::services::push_notification_service::PushDevice = state.services.admin.push_notification_service.register_device(request).await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -151,7 +151,7 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices = state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
+    let devices: Vec<crate::services::push_notification_service::PushDevice> = state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -198,7 +198,7 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule = state.services.admin.push_notification_service.create_push_rule(request).await?;
+    let rule: crate::services::push_notification_service::PushRule = state.services.admin.push_notification_service.create_push_rule(request).await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -207,7 +207,7 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules = state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
+    let rules: Vec<crate::services::push_notification_service::PushRule> = state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 
@@ -234,9 +234,10 @@ pub async fn process_queue(
     _admin: AdminUser,
     Query(query): Query<ProcessQueueQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let batch_size = query.batch_size.unwrap_or(100).clamp(1, 500);
+    let batch_size: i32 = query.batch_size.unwrap_or(100).clamp(1, 500);
 
-    let processed = state.services.admin.push_notification_service.process_pending_notifications(batch_size).await?;
+    let processed_u64: u64 = state.services.admin.push_notification_service.process_pending_notifications(batch_size).await?;
+    let processed = processed_u64 as i32;
 
     Ok(Json(serde_json::json!({
         "processed": processed,
@@ -249,9 +250,10 @@ pub async fn cleanup_logs(
     _admin: AdminUser,
     Query(query): Query<CleanupQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let days = query.days.unwrap_or(30).clamp(1, 200);
+    let days: i32 = query.days.unwrap_or(30).clamp(1, 200);
 
-    let cleaned = state.services.admin.push_notification_service.cleanup_old_logs(days).await?;
+    let cleaned_u64: u64 = state.services.admin.push_notification_service.cleanup_old_logs(days).await?;
+    let cleaned = cleaned_u64 as i32;
 
     Ok(Json(serde_json::json!({
         "cleaned": cleaned,

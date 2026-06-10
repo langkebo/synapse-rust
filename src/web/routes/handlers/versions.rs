@@ -201,6 +201,19 @@ fn build_capabilities_unstable_features() -> Value {
     })
 }
 
+fn openclaw_routes_enabled(config: &Config) -> bool {
+    #[cfg(feature = "openclaw-routes")]
+    {
+        config.experimental.openclaw_routes_enabled
+    }
+
+    #[cfg(not(feature = "openclaw-routes"))]
+    {
+        let _ = config;
+        false
+    }
+}
+
 fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     let mut capabilities = Map::new();
     let sso_providers = sso_providers(config);
@@ -217,7 +230,7 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", true);
 
     if authenticated {
-        let openclaw_enabled = cfg!(feature = "openclaw-routes") && config.experimental.openclaw_routes_enabled;
+        let openclaw_enabled = openclaw_routes_enabled(config);
 
         capabilities.insert("io.hula.friends".to_string(), json!(cfg!(feature = "friends")));
         capabilities.insert(
@@ -375,7 +388,9 @@ mod tests {
     fn test_capabilities_authenticated_surface_tracks_config_and_feature_flags() {
         let mut config = Config::default();
         config.saml.enabled = true;
-        config.experimental.openclaw_routes_enabled = false;
+        if cfg!(feature = "openclaw-routes") {
+            config.experimental.openclaw_routes_enabled = false;
+        }
 
         let body = build_capabilities_response(&config, true);
         let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT data AS \"data!\" FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "data!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2ce361cbe72439bf22ddc5cab8d6b3500872bbaa61ec43e73ceebb0db8e344c2"
+}

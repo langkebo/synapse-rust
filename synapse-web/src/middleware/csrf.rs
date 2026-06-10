@@ -84,14 +84,14 @@ pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Bod
         let origin = request_origin.unwrap_or_default();
         if !same_origin(&origin, &headers) && !is_origin_allowed(&origin) {
             tracing::warn!("CSRF origin rejected: {}", origin);
-            return ApiError::Forbidden("Cross-site requests are not allowed".to_string()).into_response();
+            return ApiError::forbidden("Cross-site requests are not allowed").into_response();
         }
 
         let csrf_token = headers.get("x-csrf-token").and_then(|value| value.to_str().ok());
 
         match (session_id.as_deref(), csrf_token) {
             (Some(session), Some(token)) if csrf_manager.validate_token(token, session) => {}
-            _ => return ApiError::Forbidden("Missing or invalid CSRF token".to_string()).into_response(),
+            _ => return ApiError::forbidden("Missing or invalid CSRF token").into_response(),
         }
     }
 

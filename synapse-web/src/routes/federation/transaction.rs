@@ -100,7 +100,7 @@ pub(super) async fn send_transaction(
             .await;
 
             if let Err(error) = edu_processing {
-                if matches!(error, ApiError::RateLimitedWithRetry(_)) {
+                if error.is_rate_limited() {
                     super::increment_counter(&state, "federation_inbound_edu_limited_total");
                 } else {
                     super::increment_counter(&state, "federation_inbound_edu_error_total");

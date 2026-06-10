@@ -26,6 +26,7 @@ impl FriendRoomService {
     }
 
     /// 更新好友备注
+    #[::tracing::instrument(skip(self))]
     pub async fn update_friend_note(&self, user_id: &str, friend_id: &str, note: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -60,6 +61,7 @@ impl FriendRoomService {
     }
 
     /// 更新好友状态 (favorite, normal, blocked, hidden)
+    #[::tracing::instrument(skip(self))]
     pub async fn update_friend_status(&self, user_id: &str, friend_id: &str, status: &str) -> ApiResult<()> {
         let valid_statuses = ["favorite", "normal", "blocked", "hidden"];
         if !valid_statuses.contains(&status) {
@@ -104,6 +106,7 @@ impl FriendRoomService {
     }
 
     /// 更新好友显示名
+    #[::tracing::instrument(skip(self))]
     pub async fn update_friend_displayname(&self, user_id: &str, friend_id: &str, displayname: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -139,6 +142,7 @@ impl FriendRoomService {
     }
 
     /// 获取好友详细信息
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friend_info(&self, user_id: &str, friend_id: &str) -> ApiResult<Option<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         self.friend_storage
@@ -148,6 +152,7 @@ impl FriendRoomService {
     }
 
     /// 获取好友状态
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friend_status(&self, user_id: &str, friend_id: &str) -> ApiResult<serde_json::Value> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -169,6 +174,7 @@ impl FriendRoomService {
     }
 
     /// 检查好友关系
+    #[::tracing::instrument(skip(self))]
     pub async fn check_friendship(&self, user_id: &str, target_id: &str) -> ApiResult<bool> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         self.friend_storage
@@ -178,6 +184,7 @@ impl FriendRoomService {
     }
 
     /// 获取好友推荐
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friend_suggestions(&self, user_id: &str, limit: Option<i64>) -> ApiResult<Vec<serde_json::Value>> {
         let _friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -232,6 +239,7 @@ impl FriendRoomService {
     }
 
     /// 查询任意用户的好友列表 (支持本地和远程)
+    #[::tracing::instrument(skip(self))]
     pub async fn query_user_friends(&self, requester_id: &str, target_user_id: &str) -> ApiResult<Vec<String>> {
         if requester_id != target_user_id {
             return Err(ApiError::forbidden("You can only query your own friend list".to_string()));
@@ -256,6 +264,7 @@ impl FriendRoomService {
     }
 
     /// 创建好友分组
+    #[::tracing::instrument(skip(self))]
     pub async fn create_friend_group(&self, user_id: &str, name: &str) -> ApiResult<serde_json::Value> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let group_id = format!("group_{}_{}", chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4());
@@ -286,6 +295,7 @@ impl FriendRoomService {
     }
 
     /// 删除好友分组
+    #[::tracing::instrument(skip(self))]
     pub async fn delete_friend_group(&self, user_id: &str, group_id: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let mut groups = self
@@ -310,6 +320,7 @@ impl FriendRoomService {
     }
 
     /// 重命名好友分组
+    #[::tracing::instrument(skip(self))]
     pub async fn rename_friend_group(&self, user_id: &str, group_id: &str, new_name: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let mut groups = self
@@ -340,6 +351,7 @@ impl FriendRoomService {
     }
 
     /// 添加好友到分组
+    #[::tracing::instrument(skip(self))]
     pub async fn add_friend_to_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
 
@@ -387,6 +399,7 @@ impl FriendRoomService {
     }
 
     /// 从分组中移除好友
+    #[::tracing::instrument(skip(self))]
     pub async fn remove_friend_from_group(&self, user_id: &str, group_id: &str, friend_id: &str) -> ApiResult<()> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let mut groups = self
@@ -419,6 +432,7 @@ impl FriendRoomService {
     }
 
     /// 获取所有好友分组
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friend_groups(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let groups = self
@@ -437,6 +451,7 @@ impl FriendRoomService {
     }
 
     /// 获取用户所在的分组
+    #[::tracing::instrument(skip(self))]
     pub async fn get_groups_for_user(&self, user_id: &str, friend_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let groups = self
@@ -464,6 +479,7 @@ impl FriendRoomService {
     }
 
     /// 获取分组中的好友
+    #[::tracing::instrument(skip(self))]
     pub async fn get_friends_in_group(&self, user_id: &str, group_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let friend_room = self.create_friend_list_room(user_id).await?;
         let groups = self

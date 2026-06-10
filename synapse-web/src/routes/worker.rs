@@ -584,9 +584,7 @@ mod tests {
         let error = body.into_request().expect_err("invalid worker type should fail");
 
         match error {
-            ApiError::BadRequest(message) => {
-                assert!(message.contains("unknown"));
-            }
+            e if e.is_bad_request() && e.message().contains("unknown") => {}
             other => panic!("expected bad request error, got {other:?}"),
         }
     }

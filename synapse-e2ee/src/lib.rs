@@ -17,7 +17,7 @@ pub mod vodozemac_megolm;
 // 跨客户端互操作测试（Phase 3）。所有 case 需 `E2EE_INTEROP=1` 显式启用，
 // 不会拖慢默认 `cargo test` 速度；本地 Element 互操作通过
 // `.github/workflows/e2ee-interop.yml` 跑。
-#[cfg(all(test, feature = "vodozemac-megolm"))]
+#[cfg(test)]
 mod vodozemac_interop_tests;
 
 // Explicit exports for backup module
@@ -42,10 +42,7 @@ pub use cross_signing::models::DeviceKeyVerificationResult;
 pub use cross_signing::models::VerifiedDevicesMap;
 pub use cross_signing::service::CrossSigningService;
 pub use cross_signing::storage::CrossSigningStorage;
-pub use crypto::aes::*;
-pub use crypto::argon2::*;
-pub use crypto::ed25519::*;
-pub use crypto::CryptoError;
+pub use crypto::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce, CryptoError, Ed25519KeyPair, Ed25519PublicKey};
 pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
 // Explicit exports for device_trust

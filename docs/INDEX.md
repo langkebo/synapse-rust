@@ -134,7 +134,7 @@
 | 工作流 | 触发条件 | 用途 | 关联 |
 |--------|----------|------|------|
 | [`ci.yml`](../.github/workflows/ci.yml) | PR / push / 周一 02:00 UTC | 主 CI（含 `scripts/ci/supply_chain_gate.sh`） | Step 10 |
-| [`e2ee-interop.yml`](../.github/workflows/e2ee-interop.yml) | PR (src/e2ee/**) / 周日 02:00 UTC / 手动 | C-5 Phase 3 vodozemac 互操作 | C-5 |
+| [`e2ee-interop.yml`](../.github/workflows/e2ee-interop.yml) | PR (src/e2ee/**) / 周日 02:00 UTC / 手动 | C-5 Phase 3 vodozemac 互操作（含 `matrix-js-sdk` real-backend verification + 最小 Element Web 浏览器登录 smoke） | C-5 |
 | [`mutation-testing.yml`](../.github/workflows/mutation-testing.yml) | 每日 03:00 UTC / 手动 | cargo-mutants（nightly，非阻塞） | Step 10 |
 | [`schema-health-check.yml`](../.github/workflows/schema-health-check.yml) | PR (migrations/**) | Schema 漂移检测（M-3 替代门禁） | M-3 |
 | [`db-migration-gate.yml`](../.github/workflows/db-migration-gate.yml) | PR (migrations/**) | 迁移文件门禁 | Step 7.5 |

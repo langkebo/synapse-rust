@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::common::ApiError;
 use synapse_rust::services::admin_audit_service::AdminAuditService;
 use synapse_rust::services::feature_flag_service::FeatureFlagService;
 use synapse_rust::storage::audit::AuditEventStorage;
@@ -126,7 +125,7 @@ async fn test_create_flag_empty_flag_key() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("flag_key is required")));
+    assert!(err.is_bad_request() && err.message().contains("flag_key is required"));
 }
 
 #[tokio::test]
@@ -168,7 +167,7 @@ async fn test_create_flag_uppercase_flag_key() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("flag_key must use lowercase")));
+    assert!(err.is_bad_request() && err.message().contains("flag_key must use lowercase"));
 }
 
 #[tokio::test]
@@ -235,7 +234,7 @@ async fn test_create_flag_invalid_target_scope() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("target_scope must be one of")));
+    assert!(err.is_bad_request() && err.message().contains("target_scope must be one of"));
 }
 
 #[tokio::test]
@@ -281,11 +280,11 @@ async fn test_create_flag_rollout_percent_negative() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("rollout_percent must be between 0 and 100")));
+    assert!(err.is_bad_request() && err.message().contains("rollout_percent must be between 0 and 100"));
 }
 
 #[tokio::test]
-async fn test_create_flag_rollout_percent_101() {
+async fn test_create_flag_valid_rollout_percent() {
     let pool = match setup_test_database().await {
         Some(pool) => pool,
         None => return,
@@ -371,7 +370,7 @@ async fn test_create_flag_invalid_status() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("unsupported feature flag status")));
+    assert!(err.is_bad_request() && err.message().contains("unsupported feature flag status"));
 }
 
 #[tokio::test]
@@ -427,7 +426,7 @@ async fn test_create_flag_empty_reason() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("reason is required")));
+    assert!(err.is_bad_request() && err.message().contains("reason is required"));
 }
 
 #[tokio::test]
@@ -474,7 +473,7 @@ async fn test_create_flag_invalid_target_subject_type() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("subject_type must be one of")));
+    assert!(err.is_bad_request() && err.message().contains("subject_type must be one of"));
 }
 
 #[tokio::test]
@@ -497,7 +496,7 @@ async fn test_create_flag_empty_target_subject_id() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("subject_id is required")));
+    assert!(err.is_bad_request() && err.message().contains("subject_id is required"));
 }
 
 #[tokio::test]
@@ -523,7 +522,7 @@ async fn test_create_flag_duplicate_targets() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("duplicated feature flag target")));
+    assert!(err.is_bad_request() && err.message().contains("duplicated feature flag target"));
 }
 
 #[tokio::test]
@@ -548,7 +547,7 @@ async fn test_create_flag_expired_expiration() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(
-        matches!(err, ApiError::BadRequest(msg) if msg.contains("expires_at must be greater than current timestamp"))
+        err.is_bad_request() && err.message().contains("expires_at must be greater than current timestamp")
     );
 }
 
@@ -664,7 +663,7 @@ async fn test_create_flag_duplicate_key_returns_conflict() {
     let result = service.create_flag("@admin:test", "req-2", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::Conflict(msg) if msg.contains("feature flag already exists")));
+    assert!(err.is_conflict() && err.message().contains("feature flag already exists"));
 }
 
 #[tokio::test]
@@ -677,7 +676,7 @@ async fn test_get_flag_empty_key() {
     let result = service.get_flag("").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("flag_key is required")));
+    assert!(err.is_bad_request() && err.message().contains("flag_key is required"));
 }
 
 #[tokio::test]
@@ -690,7 +689,7 @@ async fn test_get_flag_not_found() {
     let result = service.get_flag("nonexistent.flag").await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::NotFound(msg) if msg.contains("feature flag not found")));
+    assert!(err.is_not_found() && err.message().contains("feature flag not found"));
 }
 
 #[tokio::test]
@@ -730,7 +729,7 @@ async fn test_update_flag_empty_key() {
     let result = service.update_flag("@admin:test", "req-1", "", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("flag_key is required")));
+    assert!(err.is_bad_request() && err.message().contains("flag_key is required"));
 }
 
 #[tokio::test]
@@ -759,7 +758,7 @@ async fn test_update_flag_invalid_status() {
     let result = service.update_flag("@admin:test", "req-2", &flag_key, request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("unsupported feature flag status")));
+    assert!(err.is_bad_request() && err.message().contains("unsupported feature flag status"));
 }
 
 #[tokio::test]
@@ -840,7 +839,7 @@ async fn test_update_flag_not_found() {
     let result = service.update_flag("@admin:test", "req-1", "nonexistent.key", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::NotFound(msg) if msg.contains("feature flag not found")));
+    assert!(err.is_not_found() && err.message().contains("feature flag not found"));
 }
 
 #[tokio::test]
@@ -940,7 +939,7 @@ async fn test_list_flags_invalid_scope_filter() {
     let result = service.list_flags(filters).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("target_scope must be one of")));
+    assert!(err.is_bad_request() && err.message().contains("target_scope must be one of"));
 }
 
 #[tokio::test]
@@ -960,7 +959,7 @@ async fn test_list_flags_invalid_status_filter() {
     let result = service.list_flags(filters).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(matches!(err, ApiError::BadRequest(msg) if msg.contains("unsupported feature flag status")));
+    assert!(err.is_bad_request() && err.message().contains("unsupported feature flag status"));
 }
 
 #[tokio::test]

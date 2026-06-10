@@ -1,0 +1,13 @@
+{
+  "name": "element-web-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke:login": "node login-smoke.mjs",
+    "test:basic": "node basic-interactions.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.54.2"
+  }
+}

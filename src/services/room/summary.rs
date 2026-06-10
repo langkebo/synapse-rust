@@ -1,4 +1,4 @@
-use crate::common::ApiError;
+use crate::common::{ApiError, ApiResult};
 use crate::storage::event::EventStorage;
 use crate::storage::membership::RoomMemberStorage;
 pub use crate::storage::room_summary::{
@@ -26,11 +26,15 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
-        let summary = self
+        let summary_res = self
             .storage
             .get_summary(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room summary", &e))?;
+            .await;
+        
+        let summary = match summary_res {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get room summary", &e)),
+        };
 
         if let Some(summary) = summary {
             let heroes = self.get_heroes(room_id).await?;
@@ -42,11 +46,15 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
-        let summaries = self
+        let summaries_res = self
             .storage
             .get_summaries_for_user(user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get user room summaries", &e))?;
+            .await;
+        
+        let summaries = match summaries_res {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get user room summaries", &e)),
+        };
 
         let mut responses = Vec::new();
         for summary in summaries {
@@ -58,45 +66,60 @@ impl RoomSummaryService {
     }
 
     async fn get_heroes(&self, room_id: &str) -> Result<Vec<RoomSummaryHero>, ApiError> {
-        let members = self
+        let members_res = self
             .storage
             .get_heroes(room_id, 5)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get heroes", &e))?;
+            .await;
+        
+        let members = match members_res {
+            Ok(m) => m,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes", &e)),
+        };
 
         Ok(members.into_iter().map(RoomSummaryHero::from).collect())
     }
 
-    #[instrument(skip(self))]
-    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummaryResponse, ApiError> {
+    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> ApiResult<RoomSummaryResponse> {
         info!("Creating room summary for: {}", request.room_id);
 
         let room_id = request.room_id.clone();
 
-        if self
+        let summary_exists_res = self
             .storage
             .get_summary(&room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check room summary", &e))?
-            .is_some()
-        {
-            self.storage
+            .await;
+        
+        let exists = match summary_exists_res {
+            Ok(s) => s.is_some(),
+            Err(e) => return Err(ApiError::internal_with_log("Failed to check room summary", &e)),
+        };
+
+        if exists {
+            let update_res = self.storage
                 .update_summary(&room_id, Self::create_request_to_update_request(&request))
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update room summary", &e))?;
+                .await;
+            if let Err(e) = update_res {
+                return Err(ApiError::internal_with_log("Failed to update room summary", &e));
+            }
         } else {
-            self.storage
+            let create_res = self.storage
                 .create_summary(request)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to create room summary", &e))?;
+                .await;
+            if let Err(e) = create_res {
+                return Err(ApiError::internal_with_log("Failed to create room summary", &e));
+            }
         }
 
-        self.synchronize_room_snapshot(&room_id).await?;
+        let sync_res: ApiResult<()> = self.synchronize_room_snapshot(&room_id).await;
+        if let Err(e) = sync_res {
+            return Err(e);
+        }
 
-        self.get_summary(&room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get summary after sync", &e))?
-            .ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
+        let final_summary: Option<RoomSummaryResponse> = match self.get_summary(&room_id).await {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get summary after sync", &e)),
+        };
+        final_summary.ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
     fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
@@ -115,36 +138,51 @@ impl RoomSummaryService {
     }
 
     async fn sync_summary_state_and_members(&self, room_id: &str) -> Result<(), ApiError> {
-        let states = self
+        let states_res = self
             .event_storage
             .get_state_events(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get current state", &e))?;
+            .await;
+        
+        let states = match states_res {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get current state", &e)),
+        };
 
         info!("Syncing {} state events for room {}", states.len(), room_id);
 
         for state in states {
             let event_type_str = state.event_type.as_deref().unwrap_or("");
-            self.update_state(
+            let update_res = self.update_state(
                 room_id,
                 event_type_str,
                 state.state_key.as_deref().unwrap_or(""),
                 Some(&state.event_id),
                 state.content.clone(),
             )
-            .await?;
+            .await;
+            if let Err(e) = update_res {
+                return Err(e);
+            }
         }
 
         if let Some(member_storage) = self.member_storage.as_ref() {
-            let join_members = member_storage
+            let join_members_res = member_storage
                 .get_room_members(room_id, "join")
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get room join members", &e))?;
+                .await;
+            
+            let join_members = match join_members_res {
+                Ok(m) => m,
+                Err(e) => return Err(ApiError::internal_with_log("Failed to get room join members", &e)),
+            };
 
-            let invite_members = member_storage
+            let invite_members_res = member_storage
                 .get_room_members(room_id, "invite")
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get room invite members", &e))?;
+                .await;
+            
+            let invite_members = match invite_members_res {
+                Ok(m) => m,
+                Err(e) => return Err(ApiError::internal_with_log("Failed to get room invite members", &e)),
+            };
 
             let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
 
@@ -163,7 +201,8 @@ impl RoomSummaryService {
                 })
                 .collect();
 
-            if let Err(e) = self.storage.add_members_batch(room_id, requests).await {
+            let batch_res = self.storage.add_members_batch(room_id, requests).await;
+            if let Err(e) = batch_res {
                 warn!("Failed to batch add members during sync: {}", e);
             }
         }
@@ -172,9 +211,21 @@ impl RoomSummaryService {
     }
 
     async fn synchronize_room_snapshot(&self, room_id: &str) -> Result<(), ApiError> {
-        self.sync_summary_state_and_members(room_id).await?;
-        self.recalculate_stats(room_id).await?;
-        self.recalculate_heroes(room_id).await?;
+        let sync_res = self.sync_summary_state_and_members(room_id).await;
+        if let Err(e) = sync_res {
+            return Err(e);
+        }
+        
+        let stats_res = self.recalculate_stats(room_id).await;
+        if let Err(e) = stats_res {
+            return Err(e);
+        }
+        
+        let heroes_res = self.recalculate_heroes(room_id).await;
+        if let Err(e) = heroes_res {
+            return Err(e);
+        }
+        
         Ok(())
     }
 
@@ -382,22 +433,28 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RoomSummaryStats>, ApiError> {
-        let stats = self
+        let stats_res = self
             .storage
             .get_stats(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get stats", &e))?;
-
-        Ok(stats)
+            .await;
+        
+        match stats_res {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ApiError::internal_with_log("Failed to get stats", &e)),
+        }
     }
 
     #[instrument(skip(self))]
     pub async fn recalculate_stats(&self, room_id: &str) -> Result<RoomSummaryStats, ApiError> {
-        let events = self
+        let events_res = self
             .event_storage
             .get_room_events(room_id, i64::MAX)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get events", &e))?;
+            .await;
+        
+        let events = match events_res {
+            Ok(e) => e,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get events", &e)),
+        };
 
         let total_events = events.len() as i64;
         let total_state_events = events.iter().filter(|e| e.state_key.is_some()).count() as i64;
@@ -413,13 +470,15 @@ impl RoomSummaryService {
             })
             .count() as i64;
 
-        let stats = self
+        let stats_res = self
             .storage
             .update_stats(room_id, total_events, total_state_events, total_messages, total_media, 0)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update stats", &e))?;
-
-        Ok(stats)
+            .await;
+        
+        match stats_res {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ApiError::internal_with_log("Failed to update stats", &e)),
+        }
     }
 
     #[instrument(skip(self))]
@@ -432,25 +491,31 @@ impl RoomSummaryService {
     ) -> Result<(), ApiError> {
         let priority = if event_type.starts_with("m.room.") { 10 } else { 0 };
 
-        self.storage
+        let result = self.storage
             .queue_update(room_id, event_id, event_type, state_key, priority)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to queue update", &e))?;
-
-        Ok(())
+            .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(ApiError::internal_with_log("Failed to queue update", &e)),
+        }
     }
 
-    #[instrument(skip(self))]
-    pub async fn process_pending_updates(&self, limit: i64) -> Result<usize, ApiError> {
-        let updates = self
+    pub async fn process_pending_updates(&self, limit: i64) -> ApiResult<usize> {
+        let updates_res = self
             .storage
             .get_pending_updates(limit)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get pending updates", &e))?;
+            .await;
+        
+        let updates = match updates_res {
+            Ok(u) => u,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get pending updates", &e)),
+        };
 
         let mut processed = 0;
         for update in updates {
-            match self.process_update(&update).await {
+            let process_res: ApiResult<()> = self.process_update(&update).await;
+            match process_res {
                 Ok(_) => {
                     if let Err(e) = self.storage.mark_update_processed(update.id).await {
                         warn!("Failed to mark update processed: {}", e);
@@ -458,7 +523,8 @@ impl RoomSummaryService {
                     processed += 1;
                 }
                 Err(e) => {
-                    if let Err(err) = self.storage.mark_update_failed(update.id, &e.to_string()).await {
+                    let mark_failed_res = self.storage.mark_update_failed(update.id, &e.to_string()).await;
+                    if let Err(err) = mark_failed_res {
                         warn!("Failed to mark update failed: {}", err);
                     }
                 }
@@ -469,12 +535,16 @@ impl RoomSummaryService {
     }
 
     async fn process_update(&self, update: &RoomSummaryUpdateQueueItem) -> Result<(), ApiError> {
-        let event = self
+        let event_res = self
             .event_storage
             .get_event(&update.event_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
-            .ok_or_else(|| ApiError::not_found("Event not found"))?;
+            .await;
+        
+        let event = match event_res {
+            Ok(Some(e)) => e,
+            Ok(None) => return Err(ApiError::not_found("Event not found")),
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get event", &e)),
+        };
 
         if event.state_key.is_some() {
             self.update_state(
@@ -493,10 +563,12 @@ impl RoomSummaryService {
                 ..Default::default()
             };
 
-            self.storage
+            let update_res = self.storage
                 .update_summary(&update.room_id, request)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to update summary", &e))?;
+                .await;
+            if let Err(e) = update_res {
+                return Err(ApiError::internal_with_log("Failed to update summary", &e));
+            }
         }
 
         Ok(())
@@ -504,48 +576,62 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn increment_unread(&self, room_id: &str, highlight: bool) -> Result<(), ApiError> {
-        self.storage
+        let result = self.storage
             .increment_unread_notifications(room_id, highlight)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to increment unread", &e))?;
-
-        Ok(())
+            .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(ApiError::internal_with_log("Failed to increment unread", &e)),
+        }
     }
 
     #[instrument(skip(self))]
     pub async fn clear_unread(&self, room_id: &str) -> Result<(), ApiError> {
-        self.storage
+        let result = self.storage
             .clear_unread_notifications(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to clear unread", &e))?;
-
-        Ok(())
+            .await;
+        
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(ApiError::internal_with_log("Failed to clear unread", &e)),
+        }
     }
 
     #[instrument(skip(self))]
     pub async fn recalculate_heroes(&self, room_id: &str) -> Result<Vec<String>, ApiError> {
-        let members = self
+        let members_res = self
             .storage
             .get_hero_candidates(room_id, 5)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get heroes", &e))?;
+            .await;
+        
+        let members = match members_res {
+            Ok(m) => m,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes", &e)),
+        };
 
         let hero_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
 
-        self.storage
+        let set_hero_res = self.storage
             .set_hero_members(room_id, &hero_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update hero flags", &e))?;
+            .await;
+        if let Err(e) = set_hero_res {
+            return Err(ApiError::internal_with_log("Failed to update hero flags", &e));
+        }
 
-        let hero_users = serde_json::to_value(&hero_ids)
-            .map_err(|e| ApiError::internal_with_log("Failed to serialize heroes", &e))?;
+        let hero_users = match serde_json::to_value(&hero_ids) {
+            Ok(v) => v,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to serialize heroes", &e)),
+        };
 
         let request = UpdateRoomSummaryRequest { hero_users: Some(hero_users), ..Default::default() };
 
-        self.storage
+        let update_res = self.storage
             .update_summary(room_id, request)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update heroes", &e))?;
+            .await;
+        if let Err(e) = update_res {
+            return Err(ApiError::internal_with_log("Failed to update heroes", &e));
+        }
 
         Ok(hero_ids)
     }
@@ -553,11 +639,15 @@ impl RoomSummaryService {
     pub async fn sync_from_room(&self, room_id: &str) -> Result<RoomSummaryResponse, ApiError> {
         info!("Syncing room summary from room: {}", room_id);
 
-        let existing = self
+        let existing_res = self
             .storage
             .get_summary(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check existing summary", &e))?;
+            .await;
+        
+        let existing = match existing_res {
+            Ok(e) => e,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to check existing summary", &e)),
+        };
 
         if existing.is_none() {
             let request = CreateRoomSummaryRequest {
@@ -579,10 +669,12 @@ impl RoomSummaryService {
 
         self.synchronize_room_snapshot(room_id).await?;
 
-        self.get_summary(room_id)
-            .await
-            .transpose()
-            .unwrap_or_else(|| Err(ApiError::not_found("Room summary not found")))
+        let final_summary_res = self.get_summary(room_id).await;
+        match final_summary_res {
+            Ok(Some(s)) => Ok(s),
+            Ok(None) => Err(ApiError::not_found("Room summary not found")),
+            Err(e) => Err(e),
+        }
     }
 
     #[instrument(skip(self))]
@@ -591,11 +683,15 @@ impl RoomSummaryService {
             return Ok(Vec::new());
         }
 
-        let summaries = self
+        let summaries_res = self
             .storage
             .get_summaries_by_ids(room_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get room summaries", &e))?;
+            .await;
+        
+        let summaries = match summaries_res {
+            Ok(s) => s,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get room summaries", &e)),
+        };
 
         let mut responses = Vec::with_capacity(summaries.len());
         for summary in summaries {

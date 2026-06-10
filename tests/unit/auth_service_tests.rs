@@ -12,7 +12,7 @@ use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::crypto::is_legacy_hash;
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_rust::common::ApiError;
+use synapse_rust::common::error::MatrixErrorCode;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -63,10 +63,10 @@ fn test_auth_service_register_invalid_username() {
         let id = unique_id();
         let invalid_username = format!("user@{id}");
         let result = auth.register(&invalid_username, "password", false, None).await;
-        assert!(matches!(result, Err(ApiError::InvalidUsername(_))));
+        assert!(result.is_err() && result.unwrap_err().code_is(MatrixErrorCode::InvalidUsername));
 
         let result = auth.register("", "password", false, None).await;
-        assert!(matches!(result, Err(ApiError::MissingParam(_))));
+        assert!(result.is_err() && result.unwrap_err().code_is(MatrixErrorCode::MissingParam));
     });
 }
 

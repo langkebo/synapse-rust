@@ -430,6 +430,7 @@ pub async fn get_room_members_admin(
     _admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
         tracing::error!("Database error: {e}");
@@ -438,7 +439,23 @@ pub async fn get_room_members_admin(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let members = state.services.rooms.member_storage.get_room_members(&room_id, "join").await.map_err(|e| {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100)
+        .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let from = params.get("from").map(|s| s.as_str());
+
+    let members = state
+        .services.rooms.member_storage
+        .get_room_members_paginated(&room_id, "join", limit, from)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+    let total = state.services.rooms.member_storage.get_room_member_count(&room_id).await.map_err(|e| {
         tracing::error!("Database error: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -455,9 +472,16 @@ pub async fn get_room_members_admin(
         })
         .collect();
 
+    let next_batch = if members.len() as i64 == limit {
+        members.last().map(|m| m.user_id.clone())
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "members": member_list,
-        "total": member_list.len()
+        "total": total,
+        "next_batch": next_batch
     })))
 }
 
@@ -514,11 +538,17 @@ pub async fn get_room_messages_admin(
         .and_then(|v| v.parse().ok())
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
+    let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
+    let dir = params.get("dir").map(|s| s.as_str()).unwrap_or("b");
 
-    let events = state.services.rooms.event_storage.get_room_events(&room_id, limit).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let events = state
+        .services.rooms.event_storage
+        .get_room_events_paginated(&room_id, from, limit, dir)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
     let messages: Vec<Value> = events
         .iter()
@@ -533,10 +563,17 @@ pub async fn get_room_messages_admin(
         })
         .collect();
 
+    let next_batch = if events.len() as i64 == limit {
+        events.last().map(|e| e.origin_server_ts.to_string())
+    } else {
+        None
+    };
+
     Ok(Json(json!({
         "chunk": messages,
-        "start": params.get("from").unwrap_or(&"0".to_string()).clone(),
-        "end": messages.last().and_then(|m| m.get("event_id").and_then(|e| e.as_str()).map(|s| s.to_string()))
+        "start": from.map(|ts| ts.to_string()).unwrap_or_else(|| "0".to_string()),
+        "end": next_batch.clone().unwrap_or_default(),
+        "next_batch": next_batch
     })))
 }
 

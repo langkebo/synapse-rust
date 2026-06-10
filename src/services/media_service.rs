@@ -2,7 +2,7 @@ use crate::common::background_job::BackgroundJob;
 use crate::common::media_link_signer::MediaLinkSigner;
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::*;
-use crate::services::*;
+
 use sqlx::PgPool;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -144,6 +144,7 @@ impl MediaService {
         signer.verify(&path, signature, expires)
     }
 
+    #[::tracing::instrument(skip(self, content))]
     pub async fn upload_media(
         &self,
         user_id: &str,
@@ -208,7 +209,7 @@ impl MediaService {
         }
 
         let content_vec = content.to_vec();
-        let write_result = tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+        let write_result: Result<(), std::io::Error> = tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
             .await
             .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
 
@@ -317,11 +318,13 @@ impl MediaService {
         .unwrap_or(None)
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn download_media(&self, _server_name: &str, media_id: &str) -> Result<Vec<u8>, ApiError> {
         Self::validate_media_id(media_id)?;
         self.get_media(_server_name, media_id).await.ok_or(ApiError::not_found("Media not found".to_string()))
     }
 
+    #[::tracing::instrument(skip(self))]
     pub async fn get_thumbnail(
         &self,
         _server_name: &str,

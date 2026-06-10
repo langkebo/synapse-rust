@@ -157,8 +157,6 @@ pub struct AccountValidity {
     pub expiration_at: i64,
     pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
-    #[sqlx(skip)]
-    pub renewal_token_ts: Option<i64>,
     pub is_valid: bool,
     pub created_ts: i64,
     pub updated_ts: i64,
@@ -637,7 +635,7 @@ impl ModuleStorage {
     ) -> Result<AccountValidity, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as!(AccountValidity,
+        let row = sqlx::query_as::<_, AccountValidity>(
             r#"
             INSERT INTO account_validity (user_id, expiration_at, is_valid, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $4)
@@ -646,20 +644,19 @@ impl ModuleStorage {
                 is_valid = EXCLUDED.is_valid,
                 updated_ts = EXCLUDED.updated_ts
             RETURNING
-                user_id as "user_id!",
-                expiration_at as "expiration_at!",
-                last_check_at as "last_check_at?",
-                renewal_token as "renewal_token?",
-                NULL::BIGINT as "renewal_token_ts?",
-                is_valid as "is_valid!",
-                created_ts as "created_ts!",
-                COALESCE(updated_ts, created_ts) as "updated_ts!"
+                user_id,
+                expiration_at,
+                last_check_at,
+                renewal_token,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             "#,
-            &request.user_id,
-            request.expiration_at,
-            request.is_valid.unwrap_or(true),
-            now
         )
+        .bind(&request.user_id)
+        .bind(request.expiration_at)
+        .bind(request.is_valid.unwrap_or(true))
+        .bind(now)
         .fetch_one(&*self.pool)
         .await?;
 
@@ -668,22 +665,21 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
-        let row = sqlx::query_as!(AccountValidity,
+        let row = sqlx::query_as::<_, AccountValidity>(
             r#"
             SELECT
-                user_id as "user_id!",
-                expiration_at as "expiration_at!",
-                last_check_at as "last_check_at?",
-                renewal_token as "renewal_token?",
-                NULL::BIGINT as "renewal_token_ts?",
-                is_valid as "is_valid!",
-                created_ts as "created_ts!",
-                COALESCE(updated_ts, created_ts) as "updated_ts!"
+                user_id,
+                expiration_at,
+                last_check_at,
+                renewal_token,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             FROM account_validity
             WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -697,27 +693,28 @@ impl ModuleStorage {
         renewal_token: &str,
         new_expiration_at: i64,
     ) -> Result<AccountValidity, sqlx::Error> {
-        let row = sqlx::query_as!(AccountValidity,
+        let row: Option<AccountValidity> = sqlx::query_as::<_, AccountValidity>(
             r#"
             UPDATE account_validity SET
                 expiration_at = $3,
                 renewal_token = NULL,
-                is_valid = true
+                is_valid = true,
+                last_check_at = $4
             WHERE user_id = $1 AND renewal_token = $2
             RETURNING
-                user_id as "user_id!",
-                expiration_at as "expiration_at!",
-                last_check_at as "last_check_at?",
-                renewal_token as "renewal_token?",
-                NULL::BIGINT as "renewal_token_ts?",
-                is_valid as "is_valid!",
-                created_ts as "created_ts!",
-                COALESCE(updated_ts, created_ts) as "updated_ts!"
+                user_id,
+                expiration_at,
+                last_check_at,
+                renewal_token,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             "#,
-            user_id,
-            renewal_token,
-            new_expiration_at
         )
+        .bind(user_id)
+        .bind(renewal_token)
+        .bind(new_expiration_at)
+        .bind(Utc::now().timestamp_millis())
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -726,7 +723,10 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!("UPDATE account_validity SET renewal_token = $2 WHERE user_id = $1", user_id, token)
+        sqlx::query("UPDATE account_validity SET renewal_token = $2, last_check_at = $3 WHERE user_id = $1")
+            .bind(user_id)
+            .bind(token)
+            .bind(Utc::now().timestamp_millis())
             .execute(&*self.pool)
             .await?;
 
@@ -735,22 +735,21 @@ impl ModuleStorage {
 
     #[instrument(skip(self))]
     pub async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
-        let rows = sqlx::query_as!(AccountValidity,
+        let rows = sqlx::query_as::<_, AccountValidity>(
             r#"
             SELECT
-                user_id as "user_id!",
-                expiration_at as "expiration_at!",
-                last_check_at as "last_check_at?",
-                renewal_token as "renewal_token?",
-                NULL::BIGINT as "renewal_token_ts?",
-                is_valid as "is_valid!",
-                created_ts as "created_ts!",
-                COALESCE(updated_ts, created_ts) as "updated_ts!"
+                user_id,
+                expiration_at,
+                last_check_at,
+                renewal_token,
+                is_valid,
+                created_ts,
+                COALESCE(updated_ts, created_ts) AS updated_ts
             FROM account_validity
             WHERE expiration_at < $1 AND is_valid = true
             "#,
-            before_ts
         )
+        .bind(before_ts)
         .fetch_all(&*self.pool)
         .await?;
 
@@ -959,7 +958,6 @@ mod tests {
             expiration_at: 1234567890,
             last_check_at: Some(1234567890),
             renewal_token: Some("token123".to_string()),
-            renewal_token_ts: Some(1234567890),
             is_valid: true,
             created_ts: 1234567800,
             updated_ts: 1234567890,

@@ -30,7 +30,6 @@ privacy-ext = ["synapse-common/privacy-ext"]
 external-services = ["synapse-common/external-services"]
 builtin-oidc = ["synapse-common/builtin-oidc"]
 geo-ip = ["synapse-common/geo-ip"]
-vodozemac-megolm = ["synapse-common/vodozemac-megolm"]
 
 [dependencies]
 synapse-common = { path = "../synapse-common" }
