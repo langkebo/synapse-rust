@@ -34,7 +34,7 @@ impl RegistrationService {
     #[::tracing::instrument(
         skip_all,
         fields(
-            username = %username,
+            username_present = !username.is_empty(),
             has_displayname = displayname.is_some(),
             has_initial_device_display_name = initial_device_display_name.is_some()
         )
@@ -85,7 +85,7 @@ impl RegistrationService {
                 ::tracing::warn!(
                     error = %e,
                     user_id = %user.user_id,
-                    username = %username,
+                    username_present = !username.is_empty(),
                     has_displayname = displayname.is_some(),
                     "Failed to submit welcome email task"
                 );
@@ -93,7 +93,7 @@ impl RegistrationService {
             } else {
                 ::tracing::info!(
                     user_id = %user.user_id,
-                    username = %username,
+                    username_present = !username.is_empty(),
                     has_displayname = displayname.is_some(),
                     "Submitted welcome email task"
                 );
@@ -117,7 +117,7 @@ impl RegistrationService {
     #[::tracing::instrument(
         skip_all,
         fields(
-            username = %username,
+            username_present = !username.is_empty(),
             has_device_id = device_id.is_some(),
             has_initial_display_name = initial_display_name.is_some()
         )

@@ -2,9 +2,7 @@ use crate::e2ee::crypto::CryptoError;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
-use ed25519_dalek::{Signer, SigningKey};
-#[cfg(test)]
-use ed25519_dalek::{Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -23,12 +21,8 @@ pub struct Ed25519PublicKey {
 }
 
 impl Ed25519PublicKey {
-    pub(crate) fn from_bytes(bytes: [u8; 32]) -> Self {
+    fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
-    }
-
-    pub(crate) fn as_bytes(&self) -> &[u8; 32] {
-        &self.bytes
     }
 
     #[cfg(test)]
@@ -44,6 +38,12 @@ impl Ed25519PublicKey {
         let mut array = [0u8; 32];
         array.copy_from_slice(&bytes);
         Ok(Self::from_bytes(array))
+    }
+
+    pub fn verify(&self, message: &[u8], signature: &ed25519_dalek::Signature) -> Result<(), CryptoError> {
+        let verifying_key = VerifyingKey::from_bytes(&self.bytes)
+            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+        verifying_key.verify(message, signature).map_err(|_| CryptoError::SignatureVerificationFailed)
     }
 }
 
@@ -109,18 +109,6 @@ impl Ed25519KeyPair {
     pub fn sign(&self, message: &[u8]) -> Result<ed25519_dalek::Signature, Error> {
         self.secret.sign(message)
     }
-
-    #[cfg(test)]
-    pub(crate) fn verify(
-        &self,
-        message: impl AsRef<[u8]>,
-        signature: &ed25519_dalek::Signature,
-    ) -> Result<(), super::CryptoError> {
-        let message = message.as_ref();
-        let verifying_key = VerifyingKey::from_bytes(self.public.as_bytes())
-            .map_err(|_| super::CryptoError::SignatureVerificationFailed)?;
-        verifying_key.verify(message, signature).map_err(|_| super::CryptoError::SignatureVerificationFailed)
-    }
 }
 
 #[cfg(test)]
@@ -131,7 +119,7 @@ mod tests {
     fn test_ed25519_public_key_from_bytes() {
         let bytes = [0x12u8; 32];
         let public_key = Ed25519PublicKey::from_bytes(bytes);
-        assert_eq!(public_key.as_bytes(), &bytes);
+        assert_eq!(public_key.bytes, bytes);
     }
 
     #[test]
@@ -149,7 +137,7 @@ mod tests {
         let public_key = Ed25519PublicKey::from_bytes(original_bytes);
         let base64 = public_key.to_base64();
         let decoded = Ed25519PublicKey::from_base64(&base64).unwrap();
-        assert_eq!(decoded.as_bytes(), &original_bytes);
+        assert_eq!(decoded.bytes, original_bytes);
     }
 
     #[test]
@@ -181,7 +169,7 @@ mod tests {
     #[test]
     fn test_ed25519_key_pair_generate() {
         let key_pair = Ed25519KeyPair::generate();
-        assert_eq!(key_pair.public_key().as_bytes().len(), 32);
+        assert_eq!(key_pair.public_key().bytes.len(), 32);
     }
 
     #[test]
@@ -189,7 +177,7 @@ mod tests {
         let key_pair = Ed25519KeyPair::generate();
         let message = b"Hello, World!";
         let signature = key_pair.sign(&message[..]).unwrap();
-        let result = key_pair.verify(message, &signature);
+        let result = key_pair.public_key().verify(message, &signature);
         assert!(result.is_ok());
     }
 
@@ -198,7 +186,7 @@ mod tests {
         let key_pair = Ed25519KeyPair::generate();
         let message = b"Hello, World!";
         let signature = key_pair.sign(&message[..]).unwrap();
-        let result = key_pair.verify(message, &signature);
+        let result = key_pair.public_key().verify(message, &signature);
         assert!(result.is_ok());
     }
 
@@ -209,7 +197,7 @@ mod tests {
         let key_pair2 = Ed25519KeyPair::generate();
         let message = b"Hello, World!";
         let signature = key_pair1.sign(&message[..]).unwrap();
-        let result = key_pair2.verify(message, &signature);
+        let result = key_pair2.public_key().verify(message, &signature);
         assert!(result.is_err());
     }
 
@@ -220,7 +208,7 @@ mod tests {
         let message = b"Hello, World!";
         let signature = key_pair.sign(&message[..]).unwrap();
         let tampered_message = b"Hello, Universe!";
-        let result = key_pair.verify(&tampered_message[..], &signature);
+        let result = key_pair.public_key().verify(&tampered_message[..], &signature);
         assert!(result.is_err());
     }
 
@@ -239,6 +227,6 @@ mod tests {
     fn test_ed25519_key_pair_different_each_time() {
         let key_pair1 = Ed25519KeyPair::generate();
         let key_pair2 = Ed25519KeyPair::generate();
-        assert_ne!(key_pair1.public_key().as_bytes(), key_pair2.public_key().as_bytes());
+        assert_ne!(key_pair1.public_key().bytes, key_pair2.public_key().bytes);
     }
 }

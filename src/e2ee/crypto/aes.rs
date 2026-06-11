@@ -32,10 +32,6 @@ impl Aes256GcmKey {
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
         Self { bytes }
     }
-
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.bytes
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,13 +54,13 @@ impl<'de> Deserialize<'de> for Aes256GcmNonce {
 }
 
 impl Aes256GcmNonce {
-    pub fn generate() -> Self {
+    fn generate() -> Self {
         let mut bytes = [0u8; 12];
         rand::thread_rng().fill(&mut bytes);
         Self { bytes }
     }
 
-    pub fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
+    fn from_bytes(bytes: impl AsRef<[u8]>) -> Result<Self, CryptoError> {
         let bytes = bytes.as_ref();
         if bytes.len() != 12 {
             return Err(CryptoError::InvalidNonceLength);
@@ -72,10 +68,6 @@ impl Aes256GcmNonce {
         let mut arr = [0u8; 12];
         arr.copy_from_slice(bytes);
         Ok(Self { bytes: arr })
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 12] {
-        &self.bytes
     }
 }
 
@@ -194,20 +186,23 @@ pub struct Aes256GcmCipher {
 }
 
 impl Aes256GcmCipher {
-    pub fn new() -> Self {
-        Self {
-            #[cfg(test)]
-            nonce_generator: None,
-        }
-    }
-
     #[cfg(test)]
     pub fn with_nonce_tracker(tracker: Arc<NonceTracker>) -> Self {
         let nonce_generator = Arc::new(SecureNonceGenerator::new(tracker));
         Self { nonce_generator: Some(nonce_generator) }
     }
 
-    pub fn encrypt(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    #[cfg(test)]
+    fn split_encrypted_data(encrypted: &[u8]) -> Result<(Aes256GcmNonce, &[u8]), CryptoError> {
+        if encrypted.len() < 12 {
+            return Err(CryptoError::InvalidNonceLength);
+        }
+        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12])?;
+        let ciphertext = &encrypted[12..];
+        Ok((nonce, ciphertext))
+    }
+
+    fn encrypt(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = {
             #[cfg(test)]
             {
@@ -223,40 +218,44 @@ impl Aes256GcmCipher {
             }
         };
 
-        let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
+        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(nonce.as_bytes());
+        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
 
         let ciphertext = cipher
             .encrypt(nonce_bytes, plaintext)
             .map_err(|e: aes_gcm::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
-        let mut result = Vec::with_capacity(nonce.as_bytes().len() + ciphertext.len());
-        result.extend_from_slice(nonce.as_bytes());
+        let mut result = Vec::with_capacity(nonce.bytes.len() + ciphertext.len());
+        result.extend_from_slice(&nonce.bytes);
         result.extend_from_slice(&ciphertext);
         Ok(result)
     }
 
     pub fn encrypt_with_nonce(key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = Aes256GcmNonce::generate();
-        let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
+        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(nonce.as_bytes());
+        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
 
         let ciphertext = cipher
             .encrypt(nonce_bytes, plaintext)
             .map_err(|e: aes_gcm::aead::Error| CryptoError::EncryptionError(e.to_string()))?;
 
-        let mut result = Vec::with_capacity(nonce.as_bytes().len() + ciphertext.len());
-        result.extend_from_slice(nonce.as_bytes());
+        let mut result = Vec::with_capacity(nonce.bytes.len() + ciphertext.len());
+        result.extend_from_slice(&nonce.bytes);
         result.extend_from_slice(&ciphertext);
         Ok(result)
     }
 
-    pub fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
-        let cipher_key = GenericArray::<u8, U32>::from_slice(key.as_bytes());
+    fn decrypt(
+        key: &Aes256GcmKey,
+        nonce: &Aes256GcmNonce,
+        encrypted: &[u8],
+    ) -> Result<Vec<u8>, CryptoError> {
+        let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
-        let nonce_bytes = Nonce::from_slice(nonce.as_bytes());
+        let nonce_bytes = Nonce::from_slice(&nonce.bytes);
 
         let plaintext =
             cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
@@ -267,7 +266,10 @@ impl Aes256GcmCipher {
 
 impl Default for Aes256GcmCipher {
     fn default() -> Self {
-        Self::new()
+        Self {
+            #[cfg(test)]
+            nonce_generator: None,
+        }
     }
 }
 
@@ -278,41 +280,41 @@ mod tests {
     #[test]
     fn test_aes256_gcm_key_generate() {
         let key = Aes256GcmKey::generate();
-        assert_eq!(key.as_bytes().len(), 32);
+        assert_eq!(key.bytes.len(), 32);
     }
 
     #[test]
     fn test_aes256_gcm_key_from_bytes() {
         let bytes = [0x12u8; 32];
         let key = Aes256GcmKey::from_bytes(bytes);
-        assert_eq!(key.as_bytes(), &bytes);
+        assert_eq!(&key.bytes, &bytes);
     }
 
     #[test]
     fn test_aes256_gcm_key_different_each_time() {
         let key1 = Aes256GcmKey::generate();
         let key2 = Aes256GcmKey::generate();
-        assert_ne!(key1.as_bytes(), key2.as_bytes());
+        assert_ne!(&key1.bytes, &key2.bytes);
     }
 
     #[test]
     fn test_aes256_gcm_nonce_generate() {
         let nonce = Aes256GcmNonce::generate();
-        assert_eq!(nonce.as_bytes().len(), 12);
+        assert_eq!(nonce.bytes.len(), 12);
     }
 
     #[test]
     fn test_aes256_gcm_nonce_from_bytes() {
         let bytes = [0x34u8; 12];
         let nonce = Aes256GcmNonce::from_bytes(bytes).unwrap();
-        assert_eq!(nonce.as_bytes(), &bytes);
+        assert_eq!(&nonce.bytes, &bytes);
     }
 
     #[test]
     fn test_aes256_gcm_nonce_different_each_time() {
         let nonce1 = Aes256GcmNonce::generate();
         let nonce2 = Aes256GcmNonce::generate();
-        assert_ne!(nonce1.as_bytes(), nonce2.as_bytes());
+        assert_ne!(&nonce1.bytes, &nonce2.bytes);
     }
 
     #[test]
@@ -320,11 +322,10 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Hello, World! This is a secret message.";
 
-        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
         assert!(encrypted.len() > 12);
 
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
-        let ciphertext = &encrypted[12..];
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let decrypted = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -335,8 +336,8 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Test message";
 
-        let encrypted1 = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
-        let encrypted2 = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted1 = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted2 = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
 
         assert_ne!(encrypted1[0..12], encrypted2[0..12]);
         assert_ne!(encrypted1[12..], encrypted2[12..]);
@@ -348,9 +349,8 @@ mod tests {
         let key2 = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::new().encrypt(&key1, plaintext.as_ref()).unwrap();
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
-        let ciphertext = &encrypted[12..];
+        let encrypted = Aes256GcmCipher::default().encrypt(&key1, plaintext.as_ref()).unwrap();
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let result = Aes256GcmCipher::decrypt(&key2, &nonce, ciphertext);
         assert!(result.is_err());
@@ -361,7 +361,7 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
         let ciphertext = &encrypted[12..];
 
         let wrong_nonce = Aes256GcmNonce::generate();
@@ -374,11 +374,10 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"Secret data";
 
-        let mut encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let mut encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
         encrypted[12] ^= 0xff;
 
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
-        let ciphertext = &encrypted[12..];
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let result = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext);
         assert!(result.is_err());
@@ -389,11 +388,10 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = b"";
 
-        let encrypted = Aes256GcmCipher::new().encrypt(&key, plaintext.as_ref()).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt(&key, plaintext.as_ref()).unwrap();
         assert_eq!(encrypted.len(), 28);
 
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
-        let ciphertext = &encrypted[12..];
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let decrypted = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext).unwrap();
         assert!(decrypted.is_empty());
@@ -404,11 +402,10 @@ mod tests {
         let key = Aes256GcmKey::generate();
         let plaintext = vec![0x42u8; 10000];
 
-        let encrypted = Aes256GcmCipher::new().encrypt(&key, &plaintext).unwrap();
+        let encrypted = Aes256GcmCipher::default().encrypt(&key, &plaintext).unwrap();
         assert_eq!(encrypted.len(), 10028);
 
-        let nonce = Aes256GcmNonce::from_bytes(&encrypted[0..12]).unwrap();
-        let ciphertext = &encrypted[12..];
+        let (nonce, ciphertext) = Aes256GcmCipher::split_encrypted_data(&encrypted).unwrap();
 
         let decrypted = Aes256GcmCipher::decrypt(&key, &nonce, ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);
@@ -466,7 +463,7 @@ mod tests {
         let nonce1 = generator.generate_aes_gcm_nonce().unwrap();
         let nonce2 = generator.generate_aes_gcm_nonce().unwrap();
 
-        assert_ne!(nonce1.as_bytes(), nonce2.as_bytes());
+        assert_ne!(&nonce1.bytes, &nonce2.bytes);
         assert_eq!(generator.counter(), 2);
     }
 
@@ -478,8 +475,8 @@ mod tests {
         let nonce1 = generator.generate_aes_gcm_nonce().unwrap();
         let nonce2 = generator.generate_aes_gcm_nonce().unwrap();
 
-        let counter1 = u64::from_be_bytes(nonce1.as_bytes()[4..12].try_into().unwrap());
-        let counter2 = u64::from_be_bytes(nonce2.as_bytes()[4..12].try_into().unwrap());
+        let counter1 = u64::from_be_bytes(nonce1.bytes[4..12].try_into().unwrap());
+        let counter2 = u64::from_be_bytes(nonce2.bytes[4..12].try_into().unwrap());
 
         assert_eq!(counter1, 0);
         assert_eq!(counter2, 1);
@@ -503,9 +500,9 @@ mod tests {
         let generator = SecureNonceGenerator::new(Arc::clone(&tracker));
 
         let nonce = generator.generate_aes_gcm_nonce().unwrap();
-        assert!(tracker.is_nonce_used(nonce.as_bytes()));
+        assert!(tracker.is_nonce_used(&nonce.bytes));
 
-        let result = tracker.check_and_record(nonce.as_bytes());
+        let result = tracker.check_and_record(&nonce.bytes);
         assert_eq!(result.unwrap_err(), CryptoError::NonceReuseDetected);
     }
 

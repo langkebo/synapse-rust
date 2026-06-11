@@ -1,0 +1,21 @@
+--- src/web/routes/extractors/pagination.rs
++++ replace default_limit -> Option<i64> with Some(0)
+@@ -12,17 +12,17 @@
+     #[serde(default = "default_limit")]
+     pub limit: Option<i64>,
+     #[serde(default)]
+     pub dir: Option<String>,
+ }
+ 
+ #[allow(clippy::unnecessary_wraps)]
+ fn default_limit() -> Option<i64> {
+-    Some(DEFAULT_PAGE_LIMIT)
++    Some(0) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ impl Pagination {
+     pub fn new(limit: Option<i64>) -> Self {
+         Self { limit, ..Default::default() }
+     }
+ 
+     pub fn with_direction(mut self, dir: String) -> Self {

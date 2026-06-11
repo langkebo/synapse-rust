@@ -1,6 +1,6 @@
 use super::models::*;
 use super::storage::SecretStorage;
-use crate::e2ee::crypto::aes::{Aes256GcmCipher, Aes256GcmKey};
+use crate::e2ee::crypto::{Aes256GcmCipher, Aes256GcmKey};
 use crate::error::ApiError;
 use crate::services::dehydrated_device_service::DehydratedDeviceService;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};

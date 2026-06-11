@@ -1,6 +1,6 @@
 use super::models::*;
 use super::storage::SignatureStorage;
-use crate::crypto::ed25519::Ed25519KeyPair;
+use crate::crypto::Ed25519KeyPair;
 use synapse_common::ApiError;
 use chrono::Utc;
 use ed25519_dalek::Verifier;

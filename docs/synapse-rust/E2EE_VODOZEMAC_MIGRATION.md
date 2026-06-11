@@ -48,11 +48,11 @@
    - Megolm session 转发成功率 ≥ 99.9%
    - 前向保密：每发送 N 条后轮换 session，旧 session 仍能解密历史消息，新 session 不能解密新消息
 
-### Phase 4（1 周）— 清理
-1. 删除 `e2ee/crypto/{aes,x25519,mod}.rs` 中被取代部分。
-2. 删除 `e2ee/olm/session.rs` 自研 ratchet。
-3. 更新 `Cargo.toml`：将 `vodozemac` 移出 optional。
-4. 更新文档：`docs/sdk/e2ee.md` 标记新实现。
+### Phase 4（1 周）— 清理 / 边界冻结
+1. ✅ 已完成：运行时 Megolm 主路径切到 vodozemac，`vodozemac` 已移出 optional，迁移期开关 `vodozemac-megolm` 已收口。
+2. ✅ 已完成：`e2ee/crypto/mod.rs` 改为显式导出，`aes.rs` / `ed25519.rs` 的冗余桥接与测试辅助 API 已大幅收窄，子模块已收为私有实现细节。
+3. 🚧 待最终关闭：`e2ee/olm/session.rs` 与更激进的自研协议包装删除仍需等待 Phase 3 跨客户端矩阵全绿后再评估。
+4. 🚧 文档与公告：待最终关闭时再统一更新 `docs/sdk/e2ee.md` / 发版说明等对外口径。
 
 ## 四、互操作测试矩阵
 
@@ -117,8 +117,21 @@
 - trigger：push 到 `feature/e2ee-vodozemac/**` 与每周 cron
 - job 1：运行本地 `vodozemac` smoke，对拍低层 Olm/Megolm reference 行为
 - job 2：checkout `matrix-js-sdk`，启动真实 `synapse-rust` docker stack，执行 `pnpm test:real-backend:verification`
-- job 3：在同一 live backend 上叠加 `docker-compose.web.yml`，通过 `scripts/test/run_element_web_browser_harness.sh` 启动 Element Web + nginx，并用 `tests/element-web-harness/login-smoke.mjs` 跑最小浏览器登录 smoke
-- 说明：当前 CI 已接入 SDK-backed real-backend verification 和最小 Element Web 浏览器级 harness；Android/iOS 真机矩阵与更完整的浏览器互操作矩阵仍是 Phase 3 后续项
+- job 3：在同一 live backend 上叠加 `docker-compose.web.yml`，通过 `scripts/test/run_element_web_browser_harness.sh` 启动 Element Web + nginx，并默认运行 `tests/element-web-harness/basic-interactions.mjs`；`workflow_dispatch` 可切回 `smoke:login`
+- 说明：当前 CI 已接入 SDK-backed real-backend verification，并把 Element Web 浏览器级 harness 默认提升到登录 + 房间创建 + 发消息的基础交互；Android/iOS 真机矩阵与更完整的浏览器互操作矩阵仍是 Phase 3 后续项
+
+### 5.4 Phase 4 边界冻结补充（2026-06-11）
+
+- `Aes256Gcm*` 仍需保留：生产路径仍由 `src/e2ee/ssss/service.rs` 用于 SSSS 密钥封装，并由 `src/e2ee/vodozemac_megolm.rs` 用于 Phase 2 双写 legacy `session_key` 兼容写入
+- `Ed25519*` 仍需保留：`src/e2ee/signed_json.rs` 仍承担 Matrix signed JSON 校验，`src/e2ee/signature/service.rs` 仍承担事件/键签名
+- 方法级清单已进一步冻结：
+  - `AES 保留`：`Aes256GcmKey::{generate, from_bytes}`、`Aes256GcmCipher::encrypt_with_nonce`
+  - `AES 已删桥接/内聚`：`Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new` 已在 `src/` 与 `synapse-e2ee/` 两棵树同步删除；`Aes256GcmNonce::{generate, from_bytes}` 与 `Aes256GcmCipher::{encrypt, decrypt}` 已进一步收为模块私有实现细节，只保留同文件内部与测试使用；新增 `Aes256GcmCipher::split_encrypted_data` 私有辅助方法用于测试中提取 nonce 和密文，减少对私有构造的分散依赖
+  - `Ed25519 保留`：`Ed25519PublicKey::{from_base64, verify}`、`Ed25519KeyPair::{generate, public_key, sign}`
+  - `Ed25519 已收窄`：`Ed25519PublicKey::from_bytes` 已收为模块私有，原仅用于测试桥接的 `Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 已在 `src/` 与 `synapse-e2ee/` 两棵树同步删除，测试现直接覆盖 `public_key.verify()` 公开面；`Ed25519SecretKey` 保持模块私有，`to_base64` / 测试构造辅助只留在 `#[cfg(test)]` 或 crate 内部
+- 已完成的可见性收口：
+  - `src/e2ee/mod.rs` 与 `synapse-e2ee/src/lib.rs` 已移除对 `Aes256Gcm*` / `Ed25519*` / `CryptoError` 的顶层 re-export，后续调用应显式经过 `e2ee::crypto::*` 或具体协议模块
+  - `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 已把 `aes` / `ed25519` 子模块改为私有实现细节；外部仅保留 `crypto::{Aes256Gcm*, Ed25519*, CryptoError}` 顶层入口，不再暴露 `crypto::aes::*` / `crypto::ed25519::*` 路径
 
 ## 六、灰度与回滚
 
