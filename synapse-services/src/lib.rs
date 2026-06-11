@@ -50,8 +50,6 @@ pub mod thread_service;
 pub mod translation_service;
 
 pub mod directory_service;
-#[cfg(any(test, feature = "test-utils"))]
-pub mod dm_service;
 pub mod typing_service;
 pub mod uia_service;
 pub mod user_lock_service;
