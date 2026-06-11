@@ -1,8 +1,8 @@
 # Synapse-Rust 技术债务优化方案
 
-> 版本: v2.7.0
+> 版本: v2.8.0
 > 日期: 2026-06-11
-> 基于: v2.6.0 基础上完成剩余 DB 测试迁移（18 文件，`tests/unit/` 零 DB 依赖）、Phase A `health.rs` re-export 收口
+> 基于: v2.7.0 基础上完成 CI 测试矩阵分离（unit/integration 独立执行）、DMService 兼容模块删除、Phase B storage 层深度分析
 
 ---
 
@@ -22,10 +22,11 @@
 |--------|------|----------|----------|------|
 | P2 | `unwrap/expect` clippy lint 门禁 | **门禁已建立**（`cargo clippy --lib` 仅 7 个合理警告） | 预防性治理 | 低 |
 | P1 | `tests/unit/` 中 DB 依赖测试迁移/重分类 | **全部完成**（18 文件迁移，`tests/unit/` 零 DB 依赖） | 测试架构/CI 可靠性 | 高 |
+| P1 | CI 中 `unit` 与 `integration` 执行矩阵分离 | **已完成**（`ci.yml` + `run_ci_tests.sh` 支持 --lib/--unit/--integration） | CI 可维护性 | 中 |
 | P1 | 根 crate 与 `synapse-*` 子 crate 镜像模块漂移 | Phase A 完成（`rate_limit`/`crypto`/`health` re-export），`filter` 不可 re-export | 架构可维护性 | 高 |
 | P2 | `config/mod.rs` 半拆分状态收尾 | 已部分落地 | 可维护性/配置安全 | 中 |
 | P2 | `room/` 巨型文件拆分 | **全部完成**（23 子模块，全部 < 500 行） | 可维护性/房间域演进 | 低 |
-| P3 | `DMService` 兼容模块收尾 | 已降级为低优先级 | 代码整洁性 | 低 |
+| P3 | `DMService` 兼容模块收尾 | **已删除**（`synapse-services/src/dm_service.rs`，零外部引用） | 代码整洁性 | 低 |
 | P3 | `route_ledger` 外壳文件是否保留 | 已基本完成 | 维护一致性 | 低 |
 | P3 | 分层违规回归防护 | 已完成，转守护项 | 架构规范 | 低 |
 
@@ -190,7 +191,10 @@ federation/e2ee/auth 核心运行时路径已在前期重构中自然收敛至 `
 - [x] 18 个 service 测试文件已迁移到 `tests/integration/`（已完成）
 - [x] `cargo test --features test-utils --test integration --no-run` 编译通过（0 错误）
 - [x] `tests/unit/` 中不再出现 `setup_test_database()` / `PgPool` / `TestDatabase`
-- [ ] CI 中 `unit` 与 `integration` 的执行矩阵清晰分离
+- [x] CI 中 `unit` 与 `integration` 的执行矩阵清晰分离 — **已完成（2026-06-11）**
+  - `.github/workflows/ci.yml`：`test` job 分离为 `--lib` + `--test unit` 两个独立步骤
+  - `.github/workflows/ci.yml`：`integration-test` job 改为仅执行 `--test integration`
+  - `scripts/run_ci_tests.sh`：支持 `--lib` / `--unit` / `--integration` 独立目标，默认全部执行
 
 ---
 
@@ -398,73 +402,67 @@ src/services/room/
 
 ---
 
-## 七、P3 — `DMService` 兼容模块收尾
+## 七、P3 — `DMService` 兼容模块收尾（已完成）
 
-### 7.1 当前定位
+### 7.1 清理结果（2026-06-11）
 
-[synapse-services/src/dm_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/dm_service.rs) 现在更像：
+已删除 `synapse-services/src/dm_service.rs`（399 行），原因：
 
-- 测试辅助
-- 旧接口兼容
-- 纯内存语义验证
+- **零外部引用**：根 crate `src/` 和 `tests/` 无任何 `DMService` 导入
+- **纯内存自测**：所有测试仅覆盖模块自身，无外部调用方
+- **运行时路径已迁移**：DM 语义已收敛至 `FriendRoomService + m.direct account data`
+- **模块门控已追溯**：`lib.rs` 和 `mod.rs` 中的 `#[cfg(any(test, feature = "test-utils"))] pub mod dm_service;` 声明均已移除
 
-而不是运行时主路径。
+### 7.2 验收标准
 
-### 7.2 建议
-
-不再把它当作 P1 主任务删除，而是先做一轮价值判断：
-
-1. 确认是否仍有 `test-utils` 用户真实依赖
-2. 若仅剩内部测试，可迁到专用 `test_utils` / `compat` 目录
-3. 若没有外部价值，再删除
-
-### 7.3 验收标准
-
-- [ ] 明确 `DMService` 的唯一用途（兼容 or 测试）
-- [ ] 若保留，则移动到更准确的命名空间
-- [ ] 若无价值，则在 workspace 中彻底删除
+- [x] 明确 `DMService` 的唯一用途（零外部引用，纯自测）
+- [x] 在 workspace 中彻底删除（`dm_service.rs` + 两个 mod 声明）
+- [x] `cargo check --all-features` 编译通过（0 错误）
 
 ---
 
-## 八、执行路线图（修订版）
+## 八、执行路线图（修订版 v2.8.0）
 
 | 阶段 | 周次 | 任务 | 产出 |
 |------|------|------|------|
 | Phase 1 | W1 | P1 测试重分类（38 文件迁移完成） | tests/unit/ 零 DB 依赖 ✅ |
 | Phase 1 | W1 | P1 canonical crate Phase A：`rate_limit`/`crypto`/`health` re-export | 3 对镜像模块收口 ✅ |
-| Phase 2 | W2 | P1 canonical crate Phase B：`device`/`membership`/`event` 收口 | storage 层消歧 |
-| Phase 3 | W3 | P0 clippy lint 门禁建立 | 预防新增裸 unwrap/expect |
-| Phase 4 | W4-W5 | P1 canonical crate Phase C：`config`/`room/service` 审计合并 | 高风险大模块收口 |
+| Phase 1 | W1 | P1 CI 矩阵分离：`--lib` / `--test unit` / `--test integration` | ci.yml + run_ci_tests.sh 支持独立目标 ✅ |
+| Phase 1 | W1 | P3 DMService 兼容模块删除 | 399 行死代码清理 ✅ |
+| Phase 2 | W2 | P1 canonical crate Phase B：`device`/`membership`/`event` 深度分析 | 已分析，确认两套平行存储实现，需结构性重构 |
+| Phase 3 | W3 | P0 clippy lint 门禁建立 | 预防新增裸 unwrap/expect ✅ |
+| Phase 4 | W4-W5 | P1 canonical crate Phase C：`config`/`room/service` 审计合并 | 高风险大模块收口（待执行） |
 | Phase 5 | W6-W7 | P2 `config/mod.rs` 收尾瘦身 + `room/` 核心拆分 | **已完成** ✅ config 199 行，room/ 从 12→15 子模块 |
 | Phase 5.1 | W7-W8 | P2 `room/` 剩余大文件拆分（`create.rs`/`summary.rs`/`space.rs`/`membership.rs`） | **已完成** ✅ 全部 < 500 行（2026-06-11） |
 | Phase 6 | W8+ | P3 兼容模块清理 + 长期治理机制稳定化 | 技术债务常态化管理 |
 
 ---
 
-## 九、成功指标（修订版）
+## 九、成功指标（修订版 v2.8.0）
 
 | 指标 | 当前复核值 | 目标 |
 |------|------------|------|
 | `src/` 下生产代码 `unwrap/expect` | **~2 处**（核心路径已清零） | 核心路径保持 0 |
 | 测试代码 `unwrap/expect` | ~820 处 | 正常（测试允许） |
-| `tests/unit/` 中 DB 依赖文件 | ~~31~~ **0** ✅（全部 38 文件已迁移） | 0 ✅ |
+| `tests/unit/` 中 DB 依赖文件 | **0** ✅（全部 38 文件已迁移） | 0 ✅ |
 | `tests/unit/` 中 `setup_test_database()` 调用 | 0 ✅ | 0 ✅ |
+| CI 矩阵分离 | **已完成** ✅（`--lib` + `--test unit` + `--test integration`） | 完成并固化 ✅ |
 | `config/mod.rs` 行数 | ~~1997~~ **199** ✅ | < 500 |
 | `room/service.rs` 行数 | ~~1998~~ **384** ✅ | < 500 |
 | `room/` 子模块数 | 23 个（15 个新增） | 全部 < 500 行 ✅ |
 | `route_ledger` 去重状态 | 已完成 | 完成并固化 |
 | 路由层直引存储层 | 0 处 | 保持 0 |
-| `DMService` 运行时暴露 | 已移除 | 明确归属后清理或保留 |
+| `DMService` 运行时暴露 | **已删除** ✅ | 零死代码 ✅ |
 
 ---
 
-## 十、风险评估（修订版）
+## 十、风险评估（修订版 v2.8.0）
 
 | 风险 | 概率 | 影响 | 缓解措施 |
 |------|------|------|----------|
 | `unwrap/expect` panic 导致服务中断 | **低**（核心路径已清零） | 高 | clippy lint 门禁防止新增 |
-| DB 依赖测试仍伪装为 unit，造成假阳性 | 高 | 高 | 优先重分类并拆 CI 执行矩阵 |
+| DB 依赖测试仍伪装为 unit，造成假阳性 | **已消除**（38 文件已迁移） | — | CI 矩阵已分离 |
 | workspace 镜像模块继续分叉 | 高 | 高 | 先做 canonical crate 决策，再做文件级收口 |
 | config 拆分破坏反序列化 | 中 | 高 | 每步拆分后验证 `homeserver.yaml` 加载与默认值行为 |
 | room 域继续拆分引入回归 | 中 | 中 | 每次拆分后运行针对性 service/storage 测试 |
-| 过早删除兼容模块影响 `test-utils` | 低 | 中 | 先确认调用方，再删除 `DMService` |
+| storage 层两套平行实现导致行为漂移 | 高 | 高 | 已深度分析，下一步需统一 SQL 风格 + 合并差异方法 |

@@ -180,7 +180,7 @@ jobs:
         if: matrix.features-args == '--all-features'
         run: cargo test --doc --locked
 
-      - name: Run unit tests
+      - name: Run library unit tests (--lib)
         if: matrix.features-args == '--all-features'
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -190,6 +190,17 @@ jobs:
           RUST_LOG: info
           NEXTEST_RETRIES: 2
         run: cargo nextest run --lib --all-features --locked --test-threads 4
+
+      - name: Run unit test target (--test unit)
+        if: matrix.features-args == '--all-features'
+        env:
+          DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
+          REDIS_URL: redis://localhost:6379
+          RUST_BACKTRACE: 1
+          RUST_LOG: info
+          NEXTEST_RETRIES: 2
+        run: cargo nextest run --test unit --features test-utils --locked --test-threads 4
 
   # ──────────────────────────────────────────────────────────
   # Slow Tier — runs on merge to main/develop + weekly schedule
@@ -261,7 +272,7 @@ jobs:
           sqlx database create
           sqlx migrate run --source artifacts/sqlx-migrations
 
-      - name: Run integration tests
+      - name: Run integration tests (--test integration)
         env:
           DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
           TEST_DATABASE_URL: postgresql://synapse:synapse@localhost:5432/synapse
@@ -269,7 +280,7 @@ jobs:
           RUST_BACKTRACE: 1
           RUST_LOG: info
           NEXTEST_RETRIES: 2
-        run: cargo nextest run --tests --all-features --locked --test-threads 4
+        run: cargo nextest run --test integration --all-features --locked --test-threads 4
 
       - name: Run performance smoke gate
         env:
