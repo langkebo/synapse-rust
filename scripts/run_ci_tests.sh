@@ -15,6 +15,33 @@ PERF_SOAK_RESULTS_DIR="${PERF_SOAK_RESULTS_DIR:-artifacts/perf_soak}"
 PERF_SOAK_VUS="${PERF_SOAK_VUS:-40}"
 PERF_SOAK_DURATION="${PERF_SOAK_DURATION:-24h}"
 
+# ─── Test target selection ──────────────────────────────────────
+# Usage: run_ci_tests.sh [--lib] [--unit] [--integration]
+#   --lib          Run library unit tests (src/ inline tests)
+#   --unit         Run unit test target (tests/unit/, no DB required)
+#   --integration  Run integration test target (tests/integration/, requires DB)
+# No flags: runs all three targets (full CI suite).
+
+RUN_LIB=0
+RUN_UNIT=0
+RUN_INTEGRATION=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --lib) RUN_LIB=1 ;;
+        --unit) RUN_UNIT=1 ;;
+        --integration) RUN_INTEGRATION=1 ;;
+        *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+    esac
+done
+
+# Default: run everything if no target specified
+if [ "$RUN_LIB" -eq 0 ] && [ "$RUN_UNIT" -eq 0 ] && [ "$RUN_INTEGRATION" -eq 0 ]; then
+    RUN_LIB=1
+    RUN_UNIT=1
+    RUN_INTEGRATION=1
+fi
+
 run_perf_smoke_gate() {
     mkdir -p "$(dirname "$PERF_SMOKE_LOG")"
     cargo test --test performance_manual --features performance-tests --locked -- --ignored --nocapture \
@@ -99,21 +126,15 @@ fi
 echo "RUST_TEST_SHUFFLE_SEED=$RUST_TEST_SHUFFLE_SEED"
 
 run_cargo_test_with_retries() {
+    local label="$1"
+    shift
     local attempt=1
     local max_attempts=$((TEST_RETRIES + 1))
-    local cargo_test_cmd=(cargo test --all-features --locked -- --test-threads="$TEST_THREADS")
-
-    if rustc -V | grep -q "nightly"; then
-        cargo_test_cmd=(cargo test --all-features --locked -Z unstable-options -- --shuffle --test-threads="$TEST_THREADS")
-        echo "Using nightly cargo test shuffle fallback"
-    else
-        echo "Stable toolchain detected; running cargo test fallback without --shuffle"
-    fi
 
     while [ "$attempt" -le "$max_attempts" ]; do
-        echo "cargo test attempt ${attempt}/${max_attempts}"
+        echo "[${label}] cargo test attempt ${attempt}/${max_attempts}"
 
-        if "${cargo_test_cmd[@]}"; then
+        if cargo test "$@"; then
             return 0
         fi
 
@@ -127,13 +148,42 @@ run_cargo_test_with_retries() {
 
 if cargo nextest --version >/dev/null 2>&1; then
     export NEXTEST_RETRIES="${NEXTEST_RETRIES:-$TEST_RETRIES}"
-    cargo nextest run \
-        --profile "$NEXTEST_PROFILE_NAME" \
-        --all-features \
-        --locked \
-        --test-threads "$TEST_THREADS"
+    nextest_base=(cargo nextest run --profile "$NEXTEST_PROFILE_NAME" --locked --test-threads "$TEST_THREADS")
+
+    echo "=== Test matrix ==="
+    echo "  --lib:          $RUN_LIB"
+    echo "  --unit:         $RUN_UNIT"
+    echo "  --integration:  $RUN_INTEGRATION"
+    echo ""
+
+    if [ "$RUN_LIB" -eq 1 ]; then
+        echo ">>> Running library unit tests (--lib) ..."
+        "${nextest_base[@]}" --lib --all-features
+    fi
+
+    if [ "$RUN_UNIT" -eq 1 ]; then
+        echo ">>> Running unit test target (--test unit) ..."
+        "${nextest_base[@]}" --test unit --features test-utils
+    fi
+
+    if [ "$RUN_INTEGRATION" -eq 1 ]; then
+        echo ">>> Running integration test target (--test integration) ..."
+        "${nextest_base[@]}" --test integration --all-features
+    fi
 else
-    run_cargo_test_with_retries
+    echo "Using cargo test fallback (no nextest detected)"
+    if [ "$RUN_LIB" -eq 1 ]; then
+        echo ">>> Running library unit tests (--lib) ..."
+        run_cargo_test_with_retries "lib" --lib --all-features --locked -- --test-threads="$TEST_THREADS"
+    fi
+    if [ "$RUN_UNIT" -eq 1 ]; then
+        echo ">>> Running unit test target (--test unit) ..."
+        run_cargo_test_with_retries "unit" --test unit --features test-utils --locked -- --test-threads="$TEST_THREADS"
+    fi
+    if [ "$RUN_INTEGRATION" -eq 1 ]; then
+        echo ">>> Running integration test target (--test integration) ..."
+        run_cargo_test_with_retries "integration" --test integration --all-features --locked -- --test-threads="$TEST_THREADS"
+    fi
 fi
 
 if [ "$RUN_PERF_SMOKE" = "1" ]; then
