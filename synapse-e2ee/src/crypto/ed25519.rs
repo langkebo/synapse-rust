@@ -3,6 +3,8 @@ use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
 use ed25519_dalek::{Signer, SigningKey};
+#[cfg(test)]
+use ed25519_dalek::{Verifier, VerifyingKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

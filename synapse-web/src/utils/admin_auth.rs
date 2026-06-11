@@ -2,6 +2,7 @@ use synapse_common::config::SecurityConfig;
 use synapse_common::ApiError;
 use synapse_storage::{CreateAuditEventRequest, User};
 use crate::routes::AppState;
+use crate::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
 use serde_json::json;
@@ -63,7 +64,7 @@ pub(crate) async fn authorize_admin_request(
     );
 
     // 记录审计日志
-    let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
+    let request_id = resolve_request_id(headers);
 
     let audit_request = CreateAuditEventRequest {
         actor_id: user_id.clone(),

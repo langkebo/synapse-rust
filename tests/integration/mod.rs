@@ -60,7 +60,29 @@ mod rtc_transports_tests;
 mod transaction_tests;
 mod voice_routes_tests;
 
+#[cfg(feature = "beacons")]
+mod beacon_storage_tests_migrated;
+mod cross_signing_storage_tests_migrated;
+mod device_storage_tests_migrated;
+mod event_storage_tests_migrated;
+mod feature_flags_storage_tests_migrated;
+mod federation_blacklist_storage_tests_migrated;
+mod filter_storage_tests_migrated;
+mod friend_room_storage_tests_migrated;
+mod key_backup_storage_tests_migrated;
+mod megolm_dual_write_storage_tests_migrated;
+mod membership_storage_tests_migrated;
+mod openid_token_storage_tests_migrated;
 mod permission_escalation_tests;
+mod presence_storage_tests_migrated;
+mod receipt_storage_tests_migrated;
+mod refresh_token_storage_tests_migrated;
+mod room_tag_storage_tests_migrated;
+mod sliding_sync_storage_tests_migrated;
+mod state_groups_storage_tests_migrated;
+mod threepid_storage_tests_migrated;
+mod token_storage_tests_migrated;
+mod user_storage_tests_migrated;
 
 #[cfg(test)]
 mod coverage_tests;

@@ -1,6 +1,20 @@
 use synapse_common::ApiError;
 use axum::http::HeaderMap;
 
+pub(crate) fn generate_request_id() -> String {
+    format!("req-{}", uuid::Uuid::new_v4())
+}
+
+pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string())
+        .unwrap_or_else(generate_request_id)
+}
+
 pub(crate) fn bearer_token_opt(headers: &HeaderMap) -> Option<String> {
     headers
         .get("authorization")

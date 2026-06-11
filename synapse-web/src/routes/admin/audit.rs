@@ -1,6 +1,7 @@
 use synapse_common::ApiError;
 use synapse_storage::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 use crate::routes::{AdminUser, AppState};
+use crate::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
@@ -137,12 +138,7 @@ pub async fn get_audit_event(
 }
 
 pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.to_string())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| format!("req-{}", uuid::Uuid::new_v4()))
+    resolve_request_id_from_headers(headers)
 }
 
 pub(crate) async fn record_audit_event(

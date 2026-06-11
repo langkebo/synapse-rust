@@ -70,3 +70,66 @@ pub struct PaginatedResponse<T> {
     pub offset: i64,
     pub has_more: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pagination_defaults_to_forward_direction() {
+        let pagination = Pagination::default();
+
+        assert!(pagination.is_forward());
+        assert_eq!(pagination.effective_limit(), DEFAULT_PAGE_LIMIT);
+    }
+
+    #[test]
+    fn pagination_treats_backward_direction_as_non_forward() {
+        let pagination = Pagination::new(Some(25)).with_direction("b".to_string());
+
+        assert!(!pagination.is_forward());
+        assert_eq!(pagination.effective_limit(), 25);
+    }
+
+    #[test]
+    fn pagination_treats_any_non_backward_direction_as_forward() {
+        assert!(Pagination::new(None).with_direction("f".to_string()).is_forward());
+        assert!(Pagination::new(None).with_direction("forward".to_string()).is_forward());
+        assert!(Pagination::new(None).with_direction("".to_string()).is_forward());
+        assert!(Pagination::new(None).with_direction("back".to_string()).is_forward());
+    }
+
+    #[test]
+    fn pagination_clamps_limit_into_supported_range() {
+        assert_eq!(Pagination::new(Some(0)).effective_limit(), 1);
+        assert_eq!(Pagination::new(Some(MAX_PAGE_LIMIT + 50)).effective_limit(), MAX_PAGE_LIMIT);
+    }
+
+    #[test]
+    fn pagination_deserializes_default_limit_when_missing() {
+        let pagination: Pagination = serde_json::from_value(serde_json::json!({
+            "from": "s1",
+            "to": "s2"
+        }))
+        .unwrap();
+
+        assert_eq!(pagination.from.as_deref(), Some("s1"));
+        assert_eq!(pagination.to.as_deref(), Some("s2"));
+        assert_eq!(pagination.limit, Some(DEFAULT_PAGE_LIMIT));
+        assert!(pagination.is_forward());
+    }
+
+    #[test]
+    fn offset_pagination_defaults_correctly() {
+        let pagination: OffsetPagination = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(pagination.limit, Some(DEFAULT_PAGE_LIMIT));
+        assert_eq!(pagination.offset, Some(0));
+        assert_eq!(pagination.effective_limit(), DEFAULT_PAGE_LIMIT);
+        assert_eq!(pagination.effective_offset(), 0);
+    }
+
+    #[test]
+    fn offset_pagination_clamps_offset_to_zero() {
+        assert_eq!(OffsetPagination { limit: Some(10), offset: Some(-50) }.effective_offset(), 0);
+    }
+}

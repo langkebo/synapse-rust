@@ -7,10 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Package to mutate (empty = workspace)'
+        description: 'Package to mutate (empty = use batched file smoke)'
         required: false
         type: string
         default: ''
+      mutation_files:
+        description: 'Whitespace-separated file list for batched smoke runs'
+        required: false
+        type: string
+        default: 'src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs'
 
 env:
   CARGO_TERM_COLOR: always
@@ -81,16 +86,24 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/synapse_test
           TEST_REDIS_URL: redis://localhost:6379
         run: |
+          MUTATION_FILES="${{ inputs.mutation_files }}"
+          if [ -z "$MUTATION_FILES" ]; then
+            MUTATION_FILES="src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs"
+          fi
+
           if [ -n "${{ inputs.package }}" ]; then
             cargo mutants --package "${{ inputs.package }}" \
               --timeout 30 \
               -- --test-threads=2
           else
-            # Incremental: focus on high-value crates
-            cargo mutants \
-              --package synapse-rust \
-              --timeout 30 \
-              -- --test-threads=2
+            for file in $MUTATION_FILES; do
+              echo "==> $file"
+              cargo mutants --package synapse-rust \
+                --file "$file" \
+                --timeout 30 \
+                --baseline skip \
+                -- --test-threads=2
+            done
           fi
 
       - name: Upload mutation report

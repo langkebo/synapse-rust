@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::services::sync_service::SyncServiceRequest;
 use crate::web::routes::{extract_token_from_headers, AppState};
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
@@ -13,6 +14,7 @@ struct SyncParams<'a> {
     device_id: Option<String>,
     timeout: u64,
     is_full_state: bool,
+    request_id: String,
     set_presence: &'a str,
     filter: Option<&'a str>,
     since: Option<&'a str>,
@@ -28,6 +30,7 @@ pub(crate) async fn sync(
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
+    let request_id = resolve_request_id(&headers);
     let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online");
     let filter = params.get("filter").and_then(|v| v.as_str());
     let since = params.get("since").and_then(|v| v.as_str());
@@ -65,6 +68,7 @@ pub(crate) async fn sync(
             Err(error) => {
                 if fail_open_on_error {
                     tracing::warn!(
+                        request_id = %request_id,
                         user_id = %user_id,
                         device_id = %device_id_for_ratelimit,
                         kind,
@@ -83,7 +87,7 @@ pub(crate) async fn sync(
         }
     }
 
-    execute_sync(SyncParams { state, user_id, device_id, timeout, is_full_state, set_presence, filter, since }).await
+    execute_sync(SyncParams { state, user_id, device_id, timeout, is_full_state, request_id, set_presence, filter, since }).await
 }
 
 async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
@@ -108,11 +112,11 @@ async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
     match sync_result {
         Ok(Ok(result)) => Ok(Json(result)),
         Ok(Err(e)) => {
-            ::tracing::error!("Sync error for user {}: {}", params.user_id, e);
+            ::tracing::error!(request_id = %params.request_id, user_id = %params.user_id, error = %e, "Sync error");
             Err(e)
         }
         Err(_) => {
-            ::tracing::error!("Sync timeout for user {}", params.user_id);
+            ::tracing::error!(request_id = %params.request_id, user_id = %params.user_id, "Sync timeout");
             Err(ApiError::internal("Sync operation timed out".to_string()))
         }
     }

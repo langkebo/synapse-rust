@@ -3,6 +3,7 @@ use crate::services::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
 };
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
@@ -40,7 +41,12 @@ pub fn rendezvous_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     .collect()
 }
 
-async fn create_session(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+async fn create_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let intent = body
         .get("intent")
         .and_then(|v| v.as_str())
@@ -75,6 +81,8 @@ async fn create_session(State(state): State<AppState>, Json(body): Json<Value>) 
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
 
+    ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
+
     let rendezvous_url: String = format!("matrix://rendezvous/{}/{}", &state.services.server_name, session.session_id);
 
     Ok(Json(json!({
@@ -99,6 +107,7 @@ async fn load_rendezvous_session(state: &AppState, session_id: &str) -> Result<R
 
 async fn ensure_rendezvous_session_access(
     state: &AppState,
+    request_id: &str,
     headers: &HeaderMap,
     auth_user: &OptionalAuthenticatedUser,
     session_id: &str,
@@ -111,6 +120,7 @@ async fn ensure_rendezvous_session_access(
             return Ok(session);
         }
 
+        ::tracing::warn!(request_id = %request_id, session_id = %session_id, action, "Invalid rendezvous key");
         return Err(ApiError::unauthorized(format!("Invalid rendezvous key for {action}")));
     }
 
@@ -119,9 +129,18 @@ async fn ensure_rendezvous_session_access(
             return Ok(session);
         }
 
+        ::tracing::warn!(
+            request_id = %request_id,
+            session_id = %session_id,
+            action,
+            auth_user_id = %auth_user_id,
+            bound_user_id = %bound_user_id,
+            "Forbidden rendezvous session access"
+        );
         return Err(ApiError::forbidden(format!("You are not allowed to {action} this rendezvous session")));
     }
 
+    ::tracing::warn!(request_id = %request_id, session_id = %session_id, action, "Missing rendezvous access credentials");
     Err(ApiError::unauthorized(format!(
         "Rendezvous access to {action} requires the {RENDEZVOUS_KEY_HEADER} header or the bound user"
     )))
@@ -133,7 +152,8 @@ async fn get_session(
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let session = ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read").await?;
+    let request_id = resolve_request_id(&headers);
+    let session = ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read").await?;
 
     Ok(Json(json!({
         "session_id": session.session_id,
@@ -153,7 +173,8 @@ async fn update_session(
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "update").await?;
+    let request_id = resolve_request_id(&headers);
+    ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "update").await?;
 
     let status = body
         .get("status")
@@ -165,6 +186,7 @@ async fn update_session(
         .update_session_status(&session_id, status)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
+    ::tracing::info!(request_id = %request_id, session_id = %session_id, status, "Updated rendezvous session");
 
     if status == "connected" {
         let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
@@ -213,13 +235,15 @@ async fn delete_session(
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "delete").await?;
+    let request_id = resolve_request_id(&headers);
+    ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "delete").await?;
 
     state
         .services.admin.rendezvous_storage
         .delete_session(&session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;
+    ::tracing::info!(request_id = %request_id, session_id = %session_id, "Deleted rendezvous session");
 
     Ok(Json(json!({})))
 }
@@ -231,7 +255,8 @@ async fn send_message(
     Path(session_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "send messages").await?;
+    let request_id = resolve_request_id(&headers);
+    ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "send messages").await?;
 
     let message_type =
         body.get("type").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("type required".to_string()))?;
@@ -247,6 +272,7 @@ async fn send_message(
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
+    ::tracing::info!(request_id = %request_id, session_id = %session_id, message_type, "Stored rendezvous message");
 
     // Generate a message ID based on session and timestamp
     let message_id = format!("{}_{}", session_id, chrono::Utc::now().timestamp_millis());
@@ -264,7 +290,8 @@ async fn get_messages(
     auth_user: OptionalAuthenticatedUser,
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_rendezvous_session_access(&state, &headers, &auth_user, &session_id, "read messages").await?;
+    let request_id = resolve_request_id(&headers);
+    ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read messages").await?;
 
     let messages = state
         .services

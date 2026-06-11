@@ -2,6 +2,7 @@ use synapse_common::ApiError;
 use synapse_storage::CreateAuditEventRequest;
 use crate::routes::AppState;
 use crate::utils::admin_auth::authorize_admin_request;
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::FromRequestParts,
     http::{request::Parts, HeaderMap, Method},
@@ -59,8 +60,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
                     if matches!(method, Method::POST | Method::PUT | Method::DELETE)
                         && !path.starts_with("/_synapse/admin")
                     {
-                        let request_id =
-                            headers.get("x-request-id").and_then(|v| v.to_str().ok()).unwrap_or("unknown").to_string();
+                        let request_id = resolve_request_id(&headers);
 
                         let audit_request = CreateAuditEventRequest {
                             actor_id: user_id.clone(),
