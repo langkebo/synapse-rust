@@ -15,7 +15,7 @@ on:
         description: 'Whitespace-separated file list for batched smoke runs'
         required: false
         type: string
-        default: 'src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs'
+        default: 'src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs src/web/middleware/security.rs'
 
 env:
   CARGO_TERM_COLOR: always
@@ -88,7 +88,7 @@ jobs:
         run: |
           MUTATION_FILES="${{ inputs.mutation_files }}"
           if [ -z "$MUTATION_FILES" ]; then
-            MUTATION_FILES="src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs"
+            MUTATION_FILES="src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs src/web/middleware/security.rs"
           fi
 
           if [ -n "${{ inputs.package }}" ]; then

@@ -1,11 +1,10 @@
-#![cfg(test)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::validation::Validator;
@@ -23,15 +22,7 @@ use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 
-async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
-    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
-        Ok(pool) => pool,
-        Err(error) => {
-            eprintln!("Skipping sync service tests because test database is unavailable: {error}");
-            return None;
-        }
-    };
-
+async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
             CREATE TABLE users (
@@ -50,7 +41,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create users table");
 
@@ -66,7 +57,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create presence table");
 
@@ -91,7 +82,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create rooms table");
 
@@ -120,7 +111,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create room_memberships table");
 
@@ -147,7 +138,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create events table");
 
@@ -168,7 +159,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create devices table");
 
@@ -182,7 +173,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create device_lists_stream table");
 
@@ -198,7 +189,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create device_lists_changes table");
 
@@ -216,7 +207,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create to_device_messages table");
 
@@ -233,7 +224,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create lazy_loaded_members table");
 
@@ -248,7 +239,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create filters table");
 
@@ -263,7 +254,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create key_rotation_pending table");
 
@@ -278,7 +269,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create key_rotation_state table");
 
@@ -293,7 +284,7 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create megolm_key_shares table");
 
@@ -308,11 +299,10 @@ async fn setup_test_database() -> Option<Arc<Pool<Postgres>>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create megolm_sessions table");
 
-    Some(pool)
 }
 
 async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) {
@@ -366,14 +356,11 @@ fn create_room_service(
     })
 }
 
-#[test]
-fn test_sync_success() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_sync_success() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -422,17 +409,13 @@ fn test_sync_success() {
         assert!(events
             .iter()
             .any(|event| { event["type"] == "m.room.message" && event["content"]["body"] == "Hello" }));
-    });
 }
 
-#[test]
-fn test_incremental_sync_does_not_replay_old_timeline() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_incremental_sync_does_not_replay_old_timeline() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -477,17 +460,13 @@ fn test_incremental_sync_does_not_replay_old_timeline() {
 
         let joined_rooms = second_sync["rooms"]["join"].as_object().unwrap();
         assert!(joined_rooms.is_empty(), "incremental sync should not replay unchanged rooms");
-    });
 }
 
-#[test]
-fn test_sync_offline_presence_overwrites_previous_presence_state() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_sync_offline_presence_overwrites_previous_presence_state() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -513,17 +492,13 @@ fn test_sync_offline_presence_overwrites_previous_presence_state() {
 
         let persisted = presence_storage.get_presence("@alice:localhost").await.unwrap().unwrap();
         assert_eq!(persisted.0, "offline");
-    });
 }
 
-#[test]
-fn test_sync_presence_events_reflect_persisted_presence_state() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_sync_presence_events_reflect_persisted_presence_state() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -552,17 +527,13 @@ fn test_sync_presence_events_reflect_persisted_presence_state() {
         assert_eq!(presence_events[0]["sender"], "@alice:localhost");
         assert_eq!(presence_events[0]["content"]["presence"], "unavailable");
         assert_eq!(presence_events[0]["content"]["currently_active"], json!(false));
-    });
 }
 
-#[test]
-fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -668,17 +639,13 @@ fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state() {
             }),
             "incremental lazy-load sync should not repeat unchanged non-member state types"
         );
-    });
 }
 
-#[test]
-fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -800,17 +767,13 @@ fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
             third_sync["rooms"]["join"].get(&room_id).is_none(),
             "state-only update should not repeat after token advances without lazy-load"
         );
-    });
 }
 
-#[test]
-fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timeline_filter() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timeline_filter() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -926,17 +889,13 @@ fn test_incremental_lazy_load_includes_room_with_state_only_change_despite_timel
             third_sync["rooms"]["join"].get(&room_id).is_none(),
             "state-only update should not repeat after token advances"
         );
-    });
 }
 
-#[test]
-fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_flag() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_flag() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
@@ -1019,17 +978,13 @@ fn test_sync_timeline_limit_preserves_chronological_order_without_false_limited_
             vec!["First hello", "Second hello"],
             "sync timeline should be returned in chronological order"
         );
-    });
 }
 
-#[test]
-fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_members() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1203,17 +1158,13 @@ fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta_membe
                 .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "limited timeline should not replay state-delta membership changes that are outside the returned timeline"
         );
-    });
 }
 
-#[test]
-fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1328,7 +1279,7 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         .bind("@alice:localhost")
         .bind("ALICEDEVICE")
         .bind(&room_id)
-        .fetch_one(&*pool)
+        .fetch_one(pool.as_ref())
         .await
         .unwrap();
         assert!(persisted_count >= 2, "expected persisted lazy-load members for alice and bob");
@@ -1380,17 +1331,13 @@ fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
                 .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "restarted sync service should restore lazy-load cache from database"
         );
-    });
 }
 
-#[test]
-fn test_include_redundant_members_survives_service_restart_with_persisted_cache() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_include_redundant_members_survives_service_restart_with_persisted_cache() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1533,17 +1480,13 @@ fn test_include_redundant_members_survives_service_restart_with_persisted_cache(
                 .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "include_redundant_members should keep member state even after cache restore"
         );
-    });
 }
 
-#[test]
-fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = match setup_test_database().await {
-            Some(pool) => pool,
-            None => return,
-        };
+#[tokio::test]
+async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
+
+        let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
         create_test_user(&pool, "@alice:localhost", "alice").await;
         create_test_user(&pool, "@bob:localhost", "bob").await;
 
@@ -1692,5 +1635,4 @@ fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart() {
                 .any(|event| { event["type"] == "m.room.member" && event["state_key"] == "@bob:localhost" }),
             "stored filter id should resolve lazy-load settings and restore cache after restart"
         );
-    });
 }

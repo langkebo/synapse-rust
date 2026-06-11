@@ -1,4 +1,4 @@
-#![cfg(test)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -21,15 +21,7 @@ fn create_test_cache() -> Arc<CacheManager> {
     Arc::new(CacheManager::new(&CacheConfig::default()))
 }
 
-async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
-    let pool = match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
-        Ok(pool) => pool,
-        Err(error) => {
-            eprintln!("Skipping feature flag service tests because test database is unavailable: {error}");
-            return None;
-        }
-    };
-
+async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS feature_flags (
@@ -45,7 +37,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
         )
         "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create feature_flags table");
 
@@ -60,7 +52,7 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
         )
         "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create feature_flag_targets table");
 
@@ -79,11 +71,10 @@ async fn setup_test_database() -> Option<Arc<sqlx::PgPool>> {
         )
         "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create audit_events table");
 
-    Some(pool)
 }
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> FeatureFlagService {
@@ -108,10 +99,8 @@ fn make_create_request(flag_key: &str, target_scope: &str) -> CreateFeatureFlagR
 
 #[tokio::test]
 async fn test_create_flag_empty_flag_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = CreateFeatureFlagRequest {
         flag_key: "".to_string(),
@@ -130,10 +119,8 @@ async fn test_create_flag_empty_flag_key() {
 
 #[tokio::test]
 async fn test_create_flag_whitespace_flag_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = CreateFeatureFlagRequest {
         flag_key: "   ".to_string(),
@@ -150,10 +137,8 @@ async fn test_create_flag_whitespace_flag_key() {
 
 #[tokio::test]
 async fn test_create_flag_uppercase_flag_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = CreateFeatureFlagRequest {
         flag_key: "MyFlag".to_string(),
@@ -172,10 +157,8 @@ async fn test_create_flag_uppercase_flag_key() {
 
 #[tokio::test]
 async fn test_create_flag_special_chars_flag_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = CreateFeatureFlagRequest {
         flag_key: "flag@name!".to_string(),
@@ -192,10 +175,8 @@ async fn test_create_flag_special_chars_flag_key() {
 
 #[tokio::test]
 async fn test_create_flag_valid_flag_key_with_dot_underscore_hyphen() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("beta.feature_flag-test-{uid}");
@@ -216,10 +197,8 @@ async fn test_create_flag_valid_flag_key_with_dot_underscore_hyphen() {
 
 #[tokio::test]
 async fn test_create_flag_invalid_target_scope() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -239,10 +218,8 @@ async fn test_create_flag_invalid_target_scope() {
 
 #[tokio::test]
 async fn test_create_flag_valid_target_scopes() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     for (i, scope) in ["global", "tenant", "room", "user"].iter().enumerate() {
@@ -262,10 +239,8 @@ async fn test_create_flag_valid_target_scopes() {
 
 #[tokio::test]
 async fn test_create_flag_rollout_percent_negative() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -285,10 +260,8 @@ async fn test_create_flag_rollout_percent_negative() {
 
 #[tokio::test]
 async fn test_create_flag_valid_rollout_percent() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -306,10 +279,8 @@ async fn test_create_flag_valid_rollout_percent() {
 
 #[tokio::test]
 async fn test_create_flag_rollout_percent_boundary_0() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-rollout-0-{uid}");
@@ -329,10 +300,8 @@ async fn test_create_flag_rollout_percent_boundary_0() {
 
 #[tokio::test]
 async fn test_create_flag_rollout_percent_boundary_100() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-rollout-100-{uid}");
@@ -352,10 +321,8 @@ async fn test_create_flag_rollout_percent_boundary_100() {
 
 #[tokio::test]
 async fn test_create_flag_invalid_status() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -375,10 +342,8 @@ async fn test_create_flag_invalid_status() {
 
 #[tokio::test]
 async fn test_create_flag_valid_statuses() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let valid_statuses = [
@@ -408,10 +373,8 @@ async fn test_create_flag_valid_statuses() {
 
 #[tokio::test]
 async fn test_create_flag_empty_reason() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -431,10 +394,8 @@ async fn test_create_flag_empty_reason() {
 
 #[tokio::test]
 async fn test_create_flag_whitespace_reason() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -452,10 +413,8 @@ async fn test_create_flag_whitespace_reason() {
 
 #[tokio::test]
 async fn test_create_flag_invalid_target_subject_type() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -478,10 +437,8 @@ async fn test_create_flag_invalid_target_subject_type() {
 
 #[tokio::test]
 async fn test_create_flag_empty_target_subject_id() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -501,10 +458,8 @@ async fn test_create_flag_empty_target_subject_id() {
 
 #[tokio::test]
 async fn test_create_flag_duplicate_targets() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let request = CreateFeatureFlagRequest {
@@ -527,10 +482,8 @@ async fn test_create_flag_duplicate_targets() {
 
 #[tokio::test]
 async fn test_create_flag_expired_expiration() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let past_ts = chrono::Utc::now().timestamp_millis() - 10000;
@@ -553,10 +506,8 @@ async fn test_create_flag_expired_expiration() {
 
 #[tokio::test]
 async fn test_create_flag_future_expiration_ok() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let future_ts = chrono::Utc::now().timestamp_millis() + 3600000;
@@ -577,10 +528,8 @@ async fn test_create_flag_future_expiration_ok() {
 
 #[tokio::test]
 async fn test_create_flag_none_expiration_ok() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-no-exp-{uid}");
@@ -600,10 +549,8 @@ async fn test_create_flag_none_expiration_ok() {
 
 #[tokio::test]
 async fn test_create_flag_none_status_defaults_to_draft() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-no-status-{uid}");
@@ -623,10 +570,8 @@ async fn test_create_flag_none_status_defaults_to_draft() {
 
 #[tokio::test]
 async fn test_create_flag_with_targets_success() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-with-targets-{uid}");
@@ -651,10 +596,8 @@ async fn test_create_flag_with_targets_success() {
 
 #[tokio::test]
 async fn test_create_flag_duplicate_key_returns_conflict() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-dup-key-{uid}");
@@ -668,10 +611,8 @@ async fn test_create_flag_duplicate_key_returns_conflict() {
 
 #[tokio::test]
 async fn test_get_flag_empty_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let result = service.get_flag("").await;
     assert!(result.is_err());
@@ -681,10 +622,8 @@ async fn test_get_flag_empty_key() {
 
 #[tokio::test]
 async fn test_get_flag_not_found() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let result = service.get_flag("nonexistent.flag").await;
     assert!(result.is_err());
@@ -694,10 +633,8 @@ async fn test_get_flag_not_found() {
 
 #[tokio::test]
 async fn test_get_flag_success() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-get-ok-{uid}");
@@ -720,10 +657,8 @@ async fn test_get_flag_success() {
 
 #[tokio::test]
 async fn test_update_flag_empty_key() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "", request).await;
@@ -734,10 +669,8 @@ async fn test_update_flag_empty_key() {
 
 #[tokio::test]
 async fn test_update_flag_invalid_key_chars() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "INVALID KEY!", request).await;
@@ -746,10 +679,8 @@ async fn test_update_flag_invalid_key_chars() {
 
 #[tokio::test]
 async fn test_update_flag_invalid_status() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-status-{uid}");
@@ -763,10 +694,8 @@ async fn test_update_flag_invalid_status() {
 
 #[tokio::test]
 async fn test_update_flag_rollout_out_of_range() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-rollout-{uid}");
@@ -778,10 +707,8 @@ async fn test_update_flag_rollout_out_of_range() {
 
 #[tokio::test]
 async fn test_update_flag_empty_reason() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-reason-{uid}");
@@ -793,10 +720,8 @@ async fn test_update_flag_empty_reason() {
 
 #[tokio::test]
 async fn test_update_flag_invalid_targets() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-targets-{uid}");
@@ -814,10 +739,8 @@ async fn test_update_flag_invalid_targets() {
 
 #[tokio::test]
 async fn test_update_flag_expired_expiration() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-exp-{uid}");
@@ -830,10 +753,8 @@ async fn test_update_flag_expired_expiration() {
 
 #[tokio::test]
 async fn test_update_flag_not_found() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let request = UpdateFeatureFlagRequest { status: Some("active".to_string()), ..Default::default() };
     let result = service.update_flag("@admin:test", "req-1", "nonexistent.key", request).await;
@@ -844,10 +765,8 @@ async fn test_update_flag_not_found() {
 
 #[tokio::test]
 async fn test_update_flag_success() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-ok-{uid}");
@@ -865,10 +784,8 @@ async fn test_update_flag_success() {
 
 #[tokio::test]
 async fn test_update_flag_replace_targets() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-replace-{uid}");
@@ -899,10 +816,8 @@ async fn test_update_flag_replace_targets() {
 
 #[tokio::test]
 async fn test_update_flag_multiple_fields() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-multi-{uid}");
@@ -924,10 +839,8 @@ async fn test_update_flag_multiple_fields() {
 
 #[tokio::test]
 async fn test_list_flags_invalid_scope_filter() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let filters = FeatureFlagFilters {
         target_scope: Some("invalid_scope".to_string()),
@@ -944,10 +857,8 @@ async fn test_list_flags_invalid_scope_filter() {
 
 #[tokio::test]
 async fn test_list_flags_invalid_status_filter() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let filters = FeatureFlagFilters {
         target_scope: None,
@@ -964,10 +875,8 @@ async fn test_list_flags_invalid_status_filter() {
 
 #[tokio::test]
 async fn test_list_flags_no_filters() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-list-nofilter-{uid}");
@@ -986,10 +895,8 @@ async fn test_list_flags_no_filters() {
 
 #[tokio::test]
 async fn test_list_flags_with_scope_filter() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let scope = "room".to_string();
@@ -1019,10 +926,8 @@ async fn test_list_flags_with_scope_filter() {
 
 #[tokio::test]
 async fn test_list_flags_with_status_filter() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let scope = "room".to_string();
@@ -1063,10 +968,8 @@ async fn test_list_flags_with_status_filter() {
 
 #[tokio::test]
 async fn test_create_flag_audit_event_created() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-audit-create-{uid}");
@@ -1099,10 +1002,8 @@ async fn test_create_flag_audit_event_created() {
 
 #[tokio::test]
 async fn test_update_flag_audit_event_created() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-audit-update-{uid}");
@@ -1127,10 +1028,8 @@ async fn test_update_flag_audit_event_created() {
 
 #[tokio::test]
 async fn test_create_flag_valid_target_subject_types() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     for (i, subject_type) in ["tenant", "room", "user"].iter().enumerate() {
@@ -1154,10 +1053,8 @@ async fn test_create_flag_valid_target_subject_types() {
 
 #[tokio::test]
 async fn test_update_flag_duplicate_targets_rejected() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-dup-targets-{uid}");
@@ -1175,10 +1072,8 @@ async fn test_update_flag_duplicate_targets_rejected() {
 
 #[tokio::test]
 async fn test_update_flag_empty_target_subject_id_rejected() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-empty-sid-{uid}");
@@ -1193,10 +1088,8 @@ async fn test_update_flag_empty_target_subject_id_rejected() {
 
 #[tokio::test]
 async fn test_update_flag_preserves_unupdated_fields() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let uid = unique_id();
     let flag_key = format!("test-upd-preserve-{uid}");
@@ -1224,10 +1117,8 @@ async fn test_update_flag_preserves_unupdated_fields() {
 
 #[tokio::test]
 async fn test_list_flags_empty_result() {
-    let pool = match setup_test_database().await {
-        Some(pool) => pool,
-        None => return,
-    };
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
     let service = create_service(&pool);
     let filters = FeatureFlagFilters {
         target_scope: Some("tenant".to_string()),

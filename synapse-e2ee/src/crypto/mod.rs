@@ -1,6 +1,6 @@
 use synapse_common::ApiError;
-pub mod aes;
-pub mod ed25519;
+mod aes;
+mod ed25519;
 
 pub use aes::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce};
 pub use ed25519::{Ed25519KeyPair, Ed25519PublicKey};

@@ -19,6 +19,15 @@ on:
     # Sunday 02:00 UTC, after the nightly dependency refresh.
     - cron: '0 2 * * 0'
   workflow_dispatch:
+    inputs:
+      element_harness_script:
+        description: Element Web browser harness script to run
+        required: false
+        default: test:basic
+        type: choice
+        options:
+          - test:basic
+          - smoke:login
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,7 +84,9 @@ jobs:
   element-web-interop:
     # CI-backed cross-client verification now runs in two layers:
     # 1) matrix-js-sdk real-backend verification against a live backend.
-    # 2) a browser-level Element Web login smoke via Playwright.
+    # 2) a browser-level Element Web harness via Playwright. Default to
+    #    basic interactions so the workflow exercises login + room create
+    #    + message send, while keeping workflow_dispatch overrideable.
     name: Element ecosystem verification
     runs-on: ubuntu-latest
     if: >-
@@ -134,14 +145,16 @@ jobs:
           bash scripts/test/run_sdk_verification_real_backend.sh \
             2>&1 | tee "${E2EE_INTEROP_LOG}/matrix-js-sdk.log"
 
-      - name: Run Element Web browser login smoke
+      - name: Run Element Web browser harness
         env:
           DOCKER_ENV_FILE: ${{ github.workspace }}/docker/.env
           WAIT_SECONDS: 240
           BROWSER_ONLY_OVERLAY: '1'
           ELEMENT_HARNESS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/e2ee-interop
+          ELEMENT_HARNESS_SCRIPT: ${{ github.event.inputs.element_harness_script }}
         run: |
           mkdir -p "${E2EE_INTEROP_LOG}"
+          TEST_SCRIPT="${ELEMENT_HARNESS_SCRIPT:-test:basic}" \
           bash scripts/test/run_element_web_browser_harness.sh \
             2>&1 | tee "${E2EE_INTEROP_LOG}/element-web-browser.log"
 
@@ -153,5 +166,5 @@ jobs:
           path: |
             ${{ env.E2EE_INTEROP_LOG }}/matrix-js-sdk.log
             ${{ env.E2EE_INTEROP_LOG }}/element-web-browser.log
-            artifacts/e2ee-interop/element-web-login-failure.png
+            artifacts/e2ee-interop/
           retention-days: 30

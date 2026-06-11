@@ -147,7 +147,7 @@ impl MegolmVodozemacService {
             return None;
         }
         let key = self.encryption_key?;
-        use crate::crypto::aes::{Aes256GcmCipher, Aes256GcmKey};
+        use crate::crypto::{Aes256GcmCipher, Aes256GcmKey};
 
         let cipher_key = Aes256GcmKey::from_bytes(key);
         let encrypted = Aes256GcmCipher::encrypt_with_nonce(&cipher_key, raw_session_key).ok()?;

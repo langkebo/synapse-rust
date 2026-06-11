@@ -160,7 +160,12 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn fail_update(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, ApiError> {
-        warn!(job_name = %job_name, error_message = %error_message, "Failing background update");
+        warn!(
+            job_name = %job_name,
+            error_message_present = !error_message.is_empty(),
+            error_message_len = error_message.len(),
+            "Failing background update"
+        );
 
         let update = self
             .storage

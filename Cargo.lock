@@ -4477,6 +4477,7 @@ dependencies = [
  "typenum",
  "url",
  "urlencoding",
+ "utoipa",
  "uuid",
  "validator",
  "vodozemac",

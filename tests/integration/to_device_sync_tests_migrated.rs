@@ -1,11 +1,8 @@
-#![cfg(test)]
-
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use serde_json::json;
-use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use tokio::runtime::Runtime;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
@@ -18,9 +15,7 @@ use synapse_rust::storage::filter::FilterStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
 
-async fn setup_test_database() -> Arc<Pool<Postgres>> {
-    let pool = synapse_rust::test_utils::prepare_empty_isolated_test_pool().await.expect("Failed to prepare test pool");
-
+async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
             CREATE TABLE IF NOT EXISTS events (
@@ -44,7 +39,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create events table");
 
@@ -64,12 +59,12 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create to_device_messages table");
 
     sqlx::query("CREATE SEQUENCE IF NOT EXISTS to_device_stream_id_seq")
-        .execute(&*pool)
+        .execute(pool.as_ref())
         .await
         .expect("Failed to create to_device_stream_id_seq");
 
@@ -90,7 +85,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create devices table");
 
@@ -119,7 +114,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create room_memberships table");
 
@@ -135,7 +130,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create presence table");
 
@@ -150,7 +145,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create filters table");
 
@@ -175,7 +170,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create rooms table");
 
@@ -189,7 +184,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create device_lists_stream table");
 
@@ -205,7 +200,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create device_lists_changes table");
 
@@ -220,7 +215,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create key_rotation_pending table");
 
@@ -235,7 +230,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create key_rotation_state table");
 
@@ -250,7 +245,7 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create megolm_key_shares table");
 
@@ -265,65 +260,43 @@ async fn setup_test_database() -> Arc<Pool<Postgres>> {
             )
             "#,
     )
-    .execute(&*pool)
+    .execute(pool.as_ref())
     .await
     .expect("Failed to create megolm_sessions table");
-
-    pool
 }
 
-#[test]
-fn test_to_device_next_batch_token_respects_limit() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = setup_test_database().await;
+#[tokio::test]
+async fn test_to_device_next_batch_token_respects_limit() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
 
-        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
-        let member_storage = RoomMemberStorage::new(&pool, "localhost");
-        let event_storage = EventStorage::new(&pool, "localhost".to_string());
-        let room_storage = RoomStorage::new(&pool);
-        let to_device_storage = ToDeviceStorage::new(&pool);
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let member_storage = RoomMemberStorage::new(&pool, "localhost");
+    let event_storage = EventStorage::new(&pool, "localhost".to_string());
+    let room_storage = RoomStorage::new(&pool);
+    let to_device_storage = ToDeviceStorage::new(&pool);
 
-        let sync_service = SyncService::new(
-            presence_storage,
-            member_storage,
-            event_storage,
-            room_storage,
-            FilterStorage::new(&pool),
-            DeviceStorage::new(&pool),
-            to_device_storage.clone(),
-            Arc::new(MetricsCollector::new()),
-            PerformanceConfig::default(),
-        );
+    let sync_service = SyncService::new(
+        presence_storage,
+        member_storage,
+        event_storage,
+        room_storage,
+        FilterStorage::new(&pool),
+        DeviceStorage::new(&pool),
+        to_device_storage.clone(),
+        Arc::new(MetricsCollector::new()),
+        PerformanceConfig::default(),
+    );
 
-        let user_id = "@alice:localhost";
-        let device_id = "ALICEDEVICE";
+    let user_id = "@alice:localhost";
+    let device_id = "ALICEDEVICE";
 
-        // Create the device first, otherwise add_message will skip it
-        DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
+    // Create the device first, otherwise add_message will skip it
+    DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
 
-        // Add 5 to-device messages
-        for i in 1..=5 {
-            to_device_storage
-                .add_message(ToDeviceMessage {
-                    sender_user_id: "@bob:localhost",
-                    sender_device_id: "BOBDEVICE",
-                    recipient_user_id: user_id,
-                    recipient_device_id: device_id,
-                    event_type: "m.test",
-                    content: json!({"index": i}),
-                    message_id: None,
-                })
-                .await
-                .unwrap();
-        }
-
-        // Initial sync to get everything
-        let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
-        let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
-
-        // Add one more message
+    // Add 5 to-device messages
+    for i in 1..=5 {
         to_device_storage
             .add_message(ToDeviceMessage {
                 sender_user_id: "@bob:localhost",
@@ -331,73 +304,89 @@ fn test_to_device_next_batch_token_respects_limit() {
                 recipient_user_id: user_id,
                 recipient_device_id: device_id,
                 event_type: "m.test",
-                content: json!({"index": 6}),
+                content: json!({"index": i}),
                 message_id: None,
             })
             .await
             .unwrap();
+    }
 
-        let second_sync =
-            sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token)).await.unwrap();
-        let to_device_events = second_sync["to_device"]["events"].as_array().unwrap();
+    // Initial sync to get everything
+    let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
+    let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
 
-        assert_eq!(to_device_events.len(), 1);
-        assert_eq!(to_device_events[0]["content"]["index"], 6);
-    });
-}
+    // Add one more message
+    to_device_storage
+        .add_message(ToDeviceMessage {
+            sender_user_id: "@bob:localhost",
+            sender_device_id: "BOBDEVICE",
+            recipient_user_id: user_id,
+            recipient_device_id: device_id,
+            event_type: "m.test",
+            content: json!({"index": 6}),
+            message_id: None,
+        })
+        .await
+        .unwrap();
 
-#[test]
-fn test_to_device_messages_are_deleted_after_ack() {
-    let rt = Runtime::new().unwrap();
-    rt.block_on(async {
-        let pool = setup_test_database().await;
-
-        let to_device_storage = ToDeviceStorage::new(&pool);
-        let sync_service = SyncService::new(
-            PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
-            RoomMemberStorage::new(&pool, "localhost"),
-            EventStorage::new(&pool, "localhost".to_string()),
-            RoomStorage::new(&pool),
-            FilterStorage::new(&pool),
-            DeviceStorage::new(&pool),
-            to_device_storage.clone(),
-            Arc::new(MetricsCollector::new()),
-            PerformanceConfig::default(),
-        );
-
-        let user_id = "@alice:localhost";
-        let device_id = "ALICEDEVICE";
-
-        // Create the device first
-        DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
-
-        // Add a message
-        to_device_storage
-            .add_message(ToDeviceMessage {
-                sender_user_id: "@bob:localhost",
-                sender_device_id: "BOBDEVICE",
-                recipient_user_id: user_id,
-                recipient_device_id: device_id,
-                event_type: "m.test",
-                content: json!({"index": 1}),
-                message_id: None,
-            })
-            .await
-            .unwrap();
-
-        // Initial sync to get the token
-        let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
-        let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
-
-        // Verify message exists in DB
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
-        assert_eq!(count, 1);
-
-        // Sync again with the token (this should trigger deletion of messages up to the token's stream_id)
+    let second_sync =
         sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token)).await.unwrap();
+    let to_device_events = second_sync["to_device"]["events"].as_array().unwrap();
 
-        // Verify message is deleted from DB
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
-        assert_eq!(count, 0);
-    });
+    assert_eq!(to_device_events.len(), 1);
+    assert_eq!(to_device_events[0]["content"]["index"], 6);
+}
+
+#[tokio::test]
+async fn test_to_device_messages_are_deleted_after_ack() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let to_device_storage = ToDeviceStorage::new(&pool);
+    let sync_service = SyncService::new(
+        PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
+        RoomMemberStorage::new(&pool, "localhost"),
+        EventStorage::new(&pool, "localhost".to_string()),
+        RoomStorage::new(&pool),
+        FilterStorage::new(&pool),
+        DeviceStorage::new(&pool),
+        to_device_storage.clone(),
+        Arc::new(MetricsCollector::new()),
+        PerformanceConfig::default(),
+    );
+
+    let user_id = "@alice:localhost";
+    let device_id = "ALICEDEVICE";
+
+    // Create the device first
+    DeviceStorage::new(&pool).create_device(device_id, user_id, Some("Alice phone")).await.unwrap();
+
+    // Add a message
+    to_device_storage
+        .add_message(ToDeviceMessage {
+            sender_user_id: "@bob:localhost",
+            sender_device_id: "BOBDEVICE",
+            recipient_user_id: user_id,
+            recipient_device_id: device_id,
+            event_type: "m.test",
+            content: json!({"index": 1}),
+            message_id: None,
+        })
+        .await
+        .unwrap();
+
+    // Initial sync to get the token
+    let first_sync = sync_service.sync(user_id, Some(device_id), 0, false, "online", None, None).await.unwrap();
+    let first_token = first_sync["next_batch"].as_str().unwrap().to_string();
+
+    // Verify message exists in DB
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
+    assert_eq!(count, 1);
+
+    // Sync again with the token (this should trigger deletion of messages up to the token's stream_id)
+    sync_service.sync(user_id, Some(device_id), 0, false, "online", None, Some(&first_token)).await.unwrap();
+
+    // Verify message is deleted from DB
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM to_device_messages").fetch_one(&*pool).await.unwrap();
+    assert_eq!(count, 0);
 }
