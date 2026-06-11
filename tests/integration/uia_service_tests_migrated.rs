@@ -1,16 +1,36 @@
-#![cfg(test)]
-
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_rust::common::ApiError;
 use synapse_rust::services::uia_service::{UiaFlow, UiaService, UiaSession};
 
 fn create_service() -> UiaService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     UiaService::new(cache, 3600)
+}
+
+fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let metrics = Arc::new(MetricsCollector::new());
+    let security = SecurityConfig {
+        secret: "test_secret".to_string(),
+        expiry_time: 3600,
+        refresh_token_expiry: 604800,
+        argon2_m_cost: 2048,
+        argon2_t_cost: 1,
+        argon2_p_cost: 1,
+        allow_legacy_hashes: false,
+        login_failure_lockout_threshold: 5,
+        login_lockout_duration_seconds: 900,
+        admin_mfa_required: false,
+        admin_mfa_shared_secret: String::new(),
+        admin_mfa_allowed_drift_steps: 1,
+        admin_rbac_enabled: true,
+        ui_auth_session_timeout: 900,
+    };
+    AuthService::new(pool, cache, metrics, &security, "localhost")
 }
 
 #[test]
@@ -168,7 +188,6 @@ fn test_build_uia_response_structure() {
     assert_eq!(response["errcode"], "M_UIA_REQUIRED");
     assert_eq!(response["error"], "Authentication required");
     assert_eq!(response["session"], "sid-123");
-    // v10: params now includes threepid identity service mappings per Matrix spec.
     assert_eq!(response["params"]["m.login.email.identity"]["threepidCreds"], serde_json::json!([]));
     assert_eq!(response["params"]["m.login.msisdn"]["threepidCreds"], serde_json::json!([]));
     assert_eq!(response["completed"], serde_json::json!(["m.login.password"]));
@@ -527,109 +546,56 @@ async fn test_validate_auth_empty_auth_object() {
     assert_eq!(err["errcode"], "M_UIA_REQUIRED");
 }
 
-#[test]
-fn test_verify_password_stage_missing_password() {
+#[tokio::test]
+async fn test_verify_password_stage_missing_password() {
+    let pool = crate::require_test_pool().await;
     let service = create_service();
+    let auth_service = create_auth_service(&pool);
     let auth = serde_json::json!({
         "identifier": {
             "user": "@user:localhost"
         }
     });
-    let pool = match prepare_test_pool() {
-        Some(p) => p,
-        None => return,
-    };
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let auth_service = create_auth_service(&pool);
-        let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            e if e.is_bad_request() && e.internal_message().contains("Password required") => {}
-            _ => panic!("Expected BadRequest error"),
-        }
-    });
+    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        e if e.is_bad_request() && e.internal_message().contains("Password required") => {}
+        _ => panic!("Expected BadRequest error"),
+    }
 }
 
-#[test]
-fn test_verify_password_stage_user_mismatch_identifier() {
+#[tokio::test]
+async fn test_verify_password_stage_user_mismatch_identifier() {
+    let pool = crate::require_test_pool().await;
     let service = create_service();
+    let auth_service = create_auth_service(&pool);
     let auth = serde_json::json!({
         "password": "somepassword",
         "identifier": {
             "user": "@different:localhost"
         }
     });
-    let pool = match prepare_test_pool() {
-        Some(p) => p,
-        None => return,
-    };
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let auth_service = create_auth_service(&pool);
-        let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
-            _ => panic!("Expected Forbidden error"),
-        }
-    });
+    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
+        _ => panic!("Expected Forbidden error"),
+    }
 }
 
-#[test]
-fn test_verify_password_stage_user_mismatch_legacy_user_field() {
+#[tokio::test]
+async fn test_verify_password_stage_user_mismatch_legacy_user_field() {
+    let pool = crate::require_test_pool().await;
     let service = create_service();
+    let auth_service = create_auth_service(&pool);
     let auth = serde_json::json!({
         "password": "somepassword",
         "user": "@different:localhost"
     });
-    let pool = match prepare_test_pool() {
-        Some(p) => p,
-        None => return,
-    };
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        let auth_service = create_auth_service(&pool);
-        let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
-            _ => panic!("Expected Forbidden error"),
-        }
-    });
-}
-
-fn prepare_test_pool() -> Option<Arc<sqlx::PgPool>> {
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    rt.block_on(async {
-        match synapse_rust::test_utils::prepare_empty_isolated_test_pool().await {
-            Ok(pool) => Some(pool),
-            Err(error) => {
-                eprintln!("Skipping UIA password stage test because test database is unavailable: {error}");
-                None
-            }
-        }
-    })
-}
-
-fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let metrics = Arc::new(MetricsCollector::new());
-    let security = SecurityConfig {
-        secret: "test_secret".to_string(),
-        expiry_time: 3600,
-        refresh_token_expiry: 604800,
-        argon2_m_cost: 2048,
-        argon2_t_cost: 1,
-        argon2_p_cost: 1,
-        allow_legacy_hashes: false,
-        login_failure_lockout_threshold: 5,
-        login_lockout_duration_seconds: 900,
-        admin_mfa_required: false,
-        admin_mfa_shared_secret: String::new(),
-        admin_mfa_allowed_drift_steps: 1,
-        admin_rbac_enabled: true,
-        ui_auth_session_timeout: 900,
-    };
-    AuthService::new(pool, cache, metrics, &security, "localhost")
+    let result = service.verify_password_stage(&auth, "@user:localhost", &auth_service).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        e if e.is_forbidden() && e.internal_message().contains("User mismatch") => {}
+        _ => panic!("Expected Forbidden error"),
+    }
 }

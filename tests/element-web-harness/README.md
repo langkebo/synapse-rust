@@ -18,6 +18,7 @@
 - 包含完整的登录流程
 - 尝试创建一个新房间
 - 尝试在新房间中发送测试消息
+- 当前已作为 `e2ee-interop` workflow 的默认浏览器级验收脚本；如需快速回退到最小登录验证，可切回 `smoke:login`
 
 ## 使用方法
 
@@ -44,6 +45,13 @@ bash scripts/test/run_element_web_browser_harness.sh
 # 运行基础交互测试
 TEST_SCRIPT=test:basic bash scripts/test/run_element_web_browser_harness.sh
 ```
+
+### 在 GitHub Actions 中选择脚本
+
+`e2ee-interop` workflow 的 `workflow_dispatch` 现在支持 `element_harness_script` 输入：
+
+- 默认值：`test:basic`
+- 可选值：`smoke:login`
 
 ### 在现有后端栈上运行（快速迭代）
 

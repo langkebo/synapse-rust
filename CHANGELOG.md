@@ -38,8 +38,14 @@
   （`megolm_vodozemac_pickle_persist_total` 等）。
 
 ### Changed
-- E2EE 评估口径：审查报告 P0 项 4 状态从「⚠️ 渐进式收敛」更新为
-  「🚧 Phase 1+2 ✅ / Phase 3 进行中 / Phase 4 待 Phase 3 收尾」。
+- **C-5 Phase 4 协议层包装边界进一步冻结**（2026-06-11）：
+  - 在 `src/e2ee/crypto/` 与 `synapse-e2ee/src/crypto/` 两棵树中同步完成接口可见性收窄
+  - `aes.rs`：删除桥接方法 `Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new`；将 `Aes256GcmNonce::{generate, from_bytes}` 与 `Aes256GcmCipher::{encrypt, decrypt}` 收为模块私有；新增 `Aes256GcmCipher::split_encrypted_data` 私有辅助方法聚合测试逻辑
+  - `ed25519.rs`：新增 `Ed25519PublicKey::verify` 公开方法，封装签名验证；将 `Ed25519PublicKey::from_bytes` 收为模块私有，并继续删除 `Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 测试桥接
+  - 移除 `src/e2ee/mod.rs` 与 `synapse-e2ee/src/lib.rs` 的顶层 re-export，减少公开暴露面
+  - 将 `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 的子模块收为私有
+  - 同步更新上层调用点 `signed_json.rs`，并移除对 `ed25519_dalek::{Verifier, VerifyingKey}` 的直接依赖
+- E2EE 评估口径：审查报告 P0 项 4 状态从「🚧 Phase 1+2 ✅ / Phase 3 进行中 / Phase 4 待 Phase 3 收尾」更新为「🚧 Phase 1+2 ✅ / Phase 3 浏览器验证 ✅ / Phase 4 协议层边界基本冻结」。
 - `ServiceContainer` 状态口径：核心字段数 35 → 48（实际，比 2.2 报告多 13）。
 - `config/mod.rs` 行数：4081 → 4056（聚合文件，已拆 18 子模块）。
 
@@ -55,7 +61,7 @@
 - 无新增。
 
 ### Removed
-- 无新增（待 C-5 Phase 4 启动后清理自研 crypto/olm）。
+- 无新增（C-5 Phase 4 当前以边界冻结与跨端验收为主，自研 crypto/olm 的进一步删除需待跨端矩阵全绿后再评估）。
 
 ---
 
@@ -192,7 +198,7 @@
 
 ### Deprecated
 - 自研 Olm/Megolm crypto（`src/e2ee/olm/session.rs` /
-  `src/e2ee/crypto/{aes,x25519}.rs`）— 待 C-5 Phase 4 启动后清理
+  `src/e2ee/crypto/{aes,x25519}.rs`）— 已进入 C-5 Phase 4 边界冻结阶段，进一步删除需待跨端矩阵全绿后评估
   （**必须 Phase 3 跨 Element 客户端矩阵全绿**）
 
 ### Removed

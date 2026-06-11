@@ -8,7 +8,43 @@
 
 ---
 
-## 0.1 2026-06-10 复核修正（当前权威摘要）
+
+## 0.1 2026-06-11 复核修正（当前权威摘要）
+
+> 本报告长期累积了多轮“审查结论 + 执行日志 + 历史快照”。2026-06-11 最新复核确认项目代码状态。本节优先于下文历史叙述。
+
+### 本次复核确认的事实
+
+- `C-5 Phase 4 协议层边界冻结已基本完成`：主树和 `synapse-e2ee` 镜像树已同步完成协议层包装的进一步收口：
+  - `aes.rs`：删除了 `Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new` 桥接方法；将 `Aes256GcmNonce::{generate, from_bytes}` 和 `Aes256GcmCipher::{encrypt, decrypt}` 收为模块私有；新增 `Aes256GcmCipher::split_encrypted_data` 私有辅助方法来聚合测试逻辑；仅保留最小公开接口 `Aes256GcmKey::{generate, from_bytes}` 和 `Aes256GcmCipher::encrypt_with_nonce`
+  - `ed25519.rs`：新增 `Ed25519PublicKey::verify` 公开方法，直接封装签名验证逻辑；`Ed25519PublicKey::from_bytes` 已收为模块私有，`Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 这类测试桥接已删除；仅保留最小公开接口 `Ed25519PublicKey::{from_base64, verify}` 和 `Ed25519KeyPair::{generate, public_key, sign}`
+  - 上层调用同步更新：`signed_json.rs` 中已使用新的 `verify` 方法，不再需要直接操作底层字节
+  - `src/e2ee/mod.rs` 和 `synapse-e2ee/src/lib.rs` 已移除顶层 re-export，减少了公开暴露面
+  - `src/e2ee/crypto/mod.rs` 和 `synapse-e2ee/src/crypto/mod.rs` 已将子模块收为私有，内部仅通过顶层类型访问
+- 敏感日志降敏与结构化已全面完成：`src/services/` 和 `synapse-services/src/` 中旧式字符串日志已基本清理完毕，所有高价值日志路径均已使用结构化字段；外部集成 URL、token 前缀、payload 标题等敏感字段已统一降为布尔或长度型字段
+- 所有修改已通过 `GetDiagnostics` 和 `cargo check --all-features --locked` 验证，无编译错误
+
+### 本次复核后仍未完成的关键项
+
+- `C-5`：仍需等待 Phase 3 跨端互操作矩阵（Android/iOS）全绿后，才能关闭 Phase 4 并宣布 C-5 彻底完成。当前 Element Web 浏览器 harness 已跑通基础交互链路。
+- `M-4 / P2 #35`：覆盖率与 mutation testing 已有局部实测证据，但距离目标仍有差距；mutation 已调整为分批 baseline 策略，避免一次性跑完整仓
+- 历史文档快照一致性清理：审计报告、迁移文档等部分叙述仍需与最新代码状态同步
+
+### 本轮已落地修复 (2026-06-11 最新增补)
+
+- **C-5 Phase 4 协议层包装边界进一步冻结**：
+  - 在主树和 `synapse-e2ee` 树中同步完成了 `aes.rs` 和 `ed25519.rs` 的接口可见性进一步收窄
+  - 删除了不必要的桥接方法，减少了协议层暴露的内部细节
+  - 新增了更语义化的公开方法 `Ed25519PublicKey::verify`
+  - 继续删除 `Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 测试桥接，测试改为直接覆盖 `public_key.verify()` 公开面
+  - 新增了测试辅助私有方法 `Aes256GcmCipher::split_encrypted_data`，减少了测试代码重复
+  - 同步更新了上层调用点 `signed_json.rs`
+- **审计文档同步推进**：更新了 `E2EE_VODOZEMAC_MIGRATION.md` 中的 Phase 4 进展记录
+
+---
+
+## 0.2 2026-06-10 复核修正（历史快照）
+
 
 > 本报告长期累积了多轮“审查结论 + 执行日志 + 历史快照”。2026-06-10 最新复核确认项目代码状态。本节优先于下文历史叙述。
 
@@ -82,6 +118,7 @@
   - **2026-06-11 第十七批零散提示日志继续收口**: `src/services/push/queue.rs` 与 `synapse-services/src/push/queue.rs` 中 dequeue、mark sent/failed、按 device/user 清理队列等调试提示已从字符串插值统一为结构化 `debug!`，补齐 `batch_size` / `notification_id` / `retry` / `removed` / `user_id` / `device_id`；同时 `src/services/event_notifier.rs` 与镜像树中的 Redis publish 与连接失败提示也已改为结构化字段，仅记录 `error` 与 `channel`。本轮定向 `GetDiagnostics` 全部通过，`cargo check --all-features` 通过，且本轮锁定的字符串插值调试提示已无剩余命中。
   - **2026-06-11 第十八批 push provider 边角提示继续复扫并复核未完成项口径**: `src/services/push/providers/apns.rs`、`src/services/push/providers/webpush.rs`、`src/services/push/providers/fcm.rs` 与 `src/services/push/service.rs`，以及镜像树对应文件中，发送/回退路径里残留的 `token_prefix` / `endpoint_prefix` 均已统一降为 `token_present` / `token_len` / `endpoint_present` / `endpoint_len` 等低敏字段；同时 `src/services/push/providers/mod.rs` 中 retry 提示也已移除 token 前缀打印。本轮定向 `GetDiagnostics` 全部通过，`cargo check --all-features` 通过，且 `src/services/push` / `synapse-services/src/push` 中 `token_prefix` / `endpoint_prefix` 已无剩余命中；据此同步复核“仍未完成项”口径，P1 代码侧现主要剩历史文档口径同步与极少量按需复扫。
   - **2026-06-11 第十九批按需埋点复扫尾项继续收口**: `src/services/server_notification_service.rs` 与镜像树中服务端通知创建/更新提示不再直打 `notification_title`，统一改为 `title_present` / `title_len`；`src/services/oidc_service.rs` 与镜像树中的 JWKS 拉取提示不再插值输出完整 `jwks_uri`，改为仅记录 `jwks_uri_configured`；`src/services/push/queue.rs`、`event_notifier.rs`、`external_service_integration.rs` 与镜像树中剩余少量字符串插值调试提示已改为结构化字段；`src/services/friend_room_service/mod.rs` 与镜像树中的 federation friend request/accept 与 missed pending row 警告也已补齐 `error`、`sender_id` / `receiver_id` / `requester_id` / `target_id` 等结构化上下文。本轮定向 `GetDiagnostics` 全部通过，`cargo check --all-features` 通过，且本轮锁定的标题直打、JWKS URL 插值与相关字符串插值尾项已无剩余命中。
+  - **2026-06-11 第二十批高风险敏感字段最终复扫 + P2 mutation smoke 扩面**: `src/services/builtin_oidc_provider.rs` 与镜像树中 `Invalid password_hash` 提示、plaintext password 警告不再直打 `username`，统一改为仅记录 `username_present`；`src/services/registration_service.rs` 与镜像树中注册欢迎邮件任务相关提示与主树注册/登录 span 字段也已去掉 `username` 直打；`src/services/background_update_service.rs` 与镜像树中的 `fail_update()` 不再记录完整 `error_message`，改为 `error_message_present` / `error_message_len`。同时将 `Makefile` 与 `.github/workflows/mutation-testing.yml` 的默认 `MUTATION_BATCH_FILES` / `mutation_files` 从 `pagination.rs`、`json.rs`、`services/media/mod.rs` 扩展到额外覆盖 `src/web/middleware/security.rs`，并完成一次本地 `cargo mutants --package synapse-rust --file src/web/middleware/security.rs --timeout 30 --baseline skip -- --test-threads=2` 试跑；当前 `mutants.out/mutants.json` 可复核到 `22` 个 `security.rs` mutants，命令退出码为 `0`。本轮定向 `GetDiagnostics` 全部通过，`cargo check --all-features` 通过。
  - **P2 #35 定向回归继续扩大**：
   - 修复了 `src/e2ee/crypto/ed25519.rs` / `synapse-e2ee/src/crypto/ed25519.rs` 的 `VerifyingKey` 导入缺失，恢复新增测试可执行状态。
   - 新增并跑通 `extractors/json.rs` 的 body read failure 分支测试、`extractors/pagination.rs` 的非 backward 方向测试，以及 `services/media/mod.rs` 的负数 `total_size`、空文件名清洗回退、大小写不敏感 inline 媒体类型测试。
@@ -185,9 +222,16 @@
   - ✅ **本地互操作**：19 个本地 vodozemac 互操作测试全部通过
   - ✅ **浏览器验证**：Element Web 浏览器 harness 已跑通登录、cross-signing bootstrap、key backup 建立、房间创建与消息发送
   - 🚧 **跨端测试**：完整的 Element Web/Android/iOS 跨端矩阵仍待执行
-  - 🟡 **剩余工作**：
-    - 运行完整的跨 Element/Android/iOS 客户端互操作测试矩阵
-    - 验证 Phase 4 的清理工作是否安全进行
+  - 🟡 **验收缺口拆解**：
+    - **Phase 3 缺口**：`matrix-js-sdk` real-backend verification 与 Element Web 浏览器级 `basic-interactions` 已有可复核成功证据，且 CI 默认浏览器脚本已提升到 `test:basic`；当前真实缺口主要是 Android/iOS 真机矩阵与更完整的浏览器场景断言
+    - **Phase 4 缺口**：`crypto/aes.rs`、`crypto/ed25519.rs` 等协议层包装的保留/待删清单已基本冻结；当前更多是文档口径同步，以及在跨端矩阵全绿后再决定是否继续内聚 `public_key()` 这类协议层桥接
+  - ✅ **本轮落地的第一个可执行子项**：
+    - 已将 `.github/workflows/e2ee-interop.yml` 的 Element Web 浏览器级验收默认从 `smoke:login` 提升为 `test:basic`，并支持 `workflow_dispatch` 在 `test:basic` / `smoke:login` 之间切换；artifact 上传也已扩展为整个 `artifacts/e2ee-interop/`，便于保留房间创建/发消息链路证据
+  - ✅ **本轮补上的下一格（Phase 4 边界冻结）**：
+    - 已把 `AES` / `Ed25519` 细化到方法级清单：`Aes256GcmKey::{generate, from_bytes}`、`Aes256GcmCipher::encrypt_with_nonce` 与 `Ed25519PublicKey::{from_base64, verify}`、`Ed25519KeyPair::{generate, public_key, sign}` 继续作为协议层保留面；其余 `as_bytes` / `nonce` / `decrypt` / 测试辅助接口被明确归为内部能力或已删桥接
+    - 已将 `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 的 `aes` / `ed25519` 子模块收为私有实现细节，内部调用统一改走 `crypto::{...}` 顶层 re-export，进一步收窄可见路径但不改变协议行为
+    - 已继续把 `src/e2ee/crypto/aes.rs` 与 `synapse-e2ee/src/crypto/aes.rs` 中仅 crate 内使用的 `Aes256GcmKey::as_bytes`、`Aes256GcmNonce::{generate, from_bytes, as_bytes}`、`Aes256GcmCipher::{new, encrypt, decrypt}` 从早前的 `pub(crate)` 方案继续推进为“删除桥接或收为私有实现”
+    - 当前“删桥接”版本已完成：`Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new` 已在两棵树直接删除；`Aes256GcmNonce::{generate, from_bytes}` 与 `Aes256GcmCipher::{encrypt, decrypt}` 已进一步收成模块私有实现；`Ed25519PublicKey::as_bytes` 与 `Ed25519KeyPair::verify` 这类测试桥接也已删除，测试直接覆盖 `public_key.verify()` 公开面
   - **结论**：C-5 的核心技术风险已消除，剩余为验证和收尾工作
 
 ## 一、整体结论
@@ -267,13 +311,22 @@
     - `src/e2ee/crypto/mod.rs`：通配 re-export 已改为显式导出（`Aes256GcmCipher`, `Aes256GcmKey`, `Aes256GcmNonce`, `Ed25519KeyPair`, `Ed25519PublicKey`, `CryptoError`），大幅缩小 API 暴露面
     - `src/e2ee/crypto/argon2.rs`：已删除。该模块在 `src/` 与 `synapse-e2ee/src/` 中均无业务依赖，Argon2 逻辑已归于认证层或直接调用底层 crate
     - `src/e2ee/crypto/aes.rs`：`NonceTracker` / `SecureNonceGenerator` / `E2eeCryptoProvider` / `XChaCha20Poly1305*` / `*Ciphertext` 已加上 `#[cfg(test)]`，不再进入生产构建
-    - `src/e2ee/crypto/ed25519.rs`：`Ed25519SecretKey` 已改为模块私有，`to_base64` / `verify` / 测试构造辅助已收回到 `#[cfg(test)]` 或 crate 内可见，生产路径只保留 `Ed25519PublicKey::from_base64` 与 `Ed25519KeyPair::{generate, public_key, sign}` 最小接口
+    - `src/e2ee/crypto/ed25519.rs`：`Ed25519SecretKey` 已改为模块私有，`to_base64` 与测试构造辅助已收回到 `#[cfg(test)]` 或 crate 内可见；生产路径当前保留 `Ed25519PublicKey::{from_base64, verify}` 与 `Ed25519KeyPair::{generate, public_key, sign}` 最小接口
   - **保留包装**:
-    - `src/e2ee/crypto/aes.rs`：`Aes256GcmKey` / `Aes256GcmCipher::encrypt_with_nonce` 仍被 `src/e2ee/ssss/service.rs` 用于 SSSS 密钥封装，也被 `src/e2ee/vodozemac_megolm.rs` 用于 Phase 2 双写 legacy `session_key` 兼容写入，当前不能删除
-    - `src/e2ee/crypto/ed25519.rs`：`Ed25519PublicKey::from_base64` 仍被 `src/e2ee/signed_json.rs` 用于 Matrix signed JSON 校验；`Ed25519KeyPair` 仍被 `src/e2ee/signature/service.rs` 用于事件/键签名，当前应视为协议层包装
+    - `src/e2ee/crypto/aes.rs`：`Aes256GcmKey::{generate, from_bytes}` 与 `Aes256GcmCipher::encrypt_with_nonce` 仍被 `src/e2ee/ssss/service.rs` 用于 SSSS 密钥封装，也被 `src/e2ee/vodozemac_megolm.rs` 用于 Phase 2 双写 legacy `session_key` 兼容写入，当前不能删除
+    - `src/e2ee/crypto/ed25519.rs`：`Ed25519PublicKey::from_base64` 仍被 `src/e2ee/signed_json.rs` 用于 Matrix signed JSON 校验；`Ed25519KeyPair::{generate, public_key, sign}` 仍被 `src/e2ee/signature/service.rs` 用于事件/键签名，当前应视为协议层包装
     - `src/e2ee/crypto/mod.rs`：`CryptoError` 仍作为 `aes` / `ed25519` / `signed_json` 的共享错误边界保留
+  - **待删 / 待继续降可见性**:
+    - `src/e2ee/crypto/aes.rs`：`Aes256GcmKey::as_bytes`、`Aes256GcmNonce::as_bytes`、`Aes256GcmCipher::new` 已删除，`Aes256GcmNonce::{generate, from_bytes}` 与 `Aes256GcmCipher::{encrypt, decrypt}` 已收成私有，测试侧 nonce/解包重复逻辑也已收敛到私有 helper；代码侧已基本没有新的低风险删除项
+    - `src/e2ee/crypto/ed25519.rs`：除 `from_base64`、`verify`、`generate`、`public_key`、`sign` 外，其余辅助接口已基本被收回；下一步若签名服务进一步内聚，可继续评估收窄 `public_key()` 等协议层桥接用途接口
+  - **2026-06-11 Phase 4 边界冻结补充**:
+    - `src/e2ee/mod.rs` 与 `synapse-e2ee/src/lib.rs` 已移除对 `Aes256Gcm*` / `Ed25519*` / `CryptoError` 的顶层 re-export，调用方需显式经 `e2ee::crypto::*` 或具体协议模块访问，进一步收窄高层 API 暴露面
+    - 这次收口不改变 `ssss/service.rs`、`signed_json.rs`、`signature/service.rs`、`vodozemac_megolm.rs` 的协议边界，只减少聚合模块的再导出；因此可作为 Phase 4 的第一个低风险代码收口项
+    - 本轮继续把 `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 中的 `aes` / `ed25519` 子模块改为私有实现细节，内部调用统一走 `crypto::{...}` 顶层类型入口，进一步缩小可见路径但不改变现有协议行为
+    - 同轮已继续把 `src/e2ee/crypto/aes.rs` 与 `synapse-e2ee/src/crypto/aes.rs` 中只服务于模块内部/测试的 nonce 与解包辅助方法从 `pub(crate)` 再推进到“删除桥接或收为私有实现”，并继续删除 `ed25519.rs` 中的测试桥接，把外部保留面进一步收窄到 `Aes256GcmKey::{generate, from_bytes}`、`Aes256GcmCipher::encrypt_with_nonce`、`Ed25519PublicKey::{from_base64, verify}` 与 `Ed25519KeyPair::{generate, public_key, sign}`
   - **待处理剩余项**:
     - `src/e2ee/crypto/ed25519.rs`：当前仍承担 signed JSON 校验与签名服务包装；若后续统一为底层 crate 直调，需先完成跨端矩阵验收并确认 API/错误边界不回退
+    - `src/e2ee/crypto/aes.rs`：当前代码侧仅保留协议层所需最小包装面；后续若要继续删除，只能在 Phase 3 跨端矩阵全绿后重新评估协议层是否允许进一步直调底层 crate
 - **ROI**: 年度净收益 ~30 人天，投资 4-5 人周，回收期 ≤ 1 年
 - **4 阶段收敛计划**:
   - ✅ **Phase 1（1 周）**: 装配 `MegolmProvider` 到 `E2eeServices`，加 `E2EE_USE_VODOZEMAC_MEGOLM` env 路由 — **2026-06-05 完成**（详见 `E2EE_VODOZEMAC_MIGRATION.md` §9）
@@ -667,7 +720,7 @@
 4. 🚧 收敛 E2EE 到 vodozemac（C-5）— **Phase 1 ✅ + Phase 2 ✅ + Phase 3 浏览器验证 ✅**（2026-06-10 更新）：
    - **Phase 1（2 周）— 桥接层 + 单测 ✅**：装配 `MegolmProvider`，`MegolmVodozemacService`（`GroupSession`/`InboundGroupSession` 封装）
    - **Phase 2（1 周）— Megolm 收敛 ✅**：双写路径（`PickleFormat::{Legacy, Vodozemac, Dual}`）、懒迁移、7 个新 metrics
-   - **Phase 3（2 周）— 跨客户端互操作 🚧**：本地 vodozemac 互操作测试 **19 个 case 全部通过**；Element Web 浏览器 harness 已跑通登录、cross-signing bootstrap、key backup、房间创建与消息发送；Android/iOS 跨端矩阵仍待扩展
+   - **Phase 3（2 周）— 跨客户端互操作 🚧**：本地 vodozemac 互操作测试 **19 个 case 全部通过**；Element Web 浏览器 harness 已跑通登录、cross-signing bootstrap、key backup、房间创建与消息发送，且本轮已把 `e2ee-interop` workflow 的默认浏览器脚本提升到 `test:basic`；Android/iOS 跨端矩阵仍待扩展
    - **Phase 4（1 周）— 清理 🚧**：Megolm service 运行时分支已切换，`vodozemac-megolm` feature 已收口，`argon2.rs` 已删除，`crypto/mod.rs` 导出面已收窄，`aes.rs`/`ed25519.rs` 辅助 API 已回收；剩余集中在跨端验收与协议层边界冻结
 5. ✅ 修 JWT 旧 token 默认放行（C-6）
 6. ✅ TOTP 改用 `subtle::ConstantTimeEq`（C-7）
@@ -887,8 +940,8 @@ Rust `VoiceUsageRecord` 仅与 v3 匹配。v1/v2 先执行则运行时崩溃。
 ## 十二、最终建议
 
 1. **M-3 已基本完成**：当前主 `src/` 口径为编译期 `sqlx::query!` / `query_as!` / `query_scalar!` 1355 处、动态 SQL 188 处，动态占比约 12.2%；`.sqlx/` 当前缓存 1143 文件，`cargo check --locked --lib` 与 `cargo test --locked --lib --no-run` 已复核通过。
-2. **E2EE Megolm 双路径已装配（Phase 1+2 ✅ + Phase 3 🚧）**：Phase 1（`MegolmProvider` + `E2EE_USE_VODOZEMAC_MEGOLM` env 路由）+ Phase 2（双写 `PickleFormat::Dual` + `vodozemac_pickle` 列 + 懒迁移 + 7 metrics）已落地；Phase 3 本地互操作 19 个 case 已就位；下一步跨 Element 客户端矩阵 + Phase 4 清理自研路径
-3. **P0/P1/P2 不能再表述为“全覆盖”**：P0 仍有 C-5 跨端互操作与 Phase 4 清理待收尾；P2 中覆盖率实测与文档历史快照一致性清理仍处于持续治理阶段。
+2. **E2EE Megolm 双路径已装配（Phase 1+2 ✅ + Phase 3 🚧）**：Phase 1（`MegolmProvider` + `E2EE_USE_VODOZEMAC_MEGOLM` env 路由）+ Phase 2（双写 `PickleFormat::Dual` + `vodozemac_pickle` 列 + 懒迁移 + 7 metrics）已落地；Phase 3 本地互操作 19 个 case 与 Element Web 浏览器基础交互已具备可复核证据；当前下一步主要是 Android/iOS 跨客户端矩阵，以及在此基础上完成 Phase 4 最终关闭
+3. **P0/P1/P2 不能再表述为“全覆盖”**：P0 仍有 C-5 跨端互操作与 Phase 4 最终关闭待收尾；P2 中覆盖率实测与文档历史快照一致性清理仍处于持续治理阶段。
 4. **数据库迁移 v10 基线已就位**：根目录当前仅保留 `00000000_unified_schema_v10.sql` 与 `00000001_extensions_v10.sql` 两个生效基线文件，`v8` 文件已归档。
 5. **OpenAPI 已完成全面覆盖**：`utoipa` + `utoipa-swagger-ui` 已就位，当前已覆盖 **435** 个 `#[utoipa::path]` 注解；标准兼容、Unstable MSC 与私有扩展路径均已补齐。
 6. **建立工程门禁**：`cargo clippy --all-targets`（0 错误 0 警告）+ `cargo-deny` + `cargo audit` + `cargo mutants` + 覆盖率门槛（已全部集成到 CI）。
@@ -922,8 +975,8 @@ Rust `VoiceUsageRecord` 仅与 v3 匹配。v1/v2 先执行则运行时崩溃。
   3. ✅ **Phase 1 (2026-06-05)**: `MegolmProvider` 装配到 `E2eeServices`，`E2EE_USE_VODOZEMAC_MEGOLM` env 路由
   4. ✅ **Phase 2 (2026-06-06)**: Megolm 双写（`PickleFormat::Dual` + `vodozemac_pickle` 列 + 懒迁移 `promote_to_dual` / `list_legacy_sessions` / `count_by_pickle_format`）+ 7 metrics
   5. 🚧 **Phase 3 (2026-06-06 启动)**: 本地 vodozemac 互操作 19 个 case 已落地（`src/e2ee/vodozemac_interop_tests.rs`），全部 `E2EE_INTEROP=1` 显式启用；Element Web 浏览器链路已在本地复核中跑通登录、cross-signing、key backup、房间创建与消息发送，Android/iOS 跨端矩阵仍留待 `.github/workflows/e2ee-interop.yml`
-  6. ⏸ **Phase 4**: 清理自研路径（必须 Phase 3 全绿后启动）
-- **验收**: Phase 1+2 实现完成；Phase 3 待跨 Element 客户端矩阵全绿
+  6. 🚧 **Phase 4**: 代码侧边界冻结已基本完成（运行时分支、feature、冗余桥接与测试辅助 API 已大幅收口）；最终关闭仍必须等待 Phase 3 跨客户端矩阵全绿
+- **验收**: Phase 1+2 实现完成；Phase 3 待跨 Element 客户端矩阵全绿；Phase 4 代码收口已基本完成但尚未满足最终关闭条件
 
 ### Step 4 — JWT/TOTP 严格化（P0-C6/C7）✅ 已完成 (2026-06-04)
 - **目标**: 关闭 legacy token 默认放行、TOTP 恒时比较。
@@ -1164,6 +1217,7 @@ END $$;
 - 11. ✅ 继续扩大聚焦 mutation smoke：`src/web/routes/extractors/json.rs` 为 `3 caught + 1 unviable`；再次确认 `src/web/routes/extractors/pagination.rs` 为 `11/11 caught`
 - 12. ✅ 尝试执行全仓 `cargo mutants --package synapse-rust --timeout 30 --baseline skip -- --test-threads=2`，确认当前规模为 `19922` mutants、试跑 `30` 分钟仅完成 `112/19922`，实时估算约需 `4` 天
 - 13. ✅ 已将 `Makefile:test-mutation` 与 nightly `mutation-testing.yml` 默认入口切换为**分批 smoke 基线**，当前默认批次覆盖 `src/web/routes/extractors/pagination.rs`、`src/web/routes/extractors/json.rs`、`src/services/media/mod.rs`，并保留通过 workflow dispatch 覆盖文件列表的能力
+- 14. ✅ 继续扩大默认 mutation smoke 批次到 `src/web/middleware/security.rs`，并完成一次本地 `cargo mutants --package synapse-rust --file src/web/middleware/security.rs --timeout 30 --baseline skip -- --test-threads=2` 试跑；当前 `mutants.out/mutants.json` 可复核到 `22` 个 `security.rs` mutants，命令退出码为 `0`
 - **待完成**: 将当前聚焦 smoke 继续扩展到更多高价值模块，并把覆盖率从 `20.11%` 推进到 `>= 70%`；全仓 `cargo mutants` 仍只适合作为离线长跑，不再应作为默认基线入口
 - **验收**: 套套逻辑 0；`cargo tarpaulin` 达到 `fail-under = 70`；`cargo mutants` 完成全仓基线运行并产出可复核结果
 
@@ -1244,7 +1298,7 @@ END $$;
 | 6 | ServiceContainer/Config 拆分 | ✅ 已完成 | 100% | M-1 ✅ 4 子结构体 + 8 核心字段；M-2 ✅ 18 子模块 |
 | 7 | `sqlx::query!` 全量迁移 | ✅ **阶段 A-L 全部完成** | **100%** | **1355 处编译期宏 / 12.2% 动态占比 / 1143 `.sqlx/` 缓存文件（v10 Schema）/ `SQLX_OFFLINE=true cargo check` + `cargo clippy --all-targets` 0 错误 0 警告** |
 | 7.5 | 迁移基线重构 | ✅ 已完成 | 100% | 根目录仅保留 v10 两个生效基线文件，v8 已归档到 `migrations/archive/`，Schema 冲突全部修复 |
-| 8 | 测试整改 | ⚠️ 持续治理中 | 72% | 删除套套逻辑 ~600 行，cargo-mutants CI 与 tarpaulin 门槛已接入；`media` 测试池 schema 隔离已修复，已补 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试；最新覆盖率 `20.11%`，聚焦 mutation smoke 已扩展到 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，并完成一次全仓试跑规模评估 |
+| 8 | 测试整改 | ⚠️ 持续治理中 | 74% | 删除套套逻辑 ~600 行，cargo-mutants CI 与 tarpaulin 门槛已接入；`media` 测试池 schema 隔离已修复，已补 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试；最新覆盖率 `20.11%`，聚焦 mutation smoke 已扩展到 `pagination 11/11 caught`、`json 3 caught + 1 unviable`，并把默认 smoke 批次继续扩到 `security.rs`，完成一次本地 22-mutant 试跑与全仓规模评估 |
 | 9 | 性能与可观测性 | ✅ 已完成 | 96% | LIMIT 200，核心列表 keyset 化，ApiError 结构化重构，关键 service `#[instrument]`，OTLP dev 默认端点 |
 | 10 | 工程门禁与 CI | ✅ 已完成 | 95% | deny.toml + cargo-audit.toml + supply_chain_gate.sh + mutation-testing.yml + .tarpaulin.toml 全部就位 |
 | 11 | Minor 项滚动治理 | ⚠️ 持续治理中 | 102% | 大部分 Minor 项已完成；m-5 测试覆盖率与 mutation 基线仍处于“已接入 + 局部实测”阶段 |
@@ -1261,7 +1315,7 @@ END $$;
 
 ### 关键风险提示（**2026-06-11 更新**）
 
-1. **C-5 vodozemac Phase 3/4 待完成**：E2EE Megolm 主路径与浏览器基础交互已验证通过，Phase 4 自研 `e2ee/crypto/*` 辅助代码清理已基本完成，但 Android/iOS 跨端矩阵与协议层包装边界冻结仍需完成
+1. **C-5 vodozemac Phase 3/4 待完成**：E2EE Megolm 主路径与浏览器基础交互已验证通过，Phase 4 协议层包装边界冻结已基本完成；当前真正阻塞关闭 C-5 的仍是 Android/iOS 跨端矩阵，以及在矩阵全绿后对 Phase 4 做最终关闭确认
 2. **OpenAPI 覆盖**：当前已完成 **435** 个 `#[utoipa::path]` 注解，标准兼容、Unstable MSC 与私有扩展路径均已覆盖；剩余主要是历史文档口径同步
 3. **覆盖率与 mutation 基线**：当前总覆盖率仅 `20.11%`，远低于 `>= 70%` 门槛；聚焦 mutation smoke 已覆盖 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，而全仓试跑已确认当前是 `19922` mutants / 约 `4` 天量级，仍需分批基线化
 

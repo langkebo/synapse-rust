@@ -87,6 +87,29 @@ mod threepid_storage_tests_migrated;
 mod token_storage_tests_migrated;
 mod user_storage_tests_migrated;
 
+// Service tests migrated from tests/unit/
+mod admin_registration_service_tests_migrated;
+mod auth_service_tests_migrated;
+mod captcha_tests_migrated;
+mod exception_tests_migrated;
+mod feature_flag_service_tests_migrated;
+mod federation_service_tests_migrated;
+mod invite_blocklist_tests_migrated;
+#[cfg(feature = "voip-tracking")]
+mod matrixrtc_tests_migrated;
+mod registration_service_tests_migrated;
+mod relations_service_tests_migrated;
+mod room_service_tests_migrated;
+mod sliding_sync_service_tests_migrated;
+mod sync_service_tests_migrated;
+mod to_device_sync_tests_migrated;
+mod uia_service_tests_migrated;
+
+// Schema contract tests migrated from tests/unit/
+mod db_schema_smoke_tests_migrated;
+mod schema_contract_p0_tests_migrated;
+mod schema_contract_room_summary_queue_driver_tests_migrated;
+
 #[cfg(test)]
 mod coverage_tests;
 

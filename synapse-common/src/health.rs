@@ -5,6 +5,7 @@ use std::collections::HashMap;
 ///
 /// 用于 /_health 端点的 JSON 响应，包含整体状态和各项检查结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi-docs", derive(utoipa::ToSchema))]
 pub struct HealthStatus {
     /// 整体状态：healthy、degraded 或 unhealthy
     pub status: String,
@@ -18,6 +19,7 @@ pub struct HealthStatus {
 
 /// 单项检查结果。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi-docs", derive(utoipa::ToSchema))]
 pub struct CheckResult {
     /// 检查状态：healthy、degraded 或 unhealthy
     pub status: String,

@@ -1,8 +1,8 @@
 # Synapse-Rust 技术债务优化方案
 
-> 版本: v2.6.0
+> 版本: v2.7.0
 > 日期: 2026-06-11
-> 基于: v2.5.0 基础上完成 `room/` 全部大文件拆分（`membership.rs`、`create.rs`、`summary.rs`、`space.rs`），所有文件均 < 500 行，`room/` 从 15 子模块扩展至 23 子模块
+> 基于: v2.6.0 基础上完成剩余 DB 测试迁移（18 文件，`tests/unit/` 零 DB 依赖）、Phase A `health.rs` re-export 收口
 
 ---
 
@@ -21,8 +21,8 @@
 | 优先级 | 事项 | 当前状态 | 影响范围 | 风险 |
 |--------|------|----------|----------|------|
 | P2 | `unwrap/expect` clippy lint 门禁 | **门禁已建立**（`cargo clippy --lib` 仅 7 个合理警告） | 预防性治理 | 低 |
-| P1 | `tests/unit/` 中 DB 依赖测试迁移/重分类 | **24 个 storage 文件已完成迁移**，剩余 18 个 service 测试 | 测试架构/CI 可靠性 | 高 |
-| P1 | 根 crate 与 `synapse-*` 子 crate 镜像模块漂移 | Phase A 完成（2 file re-export），Phase B 分析完成（需结构性重构） | 架构可维护性 | 高 |
+| P1 | `tests/unit/` 中 DB 依赖测试迁移/重分类 | **全部完成**（18 文件迁移，`tests/unit/` 零 DB 依赖） | 测试架构/CI 可靠性 | 高 |
+| P1 | 根 crate 与 `synapse-*` 子 crate 镜像模块漂移 | Phase A 完成（`rate_limit`/`crypto`/`health` re-export），`filter` 不可 re-export | 架构可维护性 | 高 |
 | P2 | `config/mod.rs` 半拆分状态收尾 | 已部分落地 | 可维护性/配置安全 | 中 |
 | P2 | `room/` 巨型文件拆分 | **全部完成**（23 子模块，全部 < 500 行） | 可维护性/房间域演进 | 低 |
 | P3 | `DMService` 兼容模块收尾 | 已降级为低优先级 | 代码整洁性 | 低 |
@@ -181,14 +181,15 @@ federation/e2ee/auth 核心运行时路径已在前期重构中自然收敛至 `
 
 - [x] 删除 `tests/unit/` 中已被迁移的 20 个源文件（避免重复）— 已完成（2026-06-11）
 - [x] `tests/unit/mod.rs` 中已移除 19 个 `mod` 声明 — 已完成
-- [ ] 将剩余的 11 个 `tests/unit/` DB 依赖测试（service 测试等）分析并迁移
-- [ ] `tests/unit/` 最终只保留纯函数、纯结构体、无 I/O 测试
+- [x] 将剩余的 18 个 `tests/unit/` DB 依赖测试（service 测试等）迁移 — **已完成（2026-06-11）**
+- [x] `tests/unit/` 最终只保留纯函数、纯结构体、无 I/O 测试 — **已完成**
 
 ### 4.4 验收标准
 
 - [x] 20 个 storage 测试文件已迁移到 `tests/integration/`（已完成）
+- [x] 18 个 service 测试文件已迁移到 `tests/integration/`（已完成）
 - [x] `cargo test --features test-utils --test integration --no-run` 编译通过（0 错误）
-- [ ] `tests/unit/` 中不再出现 `setup_test_database()` / `PgPool` / `TestDatabase`
+- [x] `tests/unit/` 中不再出现 `setup_test_database()` / `PgPool` / `TestDatabase`
 - [ ] CI 中 `unit` 与 `integration` 的执行矩阵清晰分离
 
 ---
@@ -300,8 +301,8 @@ pub use synapse_common::error::{ApiError, ApiErrorKind, ...};
 - [x] 完成 15 对镜像模块的全面对比分析（本次完成）
 - [x] Phase A：`rate_limit`（0 差异）改为 re-export — 已完成（2026-06-11）
 - [x] Phase A：`crypto`（3 处微小差异）改为 re-export — 已完成（2026-06-11）
-- [ ] Phase A：`filter`（宏风格差异：`query_as!` vs `query_as`）— 不可简单 re-export，需后续合并
-- [ ] Phase A：`health`（根多 `CacheHealthCheck` + `openapi-docs`）— 不可简单 re-export，需后续合并
+- [x] Phase A：`health`（根多 `CacheHealthCheck` + `openapi-docs`）— 已 re-export 共性部分，`CacheHealthCheck` 保留 root 扩展（2026-06-11）
+- [ ] Phase A：`filter`（宏风格差异：`query_as!` vs `query_as`）— 不可简单 re-export（根 crate 不依赖 `synapse-storage`），需结构性重构
 - [ ] Phase B：`device`/`membership`/`event` — **已分析，发现深层架构问题**（见 §5.8）
 - [ ] Phase C：`config`、`room/service` 逐函数审计后收口（预计 W3-W4）
 - [ ] Phase D：全量测试通过，根源不再保留大体量镜像实现（预计 W4）
@@ -429,8 +430,8 @@ src/services/room/
 
 | 阶段 | 周次 | 任务 | 产出 |
 |------|------|------|------|
-| Phase 1 | W1 | P1 测试重分类（20 文件迁移完成 + 源文件删除） | tests/unit/ 减少 20 个 DB 依赖文件 |
-| Phase 1 | W1 | P1 canonical crate Phase A：`rate_limit`/`crypto` re-export | 2 对镜像模块收口 |
+| Phase 1 | W1 | P1 测试重分类（38 文件迁移完成） | tests/unit/ 零 DB 依赖 ✅ |
+| Phase 1 | W1 | P1 canonical crate Phase A：`rate_limit`/`crypto`/`health` re-export | 3 对镜像模块收口 ✅ |
 | Phase 2 | W2 | P1 canonical crate Phase B：`device`/`membership`/`event` 收口 | storage 层消歧 |
 | Phase 3 | W3 | P0 clippy lint 门禁建立 | 预防新增裸 unwrap/expect |
 | Phase 4 | W4-W5 | P1 canonical crate Phase C：`config`/`room/service` 审计合并 | 高风险大模块收口 |
@@ -446,8 +447,8 @@ src/services/room/
 |------|------------|------|
 | `src/` 下生产代码 `unwrap/expect` | **~2 处**（核心路径已清零） | 核心路径保持 0 |
 | 测试代码 `unwrap/expect` | ~820 处 | 正常（测试允许） |
-| `tests/unit/` 中 DB 依赖文件 | ~~31~~ 18 文件（24 已迁移+删除） | 0 |
-| `tests/unit/` 中 `setup_test_database()` 调用 | 持续减少中 | 0 |
+| `tests/unit/` 中 DB 依赖文件 | ~~31~~ **0** ✅（全部 38 文件已迁移） | 0 ✅ |
+| `tests/unit/` 中 `setup_test_database()` 调用 | 0 ✅ | 0 ✅ |
 | `config/mod.rs` 行数 | ~~1997~~ **199** ✅ | < 500 |
 | `room/service.rs` 行数 | ~~1998~~ **384** ✅ | < 500 |
 | `room/` 子模块数 | 23 个（15 个新增） | 全部 < 500 行 ✅ |

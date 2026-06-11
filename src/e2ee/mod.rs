@@ -42,7 +42,6 @@ pub use cross_signing::models::DeviceKeyVerificationResult;
 pub use cross_signing::models::VerifiedDevicesMap;
 pub use cross_signing::service::CrossSigningService;
 pub use cross_signing::storage::CrossSigningStorage;
-pub use crypto::{Aes256GcmCipher, Aes256GcmKey, Aes256GcmNonce, CryptoError, Ed25519KeyPair, Ed25519PublicKey};
 pub use device_keys::models::*;
 pub use device_keys::service::DeviceKeyService;
 // Explicit exports for device_trust

@@ -203,7 +203,7 @@ impl McpProxyService {
         if let Some(err) = result.get("error") {
             warn!(
                 has_endpoint = !endpoint.is_empty(),
-                error_code = err.get("code").and_then(Value::as_i64),
+                error_code = err.get("code").and_then(|v| v.as_i64()),
                 error_message_present = err.get("message").is_some(),
                 error_data_present = err.get("data").is_some(),
                 "MCP tool execution error"

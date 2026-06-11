@@ -1,8 +1,7 @@
-use crate::e2ee::crypto::ed25519::Ed25519PublicKey;
-use crate::e2ee::crypto::CryptoError;
+use crate::e2ee::crypto::{CryptoError, Ed25519PublicKey};
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::Signature;
 use serde_json::Value;
 
 /// Matrix protocol uses "unpadded base64" for signatures and keys, but some
@@ -93,15 +92,12 @@ pub fn verify_signed_json(
     sig_array.copy_from_slice(&signature_bytes);
     let ed25519_sig = Signature::from_slice(&sig_array).map_err(|_| CryptoError::SignatureVerificationFailed)?;
 
-    let verifying_key =
-        VerifyingKey::from_bytes(public_key.as_bytes()).map_err(|_| CryptoError::SignatureVerificationFailed)?;
-
     let mut json_copy = json_value.clone();
     remove_signatures_and_unsigned(&mut json_copy);
 
     let message = canonical_json_bytes(&json_copy);
 
-    Ok(verifying_key.verify(&message, &ed25519_sig).is_ok())
+    Ok(public_key.verify(&message, &ed25519_sig).is_ok())
 }
 
 pub fn verify_device_keys_signature(device_keys: &Value) -> Result<bool, CryptoError> {

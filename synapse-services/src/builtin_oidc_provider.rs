@@ -500,7 +500,12 @@ impl BuiltinOidcProvider {
 
         if let Some(ref phc) = user.password_hash {
             let parsed = PasswordHash::new(phc).map_err(|e| {
-                tracing::error!(error = %e, username = %username, has_password_hash = true, "Invalid password_hash");
+                tracing::error!(
+                    error = %e,
+                    username_present = !username.is_empty(),
+                    has_password_hash = true,
+                    "Invalid password_hash"
+                );
                 ApiError::internal("Authentication configuration error".to_string())
             })?;
             Argon2::default()
@@ -511,7 +516,7 @@ impl BuiltinOidcProvider {
 
         if let Some(ref plain) = user.password {
             warn!(
-                username = %username,
+                username_present = !username.is_empty(),
                 has_plaintext_password = true,
                 "BuiltinOidcProvider user has plaintext password configured; migrate to password_hash (argon2 PHC) for production"
             );

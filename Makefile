@@ -6,7 +6,7 @@
 .PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint
 .PHONY: build build-release
 
-MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs
+MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs src/web/middleware/security.rs
 
 # 默认目标
 help:
