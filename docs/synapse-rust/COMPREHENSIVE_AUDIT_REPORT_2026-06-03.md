@@ -26,7 +26,7 @@
 
 ### 本次复核后仍未完成的关键项
 
-- `C-5`：仍需等待 Phase 3 跨端互操作矩阵（Android/iOS）全绿后，才能关闭 Phase 4 并宣布 C-5 彻底完成。当前 Element Web 浏览器 harness 已跑通基础交互链路。
+- `C-5`：仍需等待 Phase 3 跨端互操作矩阵（Android/iOS）全绿后，才能关闭 Phase 4 并宣布 C-5 彻底完成。当前 Element Web 浏览器 harness 已跑通基础交互链路，Android/iOS 的可执行验收入口与结果记录规范也已整理完成，但尚未形成真机结果。
 - `M-4 / P2 #35`：覆盖率与 mutation testing 已有局部实测证据，但距离目标仍有差距；mutation 已调整为分批 baseline 策略，避免一次性跑完整仓
 - 历史文档快照一致性清理：审计报告、迁移文档等部分叙述仍需与最新代码状态同步
 
@@ -216,6 +216,11 @@
     - `artifacts/e2ee-interop-basic/run-rebuild-after-key-backup-fix.log`
   - **浏览器基础交互已打通到创建房间并发送消息**；`basic-interactions.mjs` 中的 `sendMessageAndAssertVisible` 函数已实现发送消息并强断言消息可见
 
+- **Android/iOS 跨端矩阵的可执行入口与结果记录已整理** 🟡：
+  - `scripts/test/run_sdk_verification_real_backend.sh` 已新增 `SKIP_SDK_TEST=1` 模式，可仅启动 live backend 并输出基础证据（`backend-entry.txt`、`docker-compose.ps.txt`、`client-versions.json`）
+  - `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` 已补充 Android Emulator / iOS Simulator / 真机的统一执行入口、Element Web 叠加方式，以及 `artifacts/e2ee-interop/mobile/<run-id>/` 目录约定
+  - 当前状态是“入口和记录模板已就位、执行结果待补”；因此 Phase 3 的剩余工作已从“如何执行”收敛为“补齐真实 Android/iOS 结果”
+
 - **C-5 现状回顾**：
   - ✅ **Phase 1**：Megolm 主路径已切换到 vodozemac
   - ✅ **Phase 2**：双写和懒迁移已完成
@@ -223,7 +228,7 @@
   - ✅ **浏览器验证**：Element Web 浏览器 harness 已跑通登录、cross-signing bootstrap、key backup 建立、房间创建与消息发送
   - 🚧 **跨端测试**：完整的 Element Web/Android/iOS 跨端矩阵仍待执行
   - 🟡 **验收缺口拆解**：
-    - **Phase 3 缺口**：`matrix-js-sdk` real-backend verification 与 Element Web 浏览器级 `basic-interactions` 已有可复核成功证据，且 CI 默认浏览器脚本已提升到 `test:basic`；当前真实缺口主要是 Android/iOS 真机矩阵与更完整的浏览器场景断言
+    - **Phase 3 缺口**：`matrix-js-sdk` real-backend verification 与 Element Web 浏览器级 `basic-interactions` 已有可复核成功证据，Android/iOS 的执行入口与结果记录规范也已整理完成；当前真实缺口主要是 Android/iOS 真机矩阵结果本身，以及更完整的浏览器场景断言
     - **Phase 4 缺口**：`crypto/aes.rs`、`crypto/ed25519.rs` 等协议层包装的保留/待删清单已基本冻结；当前更多是文档口径同步，以及在跨端矩阵全绿后再决定是否继续内聚 `public_key()` 这类协议层桥接
   - ✅ **本轮落地的第一个可执行子项**：
     - 已将 `.github/workflows/e2ee-interop.yml` 的 Element Web 浏览器级验收默认从 `smoke:login` 提升为 `test:basic`，并支持 `workflow_dispatch` 在 `test:basic` / `smoke:login` 之间切换；artifact 上传也已扩展为整个 `artifacts/e2ee-interop/`，便于保留房间创建/发消息链路证据
