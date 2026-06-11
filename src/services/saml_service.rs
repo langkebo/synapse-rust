@@ -259,7 +259,7 @@ impl SamlService {
 
         let redirect_url = self.build_redirect_url(&sso_url, &authn_request, relay_state)?;
 
-        info!("Generated SAML auth redirect for request: {}", request_id);
+        info!(request_id = %request_id, has_relay_state = relay_state.is_some(), "Generated SAML auth redirect");
 
         Ok(SamlAuthRequest { request_id, redirect_url, relay_state: relay_state.map(|s| s.to_string()) })
     }
@@ -334,7 +334,7 @@ impl SamlService {
             })
             .await?;
 
-        info!("SAML authentication successful for user: {}", user_id);
+        info!(user_id = %user_id, session_id = %session_id, issuer = %issuer, "SAML authentication successful");
 
         Ok(SamlAuthResponse { session_id, user_id, name_id, issuer, attributes, expires_at: session.expires_at })
     }
@@ -366,7 +366,7 @@ impl SamlService {
 
         self.storage.invalidate_session(session_id).await?;
 
-        info!("Initiated SAML logout for session: {}", session_id);
+        info!(session_id = %session_id, request_id = %request_id, has_reason = reason.is_some(), "Initiated SAML logout");
 
         Ok(redirect_url)
     }
@@ -388,7 +388,7 @@ impl SamlService {
             let _ = self.storage.invalidate_session(&session_id).await;
         }
 
-        info!("Processed SAML logout response for request: {}", request_id);
+        info!(request_id = %request_id, "Processed SAML logout response");
 
         Ok(())
     }
@@ -446,7 +446,7 @@ impl SamlService {
 
         let metadata = Self::parse_metadata_xml(&metadata_xml)?;
 
-        info!("Fetched SAML IdP metadata for: {}", metadata.entity_id);
+        info!(entity_id = %metadata.entity_id, has_slo_url = metadata.slo_url.is_some(), "Fetched SAML IdP metadata");
 
         Ok(metadata)
     }
@@ -511,7 +511,14 @@ impl SamlService {
 
         if self.config.want_response_signed || self.config.want_assertions_signed {
             if let Err(e) = self.verify_saml_signature(response) {
-                tracing::warn!("SAML signature verification failed: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    issuer = %issuer,
+                    want_response_signed = self.config.want_response_signed,
+                    want_assertions_signed = self.config.want_assertions_signed,
+                    has_expected_in_response_to = expected_in_response_to.is_some(),
+                    "SAML signature verification failed"
+                );
                 if self.config.want_response_signed || self.config.want_assertions_signed {
                     return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
                 }
@@ -581,7 +588,7 @@ impl SamlService {
 
         Self::verify_rsa_signature(&cert_der, &sig_bytes, canonicalized_info.as_bytes())?;
 
-        tracing::info!("SAML signature verified (digest + RSA-SHA256)");
+        tracing::info!(signature_algorithm = %"RSA-SHA256", digest_algorithm = %"SHA-256", "SAML signature verified");
         Ok(())
     }
 
@@ -711,11 +718,23 @@ impl SamlService {
                 match self.sign_redirect_url(&url, key_pem) {
                     Ok(signed_url) => return Ok(signed_url),
                     Err(e) => {
-                        tracing::warn!("Failed to sign SAML redirect request: {}", e);
+                        tracing::warn!(
+                            error = %e,
+                            base_url = %base_url,
+                            has_relay_state = relay_state.is_some(),
+                            sign_requests = self.config.sign_requests,
+                            "Failed to sign SAML redirect request"
+                        );
                     }
                 }
             } else {
-                tracing::warn!("SAML sign_requests is enabled but sp_private_key is not configured");
+                tracing::warn!(
+                    base_url = %base_url,
+                    has_relay_state = relay_state.is_some(),
+                    sign_requests = self.config.sign_requests,
+                    has_sp_private_key = self.config.sp_private_key.is_some(),
+                    "SAML sign_requests is enabled but sp_private_key is not configured"
+                );
             }
         }
 
@@ -1196,7 +1215,7 @@ mod tests {
 
         let result = service.validate_response("https://idp.example.com", &xml, Some("id_123"));
         if let Err(e) = &result {
-            tracing::warn!("Validation failed: {:?}", e);
+            tracing::warn!(error = ?e, test_case = %"test_validate_response_allows_clock_skew", "Validation failed");
         }
         assert!(result.is_ok());
     }

@@ -23,8 +23,14 @@ impl ApplicationServiceManager {
             .connect_timeout(Duration::from_secs(5))
             .pool_idle_timeout(Duration::from_secs(60))
             .build()
-            .unwrap_or_else(|_| {
-                tracing::warn!("Failed to build HTTP client with custom config, using default");
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    error = %e,
+                    timeout_secs = 15_u64,
+                    connect_timeout_secs = 5_u64,
+                    pool_idle_timeout_secs = 60_u64,
+                    "Failed to build HTTP client with custom config, using default"
+                );
                 Client::new()
             });
 
@@ -33,7 +39,7 @@ impl ApplicationServiceManager {
 
     #[instrument(skip(self, request))]
     pub async fn register(&self, request: RegisterApplicationServiceRequest) -> Result<ApplicationService, ApiError> {
-        info!("Registering application service: as_id={}", request.as_id);
+        info!(as_id = %request.as_id, "Registering application service");
 
         if let Some(existing) = self
             .storage
@@ -50,7 +56,7 @@ impl ApplicationServiceManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to register application service", &e))?;
 
-        info!("Application service registered successfully: as_id={}", service.as_id);
+        info!(as_id = %service.as_id, sender = %service.sender_localpart, "Application service registered successfully");
         Ok(service)
     }
 
@@ -71,8 +77,9 @@ impl ApplicationServiceManager {
             .map_err(|e| ApiError::internal_with_log("Failed to get application service by token", &e))?;
 
         if let Some(ref svc) = service {
-            let _ =
-                self.storage.update_last_seen(&svc.as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
+            let _ = self.storage.update_last_seen(&svc.as_id).await.map_err(|e| {
+                warn!(%e, as_id = svc.as_id, "Failed to update last seen");
+            });
         }
 
         Ok(service)
@@ -92,7 +99,7 @@ impl ApplicationServiceManager {
         as_id: &str,
         request: UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, ApiError> {
-        info!("Updating application service: as_id={}", as_id);
+        info!(as_id = %as_id, "Updating application service");
 
         let service = self
             .storage
@@ -100,20 +107,20 @@ impl ApplicationServiceManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update application service", &e))?;
 
-        info!("Application service updated successfully: as_id={}", as_id);
+        info!(as_id = %as_id, "Application service updated successfully");
         Ok(service)
     }
 
     #[instrument(skip(self))]
     pub async fn unregister(&self, as_id: &str) -> Result<(), ApiError> {
-        info!("Unregistering application service: as_id={}", as_id);
+        info!(as_id = %as_id, "Unregistering application service");
 
         self.storage
             .unregister(as_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to unregister application service", &e))?;
 
-        info!("Application service unregistered successfully: as_id={}", as_id);
+        info!(as_id = %as_id, "Application service unregistered successfully");
         Ok(())
     }
 
@@ -166,7 +173,7 @@ impl ApplicationServiceManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to add event", &e))?;
 
-        info!("Event pushed to application service: as_id={}, event_id={}", as_id, event_id);
+        info!(as_id = %as_id, event_id = %event_id, room_id = %room_id, event_type = %event_type, "Event pushed to application service");
         Ok(event)
     }
 
@@ -213,7 +220,7 @@ impl ApplicationServiceManager {
                     .storage
                     .complete_transaction(as_id, &transaction_id)
                     .await
-                    .map_err(|e| error!("Failed to complete transaction: {}", e));
+                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to complete transaction"));
 
                 for event in &events {
                     if let Some(event_id) = event.get("event_id").and_then(|e| e.as_str()) {
@@ -221,11 +228,11 @@ impl ApplicationServiceManager {
                             .storage
                             .mark_event_processed(event_id, &transaction_id)
                             .await
-                            .map_err(|e| warn!("Failed to mark event processed: {}", e));
+                            .map_err(|e| warn!(%e, as_id, transaction_id, event_id, "Failed to mark event processed"));
                     }
                 }
 
-                info!("Transaction sent successfully: as_id={}, txn_id={}", as_id, transaction_id);
+                info!(as_id, transaction_id, "Transaction sent successfully");
                 Ok(())
             }
             Ok(resp) => {
@@ -236,7 +243,7 @@ impl ApplicationServiceManager {
                     .storage
                     .fail_transaction(as_id, &transaction_id, &format!("HTTP {status}: {error_body}"))
                     .await
-                    .map_err(|e| error!("Failed to fail transaction: {}", e));
+                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to fail transaction"));
 
                 Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
             }
@@ -245,7 +252,7 @@ impl ApplicationServiceManager {
                     .storage
                     .fail_transaction(as_id, &transaction_id, &e.to_string())
                     .await
-                    .map_err(|e| error!("Failed to fail transaction: {}", e));
+                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to fail transaction"));
 
                 Err(ApiError::internal_with_log("Failed to send transaction", &e))
             }
@@ -284,7 +291,7 @@ impl ApplicationServiceManager {
         displayname: Option<&str>,
         avatar_url: Option<&str>,
     ) -> Result<ApplicationServiceUser, ApiError> {
-        info!("Registering virtual user: as_id={}, user_id={}", as_id, user_id);
+        info!(as_id = %as_id, user_id = %user_id, "Registering virtual user");
 
         let user = self
             .storage
@@ -292,7 +299,7 @@ impl ApplicationServiceManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to register virtual user", &e))?;
 
-        info!("Virtual user registered successfully: user_id={}", user_id);
+        info!(as_id = %as_id, user_id = %user_id, "Virtual user registered successfully");
         Ok(user)
     }
 
@@ -351,7 +358,7 @@ impl ApplicationServiceManager {
         match response {
             Ok(resp) if resp.status().is_success() => {
                 let _ =
-                    self.storage.update_last_seen(as_id).await.map_err(|e| warn!("Failed to update last seen: {}", e));
+                    self.storage.update_last_seen(as_id).await.map_err(|e| warn!(%e, as_id, "Failed to update last seen"));
                 Ok(true)
             }
             _ => Ok(false),

@@ -119,7 +119,13 @@ impl CaptchaService {
 
         send_result?;
 
-        info!("Captcha sent: {} to {}", captcha.captcha_id, captcha.target);
+        info!(
+            captcha_type = %request.captcha_type,
+            expires_in_seconds,
+            template_selected = request.template_name.is_some(),
+            delivery_channel = %captcha.captcha_type,
+            "Captcha sent"
+        );
 
         Ok(CaptchaResponse {
             captcha_id: captcha.captcha_id,
@@ -131,11 +137,7 @@ impl CaptchaService {
     pub async fn verify_captcha(&self, request: VerifyCaptchaRequest) -> Result<bool, ApiError> {
         let verified = self.storage.verify_captcha(&request.captcha_id, &request.code).await?;
 
-        if verified {
-            info!("Captcha verified successfully: {}", request.captcha_id);
-        } else {
-            info!("Captcha verification failed: {}", request.captcha_id);
-        }
+        info!(verification_result = verified, "Captcha verification completed");
 
         Ok(verified)
     }
@@ -201,14 +203,23 @@ impl CaptchaService {
         content
     }
 
-    fn send_email(to: &str, _subject: Option<&str>, content: &str) -> Result<(), ApiError> {
-        info!("Sending email to {}: {:?}", to, content);
+    fn send_email(_to: &str, subject: Option<&str>, content: &str) -> Result<(), ApiError> {
+        info!(
+            delivery_channel = %"email",
+            subject_present = subject.is_some(),
+            content_len = content.len(),
+            "Sending captcha notification"
+        );
 
         Ok(())
     }
 
-    fn send_sms(to: &str, content: &str) -> Result<(), ApiError> {
-        info!("Sending SMS to {}: {:?}", to, content);
+    fn send_sms(_to: &str, content: &str) -> Result<(), ApiError> {
+        info!(
+            delivery_channel = %"sms",
+            content_len = content.len(),
+            "Sending captcha notification"
+        );
 
         Ok(())
     }

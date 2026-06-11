@@ -172,17 +172,24 @@ impl PushProvider for ApnsProvider {
             return PushResult::success();
         }
 
-        info!("Sending APNS notification to token: {}...", &token[..20.min(token.len())]);
+        info!(
+            token_present = !token.is_empty(),
+            token_len = token.len(),
+            title_present = !payload.title.is_empty(),
+            room_id = payload.room_id,
+            event_id = payload.event_id,
+            "Sending APNS notification"
+        );
 
         let apns_payload = Self::build_payload(payload);
 
         match self.send_request(token, &apns_payload).await {
             Ok(_) => {
-                debug!("APNS push successful");
+                debug!(title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "APNS push successful");
                 PushResult::success()
             }
             Err(e) => {
-                error!("APNS push error: {}", e);
+                error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "APNS push error");
 
                 if is_retryable_error(&e) {
                     PushResult::retryable_failure(&e)

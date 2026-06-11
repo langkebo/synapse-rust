@@ -14,7 +14,7 @@ impl MediaQuotaService {
 
     #[instrument(skip(self))]
     pub async fn check_upload_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
-        info!("Checking upload quota for user: {}, size: {}", user_id, file_size);
+        info!(user_id = %user_id, file_size, "Checking upload quota");
 
         let server_quota = self.storage.get_server_quota().await?;
 
@@ -72,7 +72,13 @@ impl MediaQuotaService {
         file_size: i64,
         mime_type: Option<&str>,
     ) -> Result<(), ApiError> {
-        info!("Recording upload for user: {}, media: {}", user_id, media_id);
+        info!(
+            user_id = %user_id,
+            media_id = %media_id,
+            file_size,
+            mime_type = ?mime_type,
+            "Recording media upload"
+        );
 
         self.storage
             .update_usage(UpdateUsageRequest {
@@ -87,7 +93,7 @@ impl MediaQuotaService {
 
     #[instrument(skip(self))]
     pub async fn record_delete(&self, user_id: &str, media_id: &str, file_size: i64) -> Result<(), ApiError> {
-        info!("Recording delete for user: {}, media: {}", user_id, media_id);
+        info!(user_id = %user_id, media_id = %media_id, file_size, "Recording media delete");
 
         self.storage
             .update_usage(UpdateUsageRequest {
@@ -132,13 +138,27 @@ impl MediaQuotaService {
 
     #[instrument(skip(self))]
     pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
-        info!("Setting user quota for: {}", request.user_id);
+        info!(
+            user_id = %request.user_id,
+            quota_config_id = ?request.quota_config_id,
+            custom_max_storage_bytes = ?request.custom_max_storage_bytes,
+            custom_max_file_size_bytes = ?request.custom_max_file_size_bytes,
+            custom_max_files_count = ?request.custom_max_files_count,
+            "Setting user quota"
+        );
         self.storage.set_user_quota(request).await
     }
 
     #[instrument(skip(self))]
     pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
-        info!("Creating quota config: {}", request.name);
+        info!(
+            config_name = %request.name,
+            max_storage_bytes = request.max_storage_bytes,
+            max_file_size_bytes = request.max_file_size_bytes,
+            max_files_count = request.max_files_count,
+            is_default = ?request.is_default,
+            "Creating quota config"
+        );
         self.storage.create_config(request).await
     }
 
@@ -149,7 +169,7 @@ impl MediaQuotaService {
 
     #[instrument(skip(self))]
     pub async fn delete_quota_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        info!("Deleting quota config: {}", config_id);
+        info!(config_id, "Deleting quota config");
         self.storage.delete_config(config_id).await
     }
 
@@ -166,7 +186,13 @@ impl MediaQuotaService {
         max_files_count: Option<i32>,
         alert_threshold_percent: Option<i32>,
     ) -> Result<ServerMediaQuota, ApiError> {
-        info!("Updating server quota");
+        info!(
+            max_storage_bytes = ?max_storage_bytes,
+            max_file_size_bytes = ?max_file_size_bytes,
+            max_files_count = ?max_files_count,
+            alert_threshold_percent = ?alert_threshold_percent,
+            "Updating server quota"
+        );
         self.storage
             .update_server_quota(max_storage_bytes, max_file_size_bytes, max_files_count, alert_threshold_percent)
             .await

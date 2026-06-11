@@ -60,7 +60,12 @@ impl AuthService {
             if let Err(e) =
                 self.token_storage.add_hash_to_blacklist(&token.token_hash, user_id, Some("Logout all devices")).await
             {
-                ::tracing::warn!("Failed to add token to blacklist during logout_all: {}", e);
+                ::tracing::warn!(
+                    error = %e,
+                    user_id = %user_id,
+                    token_id = token.id,
+                    "Failed to add token to blacklist during logout_all"
+                );
             }
         }
 

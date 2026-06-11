@@ -60,7 +60,7 @@ impl SlidingSyncService {
         request: SlidingSyncRequest,
     ) -> Result<SlidingSyncResponse, ApiError> {
         // Update user presence to online
-        tracing::info!("Updating presence for user: {}", user_id);
+        tracing::info!(user_id = %user_id, device_id = %device_id, "Updating presence for user");
         let _ = self.presence_storage.set_presence(user_id, "online", None).await;
 
         let conn_id = request.conn_id.as_deref();
@@ -451,7 +451,7 @@ impl SlidingSyncService {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to get typing users batch: {}", e);
+                    tracing::warn!(error = %e, room_count = room_ids.len(), "Failed to get typing users batch");
                 }
             }
             response_extensions.insert(

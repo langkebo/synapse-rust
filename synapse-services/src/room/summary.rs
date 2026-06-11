@@ -65,7 +65,7 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> Result<RoomSummaryResponse, ApiError> {
-        info!("Creating room summary for: {}", request.room_id);
+        info!(room_id = %request.room_id, "Creating room summary");
 
         let room_id = request.room_id.clone();
 
@@ -117,7 +117,7 @@ impl RoomSummaryService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get current state", &e))?;
 
-        info!("Syncing {} state events for room {}", states.len(), room_id);
+        info!(room_id = %room_id, state_event_count = states.len(), "Syncing room summary state events");
 
         for state in states {
             let event_type_str = state.event_type.as_deref().unwrap_or("");
@@ -144,7 +144,8 @@ impl RoomSummaryService {
 
             let all_members: Vec<_> = join_members.into_iter().chain(invite_members).collect();
 
-            info!("Syncing {} members for room {}", all_members.len(), room_id);
+            let member_count = all_members.len();
+            info!(room_id = %room_id, member_count, "Syncing room summary members");
 
             let requests: Vec<CreateSummaryMemberRequest> = all_members
                 .into_iter()
@@ -160,7 +161,7 @@ impl RoomSummaryService {
                 .collect();
 
             if let Err(e) = self.storage.add_members_batch(room_id, requests).await {
-                warn!("Failed to batch add members during sync: {}", e);
+                warn!(error = %e, room_id = %room_id, member_count = member_count, "Failed to batch add members during sync");
             }
         }
 
@@ -192,7 +193,7 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn delete_summary(&self, room_id: &str) -> Result<(), ApiError> {
-        info!("Deleting room summary for: {}", room_id);
+        info!(room_id = %room_id, "Deleting room summary");
 
         self.storage
             .delete_summary(room_id)
@@ -300,7 +301,13 @@ impl RoomSummaryService {
                 };
 
                 if let Err(e) = self.storage.add_member(request).await {
-                    warn!("Failed to add/update member in summary: {}", e);
+                    warn!(
+                        error = %e,
+                        room_id = %room_id,
+                        event_type = ?event_type,
+                        state_key = %state_key,
+                        "Failed to add/update member in summary"
+                    );
                 }
             }
             return Ok(());
@@ -343,7 +350,7 @@ impl RoomSummaryService {
         }
 
         if let Err(e) = self.storage.update_summary(room_id, request).await {
-            warn!("Failed to update summary from state: {}", e);
+            warn!(error = %e, room_id = %room_id, event_type = ?event_type, "Failed to update summary from state");
         }
 
         Ok(())
@@ -449,13 +456,13 @@ impl RoomSummaryService {
             match self.process_update(&update).await {
                 Ok(_) => {
                     if let Err(e) = self.storage.mark_update_processed(update.id).await {
-                        warn!("Failed to mark update processed: {}", e);
+                        warn!(error = %e, update_id = update.id, "Failed to mark update processed");
                     }
                     processed += 1;
                 }
                 Err(e) => {
                     if let Err(err) = self.storage.mark_update_failed(update.id, &e.to_string()).await {
-                        warn!("Failed to mark update failed: {}", err);
+                        warn!(error = %err, update_id = update.id, cause = %e, "Failed to mark update failed");
                     }
                 }
             }
@@ -547,7 +554,7 @@ impl RoomSummaryService {
     }
 
     pub async fn sync_from_room(&self, room_id: &str) -> Result<RoomSummaryResponse, ApiError> {
-        info!("Syncing room summary from room: {}", room_id);
+        info!(room_id = %room_id, "Syncing room summary from room");
 
         let existing = self
             .storage

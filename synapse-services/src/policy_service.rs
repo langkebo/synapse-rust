@@ -107,12 +107,12 @@ impl PolicyService {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to parse policy server response: {}", e);
+                    tracing::warn!(error = %e, fail_open = self.config.fail_open, "Failed to parse policy server response");
                     self.fail_open_or_deny("Failed to parse policy server response")
                 }
             },
             Err(e) => {
-                tracing::warn!("Policy server request failed: {}", e);
+                tracing::warn!(error = %e, fail_open = self.config.fail_open, "Policy server request failed");
                 self.fail_open_or_deny("Policy server unreachable")
             }
         }

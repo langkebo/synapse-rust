@@ -138,7 +138,7 @@ impl RoomService {
     pub async fn shutdown(&self) {
         let mut tasks = self.active_tasks.write().await;
         for (task_id, handle) in tasks.drain() {
-            ::tracing::info!("Aborting delayed task: {}", task_id);
+            ::tracing::info!(task_id = %task_id, "Aborting delayed task");
             handle.abort();
         }
     }
@@ -1188,7 +1188,13 @@ impl RoomService {
         let eid = event_id.to_string();
         let task_id = format!("burn_after_read:{rid}:{eid}:{delay_secs}");
 
-        ::tracing::info!("Scheduling burn-after-read for event {} in room {} with delay {}s", eid, rid, delay_secs);
+        ::tracing::info!(
+            room_id = %rid,
+            event_id = %eid,
+            task_id = %task_id,
+            delay_secs,
+            "Scheduling burn-after-read"
+        );
 
         // Track spawned task to prevent memory leaks
         let handle = tokio::spawn(async move {
@@ -1202,10 +1208,16 @@ impl RoomService {
 
             match queue.submit(job).await {
                 Ok(_) => {
-                    ::tracing::info!("Submitted redaction job for event {}", eid);
+                    ::tracing::info!(room_id = %rid, event_id = %eid, delay_secs, "Submitted redaction job");
                 }
                 Err(e) => {
-                    ::tracing::error!("Failed to submit redaction job for event {}: {}", eid, e);
+                    ::tracing::error!(
+                        room_id = %rid,
+                        event_id = %eid,
+                        delay_secs,
+                        error = %e,
+                        "Failed to submit redaction job"
+                    );
                 }
             }
         });
@@ -1236,7 +1248,12 @@ impl RoomService {
         if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
             let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
             if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
-                ::tracing::warn!("Failed to project canonical alias onto room: {}", error);
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    canonical_alias = ?canonical_alias,
+                    "Failed to project canonical alias onto room"
+                );
             }
         }
 
@@ -1244,9 +1261,16 @@ impl RoomService {
             if let Err(error) =
                 self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
-                ::tracing::warn!("Failed to queue room summary update: {}", error);
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    state_key = ?state_key,
+                    "Failed to queue room summary update"
+                );
             } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
-                ::tracing::warn!("Failed to process room summary updates: {}", error);
+                ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
             }
         }
 
@@ -1281,11 +1305,17 @@ impl RoomService {
             };
 
             if let Err(error) = self.room_summary_service.add_member(request).await {
-                ::tracing::warn!("Failed to update room summary member: {}", error);
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    membership = %membership,
+                    "Failed to update room summary member"
+                );
             }
 
             if let Err(error) = self.room_summary_service.recalculate_heroes(room_id).await {
-                ::tracing::warn!("Failed to recalculate room summary heroes: {}", error);
+                ::tracing::warn!(error = %error, room_id = %room_id, "Failed to recalculate room summary heroes");
             }
         }
 

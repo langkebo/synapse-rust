@@ -1,5 +1,6 @@
 use super::ensure_room_view_access;
 use crate::common::ApiError;
+use crate::web::utils::auth::resolve_request_id;
 use crate::web::routes::{
     extract_token_from_headers, is_joined_room_member, is_joined_room_member_or_creator, validate_membership,
     validate_room_id, validate_user_id, AppState, AuthenticatedUser,
@@ -33,6 +34,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     Path(room_id_or_alias): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
@@ -58,7 +60,13 @@ pub(crate) async fn join_room_by_id_or_alias(
 
     let via_servers = body.and_then(|b| b.get("via_servers").and_then(|v| v.as_array()).cloned()).unwrap_or_default();
 
-    ::tracing::info!("User {} joining room {} via {:?}", user_id, room_id, via_servers);
+    ::tracing::info!(
+        request_id = %request_id,
+        user_id = %user_id,
+        room_id = %room_id,
+        via_servers = ?via_servers,
+        "User joining room by id or alias"
+    );
 
     state.services.rooms.room_service.join_room(&room_id, &user_id).await?;
 
@@ -69,9 +77,11 @@ pub(crate) async fn join_room_by_id_or_alias(
 
 pub(crate) async fn leave_room(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     state.services.rooms.room_service.leave_room(&room_id, &auth_user.user_id).await?;
     #[cfg(feature = "friends")]
@@ -81,7 +91,13 @@ pub(crate) async fn leave_room(
         .sync_dm_room_membership_change(&room_id, &auth_user.user_id, "left", Some(&auth_user.user_id), None)
         .await
     {
-        ::tracing::warn!("Failed to sync friend DM leave state for {}: {}", room_id, error);
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %auth_user.user_id,
+            error = %error,
+            "Failed to sync friend DM leave state"
+        );
     }
     Ok(Json(json!({})))
 }
@@ -92,6 +108,7 @@ pub(crate) async fn knock_room(
     Path(room_id_or_alias): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
@@ -117,7 +134,12 @@ pub(crate) async fn knock_room(
 
     let reason = body.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    ::tracing::info!("User {} knocking on room {}", user_id, room_id);
+    ::tracing::info!(
+        request_id = %request_id,
+        user_id = %user_id,
+        room_id = %room_id,
+        "User knocking on room"
+    );
 
     state.services.rooms.room_service.knock_room(&room_id, &user_id, reason.as_deref()).await?;
 
@@ -158,6 +180,7 @@ pub(crate) async fn invite_user_by_room(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
 
@@ -172,7 +195,13 @@ pub(crate) async fn invite_user_by_room(
 
     state.services.auth_service.can_invite_user(&room_id, &user_id).await?;
 
-    ::tracing::info!("User {} inviting {} to room {}", user_id, invitee, room_id);
+    ::tracing::info!(
+        request_id = %request_id,
+        user_id = %user_id,
+        invitee = %invitee,
+        room_id = %room_id,
+        "User inviting another user to room"
+    );
 
     state.services.rooms.room_service.invite_user(&room_id, &user_id, invitee).await?;
 
@@ -190,6 +219,7 @@ pub(crate) async fn get_room_members(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
+    let request_id = resolve_request_id(&headers);
 
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
@@ -202,9 +232,10 @@ pub(crate) async fn get_room_members(
     if !room.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false) && !is_member {
         ::tracing::warn!(
             target: "security_audit",
+            request_id = %request_id,
             event = "unauthorized_room_members_access",
-            user_id = user_id,
-            room_id = room_id,
+            user_id = %user_id,
+            room_id = %room_id,
             "User attempted to access members of private room without being a member"
         );
         return Err(ApiError::forbidden(
@@ -450,10 +481,12 @@ pub(crate) async fn get_room_invites(
 
 pub(crate) async fn kick_user(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
     let target = body
@@ -479,7 +512,14 @@ pub(crate) async fn kick_user(
         .sync_dm_room_membership_change(&room_id, target, "kicked", Some(&auth_user.user_id), reason)
         .await
     {
-        ::tracing::warn!("Failed to sync friend DM kick state for {}: {}", room_id, error);
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %auth_user.user_id,
+            target_user_id = %target,
+            error = %error,
+            "Failed to sync friend DM kick state"
+        );
     }
 
     Ok(Json(json!({})))
@@ -487,10 +527,12 @@ pub(crate) async fn kick_user(
 
 pub(crate) async fn ban_user(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
     let target = body
@@ -516,7 +558,14 @@ pub(crate) async fn ban_user(
         .sync_dm_room_membership_change(&room_id, target, "banned", Some(&auth_user.user_id), reason)
         .await
     {
-        ::tracing::warn!("Failed to sync friend DM ban state for {}: {}", room_id, error);
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %auth_user.user_id,
+            target_user_id = %target,
+            error = %error,
+            "Failed to sync friend DM ban state"
+        );
     }
 
     Ok(Json(json!({})))

@@ -212,7 +212,12 @@ impl StreamWriterManager {
             }
             None => {
                 if writer_instance != self.instance_name {
-                    warn!("Unconfigured stream {} written by non-master instance {}", stream_name, writer_instance);
+                    warn!(
+                        stream_name = %stream_name,
+                        writer_instance = %writer_instance,
+                        master_instance = %self.instance_name,
+                        "Unconfigured stream written by non-master instance"
+                    );
                 }
                 Ok(())
             }

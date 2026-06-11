@@ -69,11 +69,11 @@ impl DatabaseInitService {
             skipped: false,
         };
 
-        info!("开始数据库初始化流程...");
+        info!(mode = ?self.mode, environment = ?self.environment, "开始数据库初始化流程");
 
         match self.step_connection_test().await {
             Ok(msg) => {
-                info!("连接测试: {}", msg);
+                info!(step = %"connection_test", result = %msg, "数据库初始化步骤完成");
                 report.steps.push(msg);
             }
             Err(e) => {
@@ -87,20 +87,20 @@ impl DatabaseInitService {
             let message = format!(
                 "运行时数据库初始化默认已禁用；请使用 docker/db_migrate.sh 与 db-migration-gate.yml 作为迁移主链，如需兼容启用请设置 {RUNTIME_DB_INIT_ENV}=true"
             );
-            info!("{}", message);
+            info!(runtime_db_init_enabled = false, message = %message, "跳过运行时数据库初始化");
             report.steps.push(message);
             report.skipped = true;
             return Ok(report);
         };
 
-        info!("开始执行数据库迁移...");
+        info!(mode = ?mode, "开始执行数据库迁移");
         match self.step_migrations().await {
             Ok(msg) => {
-                info!("迁移结果: {}", msg);
+                info!(step = %"migrations", result = %msg, "数据库初始化步骤完成");
                 report.steps.push(msg);
             }
             Err(e) => {
-                error!("数据库迁移失败: {}", e);
+                error!(error = %e, mode = ?mode, "数据库迁移失败");
                 report.is_success = false;
                 report.errors.push(format!("数据库迁移失败: {e}"));
                 return Ok(report);
@@ -109,7 +109,7 @@ impl DatabaseInitService {
 
         if mode == DatabaseInitMode::Strict {
             let message = "严格模式仅执行 migrations/*.sql；运行时 DDL 已禁用并由迁移链路兜底".to_string();
-            info!("{}", message);
+            info!(mode = ?mode, message = %message, "数据库初始化严格模式已完成");
             report.steps.push(message);
             return Ok(report);
         }
@@ -120,7 +120,7 @@ impl DatabaseInitService {
             report.steps.push("使用缓存，跳过验证".to_string());
             report.skipped = true;
             if self.environment.is_development() {
-                info!("数据库初始化完成 (使用缓存): success=true");
+                info!(used_cache = true, success = true, "数据库初始化完成");
             } else {
                 debug!("数据库初始化完成 (使用缓存): success=true");
             }
@@ -139,7 +139,7 @@ impl DatabaseInitService {
             Ok(issues) => {
                 if !issues.is_empty() {
                     if self.environment.is_development() {
-                        info!("发现 {} 个缺失的索引", issues.len());
+                        info!(missing_index_count = issues.len(), "发现缺失的索引");
                     } else {
                         debug!("发现 {} 个缺失的索引", issues.len());
                     }
@@ -153,7 +153,7 @@ impl DatabaseInitService {
             match self.step_schema_repair().await {
                 Ok(repaired) => {
                     if !repaired.is_empty() {
-                        info!("运行时补齐了 {} 个缺失列", repaired.len());
+                        info!(repaired_column_count = repaired.len(), "运行时补齐了缺失列");
                         report.repairs_performed.extend(repaired);
                     }
                 }
@@ -166,7 +166,7 @@ impl DatabaseInitService {
             match self.step_create_indexes().await {
                 Ok(created) => {
                     if !created.is_empty() {
-                        info!("运行时补齐了 {} 个缺失索引", created.len());
+                        info!(created_index_count = created.len(), "运行时补齐了缺失索引");
                         report.repairs_performed.extend(created);
                     }
                 }
@@ -214,7 +214,7 @@ impl DatabaseInitService {
         }
 
         if self.environment.is_development() {
-            info!("数据库初始化完成: success={}", report.is_success);
+            info!(used_cache = false, success = report.is_success, "数据库初始化完成");
         } else {
             debug!("数据库初始化完成: success={}", report.is_success);
         }
@@ -292,7 +292,7 @@ impl DatabaseInitService {
     }
 
     async fn step_migrations(&self) -> Result<String, sqlx::Error> {
-        info!("执行数据库迁移...");
+        info!("执行数据库迁移");
 
         self.ensure_schema_migrations_table().await?;
 
@@ -327,7 +327,7 @@ impl DatabaseInitService {
             return Ok("数据库迁移跳过 (无迁移文件)".to_string());
         };
 
-        info!("使用运行时迁移文件: {:?}", migrations_dir);
+        info!(migrations_dir = ?migrations_dir, "使用运行时迁移文件");
         let result = self.run_runtime_migrations(migrations_dir).await;
         let _ = sqlx::query("SELECT pg_advisory_unlock($1)").bind(lock_key).execute(&mut *lock_conn).await;
         result
@@ -359,7 +359,7 @@ impl DatabaseInitService {
         .execute(&*self.pool)
         .await?;
 
-        info!("schema_migrations 表已就绪");
+        info!(table_name = %"schema_migrations", "数据库迁移记录表已就绪");
         Ok(())
     }
 
@@ -423,7 +423,7 @@ impl DatabaseInitService {
 
         migration_files.sort();
 
-        info!("发现 {} 个迁移文件", migration_files.len());
+        info!(migration_file_count = migration_files.len(), "发现迁移文件");
 
         let mut success_count = 0;
         let mut skip_count = 0;
@@ -442,14 +442,14 @@ impl DatabaseInitService {
                 }
                 Ok(false) => {}
                 Err(e) => {
-                    warn!("检查迁移状态失败 {}: {}", filename, e);
+                    warn!(error = %e, filename = %filename, version = %version, "检查迁移状态失败");
                 }
             }
 
             let sql = match std::fs::read_to_string(&migration_file) {
                 Ok(s) => s,
                 Err(e) => {
-                    warn!("无法读取迁移文件 {}: {}", filename, e);
+                    warn!(error = %e, filename = %filename, version = %version, "无法读取迁移文件");
                     error_count += 1;
                     continue;
                 }
@@ -487,13 +487,25 @@ impl DatabaseInitService {
                             debug!("迁移 {} 跳过已存在对象: {}", filename, err_str);
                         } else if err_str.contains("canceling statement due to statement timeout") {
                             let preview: String = trimmed.chars().take(100).collect();
-                            warn!("迁移 {} 语句超时 (30s): {}", filename, preview);
+                            warn!(
+                                filename = %filename,
+                                version = %version,
+                                statement_timeout_secs = 30_u64,
+                                statement_preview = %preview,
+                                "迁移语句超时"
+                            );
                             file_success = false;
                             let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
                             break;
                         } else {
                             let preview: String = trimmed.chars().take(100).collect();
-                            warn!("迁移 {} 语句执行失败: {} - {}", filename, preview, e);
+                            warn!(
+                                error = %e,
+                                filename = %filename,
+                                version = %version,
+                                statement_preview = %preview,
+                                "迁移语句执行失败"
+                            );
                             file_success = false;
                             let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
                             break;
@@ -507,14 +519,19 @@ impl DatabaseInitService {
             let _ = self.record_migration(version, &checksum, execution_time_ms, file_success).await;
 
             if file_success {
-                info!("迁移 {} 执行成功 ({}ms)", filename, execution_time_ms);
+                info!(filename = %filename, execution_time_ms, "迁移执行成功");
                 success_count += 1;
             } else {
                 error_count += 1;
             }
         }
 
-        info!("迁移完成: 成功={}, 跳过={}, 错误={}", success_count, skip_count, error_count);
+        info!(
+            success_count,
+            skip_count,
+            error_count,
+            "迁移完成"
+        );
         Ok(format!("数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"))
     }
 

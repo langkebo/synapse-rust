@@ -102,7 +102,15 @@ impl ChunkedUploadService {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to start upload", &e))?;
 
-        info!("Started chunked upload: {} for user: {}", upload_id, user_id);
+        info!(
+            upload_id = %upload_id,
+            user_id = %user_id,
+            filename = ?filename,
+            content_type = ?content_type,
+            total_size,
+            total_chunks,
+            "Started chunked upload"
+        );
         Ok(upload_id)
     }
 
@@ -276,7 +284,7 @@ impl ChunkedUploadService {
 
         tx.commit().await.map_err(|e| ApiError::internal_with_log("Failed to commit upload finalization", &e))?;
 
-        info!("Marked chunked upload as finalized and cleaned chunks: {}", upload_id);
+        info!(upload_id = %upload_id, "Finalized chunked upload and cleaned chunks");
 
         Ok(())
     }
@@ -292,7 +300,7 @@ impl ChunkedUploadService {
 
         sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1").bind(upload_id).execute(&*self.pool).await.ok();
 
-        info!("Cancelled upload: {}", upload_id);
+        info!(upload_id = %upload_id, user_id = %user_id, "Cancelled chunked upload");
         Ok(())
     }
 
@@ -323,7 +331,7 @@ impl ChunkedUploadService {
         }
 
         if cleaned > 0 {
-            info!("Cleaned up {} expired uploads", cleaned);
+            info!(expired_upload_count = cleaned, "Cleaned up expired chunked uploads");
         }
 
         Ok(cleaned)

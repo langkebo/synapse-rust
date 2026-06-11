@@ -188,10 +188,12 @@ pub async fn make_room_admin(
 
 #[axum::debug_handler]
 pub async fn purge_history(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let room_id = body
         .get("room_id")
         .and_then(|v| v.as_str())
@@ -208,6 +210,16 @@ pub async fn purge_history(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
+    tracing::warn!(
+        request_id = %request_id,
+        action = "admin.purge_history",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        purge_up_to_ts = timestamp,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin purge history operation"
+    );
+
     let deleted_count = state
         .services.rooms.event_storage
         .delete_events_before(room_id, timestamp)
@@ -222,9 +234,10 @@ pub async fn purge_history(
 
 #[axum::debug_handler]
 pub async fn purge_history_by_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let merged_body = match body {
@@ -235,15 +248,17 @@ pub async fn purge_history_by_room(
         _ => json!({ "room_id": room_id }),
     };
 
-    purge_history(_admin, State(state), Json(merged_body)).await
+    purge_history(admin, State(state), headers, Json(merged_body)).await
 }
 
 #[axum::debug_handler]
 pub async fn purge_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let room_id = body
         .get("room_id")
         .and_then(|v| v.as_str())
@@ -255,6 +270,15 @@ pub async fn purge_room(
     })? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
+
+    tracing::warn!(
+        request_id = %request_id,
+        action = "admin.delete_room",
+        admin_user_id = %admin.user_id,
+        target_room_id = %room_id,
+        timestamp_ms = chrono::Utc::now().timestamp_millis(),
+        "Admin delete room operation"
+    );
 
     state
         .services.rooms.room_storage
@@ -273,9 +297,11 @@ pub async fn purge_room(
 pub async fn join_room_member(
     _admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(join_room_member_internal(&state, &room_id, &user_id).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(join_room_member_internal(&state, &room_id, &user_id, &request_id).await?))
 }
 
 /// Remove a user from a room
@@ -283,19 +309,25 @@ pub async fn join_room_member(
 pub async fn remove_room_member(
     _admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(remove_room_member_internal(&state, &room_id, &user_id).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(remove_room_member_internal(&state, &room_id, &user_id, &request_id).await?))
 }
 
 #[axum::debug_handler]
 pub async fn ban_user(
     admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(ban_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(
+        ban_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
+    ))
 }
 
 #[axum::debug_handler]
@@ -303,9 +335,14 @@ pub async fn ban_user_by_body(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(ban_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(
+        ban_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id)
+            .await?,
+    ))
 }
 
 /// Unban a user from a room
@@ -313,9 +350,11 @@ pub async fn ban_user_by_body(
 pub async fn unban_user(
     _admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(unban_user_internal(&state, &room_id, &user_id).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(unban_user_internal(&state, &room_id, &user_id, &request_id).await?))
 }
 
 /// Kick a user from a room
@@ -323,10 +362,14 @@ pub async fn unban_user(
 pub async fn kick_user(
     admin: AdminUser,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref()).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(
+        kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
+    ))
 }
 
 #[axum::debug_handler]
@@ -334,103 +377,23 @@ pub async fn kick_user_by_body(
     admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<RoomUserActionRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    Ok(Json(kick_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref()).await?))
+    let request_id = resolve_request_id(&headers);
+    Ok(Json(
+        kick_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id)
+            .await?,
+    ))
 }
 
 // Internal helpers
 
-async fn join_room_member_internal(state: &AppState, room_id: &str, user_id: &str) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
-
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
-
-    if existing_membership.as_deref() != Some("join") {
-        state.services.rooms.room_service.join_room(room_id, user_id).await?;
-    }
-
-    Ok(json!({
-        "user_id": user_id,
-        "room_id": room_id,
-        "membership": "join"
-    }))
-}
-
-async fn remove_room_member_internal(state: &AppState, room_id: &str, user_id: &str) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
-
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
-
-    if existing_membership.as_deref() == Some("join") {
-        state.services.rooms.room_service.leave_room(room_id, user_id).await?;
-    }
-
-    Ok(json!({
-        "user_id": user_id,
-        "room_id": room_id,
-        "removed": true
-    }))
-}
-
-async fn ban_user_internal(
+async fn join_room_member_internal(
     state: &AppState,
     room_id: &str,
     user_id: &str,
-    actor_user_id: &str,
-    reason: Option<&str>,
+    request_id: &str,
 ) -> Result<Value, ApiError> {
     if !state
         .services.rooms.room_storage
@@ -457,7 +420,122 @@ async fn ban_user_internal(
         .get_room_member(room_id, user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error: {e}");
+            tracing::error!(
+                request_id = %request_id,
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Database error while getting room member for join"
+            );
+            ApiError::database("A database error occurred".to_string())
+        })?
+        .map(|member| member.membership);
+
+    if existing_membership.as_deref() != Some("join") {
+        state.services.rooms.room_service.join_room(room_id, user_id).await?;
+    }
+
+    Ok(json!({
+        "user_id": user_id,
+        "room_id": room_id,
+        "membership": "join"
+    }))
+}
+
+async fn remove_room_member_internal(
+    state: &AppState,
+    room_id: &str,
+    user_id: &str,
+    request_id: &str,
+) -> Result<Value, ApiError> {
+    if !state
+        .services.rooms.room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .account
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    let existing_membership = state
+        .services.rooms.member_storage
+        .get_room_member(room_id, user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                request_id = %request_id,
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Database error while getting room member for removal"
+            );
+            ApiError::database("A database error occurred".to_string())
+        })?
+        .map(|member| member.membership);
+
+    if existing_membership.as_deref() == Some("join") {
+        state.services.rooms.room_service.leave_room(room_id, user_id).await?;
+    }
+
+    Ok(json!({
+        "user_id": user_id,
+        "room_id": room_id,
+        "removed": true
+    }))
+}
+
+async fn ban_user_internal(
+    state: &AppState,
+    room_id: &str,
+    user_id: &str,
+    actor_user_id: &str,
+    reason: Option<&str>,
+    request_id: &str,
+) -> Result<Value, ApiError> {
+    if !state
+        .services.rooms.room_storage
+        .room_exists(room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
+    {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    if !state
+        .services
+        .account
+        .user_storage
+        .user_exists(user_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
+    {
+        return Err(ApiError::not_found("User not found".to_string()));
+    }
+
+    let existing_membership = state
+        .services.rooms.member_storage
+        .get_room_member(room_id, user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                request_id = %request_id,
+                room_id = %room_id,
+                user_id = %user_id,
+                actor_user_id = %actor_user_id,
+                error = %e,
+                "Database error while getting room member for ban"
+            );
             ApiError::database("A database error occurred".to_string())
         })?
         .map(|member| member.membership);
@@ -491,7 +569,14 @@ async fn ban_user_internal(
 
     if let Some(reason) = reason {
         state.services.rooms.member_storage.set_ban_reason(room_id, user_id, reason).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
+            tracing::error!(
+                request_id = %request_id,
+                room_id = %room_id,
+                user_id = %user_id,
+                actor_user_id = %actor_user_id,
+                error = %e,
+                "Database error while setting ban reason"
+            );
             ApiError::database("A database error occurred".to_string())
         })?;
     }
@@ -504,7 +589,14 @@ async fn ban_user_internal(
         .sync_dm_room_membership_change(room_id, user_id, "banned", Some(actor_user_id), reason)
         .await
     {
-        ::tracing::warn!("Failed to sync friend DM ban state for room {} and user {}: {}", room_id, user_id, error);
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %user_id,
+            actor_user_id = %actor_user_id,
+            error = %error,
+            "Failed to sync friend DM ban state"
+        );
     }
 
     Ok(json!({
@@ -514,7 +606,12 @@ async fn ban_user_internal(
     }))
 }
 
-async fn unban_user_internal(state: &AppState, room_id: &str, user_id: &str) -> Result<Value, ApiError> {
+async fn unban_user_internal(
+    state: &AppState,
+    room_id: &str,
+    user_id: &str,
+    request_id: &str,
+) -> Result<Value, ApiError> {
     if !state
         .services.rooms.room_storage
         .room_exists(room_id)
@@ -536,7 +633,13 @@ async fn unban_user_internal(state: &AppState, room_id: &str, user_id: &str) -> 
     }
 
     state.services.rooms.member_storage.unban_member(room_id, user_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
+        tracing::error!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %user_id,
+            error = %e,
+            "Database error while unbanning user"
+        );
         ApiError::database("A database error occurred".to_string())
     })?;
 
@@ -553,13 +656,21 @@ async fn kick_user_internal(
     user_id: &str,
     actor_user_id: &str,
     reason: Option<&str>,
+    request_id: &str,
 ) -> Result<Value, ApiError> {
     let existing_membership = state
         .services.rooms.member_storage
         .get_room_member(room_id, user_id)
         .await
         .map_err(|e| {
-            tracing::error!("Database error: {e}");
+            tracing::error!(
+                request_id = %request_id,
+                room_id = %room_id,
+                user_id = %user_id,
+                actor_user_id = %actor_user_id,
+                error = %e,
+                "Database error while getting room member for kick"
+            );
             ApiError::database("A database error occurred".to_string())
         })?
         .map(|member| member.membership);
@@ -591,7 +702,14 @@ async fn kick_user_internal(
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
             state.services.rooms.member_storage.force_leave_membership(room_id, user_id, now).await.map_err(|e| {
-                tracing::error!("Database error: {e}");
+                tracing::error!(
+                    request_id = %request_id,
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    actor_user_id = %actor_user_id,
+                    error = %e,
+                    "Database error while forcing leave membership for kick"
+                );
                 ApiError::database("A database error occurred".to_string())
             })?;
         }
@@ -606,7 +724,14 @@ async fn kick_user_internal(
         .sync_dm_room_membership_change(room_id, user_id, "kicked", Some(actor_user_id), reason)
         .await
     {
-        ::tracing::warn!("Failed to sync friend DM kick state for room {} and user {}: {}", room_id, user_id, error);
+        ::tracing::warn!(
+            request_id = %request_id,
+            room_id = %room_id,
+            user_id = %user_id,
+            actor_user_id = %actor_user_id,
+            error = %error,
+            "Failed to sync friend DM kick state"
+        );
     }
 
     Ok(json!({

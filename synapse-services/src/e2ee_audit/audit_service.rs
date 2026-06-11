@@ -146,7 +146,7 @@ impl E2eeAuditService {
 
         let deleted = result.rows_affected();
         if deleted > 0 {
-            info!("Cleaned up {} old E2EE audit log entries", deleted);
+            info!(deleted_count = deleted, "Cleaned up old E2EE audit log entries");
         }
         Ok(deleted)
     }
@@ -282,7 +282,7 @@ impl CrossSigningVerificationService {
             })
             .await?;
 
-        info!("Marked device {} as verified for user {} via {}", device_id, user_id, method);
+        info!(device_id = %device_id, user_id = %user_id, method = %method, "Marked device as verified");
         Ok(())
     }
 
@@ -320,7 +320,7 @@ impl CrossSigningVerificationService {
             })
             .await?;
 
-        warn!("Marked device {} as unverified for user {}: {}", device_id, user_id, reason);
+        warn!(device_id = %device_id, user_id = %user_id, reason = %reason, "Marked device as unverified");
         Ok(())
     }
 

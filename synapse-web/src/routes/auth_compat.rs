@@ -3,10 +3,11 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::user::UserStorage;
 use crate::routes::extractors::{AuthenticatedUser, MatrixJson};
 use crate::routes::AppState;
+use crate::utils::auth::resolve_request_id;
 use crate::utils::admin_auth::enforce_admin_login_mfa;
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -150,14 +151,17 @@ pub(crate) async fn check_username_availability(
 
 pub(crate) async fn request_email_verification(
     State(state): State<AppState>,
+    headers: HeaderMap,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     request_email_verification_with_submit_path(
         &state,
         &body,
         "/_matrix/client/r0/register/email/submitToken",
         None,
         "register",
+        &request_id,
     )
     .await
 }
@@ -168,6 +172,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
     submit_path: &str,
     user_id: Option<&str>,
     purpose: &str,
+    request_id: &str,
 ) -> Result<Json<Value>, ApiError> {
     let email = body
         .get("email")
@@ -186,7 +191,12 @@ pub(crate) async fn request_email_verification_with_submit_path(
     let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
 
     let token = state.services.core.auth_service.generate_email_verification_token().map_err(|e| {
-        ::tracing::error!("Failed to generate email verification token: {}", e);
+        ::tracing::error!(
+            request_id = %request_id,
+            purpose = %purpose,
+            error = %e,
+            "Failed to generate email verification token"
+        );
         ApiError::internal("Failed to generate verification token. Please try again later.".to_string())
     })?;
 
@@ -200,7 +210,14 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
-            ::tracing::error!("Failed to store email verification token: {}", e);
+            ::tracing::error!(
+                request_id = %request_id,
+                purpose = %purpose,
+                email = %email,
+                user_id = ?user_id,
+                error = %e,
+                "Failed to store email verification token"
+            );
             ApiError::internal("Failed to store verification token. Please try again later.".to_string())
         })?;
 
@@ -208,7 +225,14 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let submit_url = format!("{}{}", state.services.core.config.server.get_public_baseurl(), submit_path);
 
-    ::tracing::info!("Email verification token created for {}: sid={}", email, sid);
+    ::tracing::info!(
+        request_id = %request_id,
+        purpose = %purpose,
+        email = %email,
+        user_id = ?user_id,
+        sid = %sid,
+        "Email verification token created"
+    );
 
     Ok(Json(json!({
         "sid": sid,

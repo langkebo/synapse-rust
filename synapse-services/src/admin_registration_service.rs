@@ -62,7 +62,12 @@ impl AdminRegistrationService {
             loop {
                 interval.tick().await;
                 if let Err(e) = self.cleanup_expired_nonces() {
-                    ::tracing::error!("Failed to cleanup expired nonces: {}", e);
+                    ::tracing::error!(
+                        error = %e,
+                        nonce_timeout_seconds = self.config.nonce_timeout_seconds,
+                        cleanup_interval_secs = 300_u64,
+                        "Failed to cleanup expired nonces"
+                    );
                 }
             }
         });

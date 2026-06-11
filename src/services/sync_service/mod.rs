@@ -279,11 +279,28 @@ impl SyncService {
         match result {
             Ok(Ok(value)) => Ok(value),
             Ok(Err(error)) => {
-                ::tracing::error!("Room sync error for user {} in room {}: {}", user_id, room_id, error);
+                ::tracing::error!(
+                    user_id = %user_id,
+                    room_id = %room_id,
+                    timeout_secs = 60_u64,
+                    requested_timeout_secs = timeout,
+                    is_full_state,
+                    since = ?since,
+                    error = %error,
+                    "Room sync error"
+                );
                 Err(error)
             }
             Err(_) => {
-                ::tracing::error!("Room sync timeout for user {} in room {}", user_id, room_id);
+                ::tracing::error!(
+                    user_id = %user_id,
+                    room_id = %room_id,
+                    timeout_secs = 60_u64,
+                    requested_timeout_secs = timeout,
+                    is_full_state,
+                    since = ?since,
+                    "Room sync timeout"
+                );
                 Err(ApiError::internal("Room sync operation timed out".to_string()))
             }
         }

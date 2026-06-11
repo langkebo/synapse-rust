@@ -647,7 +647,12 @@ impl ServiceContainer {
             let search_service_clone = search_service.clone();
             tokio::spawn(async move {
                 if let Err(e) = search_service_clone.create_fts_index().await {
-                    ::tracing::warn!("Failed to create FTS index: {}", e);
+                    ::tracing::warn!(
+                        error = %e,
+                        search_provider = %"postgres",
+                        search_enabled = true,
+                        "Failed to create FTS index"
+                    );
                 }
             });
         }
@@ -816,7 +821,12 @@ impl ServiceContainer {
             )) {
                 Ok(p) => Some(Arc::new(p)),
                 Err(e) => {
-                    ::tracing::error!("Failed to initialize BuiltinOidcProvider, disabling: {}", e);
+                    ::tracing::error!(
+                        error = %e,
+                        builtin_oidc_enabled = true,
+                        issuer = %config.builtin_oidc.issuer,
+                        "Failed to initialize BuiltinOidcProvider, disabling"
+                    );
                     None
                 }
             }
@@ -842,7 +852,11 @@ impl ServiceContainer {
         #[cfg(not(feature = "builtin-oidc"))]
         {
             if oidc_service.is_some() {
-                ::tracing::info!("External OIDC provider enabled (builtin OIDC not compiled).");
+                ::tracing::info!(
+                    external_oidc_enabled = true,
+                    builtin_oidc_compiled = false,
+                    "External OIDC provider enabled"
+                );
             }
         }
 
@@ -857,9 +871,17 @@ impl ServiceContainer {
         let translation_service =
             Arc::new(crate::translation_service::TranslationService::new(config.translate.clone()));
         if config.translate.is_configured() {
-            ::tracing::info!("Translation service enabled (provider: {})", config.translate.provider);
+            ::tracing::info!(
+                translation_configured = true,
+                provider = %config.translate.provider,
+                "Translation service enabled"
+            );
         } else {
-            ::tracing::info!("Translation service disabled (passthrough mode)");
+            ::tracing::info!(
+                translation_configured = false,
+                mode = %"passthrough",
+                "Translation service disabled"
+            );
         }
 
         // Event broadcaster (federation)
@@ -1191,7 +1213,7 @@ fn generate_encryption_key() -> [u8; 32] {
                         Ok(bytes) if bytes.len() == 32 => {
                             let mut key = [0u8; 32];
                             key.copy_from_slice(&bytes);
-                            ::tracing::info!("Loaded megolm encryption key from {}", path_buf.display());
+                            ::tracing::info!(path = %path_buf.display(), "Loaded megolm encryption key");
                             return key;
                         }
                         Ok(bytes) => {
@@ -1241,7 +1263,7 @@ fn generate_encryption_key() -> [u8; 32] {
                         use std::os::unix::fs::PermissionsExt;
                         let _ = std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600));
                     }
-                    ::tracing::info!("Persisted new megolm encryption key to {}", path_buf.display());
+                    ::tracing::info!(path = %path_buf.display(), "Persisted new megolm encryption key");
                 }
                 Err(e) => {
                     ::tracing::error!(

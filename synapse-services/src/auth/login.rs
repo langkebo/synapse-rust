@@ -135,14 +135,29 @@ impl AuthService {
         let failures: i64 = self.cache.get(&key).await?.unwrap_or(0i64).saturating_add(1);
 
         if let Err(e) = self.cache.set(&key, &failures, self.login_lockout_duration_seconds).await {
-            ::tracing::warn!("Failed to update login failure count in cache: {}", e);
+            ::tracing::warn!(
+                error = %e,
+                user_id = %user_id,
+                cache_key = %key,
+                failure_count = failures,
+                lockout_duration_seconds = self.login_lockout_duration_seconds,
+                "Failed to update login failure count in cache"
+            );
         }
 
         if failures >= self.login_failure_lockout_threshold as i64 {
             let lockout_until = Utc::now().timestamp() + self.login_lockout_duration_seconds as i64;
             let lockout_key = format!("auth:lockout:{user_id}");
             if let Err(e) = self.cache.set(&lockout_key, &lockout_until, self.login_lockout_duration_seconds).await {
-                ::tracing::warn!("Failed to set login lockout in cache: {}", e);
+                ::tracing::warn!(
+                    error = %e,
+                    user_id = %user_id,
+                    cache_key = %lockout_key,
+                    failure_count = failures,
+                    lockout_until = lockout_until,
+                    lockout_duration_seconds = self.login_lockout_duration_seconds,
+                    "Failed to set login lockout in cache"
+                );
             }
 
             ::tracing::warn!(

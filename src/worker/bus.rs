@@ -51,12 +51,19 @@ impl WorkerBus {
     }
 
     pub async fn connect(&self) -> Result<(), ApiError> {
-        info!("Connecting to Redis: {}", self.config.url);
+        info!(
+            redis_url = %self.config.url,
+            pool_size = self.config.pool_size,
+            channel_prefix = %self.config.channel_prefix,
+            server_name = %self.server_name,
+            instance_name = %self.instance_name,
+            "Connecting to Redis"
+        );
 
         let mut connected = self.connected.write().await;
         *connected = true;
 
-        info!("Redis bus connected successfully");
+        info!(server_name = %self.server_name, instance_name = %self.instance_name, "Redis bus connected successfully");
         Ok(())
     }
 
@@ -64,7 +71,7 @@ impl WorkerBus {
         let mut connected = self.connected.write().await;
         *connected = false;
 
-        info!("Redis bus disconnected");
+        info!(server_name = %self.server_name, instance_name = %self.instance_name, "Redis bus disconnected");
     }
 
     pub async fn is_connected(&self) -> bool {
@@ -91,7 +98,13 @@ impl WorkerBus {
         let subscribers = self.subscribers.read().await;
         for tx in subscribers.iter() {
             if let Err(e) = tx.send(bus_message.clone()) {
-                warn!("Failed to send to subscriber: {}", e);
+                warn!(
+                    error = %e,
+                    channel = %channel,
+                    sender_instance = %self.instance_name,
+                    payload_bytes = encoded.len(),
+                    "Failed to send to subscriber"
+                );
             }
         }
 

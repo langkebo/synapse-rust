@@ -126,10 +126,11 @@ impl FriendRoomService {
             {
                 tracing::info!(
                     %request_id,
-                    "Returning existing pending friend request {} -> {} (id: {})",
-                    sender_id,
-                    receiver_id,
-                    existing.id
+                    sender_id = %sender_id,
+                    receiver_id = %receiver_id,
+                    friend_request_id = %existing.id,
+                    request_direction = %"outgoing",
+                    "Returning existing pending friend request"
                 );
                 return Ok(existing.id);
             }
@@ -142,10 +143,11 @@ impl FriendRoomService {
             {
                 tracing::info!(
                     %request_id,
-                    "Returning existing reverse pending friend request {} <- {} (id: {})",
-                    sender_id,
-                    receiver_id,
-                    existing.id
+                    sender_id = %sender_id,
+                    receiver_id = %receiver_id,
+                    friend_request_id = %existing.id,
+                    request_direction = %"incoming",
+                    "Returning existing reverse pending friend request"
                 );
                 return Ok(existing.id);
             }
@@ -165,7 +167,13 @@ impl FriendRoomService {
             )?;
 
         if self.is_remote_user(receiver_id) {
-            tracing::info!(%request_id, "Sending remote friend request: {} -> {}", sender_id, receiver_id);
+            tracing::info!(
+                %request_id,
+                sender_id = %sender_id,
+                receiver_id = %receiver_id,
+                remote_delivery = true,
+                "Sending remote friend request"
+            );
             let parts: Vec<&str> = receiver_id.split(':').collect();
             if parts.len() >= 2 {
                 let domain = parts[1];
@@ -178,7 +186,13 @@ impl FriendRoomService {
                 });
 
                 if let Err(e) = self.federation_client.send_invite(domain, "unused", &invite_content).await {
-                    tracing::warn!(%request_id, "Failed to send federation friend request: {}", e);
+                    tracing::warn!(
+                        %request_id,
+                        error = %e,
+                        sender_id = %sender_id,
+                        receiver_id = %receiver_id,
+                        "Failed to send federation friend request"
+                    );
                 }
             }
         }
@@ -229,7 +243,13 @@ impl FriendRoomService {
                 });
 
                 if let Err(e) = self.federation_client.send_invite(domain, "unused", &accept_content).await {
-                    tracing::warn!(%request_id, "Failed to send federation friend accept: {}", e);
+                    tracing::warn!(
+                        %request_id,
+                        error = %e,
+                        user_id = %user_id,
+                        requester_id = %requester_id,
+                        "Failed to send federation friend accept"
+                    );
                 }
             }
         }
@@ -247,7 +267,12 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to reject friend request", &e))?;
 
         if !updated {
-            tracing::warn!(%request_id, "Reject friend request missed pending row: {} <- {}", user_id, requester_id);
+            tracing::warn!(
+                %request_id,
+                user_id = %user_id,
+                requester_id = %requester_id,
+                "Reject friend request missed pending row"
+            );
             return Err(ApiError::not_found(format!("No pending friend request from {requester_id}")));
         }
 
@@ -264,7 +289,12 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to cancel friend request", &e))?;
 
         if !updated {
-            tracing::warn!(%request_id, "Cancel friend request missed pending row: {} -> {}", user_id, target_id);
+            tracing::warn!(
+                %request_id,
+                user_id = %user_id,
+                target_id = %target_id,
+                "Cancel friend request missed pending row"
+            );
             return Err(ApiError::not_found(format!("No pending friend request to {target_id}")));
         }
 
@@ -343,7 +373,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to subscribe to presence", &e))?;
 
         if self.is_remote_user(friend_id) {
-            tracing::info!("Adding remote friend: {} -> {}", user_id, friend_id);
+            tracing::info!(user_id = %user_id, friend_id = %friend_id, remote_delivery = true, "Adding remote friend");
             let parts: Vec<&str> = friend_id.split(':').collect();
             if parts.len() < 2 {
                 return Err(ApiError::bad_request("Invalid user ID format"));
@@ -358,7 +388,13 @@ impl FriendRoomService {
             });
 
             if let Err(e) = self.federation_client.send_invite(domain, "unused", &invite_content).await {
-                tracing::warn!("Failed to send federation friend request: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    domain = %domain,
+                    user_id = %user_id,
+                    friend_id = %friend_id,
+                    "Failed to send federation friend request"
+                );
             }
         }
 

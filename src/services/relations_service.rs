@@ -178,7 +178,13 @@ impl RelationsService {
             .map_err(|e| ApiError::internal_with_log("Failed to check existing replacement", &e))?;
 
         let event_id = if let Some(existing) = existing {
-            warn!("Replacement already exists for sender {}, updating existing", request.sender);
+            warn!(
+                sender = %request.sender,
+                room_id = %request.room_id,
+                relates_to = %request.relates_to_event_id,
+                existing_event_id = %existing.event_id,
+                "Replacement already exists for sender, updating existing"
+            );
             existing.event_id
         } else {
             format!("${}", crate::common::crypto::generate_event_id(&request.room_id))

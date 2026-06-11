@@ -231,7 +231,11 @@ impl BuiltinOidcProvider {
             }
         }
 
-        info!("Generating new RSA-2048 key for builtin OIDC provider");
+        info!(
+            key_algorithm = %"RSA-2048",
+            has_signing_key_path = path.is_some(),
+            "Generating new signing key for builtin OIDC provider"
+        );
         let mut rng = rand::thread_rng();
         let key =
             RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal_with_log("OIDC RSA generate", &e))?;
@@ -245,7 +249,7 @@ impl BuiltinOidcProvider {
                 .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
                 .map_err(|e| ApiError::internal_with_log("OIDC RSA pem", &e))?;
             std::fs::write(p, pem.as_bytes()).map_err(|e| ApiError::internal_with_log("OIDC signing key write", &e))?;
-            info!("Persisted builtin OIDC signing key to {}", p.display());
+            info!(key_path = %p.display(), key_algorithm = %"RSA-2048", "Persisted builtin OIDC signing key");
         } else {
             warn!(
                 "BuiltinOidcProvider: signing_key_path not configured; key is ephemeral and \
@@ -346,7 +350,7 @@ impl BuiltinOidcProvider {
 
         self.auth_sessions.write().await.insert(code.clone(), session);
 
-        info!("OIDC authorization code generated for user: {}", user.id);
+        info!(user_id = %user.id, client_id = %self.config.client_id, "OIDC authorization code generated");
         Ok(code)
     }
 
@@ -496,7 +500,7 @@ impl BuiltinOidcProvider {
 
         if let Some(ref phc) = user.password_hash {
             let parsed = PasswordHash::new(phc).map_err(|e| {
-                tracing::error!("Invalid password_hash for {}: {}", username, e);
+                tracing::error!(error = %e, username = %username, has_password_hash = true, "Invalid password_hash");
                 ApiError::internal("Authentication configuration error".to_string())
             })?;
             Argon2::default()
@@ -507,9 +511,9 @@ impl BuiltinOidcProvider {
 
         if let Some(ref plain) = user.password {
             warn!(
-                "BuiltinOidcProvider: user '{}' has plaintext password configured; \
-                 migrate to password_hash (argon2 PHC) for production",
-                username
+                username = %username,
+                has_plaintext_password = true,
+                "BuiltinOidcProvider user has plaintext password configured; migrate to password_hash (argon2 PHC) for production"
             );
             // 常量时间比较
             if crate::common::crypto::secure_compare(plain, password) {
@@ -639,7 +643,7 @@ impl BuiltinOidcProvider {
             map.retain(|_, s| s.user_id != user_id);
         }
 
-        info!("OIDC logout: revoked sessions for user {}", user_id);
+        info!(user_id = %user_id, "OIDC logout revoked sessions");
         Ok(())
     }
 }
