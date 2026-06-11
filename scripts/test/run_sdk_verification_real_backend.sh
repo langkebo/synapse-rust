@@ -13,6 +13,8 @@ DOCKER_ENV_FILE="${DOCKER_ENV_FILE:-$DOCKER_DIR/.env}"
 BASE_URL="${BASE_URL:-http://localhost:8008}"
 WAIT_SECONDS="${WAIT_SECONDS:-180}"
 KEEP_STACK_RUNNING="${KEEP_STACK_RUNNING:-0}"
+SKIP_SDK_TEST="${SKIP_SDK_TEST:-0}"
+ARTIFACT_DIR="${SDK_INTEROP_ARTIFACT_DIR:-$BACKEND_ROOT/artifacts/e2ee-interop/sdk-backend}"
 TEMP_ENV_CREATED=false
 SDK_CLONED=false
 STACK_STARTED=false
@@ -125,8 +127,28 @@ wait_for_backend() {
     done
 }
 
+write_backend_artifacts() {
+    mkdir -p "$ARTIFACT_DIR"
+
+    cat >"$ARTIFACT_DIR/backend-entry.txt" <<EOF
+timestamp_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+base_url=$BASE_URL
+compose_file=$COMPOSE_FILE
+docker_env_file=$DOCKER_ENV_FILE
+keep_stack_running=$KEEP_STACK_RUNNING
+skip_sdk_test=$SKIP_SDK_TEST
+sdk_test_script=$SDK_TEST_SCRIPT
+EOF
+
+    (
+        cd "$DOCKER_DIR"
+        docker compose --env-file "$DOCKER_ENV_FILE" -f "$COMPOSE_FILE" ps
+    ) >"$ARTIFACT_DIR/docker-compose.ps.txt" 2>&1 || true
+
+    curl -fsS "$BASE_URL/_matrix/client/versions" >"$ARTIFACT_DIR/client-versions.json" 2>/dev/null || true
+}
+
 ensure_command docker
-ensure_command pnpm
 ensure_command curl
 
 if [ ! -f "$COMPOSE_FILE" ]; then
@@ -135,10 +157,15 @@ if [ ! -f "$COMPOSE_FILE" ]; then
 fi
 
 ensure_docker_env
-ensure_sdk_checkout
+mkdir -p "$ARTIFACT_DIR"
 
-log "Installing matrix-js-sdk dependencies"
-pnpm --dir "$SDK_ROOT" install --frozen-lockfile
+if [ "$SKIP_SDK_TEST" != "1" ]; then
+    ensure_command pnpm
+    ensure_sdk_checkout
+
+    log "Installing matrix-js-sdk dependencies"
+    pnpm --dir "$SDK_ROOT" install --frozen-lockfile
+fi
 
 log "Building synapse-rust docker image"
 (
@@ -155,6 +182,13 @@ STACK_STARTED=true
 
 log "Waiting for backend readiness at $BASE_URL"
 wait_for_backend
+write_backend_artifacts
+
+if [ "$SKIP_SDK_TEST" = "1" ]; then
+    log "Backend is ready for manual Android/iOS interop runs"
+    log "Recorded backend evidence under $ARTIFACT_DIR"
+    exit 0
+fi
 
 log "Running matrix-js-sdk real-backend verification: $SDK_TEST_SCRIPT"
 pnpm --dir "$SDK_ROOT" "$SDK_TEST_SCRIPT"

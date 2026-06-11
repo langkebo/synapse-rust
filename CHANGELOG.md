@@ -45,6 +45,9 @@
   - 移除 `src/e2ee/mod.rs` 与 `synapse-e2ee/src/lib.rs` 的顶层 re-export，减少公开暴露面
   - 将 `src/e2ee/crypto/mod.rs` 与 `synapse-e2ee/src/crypto/mod.rs` 的子模块收为私有
   - 同步更新上层调用点 `signed_json.rs`，并移除对 `ed25519_dalek::{Verifier, VerifyingKey}` 的直接依赖
+- **C-5 Phase 3 跨端验收入口整理**（2026-06-11）：
+  - `scripts/test/run_sdk_verification_real_backend.sh` 新增 `SKIP_SDK_TEST=1` 与 `SDK_INTEROP_ARTIFACT_DIR`，可仅启动 live backend 并自动落基础证据
+  - `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` 新增 Android/iOS 手动验收入口、Element Web 叠加方式与 `artifacts/e2ee-interop/mobile/<run-id>/` 结果记录规范
 - E2EE 评估口径：审查报告 P0 项 4 状态从「🚧 Phase 1+2 ✅ / Phase 3 进行中 / Phase 4 待 Phase 3 收尾」更新为「🚧 Phase 1+2 ✅ / Phase 3 浏览器验证 ✅ / Phase 4 协议层边界基本冻结」。
 - `ServiceContainer` 状态口径：核心字段数 35 → 48（实际，比 2.2 报告多 13）。
 - `config/mod.rs` 行数：4081 → 4056（聚合文件，已拆 18 子模块）。
