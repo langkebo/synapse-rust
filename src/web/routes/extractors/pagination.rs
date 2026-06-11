@@ -60,6 +60,12 @@ mod tests {
     }
 
     #[test]
+    fn pagination_treats_any_non_backward_direction_as_forward() {
+        assert!(Pagination::new(Some(5)).with_direction("f".to_string()).is_forward());
+        assert!(Pagination::new(Some(5)).with_direction("B".to_string()).is_forward());
+    }
+
+    #[test]
     fn pagination_clamps_limit_into_supported_range() {
         assert_eq!(Pagination::new(Some(0)).effective_limit(), 1);
         assert_eq!(Pagination::new(Some(MAX_PAGE_LIMIT + 50)).effective_limit(), MAX_PAGE_LIMIT);

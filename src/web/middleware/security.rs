@@ -1,4 +1,5 @@
 use crate::common::error::ApiError;
+use crate::web::utils::auth::resolve_request_id;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
@@ -165,12 +166,12 @@ fn is_long_polling_endpoint(path: &str) -> bool {
         || path.contains("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync")
 }
 
-pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Response {
-    let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map_or_else(|| format!("req-{}", uuid::Uuid::new_v4()), |s| s.to_string());
+pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Response {
+    let request_id = resolve_request_id(request.headers());
+
+    if let Ok(v) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", v);
+    }
 
     let mut response = next.run(request).await;
 
@@ -269,5 +270,40 @@ mod tests {
         assert_eq!(status, StatusCode::REQUEST_TIMEOUT);
         assert_eq!(json["errcode"], "M_REQUEST_TIMEOUT");
         assert!(json["error"].as_str().expect("error should be string").contains("30"));
+    }
+
+    async fn request_id_echo_handler(headers: axum::http::HeaderMap) -> String {
+        headers
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn test_request_id_middleware_injects_header_for_downstream() {
+        let app = Router::new()
+            .route("/request-id", get(request_id_echo_handler))
+            .layer(middleware::from_fn(request_id_middleware));
+
+        let request = Request::builder()
+            .method(axum::http::Method::GET)
+            .uri("/request-id")
+            .body(Body::empty())
+            .expect("request should build");
+
+        let response = app.oneshot(request).await.expect("request should succeed");
+        let header_value = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .expect("response should include x-request-id")
+            .to_string();
+        let body =
+            axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
+        let body_text = String::from_utf8_lossy(&body).to_string();
+
+        assert!(!header_value.is_empty());
+        assert_eq!(header_value, body_text);
     }
 }

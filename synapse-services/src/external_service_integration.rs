@@ -213,12 +213,13 @@ impl ExternalServiceIntegration {
         Err(ApiError::unauthorized("Missing or invalid webhook credential".to_string()))
     }
 
-    #[instrument(skip(self, config))]
+    #[instrument(skip(self, config), fields(request_id = %request_id))]
     pub async fn register_external_service(
         &self,
+        request_id: &str,
         config: ExternalServiceConfig,
     ) -> Result<ApplicationService, ApiError> {
-        info!("Registering external service: type={}, id={}", config.service_type, config.service_id);
+        info!(%request_id, "Registering external service: type={}, id={}", config.service_type, config.service_id);
 
         let as_id = format!("{}_{}", config.service_type, config.service_id);
 
@@ -267,7 +268,7 @@ impl ExternalServiceIntegration {
             },
         );
 
-        info!("External service registered successfully: {}", config.service_id);
+        info!(%request_id, "External service registered successfully: {}", config.service_id);
         Ok(service)
     }
 
@@ -329,14 +330,15 @@ impl ExternalServiceIntegration {
         }
     }
 
-    #[instrument(skip(self, payload))]
+    #[instrument(skip(self, payload), fields(request_id = %request_id))]
     pub async fn handle_trendradar_webhook(
         &self,
+        request_id: &str,
         service_id: &str,
         payload: TrendRadarPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!("Handling TrendRadar webhook: service={}, title={}", service_id, payload.title);
+        info!(%request_id, "Handling TrendRadar webhook: service={}, title={}", service_id, payload.title);
 
         let as_id = format!("trendradar_{}", service_id);
         let service = self
@@ -393,14 +395,15 @@ impl ExternalServiceIntegration {
     }
 
     #[cfg(feature = "openclaw-routes")]
-    #[instrument(skip(self, payload))]
+    #[instrument(skip(self, payload), fields(request_id = %request_id))]
     pub async fn handle_openclaw_webhook(
         &self,
+        request_id: &str,
         service_id: &str,
         payload: OpenClawPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!("Handling OpenClaw webhook: service={}, action={}", service_id, payload.action);
+        info!(%request_id, "Handling OpenClaw webhook: service={}, action={}", service_id, payload.action);
 
         let as_id = format!("openclaw_{}", service_id);
         let service = self
@@ -453,14 +456,15 @@ impl ExternalServiceIntegration {
         Ok(())
     }
 
-    #[instrument(skip(self, payload))]
+    #[instrument(skip(self, payload), fields(request_id = %request_id))]
     pub async fn handle_generic_webhook(
         &self,
+        request_id: &str,
         service_id: &str,
         payload: WebhookPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!("Handling generic webhook: service={}, event_type={}", service_id, payload.event_type);
+        info!(%request_id, "Handling generic webhook: service={}, event_type={}", service_id, payload.event_type);
 
         let as_id = format!("generic_webhook_{}", service_id);
 
@@ -534,8 +538,8 @@ impl ExternalServiceIntegration {
         status.values().cloned().collect()
     }
 
-    #[instrument(skip(self))]
-    pub async fn check_service_health(&self, as_id: &str) -> Result<bool, ApiError> {
+    #[instrument(skip(self), fields(request_id = %request_id))]
+    pub async fn check_service_health(&self, request_id: &str, as_id: &str) -> Result<bool, ApiError> {
         let service = self
             .storage
             .get_by_id(as_id)
@@ -567,9 +571,9 @@ impl ExternalServiceIntegration {
         }
     }
 
-    #[instrument(skip(self))]
-    pub async fn unregister_external_service(&self, service_id: &str) -> Result<(), ApiError> {
-        info!("Unregistering external service: {}", service_id);
+    #[instrument(skip(self), fields(request_id = %request_id))]
+    pub async fn unregister_external_service(&self, request_id: &str, service_id: &str) -> Result<(), ApiError> {
+        info!(%request_id, "Unregistering external service: {}", service_id);
 
         self.storage
             .unregister(service_id)
@@ -581,9 +585,10 @@ impl ExternalServiceIntegration {
         Ok(())
     }
 
-    #[instrument(skip(self, request))]
+    #[instrument(skip(self, request), fields(request_id = %request_id))]
     pub async fn update_external_service(
         &self,
+        request_id: &str,
         as_id: &str,
         request: UpdateApplicationServiceRequest,
     ) -> Result<ApplicationService, ApiError> {

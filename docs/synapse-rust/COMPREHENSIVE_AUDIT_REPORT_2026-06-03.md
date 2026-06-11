@@ -18,7 +18,7 @@
 - 路由分层门禁并非文中反复提到的 `scripts/quality/check_route_layering.sh` 在 CI 中生效；当前 CI 实际接入的是 `scripts/ci/check_route_storage_boundary.sh`（`.github/workflows/ci.yml`）。`check_route_layering.sh` 存在，但目前更像本地巡检脚本。
 - `check_route_storage_boundary.sh` 当前通过，且 `scripts/ci/route_storage_exceptions.txt` 已清空；从补齐 29 个存量 `use crate::storage` 路由文件快照开始，通过一批 service re-export / shim 迁移、guest 注册/升级逻辑下沉，以及 `handlers/room/*`、`admin/*`、`ai_connection.rs`、`openclaw.rs` 清理，将例外收敛到 0。当前门禁语义已从“拦新增、保留存量债务”推进到“路由层新增 `use crate::storage` 直引将直接失败”。
 - 文中“`SELECT *` 全量消除”结论不准确。已修复 3 处真实残留：`src/storage/sliding_sync.rs`、`src/storage/space.rs`、`src/storage/registration_token.rs`。复核后 `src/` 中仅剩 2 处文本命中：1 处为 PostgreSQL `UNNEST` 语法片段，1 处为 `src/common/macros.rs` 的示例宏字符串，不属于业务查询。
-- OpenAPI 已接入，但仍是“基础集成”而非“覆盖完成”：当前 `src/web/api_doc.rs` 中已有 **291** 个 `#[utoipa::path]` 注解，除既有公开读端点与多批 admin 接口外，最近又继续补齐了 auth/account/directory、sync/search、media、moderation、relations/reactions、guest、thirdparty、二维码登录兼容路径、presence/typing、rendezvous、push/captcha 兼容面、`auth_metadata` / `dehydrated_device`、`r0` 兼容的 pushrules/captcha/thirdparty/typing/SAML metadata，以及 `r0/v3` 的 login/logout/oidc/saml/cas 一整批认证兼容路径；功能仍受 `openapi-docs` feature 控制，并非默认构建项。
+- OpenAPI 已从“基础集成”推进到“覆盖完成”：当前 `src/web/api_doc.rs` 中已有 **435** 个 `#[utoipa::path]` 注解，标准兼容、Unstable MSC 与私有扩展路径均已补齐；功能仍受 `openapi-docs` feature 控制，并非默认构建项。
 - E2EE Megolm 运行时主路径已切换：`MegolmProvider` 已直接封装 `MegolmVodozemacService`，`vodozemac` 依赖也已是普通依赖；`.github/workflows/e2ee-interop.yml` 已补上 `matrix-js-sdk` real-backend verification + Element Web 浏览器 harness。最新本地复核已确认浏览器侧不仅能跑通登录 smoke，还能在真实 Docker 栈中完成 cross-signing bootstrap、`POST /_matrix/client/v3/room_keys/version`、创建房间，并输出 `basic interactions passed!`；但 Android/iOS 跨端矩阵与 `e2ee/crypto/*` 等自研/协议辅助代码清理仍在，因此 C-5 仍不能标为完成。
 - OTLP dev 默认端点确已落地：`src/common/telemetry_config.rs` 的 `resolve_otlp_endpoint()` 会在 `debug_assertions` 下默认回退到 `http://localhost:4317`。这项结论为真。
 - 覆盖率门槛和 mutation testing 的“配置已就位”结论为真；已重新执行 `cargo tarpaulin --locked --out Json --output-dir coverage --lib` 与聚焦版 `cargo mutants --package synapse-rust --file src/web/routes/extractors/pagination.rs --timeout 30 --baseline skip -- --test-threads=2`。在修复 `src/services/media/mod.rs` 测试池 schema 命名冲突、补充 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 的针对性单元测试后，最新总覆盖率为 `20.11%`（`10352/51472` 行，低于 `70%` 门槛），而分页提取器 mutation smoke 仍为 `11/11 caught`，因此当前应表述为“已有局部实测证据，但覆盖率目标仍未达成、mutation 也仅完成聚焦抽样复核”。
@@ -29,10 +29,10 @@
 
 - `C-5`：Megolm 运行时主路径已切到 vodozemac，Element Web 浏览器 harness 也已推进到真实登录后 cross-signing/key backup/房间创建与消息发送链路；但 Android/iOS 跨端矩阵以及 Phase 4 自研/协议辅助代码边界清理仍待完成。
 - `C-4 / M-4`：`use crate::storage` 这一类路由层直引已完成清零，`check_route_storage_boundary.sh` 可直接拦截新增违例；当前工作区 grep 口径下，`src/web/routes/` 业务路由层真实 `sqlx::query*` / `.pool` / `PgPool` 直用路径已全部清空，仅测试代码中可能存在测试辅助用的数据库连接构造。
-- `M-4 / P2 #35`：覆盖率与 mutation testing 已不再只是“门禁配置完成”；已补充 tarpaulin / cargo-mutants 的可复核执行结果，但覆盖率仅 `20.11%`、远低于 `70%` 门槛，mutation 结果也仍是聚焦抽样而非全仓夜跑基线。
+- `M-4 / P2 #35`：覆盖率与 mutation testing 已不再只是“门禁配置完成”；已补充 tarpaulin / cargo-mutants 的可复核执行结果。当前 `cargo tarpaulin --locked --out Json --output-dir coverage --lib` 实测总覆盖率为 `20.11%`（`10352/51472`），分页提取器聚焦 mutation smoke 为 `11/11 caught`，`json` 提取器聚焦 smoke 为 `3 caught + 1 unviable`；但距离覆盖率 `>= 70%` 目标仍有明显差距。**全仓 mutation 已尝试实跑一次**，当前口径下识别到 `19922` 个 mutants、启动约 `30` 分钟后仅完成 `112/19922`，实时估算约需 `4` 天，因此仍需改为分批基线策略。
 - `M-5`：核心管理与客户端列表接口的 keyset 分页统一已基本完成。本轮又进一步收口 `admin/user`、`admin/room`、`admin/federation`、`friend_room`、`admin/report`、`openclaw` 等入口，legacy `offset` 在这些端点上已不再参与实际分页，非零值统一返回显式错误。
 - `M-8 / M-9`：✅ `ApiError` 深度重构已完成，从 42 个枚举变体重构为 `kind/code/message/source/cause` 结构化类型，引入 `ApiErrorKind` 语义分类和 `ErrorSource` 错误源追踪；全仓调用点已迁移到 `is_*()` 谓词方法和 `code_is()` 方法；通过 `cargo build --locked` + `cargo clippy --all-features` + `cargo test --features test-utils --test unit` 全量验证。关键 service 已补齐 `#[instrument]` 埋点，OTLP dev 默认端点已启用。
-- `P2 #37`：✅ **OpenAPI 全面覆盖完成**！从最初的 4 个示例端点扩展到 **435** 个注解！标准兼容、Unstable MSC 以及所有私有扩展（朋友关系、语音、组件、Burn 外部服务等**全覆盖**！
+- `P2 #37`：✅ **OpenAPI 全面覆盖完成**！从最初的 4 个示例端点扩展到 **435** 个注解；标准兼容、Unstable MSC 以及所有私有扩展（朋友关系、语音、组件、Burn、外部服务等）均已覆盖。
 
 ### 本轮已落地修复 (2026-06-10 最新增补)
 
@@ -47,6 +47,18 @@
   - 修复了 `src/web/routes/worker.rs` 中硬编码类型标注问题。
   - 修复了 `src/web/routes/app_service.rs`、`src/web/routes/response_helpers.rs`、`src/web/routes/room_summary.rs` 中 `ApiError::BadRequest`/`ApiError::NotFound` 枚举变体不存在的问题，改为 `ApiError::bad_request()`/`ApiError::not_found()` 构造函数。
   - 修复了 `src/services/room/space.rs` 中重复定义 `fn get_space_members` 的问题。
+- **P1 `req_id` 透传补强进一步收口**：
+  - 在 `src/web/utils/auth.rs` 与 `synapse-web/src/utils/auth.rs` 中新增统一的 `resolve_request_id()` / `generate_request_id()` helper，收敛 `admin_audit`、`feature_flags`、`telemetry`、`extractors/auth`、`admin_auth` 等散落实现，消除 `unknown`、`feature-flag-*`、`telemetry-alert-*` 等不一致 fallback。
+  - `src/web/middleware/security.rs` 与 `synapse-web/src/middleware/{request_id,security}.rs` 现会在缺省请求头时生成 `x-request-id` 并**回填到请求头后再放行**，下游 handler / extractor / audit 记录可直接拿到同一 request id。
+  - 已补定向测试，验证下游 handler 能读取到中间件生成的 `x-request-id`。
+-  - 本轮继续把 `external_service` 边缘写路径接入 `request_id` 透传：注册、更新、删除、health check 以及 webhook 入口现在都会从路由层解析 `request_id`，并透传到 `ExternalServiceIntegration` 的 tracing span / 日志字段。
+  - 继续把 `friend_room` 的边缘写路径接入 `request_id` 透传：发送/接受/拒绝/取消好友请求现在都会从路由层解析 `request_id`，并透传到 `FriendRoomService` 的 tracing span 与异常告警日志；`src/` 与 `synapse-services` / `synapse-web` 镜像实现已同步。
+  - `sync` handler 的限流 fail-open、同步异常和超时日志现在也会统一带上 `request_id`，避免后续排查只有 `user_id` 没有跨链路请求标识。
+ - **P2 #35 定向回归继续扩大**：
+  - 修复了 `src/e2ee/crypto/ed25519.rs` / `synapse-e2ee/src/crypto/ed25519.rs` 的 `VerifyingKey` 导入缺失，恢复新增测试可执行状态。
+  - 新增并跑通 `extractors/json.rs` 的 body read failure 分支测试、`extractors/pagination.rs` 的非 backward 方向测试，以及 `services/media/mod.rs` 的负数 `total_size`、空文件名清洗回退、大小写不敏感 inline 媒体类型测试。
+  - 重新执行聚焦 mutation：`src/web/routes/extractors/json.rs` 为 `3 caught + 1 unviable`；再次确认 `src/web/routes/extractors/pagination.rs` 为 `11/11 caught`；`src/services/media/mod.rs` 试跑过程中已推进到 `69/70`、其中 `61 caught + 8 unviable`，但因单文件运行时间已超过 1 小时，本轮未继续等待最终收尾。
+  - 已把 `Makefile` 的 `test-mutation` 与 `.github/workflows/mutation-testing.yml` 从“默认整包 `cargo mutants --package synapse-rust`”收口为**默认分批 smoke**：当前默认批次为 `pagination.rs`、`json.rs`、`media/mod.rs`，并支持 workflow dispatch 通过 `mutation_files` 覆盖批次文件列表。
   - 修复了 `src/common/backpressure.rs` 中 `pubutilization` 拼写错误问题，改为正确的 `utilization`。
   - 修复了多个文件中 `tracing` 宏调用歧义问题，统一使用 `::tracing::` 绝对路径前缀。
 
@@ -160,12 +172,12 @@
 | E2EE | ★★★★☆ | Megolm 运行时主路径已直接封装 `MegolmVodozemacService`；本地 vodozemac 互操作测试存在；跨 Element Web/Android/iOS harness 与自研辅助代码边界清理仍未完成 |
 | 性能 | ★★★★☆ | N+1/无限流已做硬上限治理，主 `src/` 口径编译期 SQL 宏 1355 处、动态 SQL 188 处、动态占比约 12.2%，已达 ≤ 30% 目标；`admin/user`、`admin/room`、`admin/federation`、`friend_room`、`admin/report`、`openclaw` 等核心列表已切到 cursor / keyset 优先 |
 | 代码质量 | ★★★★☆ | ServiceContainer 核心字段已从 48 降至 8（+4 子结构体），config/mod.rs 已拆 18 子模块，SELECT * 业务查询已清零；业务路由层 `use crate::storage` / `sqlx::query*` / `.pool` / `PgPool` 直连已清零，`ApiError` 也已完成结构化重构 |
-| 可观测性 | ★★★★☆ | `#[instrument]` 已继续扩展到注册/登录/typing/room/media 等关键路径，错误日志已有结构化字段，OTLP dev 默认端点已接入；全链路 request id 仍可继续补强 |
-| 测试覆盖 | ★★☆☆☆ | 套套逻辑已删除 ~600 行，cargo-mutants + tarpaulin 已配置，99 个可变异点已识别（E2EE 45 + federation 54）；在补充 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试后，最新 tarpaulin 实测总覆盖率仍仅 `20.11%`（`10352/51472`），聚焦分页提取器 mutation smoke 为 `11/11 caught`，距离覆盖率门槛与全仓 mutation 基线仍有明显差距 |
+| 可观测性 | ★★★★☆ | `#[instrument]` 已继续扩展到注册/登录/typing/room/media 等关键路径，错误日志已有结构化字段，OTLP dev 默认端点已接入；主链路 `x-request-id` 解析与中间件回填已统一，剩余主要是少量边缘 service/handler 补点 |
+| 测试覆盖 | ★★☆☆☆ | 套套逻辑已删除 ~600 行，cargo-mutants + tarpaulin 已配置，99 个可变异点已识别（E2EE 45 + federation 54）；在补充 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试后，最新 tarpaulin 实测总覆盖率仍仅 `20.11%`（`10352/51472`），聚焦 mutation smoke 已扩展到 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，但距离覆盖率门槛与全仓 mutation 基线仍有明显差距 |
 | 依赖/CI | ★★★★☆ | anyhow 已从 lib crate 移除，cargo-deny/audit 已就位，CI 门禁持续加固，mutation testing CI 已配置 |
 | 数据库/迁移 | ★★★★★ | 根目录生效迁移已统一为 v10 两个 SQL 文件；v8 文件已归档；Schema 冲突、SELECT * 业务查询和本轮发现的 refresh token 浮点毫秒表达式已修复 |
-| OpenAPI | ★★★☆☆ | `utoipa` + `utoipa-swagger-ui` 已集成，当前共 **291** 个公开端点注解，已覆盖一批核心读写路径；Swagger UI 已就位（`/_swagger`），剩余主要集中在私有扩展、实验接口与部分兼容长尾路径 |
-| **总体** | **★★★★☆** | **不能再表述为“P0/P1/P2 全部完成、仅剩 1 项”**。已完成大量安全/Schema/SQLx/迁移、分页、错误处理与可观测性治理；仍需收尾 C-5 跨端互操作与清理、OpenAPI 覆盖扩展、覆盖率/变异测试实测和 request id 持续补强 |
+| OpenAPI | ★★★★★ | `utoipa` + `utoipa-swagger-ui` 已集成，当前共 **435** 个 `#[utoipa::path]` 注解；Swagger UI 已就位（`/_swagger`），标准兼容、Unstable MSC 与私有扩展路径均已覆盖 |
+| **总体** | **★★★★☆** | **不能再表述为“P0/P1/P2 全部完成、仅剩 1 项”**。已完成大量安全/Schema/SQLx/迁移、分页、错误处理、OpenAPI 与可观测性治理；仍需收尾 C-5 跨端互操作与清理、覆盖率/变异测试实测，以及少量边缘埋点/历史文档口径清理 |
 
 ---
 
@@ -569,7 +581,7 @@
 | m-2 | 依赖 | ✅ 已修复 — `x25519-dalek` 2.0→2.0.1 + `aes-gcm` 0.10→0.10.3（CVE 已修复），`cargo-outdated` 加入 CI security-audit job | `cargo outdated` 加入 CI |
 | m-3 | CI | ✅ 已修复 — `Swatinem/rust-cache@v2` 替换通用 cache，feature 矩阵（default/all-features），多 Rust 版本（stable/1.93.0） | 拆分 cache、按 feature 矩阵 |
 | m-4 | CI | ✅ 已验证 — `deny.toml` + `audit.toml` + `supply_chain_gate.sh` + CI 集成已完整 | 加 `cargo deny check` + `cargo audit` 必需步骤 |
-| m-5 | 测试 | ⚠️ 已接入并补充局部实测 — `mutation-testing.yml` + Makefile target 已完整；分页提取器 mutation smoke `11/11 caught`，最新 tarpaulin 覆盖率 `20.11%`（`10352/51472`） | 继续扩大 mutation 覆盖范围，并把覆盖率推进到 `70%` 门槛 |
+| m-5 | 测试 | ⚠️ 已接入并补充局部实测 — `mutation-testing.yml` + Makefile target 已完整；分页提取器 mutation smoke `11/11 caught`，`json` 提取器 `3 caught + 1 unviable`，最新 tarpaulin 覆盖率 `20.11%`（`10352/51472`） | 继续扩大 mutation 覆盖范围，并把覆盖率推进到 `70%` 门槛 |
 | m-6 | 重复 | ✅ 已修复 — `EventBroadcaster` trait 提升到 `synapse-common`，3 套实现统一（EventNotifier/federation/WorkerBus），to_device 发送后通知 sync 连接 | 抽取通用 `EventBroadcaster` |
 | m-7 | 重复 | ✅ 已修复 — 16 处散落实现收敛到 `common/crypto`（decode_base64_32/secure_compare_bytes/encode_hex/decode_hex） | 收敛到 `common/crypto` |
 | m-8 | 错误 | ✅ 已修复 — 5 个 lib crate 移除 `anyhow` 依赖，0 处 `anyhow!` 宏使用 | 业务库只能用 `thiserror`，仅 `main.rs` 允许 `anyhow` |
@@ -645,7 +657,7 @@
       - `.sqlx/` 离线缓存已重建（1143 个 JSON 文件），支持 `SQLX_OFFLINE=true` 编译。
       - 全仓 1300+ 处 SQL 已完成宏化转换。
 14. ✅ 路由层强制使用 service（M-4 配套）— CI 门禁已部署
-15. ⚠️ 测试整改进入“已清理伪测试 + 已有局部实测证据”阶段：删除套套逻辑、补断言、M-4 路由分层问题已解决，但覆盖率/全仓 mutation 基线仍未达标
+15. ⚠️ 测试整改进入“已清理伪测试 + 已有局部实测证据”阶段：删除套套逻辑、补断言、M-4 路由分层问题已解决；当前覆盖率为 `20.11%`，聚焦 mutation smoke 已扩展到 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，但距离覆盖率 `>= 70%` 目标仍远，全仓 mutants 试跑一次即暴露出 `19922` mutants / 约 `4` 天量级，尚未形成可持续基线
 16. ✅ N+1/无限流硬性 `LIMIT`（M-5）— Step 9.1 已完成
 17. ✅ 联邦签名缓存 key 失效广播（M-6）— KeyRotationManager + FederationSignatureCache
 18. ✅ Typing/Presence 强制 Redis（M-7）— CacheManager L1+L2
@@ -658,7 +670,7 @@
 23. ⚠️ m-1 ~ m-30 中多数工程项已落地，但测试与覆盖率相关项仍处于“配置完成 + 局部实测”阶段（2026-06-07，2026-06-09 补充复核）
 24. ✅ 维护 `docs/INDEX.md`，归档与现行分离（2026-06-07）
 25. ✅ 拆分 workspace — 已有 synapse-common/cache/storage/e2ee/federation/services/web 子 crate
-26. ⚠️ mutation testing 进入“已接入 + 局部实测”阶段 — 99 个可变异点（megolm 45 + key_rotation 54）仍以 CI 配置为主；本轮仅补充 `src/web/routes/extractors/pagination.rs` 的聚焦 smoke，结果 `11/11 caught`
+26. ⚠️ mutation testing 进入“已接入 + 局部实测”阶段 — 99 个可变异点（megolm 45 + key_rotation 54）仍以 CI 配置为主；当前聚焦 smoke 已覆盖 `src/web/routes/extractors/pagination.rs`（`11/11 caught`）与 `src/web/routes/extractors/json.rs`（`3 caught + 1 unviable`），并对 `src/services/media/mod.rs` 做了长跑抽样；全仓 `cargo mutants` 已尝试实跑，但当前规模为 `19922` mutants，需改为分批策略
 27. ✅ 接入 OTel collector 默认 dev 端点 — `resolve_otlp_endpoint()` + debug_assertions 默认 localhost:4317
 28. ✅ UIA 完整化 — m.login.email.identity + m.login.msisdn stub 已添加
 29. ✅ Media 链接签名 — 已完整实现（MediaLinkSigner + verify + download_media_signed）
@@ -667,9 +679,9 @@
 32. ✅ Push 共享重试 — `is_retryable_error` + `send_with_retry` 指数退避（1s→2s→4s，最多 3 次）
 33. ✅ Presence 状态机统一 — `PresenceState` 枚举 + `derive_activity` + 全局替换
 34. ✅ JwtClaims 构造 builder — `ClaimsBuilder` 链式 API + 14 处替换
-35. ⚠️ 覆盖率门槛配置已就位，但实测未达标 — `tarpaulin.toml` fail-under=70 + `mutation-testing.yml` CI 已就位；在补充 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 测试并修复 `media` 测试池 schema 隔离后，最新 `cargo tarpaulin --locked --out Json --output-dir coverage --lib` 实测总覆盖率为 `20.11%`（`10352/51472`），产物见 `coverage/tarpaulin-report.{json,html}`
+35. ⚠️ 测试覆盖率 + 全仓 mutation 基线仍未达标 — `tarpaulin.toml` 的 `fail-under = 70` 与 `mutation-testing.yml` CI 已就位；在补充 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 测试并修复 `media` 测试池 schema 隔离后，最新 `cargo tarpaulin --locked --out Json --output-dir coverage --lib` 实测总覆盖率为 `20.11%`（`10352/51472`），当前聚焦 mutation smoke 至少包括 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`；但覆盖率距离 `>= 70%` 目标仍远，而全仓 `cargo mutants --package synapse-rust --timeout 30 --baseline skip -- --test-threads=2` 试跑已确认当前规模为 `19922` mutants、实时估算约需 `4` 天，尚未形成可持续基线；产物见 `coverage/tarpaulin-report.{json,html}`
 36. ✅ Redis 必选开关评估 — 启动时 PING 健康检查已实现（`src/server.rs`），Redis 不可用时 WARN 日志 + 服务降级提示
-37. ✅ 文档与 OpenAPI 同步生成 — `utoipa` + `utoipa-swagger-ui` 已集成（`src/web/api_doc.rs`），`/_swagger` Swagger UI 已就位；当前已覆盖 **291** 个公开端点注解（含注册、登录、消息发送、建房，以及 account data/filter/OpenID、设备管理、room tags、leave/forget/invite/joined_members、admin server/federation/report、admin user/room/retention、spaces/room stats/room listings、room block/cleanup、registration token、admin media、用户 token、用户 rate limit、server 元数据/健康检查/invite list、shadow ban、override ratelimit、用户权限/停用/密码、设备与会话、统计与账户详情、删除/驱逐用户、批量创建/停用，以及 auth/account/directory、sync/search、media、moderation、relations/reactions、guest、thirdparty、二维码登录兼容路径、pushrule 子资源、presence/typing、rendezvous、push/captcha 兼容面、`auth_metadata`、`dehydrated_device`、`r0` 兼容 pushrules/captcha/thirdparty/typing/SAML metadata、版本/同步兼容入口、login fallback、ephemeral、thread reply redact、以及 `r0/v3` 的 login/logout/oidc/saml/cas 认证兼容路径等），覆盖率稳步提升。
+37. ✅ 文档与 OpenAPI 同步生成 — `utoipa` + `utoipa-swagger-ui` 已集成（`src/web/api_doc.rs`），`/_swagger` Swagger UI 已就位；当前已覆盖 **435** 个 `#[utoipa::path]` 注解，标准兼容、Unstable MSC 与私有扩展路径均已补齐，并已通过 `cargo check --features openapi-docs --lib` 验证文档构建不回退。
 
 ---
 
@@ -708,7 +720,7 @@
 | `SELECT *` 脆弱查询 | **0 处**（全量消除：synapse-storage 23 文件 ~130 处 + synapse-services 3 文件 12 处，仅剩 `SELECT * FROM UNNEST`） | 63 处 | 0 | ✅ m-25 |
 | 布尔字段缺 `is_` 前缀 (DB) | **0 处桥接**（3 处 rename 已消除） | 0 (声称) | 0 | ✅ m-14 |
 | `DateTime<Utc>` 在 DB 映射 | **0 处**（push_devices + push_notification + device_trust 均已统一为 i64） | 多处 | 0 | ✅ |
-| OpenAPI 集成 | **已集成**（utoipa + utoipa-swagger-ui，`/_swagger` Swagger UI） | 无 | — | 220+ 路由待注解 |
+| OpenAPI 集成 | **已完成覆盖**（utoipa + utoipa-swagger-ui，`/_swagger` Swagger UI，`435` 个 `#[utoipa::path]` 注解） | 无 | — | ✅ P2 #37 |
 | Redis 健康检查 | **已实现**（启动时 PING，失败 WARN 日志） | 无 | — | ✅ |
 | `X-Content-Type-Options` 覆盖 | **全局**（security_headers_middleware） | 子域旁路 | 全局 | ✅ m-22 |
 | 硬编码 fallback secret | **0 处**（TOKEN_HASH_SECRET 强制必填） | 存在 | 0 | ✅ m-9 |
@@ -848,9 +860,9 @@ Rust `VoiceUsageRecord` 仅与 v3 匹配。v1/v2 先执行则运行时崩溃。
 
 1. **M-3 已基本完成**：当前主 `src/` 口径为编译期 `sqlx::query!` / `query_as!` / `query_scalar!` 1355 处、动态 SQL 188 处，动态占比约 12.2%；`.sqlx/` 当前缓存 1143 文件，`cargo check --locked --lib` 与 `cargo test --locked --lib --no-run` 已复核通过。
 2. **E2EE Megolm 双路径已装配（Phase 1+2 ✅ + Phase 3 🚧）**：Phase 1（`MegolmProvider` + `E2EE_USE_VODOZEMAC_MEGOLM` env 路由）+ Phase 2（双写 `PickleFormat::Dual` + `vodozemac_pickle` 列 + 懒迁移 + 7 metrics）已落地；Phase 3 本地互操作 19 个 case 已就位；下一步跨 Element 客户端矩阵 + Phase 4 清理自研路径
-3. **P0/P1/P2 不能再表述为“全覆盖”**：P0 仍有 C-5 跨端互操作与 Phase 4 清理待收尾；P2 中 OpenAPI、覆盖率实测与文档一致性清理仍处于持续治理阶段。
+3. **P0/P1/P2 不能再表述为“全覆盖”**：P0 仍有 C-5 跨端互操作与 Phase 4 清理待收尾；P2 中覆盖率实测与文档历史快照一致性清理仍处于持续治理阶段。
 4. **数据库迁移 v10 基线已就位**：根目录当前仅保留 `00000000_unified_schema_v10.sql` 与 `00000001_extensions_v10.sql` 两个生效基线文件，`v8` 文件已归档。
-5. **OpenAPI 已完成一轮扩充**：`utoipa` + `utoipa-swagger-ui` 已就位，当前已覆盖 **291** 个公开端点注解，并已补齐一批核心读写路径；剩余主要是私有扩展、实验接口与兼容长尾路径。
+5. **OpenAPI 已完成全面覆盖**：`utoipa` + `utoipa-swagger-ui` 已就位，当前已覆盖 **435** 个 `#[utoipa::path]` 注解；标准兼容、Unstable MSC 与私有扩展路径均已补齐。
 6. **建立工程门禁**：`cargo clippy --all-targets`（0 错误 0 警告）+ `cargo-deny` + `cargo audit` + `cargo mutants` + 覆盖率门槛（已全部集成到 CI）。
 
 ---
@@ -1120,8 +1132,12 @@ END $$;
   7. ✅ 为 `src/web/routes/extractors/json.rs`、`src/web/routes/extractors/pagination.rs`、`src/services/media/mod.rs` 补充针对性单元测试，并完成定向回归
   8. ✅ 重新执行 `cargo tarpaulin --locked --out Json --output-dir coverage --lib`，最新总覆盖率为 `20.11%`（`10352/51472`）
   9. ✅ 重新确认 `cargo mutants --package synapse-rust --file src/web/routes/extractors/pagination.rs --timeout 30 --baseline skip -- --test-threads=2` 产物有效，聚焦 smoke 为 `11/11 caught`
-- **待完成**: 将局部 smoke 扩展到更多关键模块，并把覆盖率从 `20.11%` 推进到 `70%` 门槛以上
-- **验收**: 套套逻辑 0；关键模块 mutation 抽样持续扩大；`cargo tarpaulin` 达到 `fail-under = 70`
+- 10. ✅ 修复 `src/e2ee/crypto/ed25519.rs` / `synapse-e2ee/src/crypto/ed25519.rs` 的 `VerifyingKey` 导入缺失，恢复新增测试可执行状态
+- 11. ✅ 继续扩大聚焦 mutation smoke：`src/web/routes/extractors/json.rs` 为 `3 caught + 1 unviable`；再次确认 `src/web/routes/extractors/pagination.rs` 为 `11/11 caught`
+- 12. ✅ 尝试执行全仓 `cargo mutants --package synapse-rust --timeout 30 --baseline skip -- --test-threads=2`，确认当前规模为 `19922` mutants、试跑 `30` 分钟仅完成 `112/19922`，实时估算约需 `4` 天
+- 13. ✅ 已将 `Makefile:test-mutation` 与 nightly `mutation-testing.yml` 默认入口切换为**分批 smoke 基线**，当前默认批次覆盖 `src/web/routes/extractors/pagination.rs`、`src/web/routes/extractors/json.rs`、`src/services/media/mod.rs`，并保留通过 workflow dispatch 覆盖文件列表的能力
+- **待完成**: 将当前聚焦 smoke 继续扩展到更多高价值模块，并把覆盖率从 `20.11%` 推进到 `>= 70%`；全仓 `cargo mutants` 仍只适合作为离线长跑，不再应作为默认基线入口
+- **验收**: 套套逻辑 0；`cargo tarpaulin` 达到 `fail-under = 70`；`cargo mutants` 完成全仓基线运行并产出可复核结果
 
 ### Step 9 — 性能与可观测性（M-5/M-8/M-9）✅ 已完成 (2026-06-04)
 - **目标**: 消除 N+1、错误结构化、链路可追踪。
@@ -1133,7 +1149,7 @@ END $$;
   5. ✅ `room/service.rs`、`media_service.rs`、`sync_service/mod.rs` 等关键方法补齐 `#[instrument]`
   6. ✅ `tracing` crate 启用 `attributes` feature
   7. ✅ `OpenTelemetryConfig::resolve_otlp_endpoint()` 在 debug 构建默认回退 `http://localhost:4317`
-- **待完成**: `req_id` 全链路透传仍可继续作为持续治理项
+- **待完成**: 主链路 `req_id` 已统一为共享 helper + 中间件回填；`external_service`、`friend_room` 写路径及 `sync` 异常日志也已补齐，剩余主要是更少量边缘 handler/service 的透传与埋点补点
 - **验收**: 列表接口 p99 不退化；`ApiError` 100% 结构化；OTel dev compose 一键启动。
 
 ### Step 10 — 工程门禁与 CI（m-1 ~ m-5、m-24）✅ 已完成 (2026-06-06 验证)
@@ -1200,7 +1216,7 @@ END $$;
 | 6 | ServiceContainer/Config 拆分 | ✅ 已完成 | 100% | M-1 ✅ 4 子结构体 + 8 核心字段；M-2 ✅ 18 子模块 |
 | 7 | `sqlx::query!` 全量迁移 | ✅ **阶段 A-L 全部完成** | **100%** | **1355 处编译期宏 / 12.2% 动态占比 / 1143 `.sqlx/` 缓存文件（v10 Schema）/ `SQLX_OFFLINE=true cargo check` + `cargo clippy --all-targets` 0 错误 0 警告** |
 | 7.5 | 迁移基线重构 | ✅ 已完成 | 100% | 根目录仅保留 v10 两个生效基线文件，v8 已归档到 `migrations/archive/`，Schema 冲突全部修复 |
-| 8 | 测试整改 | ⚠️ 持续治理中 | 68% | 删除套套逻辑 ~600 行，cargo-mutants CI 与 tarpaulin 门槛已接入；`media` 测试池 schema 隔离已修复，已补 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试；最新覆盖率 `20.11%`，分页提取器 mutation smoke `11/11 caught` |
+| 8 | 测试整改 | ⚠️ 持续治理中 | 72% | 删除套套逻辑 ~600 行，cargo-mutants CI 与 tarpaulin 门槛已接入；`media` 测试池 schema 隔离已修复，已补 `extractors/json.rs` / `extractors/pagination.rs` / `services/media/mod.rs` 针对性测试；最新覆盖率 `20.11%`，聚焦 mutation smoke 已扩展到 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，并完成一次全仓试跑规模评估 |
 | 9 | 性能与可观测性 | ✅ 已完成 | 96% | LIMIT 200，核心列表 keyset 化，ApiError 结构化重构，关键 service `#[instrument]`，OTLP dev 默认端点 |
 | 10 | 工程门禁与 CI | ✅ 已完成 | 95% | deny.toml + cargo-audit.toml + supply_chain_gate.sh + mutation-testing.yml + .tarpaulin.toml 全部就位 |
 | 11 | Minor 项滚动治理 | ⚠️ 持续治理中 | 102% | 大部分 Minor 项已完成；m-5 测试覆盖率与 mutation 基线仍处于“已接入 + 局部实测”阶段 |
@@ -1211,15 +1227,15 @@ END $$;
 | 优先级 | 当前状态 | 仍未完成项 |
 |--------|----------|------------|
 | P0（阻塞生产） | 仍余 1 项核心收尾 | C-5 Phase 3/4：跨 Element 客户端互操作与遗留 crypto/feature 口径清理 |
-| P1（架构/质量） | 核心整改已基本收口 | `req_id` 全链路透传补强、少量边缘 service 埋点与历史文档口径继续清理 |
-| P2（持续治理） | 仍未收口 | 覆盖率/全仓 mutation 基线达标、OpenAPI 持续扩展、文档历史快照一致性清理 |
-| **总计** | **仍有持续治理项** | 当前主要剩 C-5、覆盖率与 mutation 基线、OpenAPI 扩展和文档一致性清理 |
+| P1（架构/质量） | 核心整改已基本收口 | 少量边缘 handler/service 的 `req_id` 透传补点、边缘 service 埋点与历史文档口径继续清理 |
+| P2（持续治理） | 仍未收口 | 覆盖率/全仓 mutation 基线达标、文档历史快照一致性清理 |
+| **总计** | **仍有持续治理项** | 当前主要剩 C-5、覆盖率与 mutation 基线、文档一致性清理 |
 
 ### 关键风险提示（**2026-06-10 更新**）
 
 1. **C-5 vodozemac Phase 3/4 待完成**：E2EE Megolm 主路径与浏览器基础交互已验证通过，Phase 4 自研 `e2ee/crypto/*` 辅助代码清理已基本完成，但 Android/iOS 跨端矩阵与协议层包装边界冻结仍需完成
-2. **OpenAPI 覆盖率**：220+ 路由当前已有 **291** 个公开端点注解，已覆盖一批核心读写路径，全面覆盖仍待持续治理
-3. **覆盖率与 mutation 基线**：覆盖率仅 `20.11%`，远低于 `70%` 门槛，全仓 mutation 基线仍待建立
+2. **OpenAPI 覆盖**：当前已完成 **435** 个 `#[utoipa::path]` 注解，标准兼容、Unstable MSC 与私有扩展路径均已覆盖；剩余主要是历史文档口径同步
+3. **覆盖率与 mutation 基线**：当前总覆盖率仅 `20.11%`，远低于 `>= 70%` 门槛；聚焦 mutation smoke 已覆盖 `pagination 11/11 caught` 与 `json 3 caught + 1 unviable`，而全仓试跑已确认当前是 `19922` mutants / 约 `4` 天量级，仍需分批基线化
 
 ### 2026-06-10 验证清单
 
@@ -1234,5 +1250,5 @@ END $$;
 | 动态 SQL 占比 | 计算 | 12.2% | ✅ |
 | 迁移文件数（根目录生效） | `ls migrations/0*.sql` | 2（v10 双文件） | ✅ |
 | `NOW()` / `DateTime<Utc>` 残留 | grep | 0 处 | ✅ |
-| OpenAPI 注解数 | `#[utoipa::path]` count | 291 | ✅ |
+| OpenAPI 注解数 | `#[utoipa::path]` count | 435 | ✅ |
 | ApiError 重构 | code review | 结构体（kind/code/source/cause） | ✅ |

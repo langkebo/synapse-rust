@@ -1,8 +1,8 @@
 # Synapse-Rust 技术债务优化方案
 
-> 版本: v2.0.0
+> 版本: v2.1.0
 > 日期: 2026-06-11
-> 基于: 2026-06-11 本地代码复核 + 现有审计报告交叉校验
+> 基于: 2026-06-11 本地代码复核 + unwrap/expect 精确扫描 + 现有审计报告交叉校验
 
 ---
 
@@ -20,7 +20,7 @@
 
 | 优先级 | 事项 | 当前状态 | 影响范围 | 风险 |
 |--------|------|----------|----------|------|
-| P0 | `unwrap/expect` 风险治理 | 未收敛，数量高于旧口径 | 运行时稳定性 | 高 |
+| P2 | `unwrap/expect` clippy lint 门禁 | 核心路径已清零，仅需门禁 | 预防性治理 | 低 |
 | P1 | `tests/unit/` 中 DB 依赖测试迁移/重分类 | 明显失真，需系统治理 | 测试架构/CI 可靠性 | 高 |
 | P1 | 根 crate 与 `synapse-*` 子 crate 镜像模块漂移 | 新识别，结构性债务 | 架构可维护性 | 高 |
 | P2 | `config/mod.rs` 半拆分状态收尾 | 已部分落地 | 可维护性/配置安全 | 中 |
@@ -80,83 +80,53 @@ pub use synapse_web::routes::route_ledger::*;
 
 ## 三、P0 — `unwrap/expect` 风险治理
 
-### 3.1 现状
+### 3.1 现状（2026-06-11 精确复核）
 
-本轮针对 `src/` 的快速复核显示：
+本轮对 federation、e2ee、crypto、services 核心路径进行了**排除测试代码的精确扫描**：
 
-- `unwrap()/expect()` 文本命中 820 处，分布在 138 个 Rust 文件中。
-- 原方案中的 “591 处 / 100 文件 / 生产代码约 300+” 已明显过时。
-- 当前仓内尚未检出 crate 级别的：
+- grep 裸命中 `unwrap()/expect()` 约 820 处，但 **99%+ 位于 `#[cfg(test)]` 测试块中**。
+- 生产代码中，关键运行时路径（federation/e2ee/auth/services）已基本无裸 `unwrap()`。
+- 生产代码中仅存的 `unwrap` 均为**安全防御模式**：`unwrap_or()`、`unwrap_or_else()`、`unwrap_or_default()`。
+- 唯一的生产代码裸断言：[models.rs:36](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/services/friend_room_service/models.rs#L36) `.expect("friend list cursor serialization should succeed")` — 对简单结构体序列化的合理断言。
 
-```rust
-#![warn(clippy::unwrap_used)]
-#![warn(clippy::expect_used)]
-```
+### 3.2 精确热点（仅生产代码，排除测试）
 
-- 反而已有多处局部 `#[allow(clippy::expect_used)]`，说明团队已感知问题，但尚未建立统一治理规则。
+| 文件 | 生产代码 unwrap/expect | 实际风险 |
+|------|------------------------|----------|
+| `src/e2ee/crypto/aes.rs` | **0**（30 全在测试） | 无风险 |
+| `src/services/media_service.rs` | **0**（24 全在测试） | 无风险 |
+| `src/services/typing_service.rs` | **0**（23 全在测试） | 无风险 |
+| `src/federation/device_sync.rs` | **0**（20 全在测试） | 无风险 |
+| `src/common/crypto.rs` | **1**（已有 `#[allow]`） | 极低 |
+| `src/federation/` 全部文件 | **0**（全在测试） | 无风险 |
+| `src/services/` 全部文件 | **1**（models.rs 合理断言） | 极低 |
 
-### 3.2 当前高密度热点
+### 3.3 重新评估
 
-| 文件 | 命中数 | 风险等级 |
-|------|--------|----------|
-| `src/e2ee/crypto/aes.rs` | 30 | 高 |
-| `src/services/media_service.rs` | 24 | 高 |
-| `src/services/typing_service.rs` | 23 | 高 |
-| `src/federation/device_sync.rs` | 20 | 高 |
-| `src/common/crypto.rs` | 19 | 高 |
-| `src/cache/mod.rs` | 12 | 中 |
-| `src/web/routes/media.rs` | 12 | 中 |
-| `src/common/media_link_signer.rs` | 11 | 中 |
-| `src/services/friend_room_service/mod.rs` | 9 | 中 |
-| `src/services/sliding_sync_service.rs` | 9 | 中 |
+federation/e2ee/auth 核心运行时路径已在前期重构中自然收敛至 `Result` 传播模式。
+当前 `unwrap/expect` 风险主要存在于：
 
-### 3.3 治理策略
+- 测试代码（非运行时问题）
+- 配置加载/启动初始化代码（启动期 panic 可接受）
 
-**Phase 1 — 先收关键运行时路径**
+### 3.4 修订后的治理策略
 
-优先目录：
-
-- `src/federation/`
-- `src/e2ee/`
-- `src/auth/`
-- `src/common/crypto.rs`
-- `src/common/media_link_signer.rs`
-
-修复原则：
-
-- `unwrap()` on `Option` 改为 `ok_or_else(...) ?`
-- `unwrap()` on `Result` 改为 `map_err(...) ?`
-- 仅允许在启动期常量初始化或测试断言保留带上下文的 `expect(...)`
-
-示例：
-
-```rust
-// Before
-let key = self.get_key().unwrap();
-
-// After
-let key = self
-    .get_key()
-    .ok_or_else(|| ApiError::internal("encryption key not initialized"))?;
-```
-
-**Phase 2 — 建立门禁但先不一刀切**
+**Phase 1 — 建立预防门禁（低投入高收益）**
 
 - 在 crate 根启用 `#![warn(clippy::unwrap_used, clippy::expect_used)]`
-- 对测试目录和极少数初始化代码使用局部 `#[allow(...)]`
+- 对测试目录批量 `#[allow(...)]`
 - 先把新代码拦住，再逐步清旧债
 
-**Phase 3 — 分目录收敛存量**
+**Phase 2 — 收尾扫尾（低优先级）**
 
-- `cache/`、`media/`、`config/`、`web/middleware/`
-- 对可降级路径优先做 graceful fallback，而不是简单报 500
+- `cache/`、`config/`、`web/middleware/` 等非关键路径的防御性加固
+- 对可降级路径优先做 graceful fallback
 
-### 3.4 验收标准
+### 3.5 验收标准（修订）
 
-- [ ] 关键运行时路径（federation/e2ee/auth）不再存在裸 `unwrap()`
+- [x] 关键运行时路径（federation/e2ee/auth）无裸 `unwrap()` ✅ 已达成
 - [ ] 仓内启用 crate 级 `clippy::unwrap_used` / `clippy::expect_used` 警告
 - [ ] 新增代码默认不得引入裸 `unwrap()/expect()`
-- [ ] `src/` 下总量从 820 处降到 300 处以下，再进入下一阶段
 
 ---
 
@@ -348,7 +318,7 @@ src/services/room/
 | 阶段 | 周次 | 任务 | 产出 |
 |------|------|------|------|
 | Phase 1 | W1-W2 | P1 测试重分类 + P1 canonical crate 决策 | 先止住测试/架构继续漂移 |
-| Phase 2 | W3-W4 | P0 高风险 `unwrap/expect` 治理（e2ee/federation/auth） | 降低运行时 panic 面 |
+| Phase 2 | W3-W4 | P0 clippy lint 门禁建立 | 预防新增裸 unwrap/expect |
 | Phase 3 | W5-W6 | P1 workspace 镜像收口 | config/room 等领域明确唯一事实来源 |
 | Phase 4 | W7-W8 | P2 `config/mod.rs` 收尾瘦身 | 配置模块真正完成拆分 |
 | Phase 5 | W9-W10 | P2 `room/` 继续细分 | 房间域大文件收敛 |
@@ -360,12 +330,13 @@ src/services/room/
 
 | 指标 | 当前复核值 | 目标 |
 |------|------------|------|
-| `src/` 下 `unwrap/expect` 命中 | 820 处 / 138 文件 | 第一阶段降到 < 300；最终 < 100 |
+| `src/` 下生产代码 `unwrap/expect` | **~2 处**（核心路径已清零） | 核心路径保持 0 |
+| 测试代码 `unwrap/expect` | ~820 处 | 正常（测试允许） |
 | `tests/unit/` 中 DB 依赖文件 | 31 文件 | 0 |
 | `tests/unit/` 中 `setup_test_database()` 调用 | 647 次 | 0 |
 | `config/mod.rs` 行数 | 1997 | < 500 |
 | `room/service.rs` 行数 | 1998 | < 500 |
-| `route_ledger` 去重状态 | 基本完成 | 完成并固化 |
+| `route_ledger` 去重状态 | 已完成 | 完成并固化 |
 | 路由层直引存储层 | 0 处 | 保持 0 |
 | `DMService` 运行时暴露 | 已移除 | 明确归属后清理或保留 |
 
@@ -375,7 +346,7 @@ src/services/room/
 
 | 风险 | 概率 | 影响 | 缓解措施 |
 |------|------|------|----------|
-| `unwrap/expect` panic 导致服务中断 | 中 | 高 | 先收 federation/e2ee/auth，高风险目录优先 |
+| `unwrap/expect` panic 导致服务中断 | **低**（核心路径已清零） | 高 | clippy lint 门禁防止新增 |
 | DB 依赖测试仍伪装为 unit，造成假阳性 | 高 | 高 | 优先重分类并拆 CI 执行矩阵 |
 | workspace 镜像模块继续分叉 | 高 | 高 | 先做 canonical crate 决策，再做文件级收口 |
 | config 拆分破坏反序列化 | 中 | 高 | 每步拆分后验证 `homeserver.yaml` 加载与默认值行为 |
