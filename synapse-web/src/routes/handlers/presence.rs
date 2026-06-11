@@ -1,7 +1,11 @@
 use synapse_common::{ApiError, MAX_MESSAGE_LENGTH};
+use crate::utils::auth::resolve_request_id;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::routes::{validate_presence_status, validate_user_id, AppState, AuthenticatedUser};
-use axum::extract::{Json, Path, State};
+use axum::{
+    extract::{Json, Path, State},
+    http::HeaderMap,
+};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
@@ -148,9 +152,11 @@ pub(crate) async fn set_presence(
 
 pub(crate) async fn presence_list(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
 
     if let Some(subscribe) = body.get("subscribe").and_then(|v| v.as_array()) {
@@ -166,7 +172,13 @@ pub(crate) async fn presence_list(
 
         for target_id in visible_targets {
             if let Err(e) = state.services.account.presence_storage.add_subscription(user_id, &target_id).await {
-                ::tracing::warn!("Failed to add presence subscription: {}", e);
+                ::tracing::warn!(
+                    request_id = %request_id,
+                    user_id = %user_id,
+                    target_user_id = %target_id,
+                    error = %e,
+                    "Failed to add presence subscription"
+                );
             }
         }
     }
@@ -177,7 +189,13 @@ pub(crate) async fn presence_list(
                 validate_user_id(target_id)?;
 
                 if let Err(e) = state.services.account.presence_storage.remove_subscription(user_id, target_id).await {
-                    ::tracing::warn!("Failed to remove presence subscription: {}", e);
+                    ::tracing::warn!(
+                        request_id = %request_id,
+                        user_id = %user_id,
+                        target_user_id = %target_id,
+                        error = %e,
+                        "Failed to remove presence subscription"
+                    );
                 }
             }
         }

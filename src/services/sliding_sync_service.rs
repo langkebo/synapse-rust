@@ -80,7 +80,7 @@ impl SlidingSyncService {
         request: SlidingSyncRequest,
     ) -> Result<SlidingSyncResponse, ApiError> {
         // Update user presence to online
-        tracing::info!("Updating presence for user: {}", user_id);
+        tracing::info!(user_id = %user_id, device_id = %device_id, "Updating presence for user");
         let _ = self.presence_storage.set_presence(user_id, crate::common::PresenceState::Online, None).await;
 
         let conn_id = request.conn_id.as_deref();
@@ -479,7 +479,7 @@ impl SlidingSyncService {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to get typing users batch: {}", e);
+                    tracing::warn!(error = %e, room_count = room_ids.len(), "Failed to get typing users batch");
                 }
             }
             response_extensions.insert(
@@ -759,15 +759,21 @@ impl SlidingSyncService {
             // Since moka already evicted it, we know it's been idle > TTL.
             // Clean up DB rows and cache entries.
             tracing::info!(
-                "gc_expired_connections: cleaning up expired connection user={} device={} conn_id={:?}",
-                user_id,
-                device_id,
-                conn_id
+                user_id = %user_id,
+                device_id = %device_id,
+                conn_id = ?conn_id,
+                "gc_expired_connections: cleaning up expired connection"
             );
 
             // Delete DB data for this connection.
             if let Err(e) = self.storage.delete_connection_data(user_id, device_id, conn_id.as_deref()).await {
-                tracing::warn!("gc_expired_connections: failed to delete connection data: {e}");
+                tracing::warn!(
+                    error = %e,
+                    user_id = %user_id,
+                    device_id = %device_id,
+                    conn_id = ?conn_id,
+                    "gc_expired_connections: failed to delete connection data"
+                );
                 continue;
             }
 
@@ -779,7 +785,10 @@ impl SlidingSyncService {
 
         if expired_count > 0 {
             tracing::info!(
-                "gc_expired_connections: cleaned up {expired_count} expired connections for user={user_id} device={device_id}"
+                expired_count = expired_count,
+                user_id = %user_id,
+                device_id = %device_id,
+                "gc_expired_connections: cleaned up expired connections"
             );
         }
     }

@@ -1,6 +1,7 @@
 //! Room creation logic extracted from `service.rs` for M-10 file size reduction.
 //!
-//! Contains `create_room` and all its private helper methods.
+//! Contains `create_room` and small utility helpers.
+//! Event creation helpers live in [`create_events`].
 
 use super::service::{CreateRoomConfig, RoomService};
 use super::utils::validate_room_alias_input;
@@ -47,7 +48,15 @@ impl RoomService {
 
         let result = self.create_room_in_db(&room_id, user_id, join_rule, is_public, room_version, Some(&mut tx)).await;
         if let Err(e) = &result {
-            ::tracing::error!("create_room_in_db failed: {}", e);
+            ::tracing::error!(
+                room_id = %room_id,
+                user_id = %user_id,
+                join_rule = %join_rule,
+                is_public,
+                room_version = %room_version,
+                error = %e,
+                "create_room_in_db failed"
+            );
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create room", &e));
         }
@@ -89,7 +98,13 @@ impl RoomService {
         match result {
             Ok(_) => {},
             Err(e) => {
-                ::tracing::error!("m.room.create event failed: {}", e);
+                ::tracing::error!(
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    room_version = %room_version,
+                    error = %e,
+                    "m.room.create event failed"
+                );
                 let _ = tx.rollback().await;
                 return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
             }
@@ -97,7 +112,12 @@ impl RoomService {
 
         let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
         if let Err(e) = result {
-            ::tracing::error!("add_creator_to_room failed: {}", e);
+            ::tracing::error!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "add_creator_to_room failed"
+            );
             let _ = tx.rollback().await;
             return Err(e);
         }
@@ -301,7 +321,13 @@ impl RoomService {
                     )
                     .await;
                 if let Err(e) = result {
-                    ::tracing::error!("Failed to apply initial_state event {}: {}", event_type, e);
+                    ::tracing::error!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        event_type = %event_type,
+                        error = %e,
+                        "Failed to apply initial_state event"
+                    );
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to apply initial_state event {event_type}", &e));
                 }
@@ -347,7 +373,7 @@ impl RoomService {
                 .execute(&mut *tx)
                 .await
             {
-                ::tracing::warn!("Failed to update join_rules on rooms table: {}", e);
+                ::tracing::warn!(error = %e, room_id = %room_id, join_rule = %jr, "Failed to update join_rules on rooms table");
             }
             join_rule = jr.as_str();
         }
@@ -399,14 +425,20 @@ impl RoomService {
         };
         let summary_res: ApiResult<crate::storage::room_summary::RoomSummaryResponse> = self.room_summary_service.create_summary(summary_request).await;
         if let Err(e) = summary_res {
-            ::tracing::warn!("Failed to create room summary: {}", e);
+            ::tracing::warn!(
+                error = %e,
+                room_id = %room_id,
+                room_type = ?config.room_type,
+                join_rule = %join_rule,
+                "Failed to create room summary"
+            );
         }
 
         if let Some(ref alias) = config.room_alias_name {
             let full_alias = format!("#{}:{}", alias, self.server_name);
             validate_room_alias_input(&full_alias)?;
             if let Err(e) = self.room_storage.set_room_alias(&room_id, &full_alias, user_id).await {
-                ::tracing::warn!("Failed to save room alias: {}", e);
+                ::tracing::warn!(error = %e, room_id = %room_id, room_alias = %full_alias, user_id = %user_id, "Failed to save room alias");
             }
         }
 
@@ -427,190 +459,6 @@ impl RoomService {
 
     fn is_public_visibility(visibility: Option<&str>) -> bool {
         visibility.unwrap_or("private") == "public"
-    }
-
-    async fn create_room_in_db(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        join_rule: &str,
-        is_public: bool,
-        room_version: &str,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> ApiResult<()> {
-        let result = if let Some(tx) = tx {
-            self.room_storage.create_room_in_tx(tx, room_id, user_id, join_rule, room_version, is_public).await
-        } else {
-            self.room_storage.create_room(room_id, user_id, join_rule, room_version, is_public).await
-        };
-
-        result.map(|_| ()).map_err(|e| ApiError::internal_with_log("Failed to create room", &e))
-    }
-
-    async fn add_creator_to_room(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> ApiResult<()> {
-        self.member_storage
-            .add_member(room_id, user_id, "join", None, None, None, tx)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add room member", &e))?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::needless_option_as_deref)]
-    async fn set_room_metadata(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        name: Option<&str>,
-        topic: Option<&str>,
-        base_ts: i64,
-        mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> ApiResult<()> {
-        if let Some(room_name) = name {
-            if let Some(ref mut tx) = tx {
-                self.room_storage
-                    .update_room_name_in_tx(tx, room_id, room_name)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update room name", &e))?;
-            } else {
-                self.room_storage
-                    .update_room_name(room_id, room_name)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update room name", &e))?;
-            }
-            self.event_storage
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.to_string(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.name".to_string(),
-                        content: json!({ "name": room_name }),
-                        state_key: Some("".to_string()),
-                        origin_server_ts: base_ts,
-                    },
-                    tx.as_deref_mut(),
-                )
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to create m.room.name event", &e))?;
-        }
-
-        if let Some(room_topic) = topic {
-            if let Some(ref mut tx) = tx {
-                self.room_storage
-                    .update_room_topic_in_tx(tx, room_id, room_topic)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update room topic", &e))?;
-            } else {
-                self.room_storage
-                    .update_room_topic(room_id, room_topic)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to update room topic", &e))?;
-            }
-            self.event_storage
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.to_string(),
-                        user_id: user_id.to_string(),
-                        event_type: "m.room.topic".to_string(),
-                        content: json!({ "topic": room_topic }),
-                        state_key: Some("".to_string()),
-                        origin_server_ts: base_ts + 1,
-                    },
-                    tx.as_deref_mut(),
-                )
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to create m.room.topic event", &e))?;
-        }
-
-        Ok(())
-    }
-
-    async fn process_invites(
-        &self,
-        room_id: &str,
-        invite_list: Option<&Vec<String>>,
-        sender_user_id: &str,
-        base_ts: i64,
-        mut tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> ApiResult<()> {
-        if let Some(invites) = invite_list {
-            let existing_users = self
-                .user_storage
-                .filter_existing_users(invites)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to check users existence", &e))?;
-
-            if let Some(ref mut t) = tx {
-                let mut offset: i64 = 0;
-                for invitee in invites {
-                    if !existing_users.contains(invitee) {
-                        ::tracing::warn!("Skipping invite for non-existent user: {}", invitee);
-                        continue;
-                    }
-                    self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), Some(&mut **t))
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
-                    self.event_storage
-                        .create_event(
-                            CreateEventParams {
-                                event_id: generate_event_id(&self.server_name),
-                                room_id: room_id.to_string(),
-                                user_id: sender_user_id.to_string(),
-                                event_type: "m.room.member".to_string(),
-                                content: json!({
-                                    "membership": "invite",
-                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
-                                }),
-                                state_key: Some(invitee.to_string()),
-                                origin_server_ts: base_ts + offset,
-                            },
-                            Some(&mut **t),
-                        )
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
-                    offset += 1;
-                }
-            } else {
-                let mut offset: i64 = 0;
-                for invitee in invites {
-                    if !existing_users.contains(invitee) {
-                        continue;
-                    }
-                    self.member_storage
-                        .add_member(room_id, invitee, "invite", None, None, Some(sender_user_id), None)
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to invite user", &e))?;
-                    self.event_storage
-                        .create_event(
-                            CreateEventParams {
-                                event_id: generate_event_id(&self.server_name),
-                                room_id: room_id.to_string(),
-                                user_id: sender_user_id.to_string(),
-                                event_type: "m.room.member".to_string(),
-                                content: json!({
-                                    "membership": "invite",
-                                    "displayname": invitee.trim_start_matches('@').split(':').next().unwrap_or(invitee),
-                                }),
-                                state_key: Some(invitee.to_string()),
-                                origin_server_ts: base_ts + offset,
-                            },
-                            None,
-                        )
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
-                    offset += 1;
-                }
-            }
-        }
-        Ok(())
     }
 
     fn format_room_alias(&self, room_alias_name: Option<&str>) -> Option<String> {

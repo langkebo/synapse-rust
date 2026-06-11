@@ -75,7 +75,13 @@ impl FederationBlacklistService {
             })
             .await?;
 
-        info!("Added {} to {} by {}", entry.server_name, entry.block_type, blocked_by);
+        info!(
+            server_name = %entry.server_name,
+            block_type = %entry.block_type,
+            blocked_by = %blocked_by,
+            expires_at = ?entry.expires_at,
+            "Added server to federation blacklist"
+        );
         Ok(entry)
     }
 
@@ -204,7 +210,13 @@ impl FederationBlacklistService {
                     let window_start =
                         (chrono::Utc::now() - chrono::Duration::minutes(window_minutes as i64)).timestamp_millis();
                     if last_failure_ts > window_start {
-                        info!("Auto-blacklisting server {} due to {} failures", server_name, stats.failed_requests);
+                        info!(
+                            server_name = %server_name,
+                            failed_request_count = stats.failed_requests,
+                            threshold,
+                            window_minutes,
+                            "Auto-blacklisting server after repeated failures"
+                        );
 
                         self.add_to_blacklist(
                             AddBlacklistRequest {

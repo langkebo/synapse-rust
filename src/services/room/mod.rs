@@ -10,8 +10,22 @@
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
 
+pub mod aliases;
+pub mod burn_after_read;
 pub mod create;
+pub mod create_events;
+pub mod events;
+pub mod info;
+pub mod membership;
+pub mod membership_actions;
+pub mod membership_moderation;
+pub mod messages;
+pub mod read_markers;
+pub mod receipts;
 pub mod service;
 pub mod space;
 pub mod summary;
+pub mod summary_state;
+pub mod summary_stats;
+pub mod upgrade;
 pub(crate) mod utils;

@@ -123,17 +123,17 @@ impl ModuleRegistry {
     }
 
     pub fn register_spam_checker(&mut self, checker: Arc<dyn SpamChecker>) {
-        info!("Registering spam checker: {}", checker.name());
+        info!(module_name = %checker.name(), module_type = %"spam_checker", "Registering spam checker");
         self.spam_checkers.push(checker);
     }
 
     pub fn register_third_party_rule(&mut self, rule: Arc<dyn ThirdPartyRule>) {
-        info!("Registering third party rule: {}", rule.name());
+        info!(module_name = %rule.name(), module_type = %"third_party_rule", "Registering third party rule");
         self.third_party_rules.push(rule);
     }
 
     pub fn register_password_provider(&mut self, provider: Arc<dyn PasswordAuthProviderTrait>) {
-        info!("Registering password provider: {}", provider.name());
+        info!(module_name = %provider.name(), module_type = %"password_provider", "Registering password provider");
         self.password_providers.push(provider);
     }
 
@@ -168,7 +168,7 @@ impl ModuleService {
 
     #[instrument(skip(self))]
     pub async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, ApiError> {
-        info!("Registering module: {} ({})", request.module_name, request.module_type);
+        info!(module_name = %request.module_name, module_type = %request.module_type, "Registering module");
 
         let module = self
             .storage
@@ -320,7 +320,15 @@ impl ModuleService {
                     let execution_time = start.elapsed().as_millis() as i64;
                     let error_msg = e.to_string();
 
-                    error!("Spam checker {} failed: {}", module_name, error_msg);
+                    error!(
+                        module_name = %module_name,
+                        module_type = %"spam_checker",
+                        event_id = %context.event_id,
+                        room_id = %context.room_id,
+                        execution_time_ms = execution_time,
+                        error_message = %error_msg,
+                        "Spam checker failed"
+                    );
 
                     let _ = self.storage.record_execution(&module_name, false, Some(&error_msg)).await;
 
@@ -415,7 +423,15 @@ impl ModuleService {
                     let execution_time = start.elapsed().as_millis() as i64;
                     let error_msg = e.to_string();
 
-                    error!("Third party rule {} failed: {}", rule_name, error_msg);
+                    error!(
+                        module_name = %rule_name,
+                        module_type = %"third_party_rule",
+                        event_id = %context.event_id,
+                        room_id = %context.room_id,
+                        execution_time_ms = execution_time,
+                        error_message = %error_msg,
+                        "Third party rule failed"
+                    );
 
                     let _ = self
                         .storage
@@ -483,7 +499,14 @@ impl ModuleService {
                     let execution_time = start.elapsed().as_millis() as i64;
                     let error_msg = e.to_string();
 
-                    error!("Password provider {} failed: {}", provider_name, error_msg);
+                    error!(
+                        module_name = %provider_name,
+                        module_type = %"password_provider",
+                        username = %context.user_id,
+                        execution_time_ms = execution_time,
+                        error_message = %error_msg,
+                        "Password provider failed"
+                    );
 
                     let _ = self
                         .storage

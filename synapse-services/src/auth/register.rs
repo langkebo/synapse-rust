@@ -89,7 +89,12 @@ impl AuthService {
 
         if let Some(name) = displayname {
             if let Err(e) = self.user_storage.update_displayname(&user.user_id, Some(name)).await {
-                ::tracing::warn!("Failed to set displayname during registration: {}", e);
+                ::tracing::warn!(
+                    error = %e,
+                    user_id = %user.user_id,
+                    displayname = %name,
+                    "Failed to set displayname during registration"
+                );
             }
         }
 

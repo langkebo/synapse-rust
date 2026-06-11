@@ -1,7 +1,11 @@
 use synapse_common::*;
 use crate::middleware::FederationRequestAuth;
 use crate::routes::AppState;
-use axum::extract::{Extension, Json, Path, State};
+use crate::utils::auth::resolve_request_id;
+use axum::{
+    extract::{Extension, Json, Path, State},
+    http::HeaderMap,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -11,10 +15,12 @@ const TXN_DEDUP_TTL_SECS: u64 = 86400;
 pub(super) async fn send_transaction(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     super::increment_counter(&state, "federation_inbound_txn_total");
+    let request_id = resolve_request_id(&headers);
 
     let origin = body
         .get("origin")
@@ -27,9 +33,10 @@ pub(super) async fn send_transaction(
         let already_processed: Option<bool> = state.services.core.cache.get(&dedup_key).await.unwrap_or(None);
         if already_processed.unwrap_or(false) {
             ::tracing::debug!(
-                "Dedup: transaction {} from {} already processed, returning empty result",
-                txn_id,
-                origin
+                request_id = %request_id,
+                txn_id = %txn_id,
+                origin = %origin,
+                "Dedup: transaction already processed, returning empty result"
             );
             super::increment_counter(&state, "federation_inbound_txn_dedup_total");
             return Ok(Json(json!({ "results": [] })));
@@ -67,9 +74,11 @@ pub(super) async fn send_transaction(
                 if let Some(backoff_ms) = get_presence_backoff_remaining_ms(&state, origin).await {
                     super::increment_counter(&state, "federation_inbound_presence_backoff_total");
                     ::tracing::debug!(
-                        "Skipping presence EDU processing for origin {} due to backoff {}ms",
-                        origin,
-                        backoff_ms
+                        request_id = %request_id,
+                        txn_id = %txn_id,
+                        origin = %origin,
+                        backoff_ms,
+                        "Skipping presence EDU processing due to backoff"
                     );
                     return Ok::<(), ApiError>(());
                 }
@@ -104,21 +113,28 @@ pub(super) async fn send_transaction(
                     super::increment_counter(&state, "federation_inbound_edu_limited_total");
                 } else {
                     super::increment_counter(&state, "federation_inbound_edu_error_total");
-                    ::tracing::warn!("Failed to process inbound EDUs for txn {} from {}: {}", txn_id, origin, error);
+                    ::tracing::warn!(
+                        request_id = %request_id,
+                        txn_id = %txn_id,
+                        origin = %origin,
+                        error = %error,
+                        "Failed to process inbound EDUs"
+                    );
                 }
             }
 
             super::decrement_gauge(&state, "federation_inbound_edu_in_flight");
 
             ::tracing::debug!(
-                "Inbound federation txn {} from {}: pdus={}, edus_total={}, edus_processed={}, presence_updates_processed={}, presence_updates_dropped={}",
-                txn_id,
-                origin,
-                pdus.len(),
-                edus.len(),
-                processed_edus,
-                processed_presence_updates,
-                dropped_presence_updates
+                request_id = %request_id,
+                txn_id = %txn_id,
+                origin = %origin,
+                pdu_count = pdus.len(),
+                edu_count = edus.len(),
+                edus_processed = processed_edus,
+                presence_updates_processed = processed_presence_updates,
+                presence_updates_dropped = dropped_presence_updates,
+                "Inbound federation EDU processing summary"
             );
         }
     }
@@ -286,7 +302,14 @@ pub(super) async fn send_transaction(
             }
             Err(e) => {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
-                ::tracing::error!("Failed to persist PDU {}: {}", event_id, e);
+                ::tracing::error!(
+                    request_id = %request_id,
+                    txn_id = %txn_id,
+                    origin = %origin,
+                    event_id = %event_id,
+                    error = %e,
+                    "Failed to persist PDU"
+                );
                 results.push(json!({
                     "event_id": event_id,
                     "error": e.to_string()
@@ -295,12 +318,24 @@ pub(super) async fn send_transaction(
         }
     }
 
-    ::tracing::info!("Processed transaction {} from {} with {} PDUs", txn_id, origin, pdus.len());
+    ::tracing::info!(
+        request_id = %request_id,
+        txn_id = %txn_id,
+        origin = %origin,
+        pdu_count = pdus.len(),
+        "Processed federation transaction"
+    );
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
         if let Err(e) = state.services.core.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
-            ::tracing::warn!("Failed to set transaction dedup cache: {}", e);
+            ::tracing::warn!(
+                request_id = %request_id,
+                txn_id = %txn_id,
+                origin = %origin,
+                error = %e,
+                "Failed to set transaction dedup cache"
+            );
         }
     }
 

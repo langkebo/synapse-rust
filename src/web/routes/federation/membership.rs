@@ -1,7 +1,11 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
-use axum::extract::{Extension, Json, Path, State};
+use crate::web::utils::auth::resolve_request_id;
+use axum::{
+    extract::{Extension, Json, Path, State},
+    http::HeaderMap,
+};
 use serde_json::{json, Value};
 
 async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<String, ApiError> {
@@ -270,9 +274,11 @@ pub(super) async fn get_user_devices(
 pub(super) async fn invite_v2(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
@@ -299,7 +305,13 @@ pub(super) async fn invite_v2(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
 
-    ::tracing::info!("Processed v2 invite for room {} event {} from {}", room_id, event_id, auth.origin);
+    ::tracing::info!(
+        request_id = %request_id,
+        origin = %auth.origin,
+        room_id = %room_id,
+        event_id = %event_id,
+        "Processed v2 invite"
+    );
 
     Ok(Json(json!({
         "event_id": event_id
@@ -418,9 +430,11 @@ pub(super) async fn make_leave(
 pub(super) async fn send_join(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     super::increment_gauge(&state, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
         state.federation_join_semaphore.clone(),
@@ -468,7 +482,13 @@ pub(super) async fn send_join(
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
-        ::tracing::info!("Processed join for room {} event {} from {}", room_id, event_id, auth.origin);
+        ::tracing::info!(
+            request_id = %request_id,
+            origin = %auth.origin,
+            room_id = %room_id,
+            event_id = %event_id,
+            "Processed join"
+        );
 
         Ok(Json(json!({
             "event_id": event_id
@@ -490,9 +510,11 @@ pub(super) async fn send_join(
 pub(super) async fn send_leave(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
 
     let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
@@ -520,7 +542,13 @@ pub(super) async fn send_leave(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
 
-    ::tracing::info!("Processed leave for room {} event {} from {}", room_id, event_id, auth.origin);
+    ::tracing::info!(
+        request_id = %request_id,
+        origin = %auth.origin,
+        room_id = %room_id,
+        event_id = %event_id,
+        "Processed leave"
+    );
 
     Ok(Json(json!({
         "event_id": event_id
@@ -530,16 +558,24 @@ pub(super) async fn send_leave(
 pub(super) async fn invite(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     if let Some(origin) = body.get("origin").and_then(|v| v.as_str()) {
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
-    ::tracing::info!("Processing invite for room {} event {}", room_id, event_id);
+    ::tracing::info!(
+        request_id = %request_id,
+        origin = %auth.origin,
+        room_id = %room_id,
+        event_id = %event_id,
+        "Processing invite"
+    );
 
     Ok(Json(json!({
         "event_id": event_id
@@ -549,9 +585,11 @@ pub(super) async fn invite(
 pub(super) async fn send_join_v2(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     super::increment_gauge(&state, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
         state.federation_join_semaphore.clone(),
@@ -608,8 +646,9 @@ pub(super) async fn send_join_v2(
 
         ::tracing::info!(
             target: "federation",
+            request_id = %request_id,
             event = "federation_send_join_v2",
-            origin = auth.origin,
+            origin = %auth.origin,
             sender = sender,
             room_id = room_id,
             "Federation send_join_v2 processed"
@@ -636,9 +675,11 @@ pub(super) async fn send_join_v2(
 pub(super) async fn send_leave_v2(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
+    headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     if !room_id.starts_with('!') || !room_id.contains(':') {
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
@@ -676,6 +717,8 @@ pub(super) async fn send_leave_v2(
 
     ::tracing::info!(
         target: "federation",
+        request_id = %request_id,
+        origin = %auth.origin,
         event = "federation_send_leave",
         sender = sender,
         room_id = room_id,

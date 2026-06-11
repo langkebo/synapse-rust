@@ -39,7 +39,13 @@ impl EmailVerificationService {
             .create_verification_token(email, token, ttl_seconds, user_id, session_data)
             .await
             .map_err(|e| {
-                ::tracing::error!("Failed to store email verification token: {}", e);
+                ::tracing::error!(
+                    email = %email,
+                    user_id = ?user_id,
+                    ttl_seconds,
+                    error = %e,
+                    "Failed to store email verification token"
+                );
                 ApiError::internal("Failed to store verification token. Please try again later.".to_string())
             })
     }

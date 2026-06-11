@@ -153,7 +153,13 @@ impl ExternalServiceIntegration {
             .pool_idle_timeout(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|_| {
-                warn!("Failed to build HTTP client with custom config, using default");
+                warn!(
+                    server_name = %server_name,
+                    timeout_secs = 30_u64,
+                    connect_timeout_secs = 10_u64,
+                    pool_idle_timeout_secs = 60_u64,
+                    "Failed to build HTTP client with custom config, using default"
+                );
                 Client::new()
             });
 
@@ -219,7 +225,13 @@ impl ExternalServiceIntegration {
         request_id: &str,
         config: ExternalServiceConfig,
     ) -> Result<ApplicationService, ApiError> {
-        info!(%request_id, "Registering external service: type={}, id={}", config.service_type, config.service_id);
+        info!(
+            %request_id,
+            service_type = %config.service_type,
+            service_id = %config.service_id,
+            webhook_configured = config.webhook_url.is_some(),
+            "Registering external service"
+        );
 
         let as_id = format!("{}_{}", config.service_type, config.service_id);
 
@@ -268,7 +280,12 @@ impl ExternalServiceIntegration {
             },
         );
 
-        info!(%request_id, "External service registered successfully: {}", config.service_id);
+        info!(
+            %request_id,
+            service_type = %config.service_type,
+            service_id = %config.service_id,
+            "External service registered successfully"
+        );
         Ok(service)
     }
 
@@ -338,7 +355,13 @@ impl ExternalServiceIntegration {
         payload: TrendRadarPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(%request_id, "Handling TrendRadar webhook: service={}, title={}", service_id, payload.title);
+        info!(
+            %request_id,
+            service_id = %service_id,
+            title_present = !payload.title.is_empty(),
+            keyword_count = payload.keywords.len(),
+            "Handling TrendRadar webhook"
+        );
 
         let as_id = format!("trendradar_{}", service_id);
         let service = self
@@ -403,7 +426,12 @@ impl ExternalServiceIntegration {
         payload: OpenClawPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(%request_id, "Handling OpenClaw webhook: service={}, action={}", service_id, payload.action);
+        info!(
+            %request_id,
+            service_id = %service_id,
+            action = %payload.action,
+            "Handling OpenClaw webhook"
+        );
 
         let as_id = format!("openclaw_{}", service_id);
         let service = self
@@ -464,7 +492,12 @@ impl ExternalServiceIntegration {
         payload: WebhookPayload,
         auth: WebhookAuthInput,
     ) -> Result<(), ApiError> {
-        info!(%request_id, "Handling generic webhook: service={}, event_type={}", service_id, payload.event_type);
+        info!(
+            %request_id,
+            service_id = %service_id,
+            event_type = %payload.event_type,
+            "Handling generic webhook"
+        );
 
         let as_id = format!("generic_webhook_{}", service_id);
 
@@ -573,7 +606,7 @@ impl ExternalServiceIntegration {
 
     #[instrument(skip(self), fields(request_id = %request_id))]
     pub async fn unregister_external_service(&self, request_id: &str, service_id: &str) -> Result<(), ApiError> {
-        info!(%request_id, "Unregistering external service: {}", service_id);
+        info!(%request_id, service_id = %service_id, "Unregistering external service");
 
         self.storage
             .unregister(service_id)
@@ -627,7 +660,7 @@ impl ExternalServiceIntegration {
             .ok_or_else(|| ApiError::not_found("Service not found"))?;
 
         if service.url.is_empty() {
-            debug!("Service {} has no URL configured, skipping send", as_id);
+            debug!(service_id = %as_id, url_configured = false, "Service has no URL configured, skipping send");
             return Ok(());
         }
 

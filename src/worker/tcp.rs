@@ -20,7 +20,7 @@ impl TcpReplicationServer {
         let listener = TcpListener::bind(addr).await?;
         let (command_tx, command_rx) = mpsc::channel(100);
 
-        info!("TCP replication server listening on {}", addr);
+        info!(listen_addr = %addr, server_name = %server_name, "TCP replication server listening");
 
         Ok(Self { listener, server_name, command_tx, command_rx: Some(command_rx) })
     }
@@ -38,7 +38,7 @@ impl TcpReplicationServer {
 
         loop {
             let (stream, addr) = self.listener.accept().await?;
-            info!("New replication connection from {}", addr);
+            info!(remote_addr = %addr, server_name = %self.server_name, "New replication connection");
 
             let protocol = ReplicationProtocol::new();
             let server_name = self.server_name.clone();
@@ -47,7 +47,7 @@ impl TcpReplicationServer {
 
             tokio::spawn(async move {
                 if let Err(e) = Self::handle_connection(stream, protocol, server_name, command_tx, &secret).await {
-                    error!("Connection error from {}: {}", addr, e);
+                    error!(error = %e, remote_addr = %addr, "Connection error from replication peer");
                 }
             });
         }
@@ -76,7 +76,7 @@ impl TcpReplicationServer {
 
             let auth_line = line.trim();
             if !auth_line.starts_with("AUTH ") {
-                tracing::warn!("Replication connection rejected: no AUTH command received");
+                tracing::warn!(server_name = %server_name, "Replication connection rejected: no AUTH command received");
                 return Err(ReplicationError::IoError("Authentication required".to_string()));
             }
 
@@ -91,7 +91,7 @@ impl TcpReplicationServer {
             let expected_hash = crate::common::crypto::encode_hex(expected_hasher.finalize());
 
             if !crate::common::crypto::secure_compare(&provided_hash, &expected_hash) {
-                tracing::warn!("Replication connection rejected: invalid authentication");
+                tracing::warn!(server_name = %server_name, "Replication connection rejected: invalid authentication");
                 return Err(ReplicationError::IoError("Authentication failed".to_string()));
             }
 
@@ -108,7 +108,7 @@ impl TcpReplicationServer {
             let bytes_read = reader.read_line(&mut line).await.map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
             if bytes_read == 0 {
-                info!("Connection closed by client");
+                info!(server_name = %server_name, "Connection closed by client");
                 return Err(ReplicationError::ConnectionClosed);
             }
 
@@ -124,11 +124,11 @@ impl TcpReplicationServer {
                         .map_err(|e| ReplicationError::IoError(e.to_string()))?;
                 }
                 ReplicationCommand::Name { name } => {
-                    info!("Worker identified as: {}", name);
+                    info!(worker_name = %name, server_name = %server_name, "Worker identified");
                 }
                 _ => {
                     if let Err(e) = command_tx.send(command).await {
-                        warn!("Failed to send command to channel: {}", e);
+                        warn!(error = %e, server_name = %server_name, "Failed to send command to channel");
                     }
                 }
             }
@@ -153,7 +153,7 @@ impl TcpReplicationClient {
             .map_err(|_| ReplicationError::IoError("Connection timeout".to_string()))?
             .map_err(|e| ReplicationError::IoError(e.to_string()))?;
 
-        info!("Connected to replication server at {}", addr);
+        info!(remote_addr = %addr, worker_name = %self.worker_name, "Connected to replication server");
         self.stream = Some(stream);
 
         self.send_name().await?;
@@ -233,7 +233,7 @@ impl TcpReplicationClient {
     pub async fn disconnect(&mut self) {
         if let Some(mut stream) = self.stream.take() {
             let _ = stream.shutdown().await;
-            info!("Disconnected from replication server");
+            info!(worker_name = %self.worker_name, "Disconnected from replication server");
         }
     }
 }

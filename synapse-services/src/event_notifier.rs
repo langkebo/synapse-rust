@@ -149,14 +149,20 @@ impl EventNotifier {
         let user_notifiers = self.user_notifiers.clone();
         let instance_id = self.instance_id.clone();
 
-        info!("Starting event notifier Redis subscriber on channel: {} (instance: {})", EVENT_NOTIFY_CHANNEL, instance_id);
+        info!(channel = %EVENT_NOTIFY_CHANNEL, instance_id = %instance_id, "Starting event notifier Redis subscriber");
 
         tokio::spawn(async move {
             loop {
                 if let Err(e) =
                     Self::subscribe_and_listen(&redis_url, &room_notifiers, &user_notifiers, &instance_id).await
                 {
-                    warn!("Event notifier Redis subscriber error: {}, reconnecting in 1s...", e);
+                    warn!(
+                        error = %e,
+                        channel = %EVENT_NOTIFY_CHANNEL,
+                        instance_id = %instance_id,
+                        retry_delay_secs = 1_u64,
+                        "Event notifier Redis subscriber error, reconnecting"
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
             }
@@ -184,12 +190,18 @@ impl EventNotifier {
             return;
         };
 
-        let msg = EventNotifyMessage { kind, key: key.to_string(), sender_instance: self.instance_id.clone() };
+        let msg = EventNotifyMessage { kind: kind.clone(), key: key.to_string(), sender_instance: self.instance_id.clone() };
 
         let encoded = match serde_json::to_vec(&msg) {
             Ok(v) => v,
             Err(e) => {
-                warn!("Failed to encode event notify message: {}", e);
+                warn!(
+                    error = %e,
+                    kind = ?kind,
+                    key = %key,
+                    sender_instance = %self.instance_id,
+                    "Failed to encode event notify message"
+                );
                 return;
             }
         };
@@ -202,11 +214,11 @@ impl EventNotifier {
                     use redis::AsyncCommands;
                     let result: Result<(), redis::RedisError> = conn.publish(&channel, encoded).await;
                     if let Err(e) = result {
-                        debug!("Failed to publish event notification to Redis: {}", e);
+                        debug!(error = %e, channel = %channel, "Failed to publish event notification to Redis");
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to get Redis connection for event notification: {}", e);
+                    debug!(error = %e, channel = %channel, "Failed to get Redis connection for event notification");
                 }
             }
         });
@@ -248,7 +260,7 @@ impl EventNotifier {
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to decode event notify message: {}", e);
+                    debug!(error = %e, "Failed to decode event notify message");
                 }
             }
         }

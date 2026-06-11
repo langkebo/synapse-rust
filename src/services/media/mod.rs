@@ -64,13 +64,26 @@ impl MediaDomainService {
 
     async fn record_upload_usage(&self, user_id: &str, media_id: &str, file_size: i64, content_type: &str) {
         if let Err(e) = self.media_quota_service.record_upload(user_id, media_id, file_size, Some(content_type)).await {
-            tracing::warn!("Failed to record media quota usage for user {} and media {}: {}", user_id, media_id, e);
+            tracing::warn!(
+                error = %e,
+                user_id = %user_id,
+                media_id = %media_id,
+                file_size,
+                content_type = %content_type,
+                "Failed to record media quota usage"
+            );
         }
     }
 
     async fn record_delete_usage(&self, user_id: &str, media_id: &str, file_size: i64) {
         if let Err(e) = self.media_quota_service.record_delete(user_id, media_id, file_size).await {
-            tracing::warn!("Failed to record media quota delete for user {} and media {}: {}", user_id, media_id, e);
+            tracing::warn!(
+                error = %e,
+                user_id = %user_id,
+                media_id = %media_id,
+                file_size,
+                "Failed to record media quota delete"
+            );
         }
     }
 
@@ -162,10 +175,13 @@ impl MediaDomainService {
 
         if let Err(e) = self.chunked_upload_service.mark_upload_finalized(upload_id).await {
             tracing::warn!(
-                "Chunked upload {} stored as media {} but failed to finalize progress state: {}",
-                upload_id,
-                media_id,
-                e
+                error = %e,
+                upload_id = %upload_id,
+                user_id = %user_id,
+                media_id = %media_id,
+                size,
+                content_type = %content_type,
+                "Chunked upload stored but failed to finalize progress state"
             );
         }
 

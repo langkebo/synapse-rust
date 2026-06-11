@@ -88,7 +88,13 @@ impl WidgetService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create widget", &e))?;
 
-        info!("Created widget {} for user {}", widget_id, user_id);
+        info!(
+            widget_id = %widget.widget_id,
+            user_id = %widget.user_id,
+            room_id = ?widget.room_id,
+            widget_type = %widget.widget_type,
+            "Created widget"
+        );
         Ok(widget)
     }
 
@@ -134,7 +140,7 @@ impl WidgetService {
             .map_err(|e| ApiError::internal_with_log("Failed to update widget", &e))?;
 
         if widget.is_some() {
-            info!("Updated widget {}", widget_id);
+            info!(widget_id = %widget_id, "Updated widget");
         }
 
         Ok(widget)
@@ -148,7 +154,7 @@ impl WidgetService {
             .map_err(|e| ApiError::internal_with_log("Failed to delete widget", &e))?;
 
         if deleted {
-            info!("Deleted widget {}", widget_id);
+            info!(widget_id = %widget_id, "Deleted widget");
         }
 
         Ok(deleted)
@@ -167,7 +173,12 @@ impl WidgetService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set widget permission", &e))?;
 
-        info!("Set permissions for widget {} user {}", widget_id, request.user_id);
+        info!(
+            widget_id = %widget_id,
+            user_id = %request.user_id,
+            permission_count = request.permissions.len(),
+            "Set widget permissions"
+        );
         Ok(permission)
     }
 
@@ -203,7 +214,7 @@ impl WidgetService {
             .map_err(|e| ApiError::internal_with_log("Failed to delete widget permission", &e))?;
 
         if deleted {
-            info!("Deleted permission for widget {} user {}", widget_id, user_id);
+            info!(widget_id = %widget_id, user_id = %user_id, "Deleted widget permission");
         }
 
         Ok(deleted)
@@ -228,7 +239,14 @@ impl WidgetService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create widget session", &e))?;
 
-        info!("Created session {} for widget {} user {}", session_id, request.widget_id, user_id);
+        info!(
+            session_id = %session.session_id,
+            widget_id = %session.widget_id,
+            user_id = %session.user_id,
+            device_id = ?session.device_id,
+            expires_at = ?session.expires_at,
+            "Created widget session"
+        );
         Ok(session)
     }
 
@@ -260,7 +278,7 @@ impl WidgetService {
             .map_err(|e| ApiError::internal_with_log("Failed to terminate session", &e))?;
 
         if terminated {
-            info!("Terminated session {}", session_id);
+            info!(session_id = %session_id, "Terminated widget session");
         }
 
         Ok(terminated)
@@ -284,7 +302,7 @@ impl WidgetService {
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired sessions", &e))?;
 
         if count > 0 {
-            info!("Cleaned up {} expired widget sessions", count);
+            info!(expired_session_count = count, "Cleaned up expired widget sessions");
         }
 
         Ok(count)

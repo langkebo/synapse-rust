@@ -437,7 +437,11 @@ impl SearchService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create FTS index", &e))?;
 
-        ::tracing::info!("PostgreSQL FTS index created successfully");
+        ::tracing::info!(
+            provider = %"postgres",
+            index_name = %"events_fts_idx",
+            "PostgreSQL FTS index created successfully"
+        );
         Ok(())
     }
 
@@ -479,15 +483,33 @@ impl SearchService {
             Ok(resp) => {
                 let status = resp.status();
                 if status.is_success() {
-                    ::tracing::info!("Created Elasticsearch index: {}", self.index_name);
+                    ::tracing::info!(
+                        index_name = %self.index_name,
+                        base_url = %self.base_url,
+                        "Created Elasticsearch index"
+                    );
                 } else if status.as_u16() == 400 {
-                    ::tracing::info!("Index {} already exists", self.index_name);
+                    ::tracing::info!(
+                        index_name = %self.index_name,
+                        base_url = %self.base_url,
+                        "Elasticsearch index already exists"
+                    );
                 } else {
-                    ::tracing::warn!("Index creation returned status: {}", status);
+                    ::tracing::warn!(
+                        status = %status,
+                        index_name = %self.index_name,
+                        base_url = %self.base_url,
+                        "Index creation returned status"
+                    );
                 }
             }
             Err(e) => {
-                ::tracing::warn!("Index creation request failed: {}", e);
+                ::tracing::warn!(
+                    error = %e,
+                    index_name = %self.index_name,
+                    base_url = %self.base_url,
+                    "Index creation request failed"
+                );
             }
         }
 
@@ -572,8 +594,15 @@ impl SearchService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to bulk index", &e))?;
 
-        if !response.status().is_success() {
-            ::tracing::warn!("Bulk index returned non-success status");
+        let status = response.status();
+        if !status.is_success() {
+            ::tracing::warn!(
+                status = %status,
+                index_name = %self.index_name,
+                base_url = %self.base_url,
+                batch_size = events.len(),
+                "Bulk index returned non-success status"
+            );
         }
 
         Ok(())
@@ -1171,8 +1200,15 @@ impl SearchService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete room index", &e))?;
 
-        if !response.status().is_success() {
-            ::tracing::warn!("Delete room index returned non-success status");
+        let status = response.status();
+        if !status.is_success() {
+            ::tracing::warn!(
+                status = %status,
+                index_name = %self.index_name,
+                base_url = %self.base_url,
+                room_id = %room_id,
+                "Delete room index returned non-success status"
+            );
         }
 
         Ok(())

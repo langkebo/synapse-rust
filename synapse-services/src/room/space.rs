@@ -85,7 +85,7 @@ impl SpaceService {
 
     #[instrument(skip(self))]
     pub async fn delete_space(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
-        info!("Deleting space: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, "Deleting space");
 
         let space = self
             .space_storage
@@ -103,13 +103,18 @@ impl SpaceService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete space", &e))?;
 
-        info!("Space deleted successfully: space_id={}", space_id);
+        info!(space_id = %space_id, user_id = %user_id, "Deleted space");
         Ok(())
     }
 
     #[instrument(skip(self, request))]
     pub async fn add_child(&self, request: AddChildRequest) -> Result<SpaceChild, ApiError> {
-        info!("Adding child to space: space_id={}, room_id={}", request.space_id, request.room_id);
+        info!(
+            space_id = %request.space_id,
+            room_id = %request.room_id,
+            sender = %request.sender,
+            "Adding child to space"
+        );
 
         self.ensure_space_creator_access(&request.space_id, &request.sender).await?;
 
@@ -127,7 +132,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to add child", &e))?;
 
         self.space_storage.update_space_summary(&child.space_id).await.map_err(|e| {
-            warn!("Failed to update space summary: {}", e);
+            warn!(error = %e, space_id = %child.space_id, room_id = %child.room_id, "Failed to update space summary");
             ApiError::internal_with_log("Failed to update space summary", &e)
         })?;
 
@@ -142,17 +147,29 @@ impl SpaceService {
             .add_space_event(&event_id, &child.space_id, "m.space.child", &child.sender, content, Some(&child.room_id))
             .await
             .map_err(|e| {
-                warn!("Failed to add space child event: {}", e);
+                warn!(
+                    error = %e,
+                    space_id = %child.space_id,
+                    room_id = %child.room_id,
+                    sender = %child.sender,
+                    event_id = %event_id,
+                    "Failed to add space child event"
+                );
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!("Child added successfully: space_id={}, room_id={}", child.space_id, child.room_id);
+        info!(
+            space_id = %child.space_id,
+            room_id = %child.room_id,
+            sender = %child.sender,
+            "Added child to space"
+        );
         Ok(child)
     }
 
     #[instrument(skip(self))]
     pub async fn remove_child(&self, space_id: &str, room_id: &str, user_id: &str) -> Result<(), ApiError> {
-        info!("Removing child from space: space_id={}, room_id={}", space_id, room_id);
+        info!(space_id = %space_id, room_id = %room_id, user_id = %user_id, "Removing child from space");
 
         self.ensure_space_creator_access(space_id, user_id).await?;
 
@@ -162,7 +179,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to remove child", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
-            warn!("Failed to update space summary: {}", e);
+            warn!(error = %e, space_id = %space_id, room_id = %room_id, user_id = %user_id, "Failed to update space summary");
             ApiError::internal_with_log("Failed to update space summary", &e)
         })?;
 
@@ -175,11 +192,18 @@ impl SpaceService {
             .add_space_event(&event_id, space_id, "m.space.child", user_id, content, Some(room_id))
             .await
             .map_err(|e| {
-                warn!("Failed to add space child removal event: {}", e);
+                warn!(
+                    error = %e,
+                    space_id = %space_id,
+                    room_id = %room_id,
+                    user_id = %user_id,
+                    event_id = %event_id,
+                    "Failed to add space child removal event"
+                );
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!("Child removed successfully: space_id={}, room_id={}", space_id, room_id);
+        info!(space_id = %space_id, room_id = %room_id, user_id = %user_id, "Removed child from space");
         Ok(())
     }
 
@@ -302,7 +326,7 @@ impl SpaceService {
 
     #[instrument(skip(self))]
     pub async fn invite_user(&self, space_id: &str, user_id: &str, inviter: &str) -> Result<SpaceMember, ApiError> {
-        info!("Inviting user to space: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, inviter = %inviter, "Inviting user to space");
 
         self.ensure_space_creator_access(space_id, inviter).await?;
 
@@ -321,17 +345,25 @@ impl SpaceService {
             .add_space_event(&event_id, space_id, "m.space.member", inviter, content, Some(user_id))
             .await
             .map_err(|e| {
-                warn!("Failed to add space member event: {}", e);
+                warn!(
+                    error = %e,
+                    space_id = %space_id,
+                    user_id = %user_id,
+                    inviter = %inviter,
+                    event_id = %event_id,
+                    membership = %"invite",
+                    "Failed to add space member event"
+                );
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!("User invited successfully: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, inviter = %inviter, "Invited user to space");
         Ok(member)
     }
 
     #[instrument(skip(self))]
     pub async fn join_space(&self, space_id: &str, user_id: &str) -> Result<SpaceMember, ApiError> {
-        info!("User joining space: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, "Joining space");
 
         let space = self
             .space_storage
@@ -360,7 +392,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to join space", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
-            warn!("Failed to update space summary: {}", e);
+            warn!(error = %e, space_id = %space_id, user_id = %user_id, membership = %"join", "Failed to update space summary");
             ApiError::internal_with_log("Failed to update space summary", &e)
         })?;
 
@@ -373,17 +405,24 @@ impl SpaceService {
             .add_space_event(&event_id, space_id, "m.space.member", user_id, content, Some(user_id))
             .await
             .map_err(|e| {
-                warn!("Failed to add space member event: {}", e);
+                warn!(
+                    error = %e,
+                    space_id = %space_id,
+                    user_id = %user_id,
+                    event_id = %event_id,
+                    membership = %"join",
+                    "Failed to add space member event"
+                );
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!("User joined space successfully: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, "Joined space");
         Ok(member)
     }
 
     #[instrument(skip(self))]
     pub async fn leave_space(&self, space_id: &str, user_id: &str) -> Result<(), ApiError> {
-        info!("User leaving space: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, "Leaving space");
 
         self.space_storage
             .remove_space_member(space_id, user_id)
@@ -391,7 +430,7 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to leave space", &e))?;
 
         self.space_storage.update_space_summary(space_id).await.map_err(|e| {
-            warn!("Failed to update space summary: {}", e);
+            warn!(error = %e, space_id = %space_id, user_id = %user_id, membership = %"leave", "Failed to update space summary");
             ApiError::internal_with_log("Failed to update space summary", &e)
         })?;
 
@@ -404,11 +443,18 @@ impl SpaceService {
             .add_space_event(&event_id, space_id, "m.space.member", user_id, content, Some(user_id))
             .await
             .map_err(|e| {
-                warn!("Failed to add space member event: {}", e);
+                warn!(
+                    error = %e,
+                    space_id = %space_id,
+                    user_id = %user_id,
+                    event_id = %event_id,
+                    membership = %"leave",
+                    "Failed to add space member event"
+                );
                 ApiError::internal_with_log("Failed to add space event", &e)
             })?;
 
-        info!("User left space successfully: space_id={}, user={}", space_id, user_id);
+        info!(space_id = %space_id, user_id = %user_id, "Left space");
         Ok(())
     }
 
@@ -558,8 +604,10 @@ impl SpaceService {
         user_id: Option<&str>,
     ) -> Result<synapse_storage::space::SpaceHierarchyResponse, ApiError> {
         info!(
-            "Getting space hierarchy v1: space_id={}, max_depth={}, suggested_only={}",
-            space_id, max_depth, suggested_only
+            space_id = %space_id,
+            max_depth,
+            suggested_only,
+            "Getting space hierarchy v1"
         );
 
         if let Some(uid) = user_id {
@@ -587,7 +635,12 @@ impl SpaceService {
         max_depth: i32,
         suggested_only: bool,
     ) -> Result<Vec<synapse_storage::space::SpaceChildInfo>, ApiError> {
-        info!("Getting recursive hierarchy: space_id={}, max_depth={}", space_id, max_depth);
+        info!(
+            space_id = %space_id,
+            max_depth,
+            suggested_only,
+            "Getting recursive hierarchy"
+        );
 
         self.space_storage
             .get_recursive_hierarchy(space_id, max_depth, suggested_only)
@@ -597,7 +650,7 @@ impl SpaceService {
 
     #[instrument(skip(self))]
     pub async fn get_parent_spaces(&self, room_id: &str) -> Result<Vec<Space>, ApiError> {
-        info!("Getting parent spaces for room: room_id={}", room_id);
+        info!(room_id = %room_id, "Getting parent spaces for room");
 
         self.space_storage
             .get_parent_spaces(room_id)
@@ -607,7 +660,7 @@ impl SpaceService {
 
     #[instrument(skip(self))]
     pub async fn get_space_tree_path(&self, space_id: &str) -> Result<Vec<Space>, ApiError> {
-        info!("Getting space tree path: space_id={}", space_id);
+        info!(space_id = %space_id, "Getting space tree path");
 
         self.space_storage
             .get_space_tree_path(space_id)
@@ -629,7 +682,7 @@ impl SpaceService {
         space_id: &str,
         user_id: Option<&str>,
     ) -> Result<serde_json::Value, ApiError> {
-        info!("Getting space summary with children: space_id={}", space_id);
+        info!(space_id = %space_id, user_authenticated = user_id.is_some(), "Getting space summary with children");
 
         let space = self
             .space_storage

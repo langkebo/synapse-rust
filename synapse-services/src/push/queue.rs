@@ -99,8 +99,16 @@ impl PushQueue {
         let mut queue = self.queue.lock().await;
 
         if queue.len() >= self.config.max_size {
-            warn!("Push queue is full, dropping oldest notification");
-            queue.pop_front();
+            let dropped = queue.pop_front();
+            warn!(
+                max_size = self.config.max_size,
+                current_size = queue.len() + 1,
+                dropped_notification_id = dropped.as_ref().map(|n| n.id.as_str()),
+                dropped_user_id = dropped.as_ref().map(|n| n.user_id.as_str()),
+                dropped_device_id = dropped.as_ref().map(|n| n.device_id.as_str()),
+                dropped_push_type = dropped.as_ref().map(|n| n.push_type.as_str()),
+                "Push queue is full, dropping oldest notification"
+            );
         }
 
         queue.push_back(notification);
@@ -109,7 +117,7 @@ impl PushQueue {
         stats.total_queued += 1;
         stats.current_size = queue.len();
 
-        debug!("Notification queued, current size: {}", queue.len());
+        debug!(current_size = queue.len(), "Notification queued");
         Ok(())
     }
 
@@ -126,7 +134,7 @@ impl PushQueue {
             }
         }
 
-        debug!("Dequeued {} notifications", batch.len());
+        debug!(batch_size = batch.len(), "Dequeued notifications");
         batch
     }
 
@@ -137,7 +145,7 @@ impl PushQueue {
         let mut stats = self.stats.write().await;
         stats.total_sent += 1;
 
-        debug!("Notification {} marked as sent", id);
+        debug!(notification_id = %id, "Notification marked as sent");
     }
 
     pub async fn mark_failed(&self, id: &str, retry: bool) {
@@ -154,7 +162,7 @@ impl PushQueue {
             }
         }
 
-        debug!("Notification {} marked as failed (retry: {})", id, retry);
+        debug!(notification_id = %id, retry, "Notification marked as failed");
     }
 
     pub async fn get_size(&self) -> usize {
@@ -182,7 +190,7 @@ impl PushQueue {
         let mut stats = self.stats.write().await;
         stats.current_size = 0;
 
-        info!("Push queue cleared");
+        info!(cleared_queue = true, current_size = stats.current_size, "Push queue cleared");
     }
 
     pub async fn remove_for_device(&self, user_id: &str, device_id: &str) -> usize {
@@ -193,7 +201,7 @@ impl PushQueue {
 
         let removed = original_len - queue.len();
         if removed > 0 {
-            debug!("Removed {} notifications for device {}:{}", removed, user_id, device_id);
+            debug!(removed, user_id = %user_id, device_id = %device_id, "Removed notifications for device");
         }
 
         removed
@@ -207,7 +215,7 @@ impl PushQueue {
 
         let removed = original_len - queue.len();
         if removed > 0 {
-            debug!("Removed {} notifications for user {}", removed, user_id);
+            debug!(removed, user_id = %user_id, "Removed notifications for user");
         }
 
         removed
@@ -219,7 +227,7 @@ impl PushQueue {
         if let Some(pos) = queue.iter().position(|n| n.id == id) {
             if let Some(notification) = queue.remove(pos) {
                 queue.push_front(notification);
-                debug!("Notification {} prioritized", id);
+                debug!(notification_id = %id, "Notification prioritized");
                 return true;
             }
         }

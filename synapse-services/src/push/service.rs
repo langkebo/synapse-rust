@@ -98,7 +98,7 @@ impl PushNotificationService {
         if fcm_enabled {
             if let Some(api_key) = self.storage.get_config("fcm.api_key").await? {
                 self.fcm_provider = Some(Arc::new(FcmProvider::with_api_key(api_key)));
-                info!("FCM provider initialized");
+                info!(provider = %"fcm", provider_enabled = true, "Push provider initialized");
             }
         }
 
@@ -106,7 +106,7 @@ impl PushNotificationService {
         if apns_enabled {
             if let Some(topic) = self.storage.get_config("apns.topic").await? {
                 self.apns_provider = Some(Arc::new(ApnsProvider::with_topic(topic)));
-                info!("APNS provider initialized");
+                info!(provider = %"apns", provider_enabled = true, "Push provider initialized");
             }
         }
 
@@ -117,7 +117,7 @@ impl PushNotificationService {
 
             if let (Some(pk), Some(sk)) = (public_key, private_key) {
                 self.webpush_provider = Some(Arc::new(WebPushProvider::with_vapid_keys(pk, sk)));
-                info!("WebPush provider initialized");
+                info!(provider = %"webpush", provider_enabled = true, "Push provider initialized");
             }
         }
 
@@ -156,7 +156,12 @@ impl PushNotificationService {
         };
 
         if devices.is_empty() {
-            info!("No devices registered for user: {}", request.user_id);
+            info!(
+                user_id = %request.user_id,
+                device_id = ?request.device_id,
+                notification_type = ?request.notification_type,
+                "No push devices registered for notification"
+            );
             return Ok(());
         }
 
@@ -186,7 +191,14 @@ impl PushNotificationService {
                 .await?;
         }
 
-        info!("Queued notifications for {} devices", device_count);
+        info!(
+            user_id = %request.user_id,
+            device_id = ?request.device_id,
+            notification_type = ?request.notification_type,
+            priority,
+            device_count,
+            "Queued push notifications"
+        );
         Ok(())
     }
 
@@ -311,7 +323,7 @@ impl PushNotificationService {
         let enabled = self.storage.get_config_as_bool("fcm.enabled", false).await?;
 
         if !enabled {
-            info!("FCM is disabled, skipping notification");
+            info!(provider = %"fcm", provider_enabled = false, "Push provider disabled, skipping notification");
             return Ok(PushResult::success());
         }
 
@@ -321,7 +333,12 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("FCM API key not configured"))?;
 
-        info!("Sending FCM notification to token: {}...", &token[..20.min(token.len())]);
+        info!(
+            provider = %"fcm",
+            token_present = !token.is_empty(),
+            token_len = token.len(),
+            "Sending fallback push notification"
+        );
 
         Ok(PushResult::success_with_response("FCM accepted (fallback)"))
     }
@@ -330,7 +347,7 @@ impl PushNotificationService {
         let enabled = self.storage.get_config_as_bool("apns.enabled", false).await?;
 
         if !enabled {
-            info!("APNS is disabled, skipping notification");
+            info!(provider = %"apns", provider_enabled = false, "Push provider disabled, skipping notification");
             return Ok(PushResult::success());
         }
 
@@ -340,7 +357,12 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("APNS topic not configured"))?;
 
-        info!("Sending APNS notification to token: {}...", &token[..20.min(token.len())]);
+        info!(
+            provider = %"apns",
+            token_present = !token.is_empty(),
+            token_len = token.len(),
+            "Sending fallback push notification"
+        );
 
         Ok(PushResult::success_with_response("APNS accepted (fallback)"))
     }
@@ -353,7 +375,7 @@ impl PushNotificationService {
         let enabled = self.storage.get_config_as_bool("webpush.enabled", false).await?;
 
         if !enabled {
-            info!("WebPush is disabled, skipping notification");
+            info!(provider = %"webpush", provider_enabled = false, "Push provider disabled, skipping notification");
             return Ok(PushResult::success());
         }
 
@@ -363,13 +385,24 @@ impl PushNotificationService {
             .await?
             .ok_or_else(|| ApiError::internal("WebPush VAPID public key not configured"))?;
 
-        info!("Sending WebPush notification to endpoint: {}...", &endpoint[..50.min(endpoint.len())]);
+        info!(
+            provider = %"webpush",
+            endpoint_present = !endpoint.is_empty(),
+            endpoint_len = endpoint.len(),
+            "Sending fallback push notification"
+        );
 
         Ok(PushResult::success_with_response("WebPush accepted (fallback)"))
     }
 
     fn send_upstream(&self, _target: &str, payload: &NotificationPayload) -> Result<PushResult, ApiError> {
-        info!("Sending upstream notification: {:?}", payload.title);
+        info!(
+            provider = %"upstream",
+            event_id = ?payload.event_id,
+            room_id = ?payload.room_id,
+            title_present = !payload.title.is_empty(),
+            "Sending upstream push notification"
+        );
         Ok(PushResult::success_with_response("Upstream accepted"))
     }
 

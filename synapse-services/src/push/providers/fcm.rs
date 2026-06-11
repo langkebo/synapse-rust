@@ -127,7 +127,12 @@ impl FcmProvider {
         let body = response.text().await.map_err(|e| format!("Failed to read response: {e}"))?;
 
         if !status.is_success() {
-            error!("FCM request failed with status {}: {}", status, body);
+            error!(
+                %status,
+                response_body_present = !body.is_empty(),
+                response_body_len = body.len(),
+                "FCM request failed"
+            );
             return Err(format!("FCM returned status {status}: {body}"));
         }
 
@@ -147,7 +152,14 @@ impl PushProvider for FcmProvider {
             return PushResult::success();
         }
 
-        info!("Sending FCM notification to token: {}...", &token[..20.min(token.len())]);
+        info!(
+            token_present = !token.is_empty(),
+            token_len = token.len(),
+            title_present = !payload.title.is_empty(),
+            room_id = payload.room_id,
+            event_id = payload.event_id,
+            "Sending FCM notification"
+        );
 
         let message = Self::build_message(token, payload);
 
@@ -156,7 +168,7 @@ impl PushProvider for FcmProvider {
                 if response.failure > 0 {
                     if let Some(result) = response.results.first() {
                         if let Some(error) = &result.error {
-                            warn!("FCM push failed: {}", error);
+                            warn!(%error, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "FCM push failed");
 
                             let should_retry = matches!(
                                 error.as_str(),
@@ -171,11 +183,11 @@ impl PushProvider for FcmProvider {
                     }
                 }
 
-                debug!("FCM push successful: multicast_id={:?}", response.multicast_id);
+                debug!(multicast_id = ?response.multicast_id, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "FCM push successful");
                 PushResult::success_with_response(&format!("multicast_id:{:?}", response.multicast_id))
             }
             Err(e) => {
-                error!("FCM push error: {}", e);
+                error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "FCM push error");
                 PushResult::retryable_failure(&e)
             }
         }

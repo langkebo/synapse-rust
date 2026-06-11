@@ -36,7 +36,7 @@ impl RegistrationTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to create token", &e))?;
 
         let token_preview: String = token.token.chars().take(4).collect();
-        info!("Created registration token: {}***", token_preview);
+        info!(token_preview = %format!("{token_preview}***"), "Created registration token");
 
         Ok(token)
     }
@@ -81,7 +81,7 @@ impl RegistrationTokenService {
         ip_address: Option<&str>,
         user_agent: Option<&str>,
     ) -> Result<bool, ApiError> {
-        info!("Using registration token for user: {}", user_id);
+        info!(user_id = %user_id, "Using registration token");
 
         let validation = self.validate_token(token).await?;
 
@@ -99,7 +99,7 @@ impl RegistrationTokenService {
             return Err(ApiError::bad_request("Failed to use token"));
         }
 
-        info!("Successfully used registration token for user: {}", user_id);
+        info!(user_id = %user_id, "Used registration token");
 
         Ok(true)
     }
@@ -137,7 +137,7 @@ impl RegistrationTokenService {
 
         self.storage.delete_token(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
 
-        info!("Deleted registration token: {}", id);
+        info!(token_id = id, "Deleted registration token");
 
         Ok(())
     }
@@ -149,7 +149,7 @@ impl RegistrationTokenService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to deactivate token", &e))?;
 
-        info!("Deactivated registration token: {}", id);
+        info!(token_id = id, "Deactivated registration token");
 
         Ok(())
     }
@@ -201,14 +201,14 @@ impl RegistrationTokenService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup tokens", &e))?;
 
-        info!("Cleaned up {} expired tokens", count);
+        info!(expired_token_count = count, "Cleaned up expired registration tokens");
 
         Ok(count)
     }
 
     #[instrument(skip(self))]
     pub async fn create_room_invite(&self, request: CreateRoomInviteRequest) -> Result<RoomInvite, ApiError> {
-        info!("Creating room invite for room: {}", request.room_id);
+        info!(room_id = %request.room_id, "Creating room invite");
 
         let invite = self
             .storage
@@ -232,7 +232,7 @@ impl RegistrationTokenService {
 
     #[instrument(skip(self))]
     pub async fn use_room_invite(&self, invite_code: &str, invitee_user_id: &str) -> Result<bool, ApiError> {
-        info!("Using room invite for user: {}", invitee_user_id);
+        info!(invitee_user_id = %invitee_user_id, "Using room invite");
 
         let success = self
             .storage
@@ -254,7 +254,11 @@ impl RegistrationTokenService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to revoke room invite", &e))?;
 
-        info!("Revoked room invite: {}", invite_code);
+        info!(
+            invite_code_prefix = %invite_code.chars().take(6).collect::<String>(),
+            reason = %reason,
+            "Revoked room invite"
+        );
 
         Ok(())
     }
@@ -269,7 +273,7 @@ impl RegistrationTokenService {
         allowed_email_domains: Option<Vec<String>>,
         auto_join_rooms: Option<Vec<String>>,
     ) -> Result<(String, Vec<String>), ApiError> {
-        info!("Creating batch of {} registration tokens", count);
+        info!(token_count = count, "Creating registration token batch");
 
         let batch_id = uuid::Uuid::new_v4().to_string();
         let mut tokens = Vec::new();
@@ -298,7 +302,7 @@ impl RegistrationTokenService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create batch", &e))?;
 
-        info!("Created batch {} with {} tokens", batch_id, count);
+        info!(batch_id = %batch_id, token_count = count, "Created registration token batch");
 
         Ok((batch_id, tokens))
     }

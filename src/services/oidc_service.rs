@@ -130,7 +130,10 @@ impl OidcService {
 
         let discovery_url = format!("{}/.well-known/openid-configuration", self.config.issuer);
 
-        debug!("Fetching OIDC discovery document from {}", discovery_url);
+        debug!(
+            discovery_url_configured = !discovery_url.is_empty(),
+            "Fetching OIDC discovery document"
+        );
 
         let response = self
             .http_client
@@ -278,7 +281,13 @@ impl OidcService {
 
         if let Some(ref id_token) = token_response.id_token {
             if let Err(e) = self.validate_id_token(id_token).await {
-                tracing::warn!("OIDC ID token validation failed: {}", e);
+                tracing::warn!(
+                    error = %e,
+                    issuer = %self.config.issuer,
+                    client_id = %self.config.client_id,
+                    has_id_token = true,
+                    "OIDC ID token validation failed"
+                );
             }
         }
 
@@ -303,7 +312,7 @@ impl OidcService {
             }
         };
 
-        debug!("Fetching OIDC JWKS from {}", jwks_uri);
+        debug!(jwks_uri_configured = !jwks_uri.is_empty(), "Fetching OIDC JWKS");
 
         let response =
             self.http_client.get(&jwks_uri).send().await.map_err(|e| format!("Failed to fetch JWKS: {e}"))?;
@@ -393,14 +402,21 @@ impl OidcService {
                     debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
                 } else {
                     tracing::warn!(
-                        "No matching JWKS key found for kid={:?}, falling back to claim-only validation",
-                        kid
+                        kid = ?kid,
+                        issuer = %self.config.issuer,
+                        client_id = %self.config.client_id,
+                        "No matching JWKS key found, falling back to claim-only validation"
                     );
                     self.validate_id_token_claims(id_token)?;
                 }
             }
             Err(e) => {
-                tracing::warn!("Failed to fetch JWKS: {}, falling back to claim-only validation", e);
+                tracing::warn!(
+                    error = %e,
+                    issuer = %self.config.issuer,
+                    client_id = %self.config.client_id,
+                    "Failed to fetch JWKS, falling back to claim-only validation"
+                );
                 self.validate_id_token_claims(id_token)?;
             }
         }

@@ -339,7 +339,13 @@ impl AdminFederationService {
                 expires_in_days: None,
             };
             if let Err(e) = self.federation_blacklist_service.add_to_blacklist(request, admin_user_id).await {
-                warn!("Failed to add rejected server to blacklist: {}", e);
+                warn!(
+                    error = %e,
+                    server_name = %server_name,
+                    admin_user_id = %admin_user_id,
+                    block_type = %"blacklist",
+                    "Failed to add rejected server to blacklist"
+                );
             }
         }
 

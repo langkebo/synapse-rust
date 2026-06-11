@@ -84,21 +84,21 @@ impl MediaService {
         let path = PathBuf::from(media_path);
         let thumbnail_path = path.join("thumbnails");
 
-        ::tracing::info!("MediaService::new called with path: {}", media_path);
-        ::tracing::info!("Media path exists: {}", path.exists());
+        ::tracing::info!(media_path = %media_path, server_name = %server_name, "Initializing media service");
+        ::tracing::info!(media_path = %path.display(), path_exists = path.exists(), "Checked media path");
 
         if !path.exists() {
-            ::tracing::info!("Attempting to create media directory: {}", path.display());
+            ::tracing::info!(media_dir = %path.display(), "Attempting to create media directory");
             if let Err(e) = std::fs::create_dir_all(&path) {
-                ::tracing::error!("Failed to create media directory {}: {}", path.display(), e);
+                ::tracing::error!(error = %e, media_dir = %path.display(), "Failed to create media directory");
             } else {
-                ::tracing::info!("Created media directory: {}", path.display());
+                ::tracing::info!(media_dir = %path.display(), "Created media directory");
             }
         }
 
         if !thumbnail_path.exists() {
             if let Err(e) = std::fs::create_dir_all(&thumbnail_path) {
-                ::tracing::error!("Failed to create thumbnail directory {}: {}", thumbnail_path.display(), e);
+                ::tracing::error!(error = %e, thumbnail_dir = %thumbnail_path.display(), "Failed to create thumbnail directory");
             }
         }
 
@@ -193,12 +193,31 @@ impl MediaService {
         let file_path = self.media_path.join(&file_name);
         let media_path_display = self.media_path.display().to_string();
 
-        ::tracing::info!("Uploading media: {} bytes to {}", content.len(), file_path.display());
+        ::tracing::info!(
+            media_id = %media_id,
+            user_id = %user_id,
+            file_name = %file_name,
+            content_type = %content_type,
+            size = content.len(),
+            file_path = %file_path.display(),
+            "Uploading media"
+        );
 
         if !self.media_path.exists() {
-            ::tracing::warn!("Media path does not exist, attempting to create: {}", self.media_path.display());
+            ::tracing::warn!(
+                media_id = %media_id,
+                user_id = %user_id,
+                media_path = %self.media_path.display(),
+                "Media path does not exist, attempting to create"
+            );
             if let Err(e) = std::fs::create_dir_all(&self.media_path) {
-                ::tracing::error!("Failed to create media directory: {}", e);
+                ::tracing::error!(
+                    media_id = %media_id,
+                    user_id = %user_id,
+                    media_path = %self.media_path.display(),
+                    error = %e,
+                    "Failed to create media directory"
+                );
                 return Err(ApiError::internal("An internal error occurred".to_string()));
             }
         }
@@ -208,12 +227,21 @@ impl MediaService {
         }
 
         let content_vec = content.to_vec();
-        let write_result = tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
+        let write_result: Result<(), std::io::Error> =
+            tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
             .await
             .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
 
         if let Err(e) = write_result {
-            ::tracing::error!("Failed to save media file - Error: {}", e);
+            ::tracing::error!(
+                media_id = %media_id,
+                user_id = %user_id,
+                file_name = %file_name,
+                content_type = %content_type,
+                size = content.len(),
+                error = %e,
+                "Failed to save media file"
+            );
 
             let error_msg = match e.kind() {
                 std::io::ErrorKind::PermissionDenied => {
@@ -231,7 +259,14 @@ impl MediaService {
             return Err(ApiError::internal(error_msg));
         }
 
-        ::tracing::info!("Successfully saved media file: {}", file_name);
+        ::tracing::info!(
+            media_id = %media_id,
+            user_id = %user_id,
+            file_name = %file_name,
+            content_type = %content_type,
+            size = content.len(),
+            "Saved media file"
+        );
 
         if let Some(pool) = &self.pool {
             let now = chrono::Utc::now().timestamp_millis();
@@ -252,16 +287,29 @@ impl MediaService {
             .execute(pool.as_ref())
             .await
             {
-                ::tracing::warn!("Failed to store media metadata in DB: {}", e);
+                ::tracing::warn!(
+                    media_id = %media_id,
+                    user_id = %user_id,
+                    file_name = %file_name,
+                    content_type = %content_type,
+                    error = %e,
+                    "Failed to store media metadata in DB"
+                );
             }
         }
 
         if let Some(queue) = &self.task_queue {
             let job = BackgroundJob::ProcessMedia { file_id: file_name.clone() };
             if let Err(e) = queue.submit(job).await {
-                ::tracing::warn!("Failed to submit media processing task for {}: {}", file_name, e);
+                ::tracing::warn!(
+                    media_id = %media_id,
+                    user_id = %user_id,
+                    file_name = %file_name,
+                    error = %e,
+                    "Failed to submit media processing task"
+                );
             } else {
-                ::tracing::info!("Submitted media processing task for {}", file_name);
+                ::tracing::info!(media_id = %media_id, file_name = %file_name, "Submitted media processing task");
             }
         }
 
@@ -336,7 +384,14 @@ impl MediaService {
         let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
         if let Ok(content) = tokio::fs::read(&thumbnail_path).await {
-            ::tracing::info!("Serving cached thumbnail: {}", thumbnail_filename);
+            ::tracing::info!(
+                media_id = %media_id,
+                width,
+                height,
+                method = %method,
+                thumbnail_filename = %thumbnail_filename,
+                "Serving cached thumbnail"
+            );
             return Ok(content);
         }
 
@@ -348,7 +403,15 @@ impl MediaService {
         };
 
         if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
-            ::tracing::warn!("Failed to cache thumbnail {}: {}", thumbnail_filename, e);
+            ::tracing::warn!(
+                media_id = %media_id,
+                width,
+                height,
+                method = %method,
+                thumbnail_filename = %thumbnail_filename,
+                error = %e,
+                "Failed to cache thumbnail"
+            );
         }
 
         Ok(thumbnail)
@@ -408,7 +471,15 @@ impl MediaService {
             let thumbnail_path = self.thumbnail_path.join(&thumbnail_filename);
 
             if let Err(e) = tokio::fs::write(&thumbnail_path, &thumbnail).await {
-                ::tracing::warn!("Failed to write thumbnail {}: {}", thumbnail_filename, e);
+                ::tracing::warn!(
+                    media_id = %media_id,
+                    width = config.width,
+                    height = config.height,
+                    method = %method_str,
+                    thumbnail_filename = %thumbnail_filename,
+                    error = %e,
+                    "Failed to write thumbnail"
+                );
             } else {
                 generated.push(thumbnail_filename);
             }
@@ -434,8 +505,14 @@ impl MediaService {
                         if let Ok(modified) = metadata.modified() {
                             if let Ok(age) = now.duration_since(modified) {
                                 if age > max_age {
+                                    let file_name = entry.file_name().to_string_lossy().to_string();
                                     if let Err(e) = std::fs::remove_file(entry.path()) {
-                                        ::tracing::warn!("Failed to delete old thumbnail: {}", e);
+                                        ::tracing::warn!(
+                                            error = %e,
+                                            file_name = %file_name,
+                                            max_age_days,
+                                            "Failed to delete old thumbnail"
+                                        );
                                     } else {
                                         deleted_count += 1;
                                     }
@@ -588,7 +665,12 @@ impl MediaService {
                             if let Err(e) = std::fs::remove_file(&path) {
                                 return Err(format!("Failed to delete media file: {e}"));
                             }
-                            ::tracing::info!("Deleted media: {} from server {}", file_name, server_name);
+                            ::tracing::info!(
+                                media_id = %media_id,
+                                file_name = %file_name,
+                                server_name = %server_name,
+                                "Deleted media"
+                            );
                             return Ok(());
                         }
                     }
@@ -615,8 +697,14 @@ impl MediaService {
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
                             if modified < before_time {
+                                let file_name = entry.file_name().to_string_lossy().to_string();
                                 if let Err(e) = std::fs::remove_file(entry.path()) {
-                                    ::tracing::warn!("Failed to delete cached media: {}", e);
+                                    ::tracing::warn!(
+                                        error = %e,
+                                        file_name = %file_name,
+                                        before_ts,
+                                        "Failed to delete cached media"
+                                    );
                                 } else {
                                     count += 1;
                                 }
@@ -639,8 +727,14 @@ impl MediaService {
                     if let Ok(metadata) = entry.metadata() {
                         if let Ok(modified) = metadata.modified() {
                             if modified < before_time {
+                                let file_name = entry.file_name().to_string_lossy().to_string();
                                 if let Err(e) = std::fs::remove_file(entry.path()) {
-                                    ::tracing::warn!("Failed to delete cached thumbnail: {}", e);
+                                    ::tracing::warn!(
+                                        error = %e,
+                                        file_name = %file_name,
+                                        before_ts,
+                                        "Failed to delete cached thumbnail"
+                                    );
                                 } else {
                                     count += 1;
                                 }
@@ -655,7 +749,7 @@ impl MediaService {
         .map_err(|e| ApiError::internal_with_log("Task error", &e))?;
 
         deleted_count += thumb_deleted;
-        ::tracing::info!("Purged {} media files older than timestamp {}", deleted_count, before_ts);
+        ::tracing::info!(deleted_count, before_ts, "Purged media cache");
         Ok(deleted_count)
     }
 }

@@ -2,8 +2,12 @@ use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_to
 use synapse_common::{ApiError, ContentSanitizer};
 use synapse_common::map_internal;
 use synapse_storage::CreateEventParams;
+use crate::utils::auth::resolve_request_id;
 use crate::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
-use axum::extract::{Json, Path, Query, State};
+use axum::{
+    extract::{Json, Path, Query, State},
+    http::HeaderMap,
+};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -769,10 +773,12 @@ pub(crate) async fn verify_room_event(
 
 pub(crate) async fn translate_room_event(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
@@ -796,7 +802,13 @@ pub(crate) async fn translate_room_event(
     let translation_result =
         state.services.extensions.translation_service.translate(text_to_translate, target_lang, source_lang).await.map_err(
             |e| {
-                ::tracing::warn!("Translation failed: {}", e);
+                ::tracing::warn!(
+                    request_id = %request_id,
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    error = %e,
+                    "Translation failed"
+                );
                 ApiError::bad_request(format!("Translation failed: {}", e))
             },
         )?;
@@ -814,9 +826,11 @@ pub(crate) async fn translate_room_event(
 
 pub(crate) async fn translate_text(
     State(state): State<AppState>,
+    headers: HeaderMap,
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let text = body.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
     if text.is_empty() {
@@ -843,7 +857,12 @@ pub(crate) async fn translate_text(
 
     let translation_result =
         state.services.extensions.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
-            ::tracing::warn!("Translation failed: {}", e);
+            ::tracing::warn!(
+                request_id = %request_id,
+                target_lang = %target_lang,
+                error = %e,
+                "Translation failed"
+            );
             ApiError::bad_request(format!("Translation failed: {}", e))
         })?;
 
@@ -882,10 +901,12 @@ pub(crate) async fn convert_room_event(
 
 pub(crate) async fn redact_event(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, _txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     if !event_id.starts_with('$') {
         return Ok(Json(json!({
@@ -936,7 +957,9 @@ pub(crate) async fn redact_event(
     state.services.rooms.event_storage.redact_event_content(&event_id).await.map_err(|e| {
         ::tracing::warn!(
             target: "security_audit",
+            request_id = %request_id,
             event = "redaction_content_failed",
+            room_id = %room_id,
             event_id = %event_id,
             error = %e,
             "Redaction event created but content redaction failed"

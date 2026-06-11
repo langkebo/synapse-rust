@@ -88,7 +88,12 @@ impl WorkerManager {
 
     #[instrument(skip(self, request))]
     pub async fn register(&self, request: RegisterWorkerRequest) -> Result<WorkerInfo, ApiError> {
-        info!("Registering worker: {} ({})", request.worker_name, request.worker_type.as_str());
+        info!(
+            worker_id = %request.worker_id,
+            worker_name = %request.worker_name,
+            worker_type = %request.worker_type.as_str(),
+            "Registering worker"
+        );
 
         if let Some(existing) = self
             .storage
@@ -128,7 +133,13 @@ impl WorkerManager {
             let _ = bus.broadcast_command(&cmd).await;
         }
 
-        info!("Worker registered successfully: {}", worker.worker_id);
+        info!(
+            worker_id = %worker.worker_id,
+            worker_name = %worker.worker_name,
+            worker_type = %worker.worker_type,
+            status = %worker.status,
+            "Worker registered successfully"
+        );
         Ok(worker)
     }
 
@@ -169,7 +180,7 @@ impl WorkerManager {
             let _ = self
                 .storage
                 .record_load_stats(worker_id, &stats)
-                .map_err(|e| warn!("Failed to record load stats: {}", e));
+                .map_err(|e| warn!(error = %e, worker_id = %worker_id, "Failed to record load stats"));
         }
 
         debug!("Heartbeat received from worker: {}", worker_id);
@@ -178,7 +189,7 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn unregister(&self, worker_id: &str) -> Result<(), ApiError> {
-        info!("Unregistering worker: {}", worker_id);
+        info!(worker_id = %worker_id, "Unregistering worker");
 
         self.storage
             .unregister_worker(worker_id)
@@ -198,13 +209,17 @@ impl WorkerManager {
             conn.disconnect().await;
         }
 
-        info!("Worker unregistered successfully: {}", worker_id);
+        info!(worker_id = %worker_id, "Worker unregistered successfully");
         Ok(())
     }
 
     #[instrument(skip(self))]
     pub async fn send_command(&self, request: SendCommandRequest) -> Result<WorkerCommand, ApiError> {
-        info!("Sending command to worker: {} - {}", request.target_worker_id, request.command_type);
+        info!(
+            target_worker_id = %request.target_worker_id,
+            command_type = %request.command_type,
+            "Sending command to worker"
+        );
 
         let command = self
             .storage
@@ -225,7 +240,13 @@ impl WorkerManager {
             };
 
             if let Err(e) = conn.send_command(&cmd).await {
-                warn!("Failed to send command via TCP: {}", e);
+                warn!(
+                    error = %e,
+                    target_worker_id = %request.target_worker_id,
+                    command_id = %command.command_id,
+                    command_type = %command.command_type,
+                    "Failed to send command via TCP"
+                );
             }
         }
 
@@ -234,7 +255,12 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to mark command sent", &e))?;
 
-        info!("Command sent successfully: {}", command.command_id);
+        info!(
+            command_id = %command.command_id,
+            target_worker_id = %command.target_worker_id,
+            command_type = %command.command_type,
+            "Command sent successfully"
+        );
         Ok(command)
     }
 
@@ -253,7 +279,7 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to complete command", &e))?;
 
-        info!("Command completed: {}", command_id);
+        info!(command_id = %command_id, "Command completed");
         Ok(())
     }
 
@@ -264,7 +290,7 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to fail command", &e))?;
 
-        warn!("Command failed: {} - {}", command_id, error);
+        warn!(command_id = %command_id, error_message = %error, "Command failed");
         Ok(())
     }
 
@@ -309,7 +335,14 @@ impl WorkerManager {
 
         for (worker_id, conn) in connections.iter() {
             if let Err(e) = conn.send_command(&cmd).await {
-                warn!("Failed to broadcast event to worker {}: {}", worker_id, e);
+                warn!(
+                    error = %e,
+                    worker_id = %worker_id,
+                    event_id = %event.event_id,
+                    event_type = %event.event_type,
+                    room_id = ?event.room_id,
+                    "Failed to broadcast event to worker"
+                );
             }
         }
 
@@ -350,7 +383,7 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn assign_task(&self, request: AssignTaskRequest) -> Result<WorkerTaskAssignment, ApiError> {
-        info!("Creating task: {}", request.task_type);
+        info!(task_type = %request.task_type, preferred_worker_id = ?request.preferred_worker_id, "Creating task");
 
         let task = self
             .storage
@@ -370,7 +403,7 @@ impl WorkerManager {
             }
         }
 
-        info!("Task created: {}", task.task_id);
+        info!(task_id = %task.task_id, task_type = %task.task_type, "Task created");
         Ok(task)
     }
 
@@ -394,7 +427,7 @@ impl WorkerManager {
             return Err(ApiError::conflict("Task is already claimed or unavailable".to_string()));
         }
 
-        info!("Task {} claimed by worker {}", task_id, worker_id);
+        info!(task_id = %task_id, worker_id = %worker_id, "Task claimed by worker");
         Ok(())
     }
 
@@ -408,7 +441,7 @@ impl WorkerManager {
 
         let task: WorkerTaskAssignment = task.ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
 
-        info!("Task {} claimed atomically by worker {}", task.task_id, worker_id);
+        info!(task_id = %task.task_id, worker_id = %worker_id, "Task claimed atomically by worker");
         Ok(task)
     }
     #[instrument(skip(self, result))]
@@ -418,7 +451,7 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to complete task", &e))?;
 
-        info!("Task completed: {}", task_id);
+        info!(task_id = %task_id, "Task completed");
         Ok(())
     }
 
@@ -429,13 +462,13 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to fail task", &e))?;
 
-        warn!("Task failed: {} - {}", task_id, error);
+        warn!(task_id = %task_id, error_message = %error, "Task failed");
         Ok(())
     }
 
     #[instrument(skip(self))]
     pub async fn connect_to_worker(&self, worker_id: &str, addr: &str) -> Result<(), ApiError> {
-        info!("Connecting to worker: {} at {}", worker_id, addr);
+        info!(worker_id = %worker_id, remote_addr = %addr, "Connecting to worker");
 
         let _worker = self
             .storage
@@ -450,25 +483,33 @@ impl WorkerManager {
         let _ = self
             .storage
             .record_connection(&self.local_worker_id.clone().unwrap_or_default(), worker_id, "replication")
-            .map_err(|e| warn!("Failed to record connection: {}", e));
+            .map_err(|e| {
+                warn!(
+                    error = %e,
+                    local_worker_id = %self.local_worker_id.clone().unwrap_or_default(),
+                    worker_id = %worker_id,
+                    connection_type = %"replication",
+                    "Failed to record connection"
+                )
+            });
 
         let mut connections = self.connections.write().await;
         connections.insert(worker_id.to_string(), conn);
 
-        info!("Connected to worker: {}", worker_id);
+        info!(worker_id = %worker_id, remote_addr = %addr, "Connected to worker");
         Ok(())
     }
 
     #[instrument(skip(self))]
     pub async fn disconnect_from_worker(&self, worker_id: &str) -> Result<(), ApiError> {
-        info!("Disconnecting from worker: {}", worker_id);
+        info!(worker_id = %worker_id, "Disconnecting from worker");
 
         let mut connections = self.connections.write().await;
         if let Some(conn) = connections.remove(worker_id) {
             conn.disconnect().await;
         }
 
-        info!("Disconnected from worker: {}", worker_id);
+        info!(worker_id = %worker_id, "Disconnected from worker");
         Ok(())
     }
 
@@ -490,7 +531,7 @@ impl WorkerManager {
             if let Some(worker_id) = lb.select_worker(task_type).await {
                 if let Some(hc) = &self.health_checker {
                     if !hc.is_healthy(&worker_id).await {
-                        warn!("Selected worker {} is not healthy, falling back", worker_id);
+                        warn!(worker_id = %worker_id, task_type = %task_type, "Selected worker is not healthy, falling back");
                         return self.select_worker_fallback(task_type).await;
                     }
                 }

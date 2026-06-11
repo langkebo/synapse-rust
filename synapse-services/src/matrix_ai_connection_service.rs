@@ -102,7 +102,13 @@ impl MatrixAiConnectionService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create connection", &e))?;
 
-        info!("Created AI connection {} for user {}", id, user_id);
+        info!(
+            connection_id = %conn.id,
+            user_id = %conn.user_id,
+            provider = %conn.provider,
+            is_active = conn.is_active,
+            "Created AI connection"
+        );
         Ok(conn)
     }
 
@@ -139,7 +145,13 @@ impl MatrixAiConnectionService {
             self.storage.get_connection(id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if updated.is_some() {
-            info!("Updated AI connection {}", id);
+            info!(
+                connection_id = %id,
+                user_id = %user_id,
+                is_active = ?request.is_active,
+                config_updated = request.config.is_some(),
+                "Updated AI connection"
+            );
         }
 
         Ok(updated)
@@ -164,7 +176,7 @@ impl MatrixAiConnectionService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete connection", &e))?;
 
-        info!("Deleted AI connection {} for user {}", id, user_id);
+        info!(connection_id = %id, user_id = %user_id, provider = %conn.provider, "Deleted AI connection");
         Ok(true)
     }
 

@@ -93,7 +93,7 @@ impl PushGateway {
         gateway_url: &str,
         notification: &PushNotification,
     ) -> Result<PushGatewayResponse, ApiError> {
-        info!("Sending notification to push gateway: {}", gateway_url);
+        info!(has_gateway_url = !gateway_url.is_empty(), "Sending notification to push gateway");
 
         let response = self
             .client
@@ -109,14 +109,20 @@ impl PushGateway {
         if !status.is_success() {
             let body = response.text().await.map_err(|e| ApiError::internal_with_log("Failed to read response", &e))?;
 
-            error!("Push gateway returned error: {} - {}", status, body);
+            error!(
+                %status,
+                response_body_present = !body.is_empty(),
+                response_body_len = body.len(),
+                "Push gateway returned error"
+            );
             return Err(ApiError::internal_with_log("Push gateway error", &status));
         }
 
         let gateway_response: PushGatewayResponse =
             response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
 
-        debug!("Push gateway response: rejected {} devices", gateway_response.rejected.len());
+        debug!(rejected = gateway_response.rejected.len(), "Push gateway response");
+
 
         Ok(gateway_response)
     }
