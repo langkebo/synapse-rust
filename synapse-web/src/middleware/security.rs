@@ -1,4 +1,5 @@
 use synapse_common::error::ApiError;
+use crate::utils::auth::resolve_request_id;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request};
 use axum::middleware::Next;
@@ -170,12 +171,12 @@ fn is_long_polling_endpoint(path: &str) -> bool {
         || path.contains("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync")
 }
 
-pub async fn request_id_middleware(request: Request<Body>, next: Next) -> Response {
-    let request_id = request
-        .headers()
-        .get("x-request-id")
-        .and_then(|v| v.to_str().ok())
-        .map_or_else(|| format!("req-{}", uuid::Uuid::new_v4()), |s| s.to_string());
+pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Response {
+    let request_id = resolve_request_id(request.headers());
+
+    if let Ok(v) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", v);
+    }
 
     let mut response = next.run(request).await;
 

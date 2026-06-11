@@ -83,9 +83,10 @@ impl FriendRoomService {
     }
 
     /// 发送好友请求 (创建 pending 状态的请求)
-    #[::tracing::instrument(skip(self, message))]
+    #[::tracing::instrument(skip(self, message), fields(request_id = %request_id))]
     pub async fn send_friend_request(
         &self,
+        request_id: &str,
         sender_id: &str,
         receiver_id: &str,
         message: Option<&str>,
@@ -124,6 +125,7 @@ impl FriendRoomService {
                 .map_err(|e| ApiError::database_with_log("Failed to get existing request", &e))?
             {
                 tracing::info!(
+                    %request_id,
                     "Returning existing pending friend request {} -> {} (id: {})",
                     sender_id,
                     receiver_id,
@@ -139,6 +141,7 @@ impl FriendRoomService {
                 .map_err(|e| ApiError::database_with_log("Failed to get existing reverse request", &e))?
             {
                 tracing::info!(
+                    %request_id,
                     "Returning existing reverse pending friend request {} <- {} (id: {})",
                     sender_id,
                     receiver_id,
@@ -149,7 +152,7 @@ impl FriendRoomService {
             // Edge case: pending request disappeared between check and fetch
         }
 
-        let request_id =
+        let friend_request_id =
             self.friend_storage.create_friend_request_with_user_ensure(sender_id, receiver_id, message).await.map_err(
                 |e| {
                     let error_msg = e.to_string();
@@ -162,7 +165,7 @@ impl FriendRoomService {
             )?;
 
         if self.is_remote_user(receiver_id) {
-            tracing::info!("Sending remote friend request: {} -> {}", sender_id, receiver_id);
+            tracing::info!(%request_id, "Sending remote friend request: {} -> {}", sender_id, receiver_id);
             let parts: Vec<&str> = receiver_id.split(':').collect();
             if parts.len() >= 2 {
                 let domain = parts[1];
@@ -175,17 +178,17 @@ impl FriendRoomService {
                 });
 
                 if let Err(e) = self.federation_client.send_invite(domain, "unused", &invite_content).await {
-                    tracing::warn!("Failed to send federation friend request: {}", e);
+                    tracing::warn!(%request_id, "Failed to send federation friend request: {}", e);
                 }
             }
         }
 
-        Ok(request_id)
+        Ok(friend_request_id)
     }
 
     /// 接受好友请求
-    #[::tracing::instrument(skip(self))]
-    pub async fn accept_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<String> {
+    #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
+    pub async fn accept_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> ApiResult<String> {
         let _pending_request = self
             .friend_storage
             .get_pending_friend_request(requester_id, user_id)
@@ -226,7 +229,7 @@ impl FriendRoomService {
                 });
 
                 if let Err(e) = self.federation_client.send_invite(domain, "unused", &accept_content).await {
-                    tracing::warn!("Failed to send federation friend accept: {}", e);
+                    tracing::warn!(%request_id, "Failed to send federation friend accept: {}", e);
                 }
             }
         }
@@ -235,8 +238,8 @@ impl FriendRoomService {
     }
 
     /// 拒绝好友请求
-    #[::tracing::instrument(skip(self))]
-    pub async fn reject_friend_request(&self, user_id: &str, requester_id: &str) -> ApiResult<()> {
+    #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
+    pub async fn reject_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> ApiResult<()> {
         let updated = self
             .friend_storage
             .update_friend_request_status(requester_id, user_id, "rejected")
@@ -244,6 +247,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to reject friend request", &e))?;
 
         if !updated {
+            tracing::warn!(%request_id, "Reject friend request missed pending row: {} <- {}", user_id, requester_id);
             return Err(ApiError::not_found(format!("No pending friend request from {requester_id}")));
         }
 
@@ -251,8 +255,8 @@ impl FriendRoomService {
     }
 
     /// 取消发出的好友请求
-    #[::tracing::instrument(skip(self))]
-    pub async fn cancel_friend_request(&self, user_id: &str, target_id: &str) -> ApiResult<()> {
+    #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
+    pub async fn cancel_friend_request(&self, request_id: &str, user_id: &str, target_id: &str) -> ApiResult<()> {
         let updated = self
             .friend_storage
             .update_friend_request_status(user_id, target_id, "cancelled")
@@ -260,6 +264,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to cancel friend request", &e))?;
 
         if !updated {
+            tracing::warn!(%request_id, "Cancel friend request missed pending row: {} -> {}", user_id, target_id);
             return Err(ApiError::not_found(format!("No pending friend request to {target_id}")));
         }
 
@@ -1307,12 +1312,12 @@ mod tests {
     async fn establish_friendship(container: &ServiceContainer, alice_user_id: &str, bob_user_id: &str) {
         container
             .friend_room_service
-            .send_friend_request(alice_user_id, bob_user_id, Some("hello"))
+            .send_friend_request("test-request-id", alice_user_id, bob_user_id, Some("hello"))
             .await
             .expect("send friend request");
         container
             .friend_room_service
-            .accept_friend_request(bob_user_id, alice_user_id)
+            .accept_friend_request("test-request-id", bob_user_id, alice_user_id)
             .await
             .expect("accept friend request");
     }

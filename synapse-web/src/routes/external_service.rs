@@ -11,6 +11,7 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_services::external_service_integration::*;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
+use crate::utils::auth::resolve_request_id;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
@@ -102,6 +103,7 @@ fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) ->
 
 pub async fn register_external_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     _admin: AdminUser,
     Json(body): Json<RegisterExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -122,7 +124,8 @@ pub async fn register_external_service(
         state.services.core.server_name.clone(),
     );
 
-    let service = integration.register_external_service(config).await?;
+    let request_id = resolve_request_id(&headers);
+    let service = integration.register_external_service(&request_id, config).await?;
 
     Ok((StatusCode::CREATED, Json(ExternalServiceResponse::from(service))))
 }
@@ -178,6 +181,7 @@ pub async fn get_external_service_health(
 pub async fn check_service_health(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
@@ -185,7 +189,8 @@ pub async fn check_service_health(
         state.services.core.server_name.clone(),
     );
 
-    let is_healthy = integration.check_service_health(&as_id).await?;
+    let request_id = resolve_request_id(&headers);
+    let is_healthy = integration.check_service_health(&request_id, &as_id).await?;
 
     Ok(Json(serde_json::json!({
         "as_id": as_id,
@@ -196,6 +201,7 @@ pub async fn check_service_health(
 pub async fn unregister_external_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = ExternalServiceIntegration::new(
@@ -203,7 +209,8 @@ pub async fn unregister_external_service(
         state.services.core.server_name.clone(),
     );
 
-    integration.unregister_external_service(&as_id).await?;
+    let request_id = resolve_request_id(&headers);
+    integration.unregister_external_service(&request_id, &as_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -211,6 +218,7 @@ pub async fn unregister_external_service(
 pub async fn update_external_service(
     State(state): State<AppState>,
     Path(as_id): Path<String>,
+    headers: HeaderMap,
     _admin: AdminUser,
     Json(body): Json<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -233,7 +241,8 @@ pub async fn update_external_service(
         request = request.is_enabled(is_enabled);
     }
 
-    let service = integration.update_external_service(&as_id, request).await?;
+    let request_id = resolve_request_id(&headers);
+    let service = integration.update_external_service(&request_id, &as_id, request).await?;
     Ok(Json(ExternalServiceResponse::from(service)))
 }
 
@@ -248,7 +257,10 @@ pub async fn handle_trendradar_webhook(
         state.services.core.server_name.clone(),
     );
 
-    integration.handle_trendradar_webhook(&service_id, payload, extract_webhook_auth(&headers, None)).await?;
+    let request_id = resolve_request_id(&headers);
+    integration
+        .handle_trendradar_webhook(&request_id, &service_id, payload, extract_webhook_auth(&headers, None))
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -268,7 +280,10 @@ pub async fn handle_openclaw_webhook(
         state.services.core.server_name.clone(),
     );
 
-    integration.handle_openclaw_webhook(&service_id, payload, extract_webhook_auth(&headers, None)).await?;
+    let request_id = resolve_request_id(&headers);
+    integration
+        .handle_openclaw_webhook(&request_id, &service_id, payload, extract_webhook_auth(&headers, None))
+        .await?;
 
     Ok(Json(serde_json::json!({
         "status": "success",
@@ -287,8 +302,10 @@ pub async fn handle_generic_webhook(
         state.services.core.server_name.clone(),
     );
 
+    let request_id = resolve_request_id(&headers);
     integration
         .handle_generic_webhook(
+            &request_id,
             &service_id,
             payload.clone(),
             extract_webhook_auth(&headers, payload.signature.as_deref()),
@@ -317,6 +334,7 @@ pub async fn get_all_health_status(
 
 pub async fn client_update_external_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     _admin: AdminUser,
     Path(service_id): Path<String>,
     Json(body): Json<UpdateExternalServiceBody>,
@@ -340,12 +358,14 @@ pub async fn client_update_external_service(
         request = request.is_enabled(is_enabled);
     }
 
-    let service = integration.update_external_service(&service_id, request).await?;
+    let request_id = resolve_request_id(&headers);
+    let service = integration.update_external_service(&request_id, &service_id, request).await?;
     Ok(Json(ExternalServiceResponse::from(service)))
 }
 
 pub async fn client_delete_external_service(
     State(state): State<AppState>,
+    headers: HeaderMap,
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -354,7 +374,8 @@ pub async fn client_delete_external_service(
         state.services.core.server_name.clone(),
     );
 
-    integration.unregister_external_service(&service_id).await?;
+    let request_id = resolve_request_id(&headers);
+    integration.unregister_external_service(&request_id, &service_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

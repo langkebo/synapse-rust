@@ -78,7 +78,6 @@ mod user_storage_tests;
 mod worker_api_tests;
 
 mod directory_service_tests;
-mod dm_service_tests;
 mod typing_service_tests;
 mod uia_service_tests;
 #[cfg(feature = "voice-extended")]

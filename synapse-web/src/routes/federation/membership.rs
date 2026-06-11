@@ -355,7 +355,7 @@ pub(super) async fn make_join(
     };
     super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
 
-    let result = async {
+    let result: Result<Json<Value>, ApiError> = async {
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
         let auth_events = state
@@ -465,7 +465,7 @@ pub(super) async fn send_join(
     };
     super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
 
-    let result = async {
+    let result: Result<Json<Value>, ApiError> = async {
         super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
 
         let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
@@ -596,7 +596,7 @@ pub(super) async fn send_join_v2(
     };
     super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
 
-    let result = async {
+    let result: Result<Json<Value>, ApiError> = async {
         if !room_id.starts_with('!') || !room_id.contains(':') {
             return Err(ApiError::bad_request("Invalid room_id format"));
         }

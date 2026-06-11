@@ -142,9 +142,5 @@ pub fn feature_flags_route_manifest() -> Vec<crate::web::routes::route_ledger::R
 }
 
 fn request_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .map_or_else(|| format!("feature-flag-{}", uuid::Uuid::new_v4()), ToOwned::to_owned)
+    crate::web::utils::auth::resolve_request_id(headers)
 }

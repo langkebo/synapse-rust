@@ -790,6 +790,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_start_chunked_upload_rejects_negative_total_size() {
+        let (media_domain_service, _media_service, user, _temp_dir) =
+            setup_test_media_domain("negative_size_tester").await;
+
+        let error = media_domain_service
+            .start_chunked_upload(&user.user_id, Some("bad.txt"), Some("text/plain"), Some(-1), 1)
+            .await
+            .expect_err("negative total_size should be rejected");
+
+        assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.message().contains("total_size must not be negative"));
+    }
+
+    #[tokio::test]
     async fn test_delete_media_for_other_user_returns_forbidden() {
         let (media_domain_service, _media_service, users, _temp_dir) = setup_test_media_domain_users_with_quota(
             &["media_owner_tester", "media_intruder_tester"],
@@ -866,5 +880,19 @@ mod tests {
         );
         assert_eq!(headers.cross_origin_resource_policy, "cross-origin");
         assert_eq!(headers.referrer_policy, "no-referrer");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_falls_back_to_kind_when_filename_sanitizes_empty() {
+        let headers = build_media_response_headers("text/html".to_string(), 7, Some("/\\\"\u{0000}"));
+
+        assert_eq!(headers.content_disposition, "attachment");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_treats_safe_media_type_case_insensitively() {
+        let headers = build_media_response_headers("IMAGE/PNG; charset=binary".to_string(), 5, Some("photo.png"));
+
+        assert_eq!(headers.content_disposition, "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png");
     }
 }

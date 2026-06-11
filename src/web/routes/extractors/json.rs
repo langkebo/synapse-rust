@@ -37,6 +37,7 @@ mod tests {
         extract::FromRequest,
         http::{header::CONTENT_TYPE, Request, StatusCode},
     };
+    use futures::stream;
     use serde::Deserialize;
 
     #[derive(Debug, Deserialize, PartialEq)]
@@ -109,5 +110,25 @@ mod tests {
 
         assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
         assert!(error.message().contains("Missing Content-Type: application/json"));
+    }
+
+    #[tokio::test]
+    async fn matrix_json_reports_body_read_failures_as_generic_json_errors() {
+        let request = Request::builder()
+            .uri("/_matrix/test")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from_stream(stream::once(async {
+                Err::<bytes::Bytes, std::io::Error>(std::io::Error::other("broken body stream"))
+            })))
+            .unwrap();
+
+        let error = match extract_payload(request).await {
+            Ok(_) => panic!("expected body read failure"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.http_status(), StatusCode::BAD_REQUEST);
+        assert!(error.message().contains("JSON error"));
+        assert!(error.message().contains("broken body stream"));
     }
 }

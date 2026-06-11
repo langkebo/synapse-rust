@@ -5,6 +5,7 @@ use crate::routes::{
     ensure_room_member, extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
     validate_user_id, AppState,
 };
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
@@ -173,10 +174,12 @@ pub(crate) async fn list_user_directory(
 
 pub(crate) async fn report_event(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report events in this room").await?;
@@ -198,6 +201,15 @@ pub(crate) async fn report_event(
         .report_event(&event.event_id, &event.room_id, "", &auth_user.user_id, reason, score)
         .await?;
 
+    ::tracing::info!(
+        request_id = %request_id,
+        room_id = %room_id,
+        event_id = %event.event_id,
+        reporter_user_id = %auth_user.user_id,
+        report_id,
+        "Created event report"
+    );
+
     Ok(Json(json!({
         "report_id": report_id
     })))
@@ -215,10 +227,12 @@ pub(crate) async fn update_report_score(
 
 pub(crate) async fn report_room(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report this room").await?;
 
@@ -237,6 +251,14 @@ pub(crate) async fn report_room(
     };
 
     let report = state.services.admin.event_report_service.create_report(request).await?;
+
+    ::tracing::info!(
+        request_id = %request_id,
+        room_id = %room_id,
+        reporter_user_id = %auth_user.user_id,
+        report_id = report.id,
+        "Created room report"
+    );
 
     Ok(Json(json!({
         "report_id": report.id,
@@ -296,9 +318,11 @@ pub(crate) async fn get_room_aliases(
 
 pub(crate) async fn set_room_alias(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
 
     if room_alias.len() > 255 {
@@ -317,6 +341,13 @@ pub(crate) async fn set_room_alias(
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
 
     state.services.rooms.room_service.set_room_alias(&room_id, &room_alias, &auth_user.user_id).await?;
+    ::tracing::info!(
+        request_id = %request_id,
+        room_id = %room_id,
+        room_alias = %room_alias,
+        user_id = %auth_user.user_id,
+        "Set room alias"
+    );
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
@@ -326,11 +357,14 @@ pub(crate) async fn set_room_alias(
 
 pub(crate) async fn delete_room_alias(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, _room_alias)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
     state.services.rooms.room_service.remove_room_alias(&room_id).await?;
+    ::tracing::info!(request_id = %request_id, room_id = %room_id, user_id = %auth_user.user_id, "Deleted room alias by room id");
     Ok(Json(json!({})))
 }
 
@@ -350,10 +384,12 @@ pub(crate) async fn get_room_by_alias(
 #[axum::debug_handler]
 pub(crate) async fn set_room_alias_direct(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
     let room_id = body
         .get("room_id")
@@ -376,6 +412,13 @@ pub(crate) async fn set_room_alias_direct(
     ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
 
     state.services.rooms.room_service.set_room_alias(room_id, &room_alias, &auth_user.user_id).await?;
+    ::tracing::info!(
+        request_id = %request_id,
+        room_id,
+        room_alias = %room_alias,
+        user_id = %auth_user.user_id,
+        "Set room alias by alias endpoint"
+    );
     Ok(Json(json!({
         "room_id": room_id,
         "alias": room_alias,
@@ -386,14 +429,17 @@ pub(crate) async fn set_room_alias_direct(
 #[axum::debug_handler]
 pub(crate) async fn delete_room_alias_direct(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
     if let Some(room_id) = state.services.rooms.room_service.get_room_by_alias(&room_alias).await? {
         ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
     }
     state.services.rooms.room_service.remove_room_alias_by_name(&room_alias).await?;
+    ::tracing::info!(request_id = %request_id, room_alias = %room_alias, user_id = %auth_user.user_id, "Deleted room alias by alias");
     Ok(Json(json!({
         "removed": true,
         "alias": room_alias

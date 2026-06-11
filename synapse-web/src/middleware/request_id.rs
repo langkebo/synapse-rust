@@ -29,7 +29,7 @@ fn generate_request_id() -> String {
 /// W3C TraceContext propagation standard combined with a custom request ID.
 pub async fn request_id_middleware(
     State(_state): State<AppState>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Response {
     let request_id = request
@@ -37,6 +37,10 @@ pub async fn request_id_middleware(
         .get("x-request-id")
         .and_then(|v| v.to_str().ok())
         .map_or_else(generate_request_id, |v| v.to_string());
+
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        request.headers_mut().insert("x-request-id", value);
+    }
 
     // Record the request ID in the current span for full-chain tracing
     Span::current().record("request_id", &request_id);
@@ -69,6 +73,14 @@ mod tests {
 
     async fn ok_handler() -> axum::http::StatusCode {
         axum::http::StatusCode::OK
+    }
+
+    async fn request_id_echo_handler(headers: axum::http::HeaderMap) -> String {
+        headers
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
     }
 
     #[tokio::test]
@@ -137,5 +149,31 @@ mod tests {
         let id1 = response1.headers().get("x-request-id").unwrap().to_str().unwrap();
         let id2 = response2.headers().get("x-request-id").unwrap().to_str().unwrap();
         assert_ne!(id1, id2);
+    }
+
+    #[tokio::test]
+    async fn test_request_id_visible_to_downstream_handler() {
+        let services = ServiceContainer::new_test().await;
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let state = AppState::new(services, cache);
+
+        let app = Router::new()
+            .route("/test", get(request_id_echo_handler))
+            .layer(middleware::from_fn_with_state(state.clone(), request_id_middleware))
+            .with_state(state);
+
+        let request = Request::builder()
+            .uri("/test")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(request).await.unwrap();
+        let header_value = response.headers().get("x-request-id").unwrap().to_str().unwrap().to_string();
+        let body =
+            axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
+        let body_text = String::from_utf8_lossy(&body);
+
+        assert!(!header_value.is_empty());
+        assert_eq!(header_value, body_text);
     }
 }

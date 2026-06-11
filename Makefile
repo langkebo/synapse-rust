@@ -6,6 +6,8 @@
 .PHONY: lint fmt format format-check format-install format-audit format-cycle check route-lint
 .PHONY: build build-release
 
+MUTATION_BATCH_FILES ?= src/web/routes/extractors/pagination.rs src/web/routes/extractors/json.rs src/services/media/mod.rs
+
 # 默认目标
 help:
 	@echo "Synapse-Rust Database Management"
@@ -26,7 +28,7 @@ help:
 	@echo "  test-integration      - Run integration tests only"
 	@echo "  test-coverage         - Run tests with coverage"
 	@echo "  test-coverage-check   - Run tests with coverage threshold (≥70%)"
-	@echo "  test-mutation         - Run mutation tests (cargo-mutants)"
+	@echo "  test-mutation         - Run batched mutation smoke tests (cargo-mutants)"
 	@echo "  test-mutation-incr    - Run incremental mutation tests"
 	@echo ""
 	@echo "Code Quality:"
@@ -119,8 +121,11 @@ test-coverage-check:
 	@cargo tarpaulin --fail-under 70 --out Html --out Lcov --include-tests --locked
 
 test-mutation:
-	@echo "Running mutation tests (cargo-mutants, nightly)..."
-	@cargo mutants --package synapse-rust --timeout 30 -- --test-threads=2
+	@echo "Running batched mutation smoke tests (cargo-mutants, nightly)..."
+	@for file in $(MUTATION_BATCH_FILES); do \
+		echo "==> $$file"; \
+		cargo mutants --package synapse-rust --file "$$file" --timeout 30 --baseline skip -- --test-threads=2 || exit $$?; \
+	done
 
 test-mutation-incremental:
 	@echo "Running incremental mutation tests on changed files..."

@@ -215,9 +215,5 @@ pub fn telemetry_route_manifest() -> Vec<crate::routes::route_ledger::RouteEntry
 }
 
 fn request_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-request-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|value| !value.trim().is_empty())
-        .map_or_else(|| format!("telemetry-alert-{}", uuid::Uuid::new_v4()), ToOwned::to_owned)
+    crate::utils::auth::resolve_request_id(headers)
 }

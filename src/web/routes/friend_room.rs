@@ -2,8 +2,10 @@ use crate::common::ApiError;
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     response::IntoResponse,
     routing::{delete, get, post, put},
     Json, Router,
@@ -514,6 +516,7 @@ async fn search_friend_directory(
 
 async fn send_friend_request(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<AddFriendRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -523,27 +526,34 @@ async fn send_friend_request(
         return Err(ApiError::bad_request("Cannot send friend request to yourself".to_string()));
     }
 
+    let request_id = resolve_request_id(&headers);
     let request_id_val: i64 = state
         .services
         .friend_room_service
-        .send_friend_request(&auth_user.user_id, &body.user_id, body.message.as_deref())
+        .send_friend_request(&request_id, &auth_user.user_id, &body.user_id, body.message.as_deref())
         .await?;
-    let request_id = request_id_val.to_string();
+    let friend_request_id = request_id_val.to_string();
 
     Ok(Json(json!({
-        "request_id": request_id,
+        "request_id": friend_request_id,
         "status": "pending"
     })))
 }
 
 async fn accept_friend_request(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(requester_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
-    let room_id: String = state.services.friend_room_service.accept_friend_request(&auth_user.user_id, &requester_id).await?;
+    let request_id = resolve_request_id(&headers);
+    let room_id: String = state
+        .services
+        .friend_room_service
+        .accept_friend_request(&request_id, &auth_user.user_id, &requester_id)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -553,24 +563,36 @@ async fn accept_friend_request(
 
 async fn reject_friend_request(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(requester_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&requester_id)?;
 
-    state.services.friend_room_service.reject_friend_request(&auth_user.user_id, &requester_id).await?;
+    let request_id = resolve_request_id(&headers);
+    state
+        .services
+        .friend_room_service
+        .reject_friend_request(&request_id, &auth_user.user_id, &requester_id)
+        .await?;
 
     Ok(Json(json!({ "status": "rejected" })))
 }
 
 async fn cancel_friend_request(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(target_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    state.services.friend_room_service.cancel_friend_request(&auth_user.user_id, &target_id).await?;
+    let request_id = resolve_request_id(&headers);
+    state
+        .services
+        .friend_room_service
+        .cancel_friend_request(&request_id, &auth_user.user_id, &target_id)
+        .await?;
 
     Ok(Json(json!({ "status": "cancelled" })))
 }
