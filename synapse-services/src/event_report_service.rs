@@ -14,7 +14,13 @@ impl EventReportService {
 
     #[instrument(skip(self))]
     pub async fn create_report(&self, request: CreateEventReportRequest) -> Result<EventReport, ApiError> {
-        info!("Creating event report for event: {} in room: {}", request.event_id, request.room_id);
+        info!(
+            event_id = %request.event_id,
+            room_id = %request.room_id,
+            reporter_user_id = %request.reporter_user_id,
+            reported_user_id = ?request.reported_user_id,
+            "Creating event report"
+        );
 
         let rate_check = self
             .storage
@@ -52,7 +58,13 @@ impl EventReportService {
             )
             .ok();
 
-        info!("Created event report: {}", report.id);
+        info!(
+            report_id = report.id,
+            event_id = %report.event_id,
+            room_id = %report.room_id,
+            reporter_user_id = %report.reporter_user_id,
+            "Created event report"
+        );
 
         Ok(report)
     }
@@ -178,7 +190,7 @@ impl EventReportService {
             )
             .ok();
 
-        info!("Updated event report: {} to status: {:?}", id, request.status);
+        info!(report_id = id, actor_user_id = %actor_user_id, status = ?request.status, "Updated event report");
 
         Ok(updated_report)
     }
@@ -216,7 +228,7 @@ impl EventReportService {
     pub async fn delete_report(&self, id: i64) -> Result<(), ApiError> {
         self.storage.delete_report(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete report", &e))?;
 
-        info!("Deleted event report: {}", id);
+        info!(report_id = id, "Deleted event report");
 
         Ok(())
     }
@@ -249,7 +261,7 @@ impl EventReportService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to block user", &e))?;
 
-        info!("Blocked user {} from reporting until {}", user_id, blocked_until);
+        info!(user_id = %user_id, blocked_until, reason = %reason, "Blocked user from reporting");
 
         Ok(())
     }
@@ -261,7 +273,7 @@ impl EventReportService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to unblock user", &e))?;
 
-        info!("Unblocked user {} from reporting", user_id);
+        info!(user_id = %user_id, "Unblocked user from reporting");
 
         Ok(())
     }
@@ -340,7 +352,7 @@ impl EventReportService {
             )
             .ok();
 
-        info!("Escalated event report: {}", id);
+        info!(report_id = id, actor_user_id = %actor_user_id, status = %"investigating", "Escalated event report");
 
         Ok(updated)
     }

@@ -107,15 +107,22 @@ pub async fn initialize_database(pool: &PgPool) -> Result<(), String> {
     match initializer.initialize().await {
         Ok(report) => {
             if report.is_success {
-                info!("{}", report.summary());
+                info!(
+                    success = report.is_success,
+                    skipped = report.skipped,
+                    step_count = report.steps.len(),
+                    repair_count = report.repairs_performed.len(),
+                    summary = %report.summary(),
+                    "数据库初始化成功"
+                );
                 Ok(())
             } else {
-                error!("数据库初始化失败: {}", report.summary());
+                error!(summary = %report.summary(), error_count = report.errors.len(), "数据库初始化失败");
                 Err(report.errors.join("; "))
             }
         }
         Err(e) => {
-            error!("数据库初始化异常: {}", e);
+            error!(error = %e, "数据库初始化异常");
             Err::<(), String>(e.to_string())
         }
     }

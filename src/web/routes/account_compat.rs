@@ -3,6 +3,7 @@ use crate::common::ApiError;
 use crate::services::uia_service::UiaService;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::web::routes::{extract_token_from_headers, validate_user_id, AppState};
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
     http::{HeaderMap, StatusCode},
@@ -187,9 +188,11 @@ pub(crate) async fn update_avatar(
 
 pub(crate) async fn change_password_uia(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let new_password = body
         .get("new_password")
         .and_then(|v| v.as_str())
@@ -275,7 +278,12 @@ pub(crate) async fn change_password_uia(
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to claim verification token: {e}");
+                    tracing::error!(
+                        request_id = %request_id,
+                        sid = sid_int,
+                        error = %e,
+                        "Failed to claim verification token"
+                    );
                     ApiError::database("A database error occurred".to_string())
                 })?
                 .ok_or_else(|| {
@@ -287,6 +295,7 @@ pub(crate) async fn change_password_uia(
             if session_client_secret(verification_token.session_data.as_ref()) != Some(client_secret) {
                 ::tracing::warn!(
                     target: "security_audit",
+                    request_id = %request_id,
                     event = "password_reset_client_secret_mismatch",
                     sid = sid_int,
                     "client_secret mismatch on consumed verification token"
@@ -324,8 +333,10 @@ pub(crate) async fn change_password_uia(
 
 pub(crate) async fn request_password_email_verification(
     State(state): State<AppState>,
+    headers: HeaderMap,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let email = body
         .get("email")
         .and_then(|v| v.as_str())
@@ -344,9 +355,11 @@ pub(crate) async fn request_password_email_verification(
             Err(e) => {
                 ::tracing::warn!(
                     target: "security_audit",
+                    request_id = %request_id,
                     event = "password_reset_email_lookup_failed",
-                    "Failed to resolve email owner during password reset request: {}",
-                    e
+                    email = %email,
+                    error = %e,
+                    "Failed to resolve email owner during password reset request"
                 );
                 None
             }
@@ -354,9 +367,11 @@ pub(crate) async fn request_password_email_verification(
         Err(e) => {
             ::tracing::warn!(
                 target: "security_audit",
+                request_id = %request_id,
                 event = "password_reset_threepid_lookup_failed",
-                "Failed to resolve verified threepid during password reset request: {}",
-                e
+                email = %email,
+                error = %e,
+                "Failed to resolve verified threepid during password reset request"
             );
             None
         }
@@ -365,7 +380,9 @@ pub(crate) async fn request_password_email_verification(
     if resolved_user_id.is_none() {
         ::tracing::info!(
             target: "security_audit",
+            request_id = %request_id,
             event = "password_reset_email_not_registered",
+            email = %email,
             "Password reset requested for an email with no associated account"
         );
     }
@@ -376,6 +393,7 @@ pub(crate) async fn request_password_email_verification(
         "/_matrix/client/v3/account/password/email/submitToken",
         resolved_user_id.as_deref(),
         "password_reset",
+        &request_id,
     )
     .await
 }
@@ -437,9 +455,11 @@ pub(crate) async fn get_threepids(
 
 pub(crate) async fn add_threepid(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let user_id = &auth_user.user_id;
     let now = chrono::Utc::now().timestamp_millis();
 
@@ -461,7 +481,13 @@ pub(crate) async fn add_threepid(
         .claim_used_token(sid_int)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to claim verification token: {e}");
+            tracing::error!(
+                request_id = %request_id,
+                sid = sid_int,
+                user_id = %user_id,
+                error = %e,
+                "Failed to claim verification token"
+            );
             ApiError::database("A database error occurred".to_string())
         })?
         .ok_or_else(|| {
@@ -515,7 +541,14 @@ pub(crate) async fn add_threepid(
     let rows_affected =
         state.services.threepid_storage.add_verified_threepid(user_id, medium, address, now, now).await.map_err(
             |e| {
-                tracing::error!("Failed to add threepid: {e}");
+                tracing::error!(
+                    request_id = %request_id,
+                    user_id = %user_id,
+                    medium = %medium,
+                    address = %address,
+                    error = %e,
+                    "Failed to add threepid"
+                );
                 ApiError::database("A database error occurred".to_string())
             },
         )?;
@@ -547,7 +580,15 @@ pub(crate) async fn add_threepid(
             .bind_three_pid(id_server, id_access_token, is_sid, is_client_secret, user_id)
             .await
         {
-            ::tracing::warn!("Failed to bind 3PID via Identity Server: {}", e);
+            ::tracing::warn!(
+                request_id = %request_id,
+                user_id = %user_id,
+                medium = %medium,
+                address = %address,
+                id_server = %id_server,
+                error = %e,
+                "Failed to bind 3PID via Identity Server"
+            );
         }
     }
 
@@ -556,15 +597,18 @@ pub(crate) async fn add_threepid(
 
 pub(crate) async fn request_3pid_add_email_verification(
     State(state): State<AppState>,
+    headers: HeaderMap,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     request_email_verification_with_submit_path(
         &state,
         &body,
         "/_matrix/client/v3/account/3pid/email/submitToken",
         Some(auth_user.user_id.as_str()),
         "3pid_add",
+        &request_id,
     )
     .await
 }

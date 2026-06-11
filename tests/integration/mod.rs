@@ -63,6 +63,9 @@ mod voice_routes_tests;
 #[cfg(feature = "beacons")]
 mod beacon_storage_tests_migrated;
 mod cross_signing_storage_tests_migrated;
+mod retention_storage_tests_migrated;
+mod room_summary_storage_tests_migrated;
+mod thread_storage_tests_migrated;
 mod device_storage_tests_migrated;
 mod event_storage_tests_migrated;
 mod feature_flags_storage_tests_migrated;

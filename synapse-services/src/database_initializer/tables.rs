@@ -1175,7 +1175,7 @@ impl DatabaseInitService {
             .execute(&*self.pool)
             .await
             {
-                warn!("Failed to seed captcha templates: {}", e);
+                warn!(error = %e, seeded_templates = 3_u64, "Failed to seed captcha templates");
             }
         }
 

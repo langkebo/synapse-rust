@@ -56,11 +56,17 @@ pub async fn send_with_retry<P: PushProvider + ?Sized>(
     for attempt in 1..=MAX_PUSH_RETRIES {
         let delay_ms = RETRY_BASE_DELAY_MS * 2u64.pow(attempt - 1);
         warn!(
-            "Push send failed (attempt {}/{}), retrying in {}ms: {}",
+            provider = provider.name(),
+            token_present = !token.is_empty(),
+            token_len = token.len(),
+            title_present = !payload.title.is_empty(),
+            room_id = ?payload.room_id,
+            event_id = ?payload.event_id,
             attempt,
-            MAX_PUSH_RETRIES,
+            max_retries = MAX_PUSH_RETRIES,
             delay_ms,
-            last_result.error.as_deref().unwrap_or("unknown error")
+            error = %last_result.error.as_deref().unwrap_or("unknown error"),
+            "Push send failed, retrying"
         );
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
@@ -72,9 +78,15 @@ pub async fn send_with_retry<P: PushProvider + ?Sized>(
     }
 
     warn!(
-        "Push send failed after {} retries: {}",
-        MAX_PUSH_RETRIES,
-        last_result.error.as_deref().unwrap_or("unknown error")
+        provider = provider.name(),
+        token_present = !token.is_empty(),
+        token_len = token.len(),
+        title_present = !payload.title.is_empty(),
+        room_id = ?payload.room_id,
+        event_id = ?payload.event_id,
+        max_retries = MAX_PUSH_RETRIES,
+        error = %last_result.error.as_deref().unwrap_or("unknown error"),
+        "Push send failed after retries"
     );
     last_result
 }

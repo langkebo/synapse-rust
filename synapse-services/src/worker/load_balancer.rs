@@ -57,6 +57,7 @@ impl WorkerLoadBalancer {
 
     pub async fn register_worker(&self, worker: WorkerInfo) {
         let worker_id = worker.worker_id.clone();
+        let worker_type = worker.worker_type.clone();
         let mut workers = self.workers.write().await;
 
         let weight = match worker.worker_type.as_str() {
@@ -74,14 +75,14 @@ impl WorkerLoadBalancer {
             WorkerState { info: worker, load_stats: WorkerLoadStats::default(), weight, request_count: 0 },
         );
 
-        info!("Worker registered: {} (weight: {})", worker_id, weight);
+        info!(worker_id = %worker_id, worker_type = %worker_type, weight = weight, "Worker registered");
     }
 
     pub async fn unregister_worker(&self, worker_id: &str) {
         let mut workers = self.workers.write().await;
         workers.remove(worker_id);
 
-        info!("Worker unregistered: {}", worker_id);
+        info!(worker_id = %worker_id, "Worker unregistered");
     }
 
     pub async fn update_worker_load(&self, worker_id: &str, stats: WorkerLoadStats) {
@@ -103,7 +104,7 @@ impl WorkerLoadBalancer {
             .collect();
 
         if candidates.is_empty() {
-            warn!("No available workers for task type: {}", task_type);
+            warn!(task_type = %task_type, strategy = ?self.strategy, "No available workers for task type");
             return None;
         }
 
@@ -218,7 +219,7 @@ impl WorkerLoadBalancer {
 
     pub fn set_strategy(&mut self, strategy: LoadBalanceStrategy) {
         self.strategy = strategy;
-        info!("Load balance strategy changed to: {:?}", strategy);
+        info!(strategy = ?strategy, "Load balance strategy changed");
     }
 }
 

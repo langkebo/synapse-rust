@@ -107,7 +107,13 @@ impl BurnAfterReadService {
         let now = Utc::now().timestamp_millis();
 
         if let Err(e) = self.event_storage.redact_event_content(event_id).await {
-            ::tracing::warn!("Failed to redact event content for burn {}: {}", event_id, e);
+            ::tracing::warn!(
+                error = %e,
+                user_id = %user_id,
+                room_id = %room_id,
+                event_id = %event_id,
+                "Failed to redact event content for burn"
+            );
         }
 
         if let Err(e) = self
@@ -126,7 +132,13 @@ impl BurnAfterReadService {
             )
             .await
         {
-            ::tracing::warn!("Failed to create redaction event for burn {}: {}", event_id, e);
+            ::tracing::warn!(
+                error = %e,
+                user_id = %user_id,
+                room_id = %room_id,
+                event_id = %event_id,
+                "Failed to create redaction event for burn"
+            );
         }
 
         self.storage
@@ -191,7 +203,14 @@ impl BurnAfterReadService {
 
         for row in &expired_rows {
             if let Err(e) = self.event_storage.redact_event_content(&row.event_id).await {
-                ::tracing::warn!("Failed to redact event content for burn {}: {}", row.event_id, e);
+                ::tracing::warn!(
+                    error = %e,
+                    burn_id = row.id,
+                    user_id = %row.user_id,
+                    room_id = %row.room_id,
+                    event_id = %row.event_id,
+                    "Failed to redact event content for burn"
+                );
             }
 
             if let Err(e) = self
@@ -210,15 +229,29 @@ impl BurnAfterReadService {
                 )
                 .await
             {
-                ::tracing::warn!("Failed to create redaction event for burn {}: {}", row.event_id, e);
+                ::tracing::warn!(
+                    error = %e,
+                    burn_id = row.id,
+                    user_id = %row.user_id,
+                    room_id = %row.room_id,
+                    event_id = %row.event_id,
+                    "Failed to create redaction event for burn"
+                );
             }
 
             if let Err(e) = self.storage.mark_burn_processed(row.id).await {
-                ::tracing::warn!("Failed to mark burn processed {}: {}", row.id, e);
+                ::tracing::warn!(error = %e, burn_id = row.id, event_id = %row.event_id, "Failed to mark burn processed");
             }
 
             if let Err(e) = self.storage.log_burned_event(&row.user_id, &row.room_id, &row.event_id, now).await {
-                ::tracing::warn!("Failed to log burned event {}: {}", row.event_id, e);
+                ::tracing::warn!(
+                    error = %e,
+                    burn_id = row.id,
+                    user_id = %row.user_id,
+                    room_id = %row.room_id,
+                    event_id = %row.event_id,
+                    "Failed to log burned event"
+                );
             }
 
             expired.push(BurnEvent {
@@ -235,18 +268,18 @@ impl BurnAfterReadService {
     }
 
     pub async fn recover_pending_burns(&self) {
-        ::tracing::info!("Recovering pending burn-after-read events from database...");
+        ::tracing::info!("Recovering pending burn-after-read events from database");
 
         match self.process_expired_burns().await {
             Ok(expired) => {
                 if expired.is_empty() {
-                    ::tracing::info!("No expired burn events to recover");
+                    ::tracing::info!(expired_count = 0, "No expired burn events to recover");
                 } else {
-                    ::tracing::info!("Recovered and processed {} expired burn events", expired.len());
+                    ::tracing::info!(expired_count = expired.len(), "Recovered expired burn events");
                 }
             }
             Err(e) => {
-                ::tracing::error!("Failed to recover expired burn events: {}", e);
+                ::tracing::error!(error = %e, "Failed to recover expired burn events");
             }
         }
     }
@@ -267,12 +300,12 @@ impl BurnAfterReadService {
                 interval.tick().await;
 
                 if let Err(e) = service.process_expired_burns().await {
-                    ::tracing::error!("Burn processor error: {}", e);
+                    ::tracing::error!(error = %e, "Burn processor error");
                 }
             }
         });
 
-        ::tracing::info!("Burn-after-read processor started (5s interval)");
+        ::tracing::info!(interval_secs = 5, "Burn-after-read processor started");
     }
 }
 

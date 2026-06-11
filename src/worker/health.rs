@@ -149,7 +149,13 @@ impl HealthChecker {
 
                 if current.consecutive_failures >= self.config.max_consecutive_failures {
                     current.status = HealthStatus::Unhealthy;
-                    warn!("Worker {} marked as unhealthy: {}", worker_id, e);
+                    warn!(
+                        worker_id = %worker_id,
+                        error = %e,
+                        consecutive_failures = current.consecutive_failures,
+                        max_consecutive_failures = self.config.max_consecutive_failures,
+                        "Worker marked as unhealthy"
+                    );
                 } else {
                     current.status = HealthStatus::Degraded;
                 }
@@ -200,12 +206,19 @@ impl HealthChecker {
         let config = self.config.clone();
         let interval = Duration::from_secs(config.check_interval_secs);
 
-        info!("Starting periodic health checks (interval: {:?})", interval);
+        info!(
+            check_interval_secs = config.check_interval_secs,
+            timeout_secs = config.timeout_secs,
+            max_consecutive_failures = config.max_consecutive_failures,
+            recovery_threshold = config.recovery_threshold,
+            degraded_latency_ms = config.degraded_latency_ms,
+            "Starting periodic health checks"
+        );
 
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
-                    info!("Health check task shutting down");
+                    info!(check_interval_secs = config.check_interval_secs, "Health check task shutting down");
                     break;
                 }
                 _ = tokio::time::sleep(interval) => {

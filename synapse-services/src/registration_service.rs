@@ -74,10 +74,21 @@ impl RegistrationService {
             };
 
             if let Err(e) = queue.submit(email_job).await {
-                ::tracing::warn!("Failed to submit welcome email task: {}", e);
+                ::tracing::warn!(
+                    error = %e,
+                    user_id = %user.user_id,
+                    username = %username,
+                    has_displayname = displayname.is_some(),
+                    "Failed to submit welcome email task"
+                );
                 // Non-blocking error, continue
             } else {
-                ::tracing::info!("Submitted welcome email task for user {}", user.user_id);
+                ::tracing::info!(
+                    user_id = %user.user_id,
+                    username = %username,
+                    has_displayname = displayname.is_some(),
+                    "Submitted welcome email task"
+                );
             }
         }
 

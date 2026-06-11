@@ -15,7 +15,7 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn create_update(&self, request: CreateBackgroundUpdateRequest) -> Result<BackgroundUpdate, ApiError> {
-        info!("Creating background update: {}", request.job_name);
+        info!(job_name = %request.job_name, "Creating background update");
 
         if self
             .storage
@@ -33,7 +33,7 @@ impl BackgroundUpdateService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create update", &e))?;
 
-        info!("Created background update: {}", update.job_name);
+        info!(job_name = %update.job_name, status = %update.status, "Created background update");
 
         Ok(update)
     }
@@ -88,7 +88,7 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn start_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
-        info!("Starting background update: {}", job_name);
+        info!(job_name = %job_name, "Starting background update");
 
         let update = self
             .storage
@@ -143,7 +143,7 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn complete_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
-        info!("Completing background update: {}", job_name);
+        info!(job_name = %job_name, "Completing background update");
 
         let update = self
             .storage
@@ -160,7 +160,7 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn fail_update(&self, job_name: &str, error_message: &str) -> Result<BackgroundUpdate, ApiError> {
-        warn!("Failing background update: {} - {}", job_name, error_message);
+        warn!(job_name = %job_name, error_message = %error_message, "Failing background update");
 
         let update = self
             .storage
@@ -177,7 +177,7 @@ impl BackgroundUpdateService {
 
     #[instrument(skip(self))]
     pub async fn cancel_update(&self, job_name: &str) -> Result<BackgroundUpdate, ApiError> {
-        info!("Cancelling background update: {}", job_name);
+        info!(job_name = %job_name, "Cancelling background update");
 
         let update = self
             .storage
@@ -197,7 +197,7 @@ impl BackgroundUpdateService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete update", &e))?;
 
-        info!("Deleted background update: {}", job_name);
+        info!(job_name = %job_name, "Deleted background update");
 
         Ok(())
     }
@@ -212,7 +212,7 @@ impl BackgroundUpdateService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to retry updates", &e))?;
 
-        info!("Retried {} failed updates", count);
+        info!(retried_count = count, "Retried failed background updates");
 
         Ok(count)
     }
@@ -227,7 +227,7 @@ impl BackgroundUpdateService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup locks", &e))?;
 
-        info!("Cleaned up {} expired locks", count);
+        info!(expired_lock_count = count, "Cleaned up expired locks");
 
         Ok(count)
     }

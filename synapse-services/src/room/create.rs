@@ -47,7 +47,15 @@ impl RoomService {
 
         let result = self.create_room_in_db(&room_id, user_id, join_rule, is_public, room_version, Some(&mut tx)).await;
         if let Err(e) = &result {
-            ::tracing::error!("create_room_in_db failed: {}", e);
+            ::tracing::error!(
+                room_id = %room_id,
+                user_id = %user_id,
+                join_rule = %join_rule,
+                is_public,
+                room_version = %room_version,
+                error = %e,
+                "create_room_in_db failed"
+            );
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create room", &e));
         }
@@ -86,14 +94,25 @@ impl RoomService {
             )
             .await;
         if let Err(e) = &result {
-            ::tracing::error!("m.room.create event failed: {}", e);
+            ::tracing::error!(
+                room_id = %room_id,
+                user_id = %user_id,
+                room_version = %room_version,
+                error = %e,
+                "m.room.create event failed"
+            );
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.create event", &e));
         }
 
         let result = self.add_creator_to_room(&room_id, user_id, Some(&mut tx)).await;
         if let Err(e) = &result {
-            ::tracing::error!("add_creator_to_room failed: {}", e);
+            ::tracing::error!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "add_creator_to_room failed"
+            );
             let _ = tx.rollback().await;
             return Err(e.clone());
         }
@@ -292,7 +311,13 @@ impl RoomService {
                     )
                     .await;
                 if let Err(e) = result {
-                    ::tracing::error!("Failed to apply initial_state event {}: {}", event_type, e);
+                    ::tracing::error!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        event_type = %event_type,
+                        error = %e,
+                        "Failed to apply initial_state event"
+                    );
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to apply initial_state event {event_type}", &e));
                 }
@@ -337,7 +362,7 @@ impl RoomService {
                 .execute(&mut *tx)
                 .await
             {
-                ::tracing::warn!("Failed to update join_rules on rooms table: {}", e);
+                ::tracing::warn!(error = %e, room_id = %room_id, join_rule = %jr, "Failed to update join_rules on rooms table");
             }
             join_rule = jr.as_str();
         }
@@ -381,14 +406,20 @@ impl RoomService {
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
         if let Err(e) = self.room_summary_service.create_summary(summary_request).await {
-            ::tracing::warn!("Failed to create room summary: {}", e);
+            ::tracing::warn!(
+                error = %e,
+                room_id = %room_id,
+                room_type = ?config.room_type,
+                join_rule = %join_rule,
+                "Failed to create room summary"
+            );
         }
 
         if let Some(ref alias) = config.room_alias_name {
             let full_alias = format!("#{}:{}", alias, self.server_name);
             validate_room_alias_input(&full_alias)?;
             if let Err(e) = self.room_storage.set_room_alias(&room_id, &full_alias, user_id).await {
-                ::tracing::warn!("Failed to save room alias: {}", e);
+                ::tracing::warn!(error = %e, room_id = %room_id, room_alias = %full_alias, user_id = %user_id, "Failed to save room alias");
             }
         }
 
@@ -533,7 +564,12 @@ impl RoomService {
                 let mut offset: i64 = 0;
                 for invitee in invites {
                     if !existing_users.contains(invitee) {
-                        ::tracing::warn!("Skipping invite for non-existent user: {}", invitee);
+                        ::tracing::warn!(
+                            room_id = %room_id,
+                            invitee = %invitee,
+                            sender_user_id = %sender_user_id,
+                            "Skipping invite for non-existent user"
+                        );
                         continue;
                     }
                     self.member_storage

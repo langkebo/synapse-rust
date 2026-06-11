@@ -25,11 +25,11 @@ mod sticky_event_integration_suite {
         let event_type = "m.room.message";
 
         storage
-            .set_sticky_event(room_id, user_id, event_id, event_type, true)
+            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
             .await
             .expect("Failed to set sticky event");
 
-        let result = storage.get_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
         assert!(result.is_some());
         let sticky = result.unwrap();
@@ -37,19 +37,19 @@ mod sticky_event_integration_suite {
         assert_eq!(sticky.user_id, user_id);
         assert_eq!(sticky.event_id, event_id);
         assert_eq!(sticky.event_type, event_type);
-        assert!(sticky.sticky);
+        assert!(sticky.is_sticky);
 
         let all_events =
-            storage.get_all_sticky_events(room_id, user_id).await.expect("Failed to get all sticky events");
+            storage.get_all_is_sticky_events(room_id, user_id).await.expect("Failed to get all sticky events");
 
         assert!(!all_events.is_empty());
         assert!(all_events.iter().any(|e| e.event_type == event_type));
 
-        storage.clear_sticky_event(room_id, user_id, event_type).await.expect("Failed to clear sticky event");
+        storage.clear_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to clear sticky event");
 
-        let result = storage.get_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
-        assert!(result.is_none() || !result.unwrap().sticky);
+        assert!(result.is_none() || !result.unwrap().is_sticky);
     }
 
     #[tokio::test]
@@ -69,22 +69,22 @@ mod sticky_event_integration_suite {
         let user_id = "@testuser:localhost";
 
         storage
-            .set_sticky_event(room_id, user_id, "$event1:localhost", "m.room.message", true)
+            .set_is_sticky_event(room_id, user_id, "$event1:localhost", "m.room.message", true)
             .await
             .expect("Failed to set sticky event 1");
 
         storage
-            .set_sticky_event(room_id, user_id, "$event2:localhost", "m.room.topic", true)
+            .set_is_sticky_event(room_id, user_id, "$event2:localhost", "m.room.topic", true)
             .await
             .expect("Failed to set sticky event 2");
 
         storage
-            .set_sticky_event(room_id, user_id, "$event3:localhost", "m.room.avatar", true)
+            .set_is_sticky_event(room_id, user_id, "$event3:localhost", "m.room.avatar", true)
             .await
             .expect("Failed to set sticky event 3");
 
         let all_events =
-            storage.get_all_sticky_events(room_id, user_id).await.expect("Failed to get all sticky events");
+            storage.get_all_is_sticky_events(room_id, user_id).await.expect("Failed to get all sticky events");
 
         assert_eq!(all_events.len(), 3);
 
@@ -110,17 +110,17 @@ mod sticky_event_integration_suite {
         let user_id = "@testuser:localhost";
 
         storage
-            .set_sticky_event("!room1:localhost", user_id, "$event1:localhost", "m.room.message", true)
+            .set_is_sticky_event("!room1:localhost", user_id, "$event1:localhost", "m.room.message", true)
             .await
             .expect("Failed to set sticky event");
 
         storage
-            .set_sticky_event("!room2:localhost", user_id, "$event2:localhost", "m.room.message", true)
+            .set_is_sticky_event("!room2:localhost", user_id, "$event2:localhost", "m.room.message", true)
             .await
             .expect("Failed to set sticky event");
 
         let rooms =
-            storage.get_rooms_with_sticky_events(user_id).await.expect("Failed to get rooms with sticky events");
+            storage.get_rooms_with_is_sticky_events(user_id).await.expect("Failed to get rooms with sticky events");
 
         assert!(rooms.len() >= 2);
         assert!(rooms.contains(&"!room1:localhost".to_string()));
@@ -145,16 +145,16 @@ mod sticky_event_integration_suite {
         let event_type = "m.room.message";
 
         storage
-            .set_sticky_event(room_id, user_id, "$event1:localhost", event_type, true)
+            .set_is_sticky_event(room_id, user_id, "$event1:localhost", event_type, true)
             .await
             .expect("Failed to set initial sticky event");
 
         storage
-            .set_sticky_event(room_id, user_id, "$event2:localhost", event_type, true)
+            .set_is_sticky_event(room_id, user_id, "$event2:localhost", event_type, true)
             .await
             .expect("Failed to update sticky event");
 
-        let result = storage.get_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
         assert!(result.is_some());
         assert_eq!(result.unwrap().event_id, "$event2:localhost");
@@ -167,15 +167,16 @@ mod sticky_event_integration_suite {
             user_id: "@user:localhost".to_string(),
             event_id: "$event:localhost".to_string(),
             event_type: "m.room.message".to_string(),
-            sticky: true,
-            updated_at: 1700000000000i64,
+            is_sticky: true,
+            created_ts: 1700000000000i64,
+            updated_ts: 1700000000000i64,
         };
 
         assert_eq!(event.room_id, "!room:localhost");
         assert_eq!(event.user_id, "@user:localhost");
         assert_eq!(event.event_id, "$event:localhost");
         assert_eq!(event.event_type, "m.room.message");
-        assert!(event.sticky);
+        assert!(event.is_sticky);
     }
 
     #[test]

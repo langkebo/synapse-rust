@@ -17,7 +17,15 @@ impl ServerNotificationService {
         &self,
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError> {
-        info!("Creating notification: {}", request.title);
+        info!(
+            title_present = !request.title.is_empty(),
+            title_len = request.title.len(),
+            notification_type = ?request.notification_type,
+            target_audience = ?request.target_audience,
+            target_user_count = request.target_user_ids.as_ref().map(std::vec::Vec::len),
+            created_by = ?request.created_by,
+            "Creating notification"
+        );
         self.storage.create_notification(request).await
     }
 
@@ -47,19 +55,28 @@ impl ServerNotificationService {
         notification_id: i64,
         request: CreateNotificationRequest,
     ) -> Result<ServerNotification, ApiError> {
-        info!("Updating notification: {}", notification_id);
+        info!(
+            notification_id,
+            title_present = !request.title.is_empty(),
+            title_len = request.title.len(),
+            notification_type = ?request.notification_type,
+            target_audience = ?request.target_audience,
+            target_user_count = request.target_user_ids.as_ref().map(std::vec::Vec::len),
+            created_by = ?request.created_by,
+            "Updating notification"
+        );
         self.storage.update_notification(notification_id, request).await
     }
 
     #[instrument(skip(self))]
     pub async fn delete_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
-        info!("Deleting notification: {}", notification_id);
+        info!(notification_id, "Deleting notification");
         self.storage.delete_notification(notification_id).await
     }
 
     #[instrument(skip(self))]
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
-        info!("Deactivating notification: {}", notification_id);
+        info!(notification_id, "Deactivating notification");
         self.storage.deactivate_notification(notification_id).await
     }
 
@@ -70,25 +87,30 @@ impl ServerNotificationService {
 
     #[instrument(skip(self))]
     pub async fn mark_as_read(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
-        info!("Marking notification {} as read for user {}", notification_id, user_id);
+        info!(notification_id, user_id = %user_id, "Marking notification as read");
         self.storage.mark_as_read(user_id, notification_id).await
     }
 
     #[instrument(skip(self))]
     pub async fn mark_as_dismissed(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {
-        info!("Dismissing notification {} for user {}", notification_id, user_id);
+        info!(notification_id, user_id = %user_id, "Dismissing notification");
         self.storage.mark_as_dismissed(user_id, notification_id).await
     }
 
     #[instrument(skip(self))]
     pub async fn mark_all_as_read(&self, user_id: &str) -> Result<i64, ApiError> {
-        info!("Marking all notifications as read for user {}", user_id);
+        info!(user_id = %user_id, "Marking all notifications as read");
         self.storage.mark_all_as_read(user_id).await
     }
 
     #[instrument(skip(self))]
     pub async fn create_template(&self, request: CreateTemplateRequest) -> Result<NotificationTemplate, ApiError> {
-        info!("Creating notification template: {}", request.name);
+        info!(
+            template_name = %request.name,
+            notification_type = ?request.notification_type,
+            variable_count = request.variables.as_ref().map(std::vec::Vec::len),
+            "Creating notification template"
+        );
         self.storage.create_template(request).await
     }
 
@@ -104,7 +126,7 @@ impl ServerNotificationService {
 
     #[instrument(skip(self))]
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
-        info!("Deleting notification template: {}", name);
+        info!(template_name = %name, "Deleting notification template");
         self.storage.delete_template(name).await
     }
 
@@ -152,7 +174,7 @@ impl ServerNotificationService {
         notification_id: i64,
         scheduled_for: i64,
     ) -> Result<ScheduledNotification, ApiError> {
-        info!("Scheduling notification {} for {}", notification_id, scheduled_for);
+        info!(notification_id, scheduled_for, "Scheduling notification");
         self.storage.schedule_notification(notification_id, scheduled_for).await
     }
 
@@ -173,7 +195,7 @@ impl ServerNotificationService {
 
     #[instrument(skip(self))]
     pub async fn broadcast_notification(&self, notification_id: i64, delivery_method: &str) -> Result<(), ApiError> {
-        info!("Broadcasting notification {} via {}", notification_id, delivery_method);
+        info!(notification_id, delivery_method = %delivery_method, "Broadcasting notification");
 
         self.storage.log_delivery(notification_id, None, delivery_method, "broadcast", None).await?;
 

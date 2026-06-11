@@ -29,7 +29,12 @@ impl CasService {
         match self.storage.list_services().await {
             Ok(_) => true,
             Err(e) => {
-                tracing::warn!("CAS service configuration check failed: {} - database tables may not exist", e);
+                tracing::warn!(
+                    error = %e,
+                    server_name = %self.server_name,
+                    ticket_prefix = %self.ticket_prefix,
+                    "CAS service configuration check failed; database tables may not exist"
+                );
                 false
             }
         }
@@ -44,7 +49,7 @@ impl CasService {
 
     #[instrument(skip(self))]
     pub async fn create_service_ticket(&self, user_id: &str, service_url: &str) -> Result<CasTicket, ApiError> {
-        info!("Creating service ticket for user: {}", user_id);
+        info!(user_id = %user_id, has_service_url = !service_url.is_empty(), "Creating service ticket");
 
         let ticket_id = self.generate_ticket_id(&self.ticket_prefix);
 
@@ -64,12 +69,17 @@ impl CasService {
         ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasTicket>, ApiError> {
-        info!("Validating service ticket: {}", ticket_id);
+        info!(ticket_id = %ticket_id, has_service_url = !service_url.is_empty(), "Validating service ticket");
 
         let ticket = self.storage.validate_ticket(ticket_id, service_url).await?;
 
         if let Some(ref t) = ticket {
-            info!("Service ticket validated for user: {}", t.user_id);
+            info!(
+                ticket_id = %ticket_id,
+                user_id = %t.user_id,
+                has_service_url = !service_url.is_empty(),
+                "Service ticket validated"
+            );
         }
 
         Ok(ticket)
@@ -83,7 +93,13 @@ impl CasService {
         pgt_url: Option<&str>,
         renew: bool,
     ) -> Result<CasValidationResponse, ApiError> {
-        info!("V3 validating service ticket: {}", ticket_id);
+        info!(
+            ticket_id = %ticket_id,
+            has_service_url = !service_url.is_empty(),
+            pgt_callback_requested = pgt_url.is_some(),
+            renew,
+            "Validating service ticket with CAS v3"
+        );
 
         let ticket = self.storage.get_ticket(ticket_id).await?;
 
@@ -130,7 +146,12 @@ impl CasService {
         service_url: &str,
         pgt_url: Option<&str>,
     ) -> Result<CasProxyGrantingTicket, ApiError> {
-        info!("Creating proxy granting ticket for user: {}", user_id);
+        info!(
+            user_id = %user_id,
+            has_service_url = !service_url.is_empty(),
+            pgt_callback_requested = pgt_url.is_some(),
+            "Creating proxy granting ticket"
+        );
 
         let pgt_id = self.generate_ticket_id("PGT");
         let iou = Some(self.generate_ticket_id("PGTIOU"));
@@ -146,7 +167,11 @@ impl CasService {
         let pgt = self.storage.create_pgt(request).await?;
 
         if let Some(url) = pgt_url {
-            info!("PGT callback URL: {}, IOU: {:?}", url, iou);
+            info!(
+                has_pgt_callback_url = !url.is_empty(),
+                pgt_iou = ?iou,
+                "CAS PGT callback prepared"
+            );
         }
 
         Ok(pgt)
@@ -154,7 +179,7 @@ impl CasService {
 
     #[instrument(skip(self))]
     pub async fn create_proxy_ticket(&self, pgt_id: &str, target_service: &str) -> Result<CasProxyTicket, ApiError> {
-        info!("Creating proxy ticket for PGT: {}", pgt_id);
+        info!(pgt_id = %pgt_id, has_target_service = !target_service.is_empty(), "Creating proxy ticket");
 
         let pgt = self
             .storage
@@ -185,13 +210,21 @@ impl CasService {
         proxy_ticket_id: &str,
         service_url: &str,
     ) -> Result<Option<CasProxyTicket>, ApiError> {
-        info!("Validating proxy ticket: {}", proxy_ticket_id);
+        info!(
+            proxy_ticket_id = %proxy_ticket_id,
+            has_service_url = !service_url.is_empty(),
+            "Validating proxy ticket"
+        );
         self.storage.validate_proxy_ticket(proxy_ticket_id, service_url).await
     }
 
     #[instrument(skip(self))]
     pub async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
-        info!("Registering CAS service: {}", request.service_id);
+        info!(
+            service_id = %request.service_id,
+            has_service_url = !request.service_url.is_empty(),
+            "Registering CAS service"
+        );
         self.storage.register_service(request).await
     }
 
@@ -212,7 +245,7 @@ impl CasService {
 
     #[instrument(skip(self))]
     pub async fn delete_service(&self, service_id: &str) -> Result<bool, ApiError> {
-        info!("Deleting CAS service: {}", service_id);
+        info!(service_id = %service_id, "Deleting CAS service");
         self.storage.delete_service(service_id).await
     }
 
@@ -233,7 +266,7 @@ impl CasService {
 
     #[instrument(skip(self))]
     pub async fn initiate_single_logout(&self, user_id: &str) -> Result<Vec<CasSloSession>, ApiError> {
-        info!("Initiating single logout for user: {}", user_id);
+        info!(user_id = %user_id, "Initiating CAS single logout");
         let sessions = self.storage.get_active_slo_sessions(user_id).await?;
         Ok(sessions)
     }

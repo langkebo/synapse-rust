@@ -153,7 +153,13 @@ impl RetentionService {
         &self,
         request: CreateRoomRetentionPolicyRequest,
     ) -> Result<RoomRetentionPolicy, ApiError> {
-        info!("Setting retention policy for room: {}", request.room_id);
+        info!(
+            room_id = %request.room_id,
+            max_lifetime = ?request.max_lifetime,
+            min_lifetime = ?request.min_lifetime,
+            expire_on_clients = ?request.is_expire_on_clients,
+            "Setting retention policy for room"
+        );
 
         if let Some(max_lifetime) = request.max_lifetime {
             if max_lifetime < 0 {
@@ -187,7 +193,7 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn delete_room_policy(&self, room_id: &str) -> Result<(), ApiError> {
-        info!("Deleting retention policy for room: {}", room_id);
+        info!(room_id = %room_id, "Deleting retention policy for room");
 
         self.storage
             .delete_room_policy(room_id)
@@ -213,7 +219,12 @@ impl RetentionService {
         &self,
         request: UpdateServerRetentionPolicyRequest,
     ) -> Result<ServerRetentionPolicy, ApiError> {
-        info!("Updating server retention policy");
+        info!(
+            max_lifetime = ?request.max_lifetime,
+            min_lifetime = ?request.min_lifetime,
+            expire_on_clients = ?request.is_expire_on_clients,
+            "Updating server retention policy"
+        );
 
         let policy = self
             .storage
@@ -226,7 +237,7 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn run_cleanup(&self, room_id: &str) -> Result<RetentionCleanupLog, ApiError> {
-        info!("Running retention cleanup for room: {}", room_id);
+        info!(room_id = %room_id, "Running retention cleanup for room");
 
         let policy = self
             .storage
@@ -323,13 +334,15 @@ impl RetentionService {
     }
 
     pub async fn run_scheduled_cleanups(&self) -> Result<usize, ApiError> {
-        info!("Running scheduled retention cleanups");
+        info!(cleanup_scope = %"scheduled", "Running scheduled retention cleanups");
 
         let policies = self
             .storage
             .get_rooms_with_policies()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get policies", &e))?;
+
+        info!(policy_count = policies.len(), "Loaded retention policies for scheduled cleanups");
 
         let mut total_cleaned = 0;
 
@@ -340,7 +353,7 @@ impl RetentionService {
                         total_cleaned += log.events_deleted as usize;
                     }
                     Err(e) => {
-                        warn!("Failed to run cleanup for room {}: {}", policy.room_id, e);
+                        warn!(error = %e, room_id = %policy.room_id, "Failed to run cleanup for room");
                     }
                 }
             }
@@ -370,7 +383,7 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to run scheduled retention cleanups: {}", error);
+                warn!(error = %error, started_ts, failed_tasks = summary.failed_tasks, "Failed to run scheduled retention cleanups");
             }
         }
 
@@ -380,7 +393,7 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to cleanup expired beacons: {}", error);
+                warn!(error = %error, started_ts, failed_tasks = summary.failed_tasks, "Failed to cleanup expired beacons");
             }
         }
 
@@ -400,7 +413,7 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to run scheduled retention cleanups: {}", error);
+                warn!(error = %error, started_ts, failed_tasks = summary.failed_tasks, "Failed to run scheduled retention cleanups");
             }
         }
 
@@ -420,7 +433,7 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to cleanup expired uploads: {}", error);
+                warn!(error = %error, started_ts, failed_tasks = summary.failed_tasks, "Failed to cleanup expired uploads");
             }
         }
 
@@ -430,7 +443,13 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to cleanup expired audit events: {}", error);
+                warn!(
+                    error = %error,
+                    started_ts,
+                    audit_retention_days = config.audit_retention_days,
+                    failed_tasks = summary.failed_tasks,
+                    "Failed to cleanup expired audit events"
+                );
             }
         }
 
@@ -440,7 +459,13 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to process retention cleanup queue: {}", error);
+                warn!(
+                    error = %error,
+                    started_ts,
+                    cleanup_batch_size = config.cleanup_batch_size,
+                    failed_tasks = summary.failed_tasks,
+                    "Failed to process retention cleanup queue"
+                );
             }
         }
 
@@ -450,7 +475,13 @@ impl RetentionService {
             }
             Err(error) => {
                 summary.failed_tasks += 1;
-                warn!("Failed to prune retention cleanup queue: {}", error);
+                warn!(
+                    error = %error,
+                    started_ts,
+                    queue_retention_days = config.queue_retention_days,
+                    failed_tasks = summary.failed_tasks,
+                    "Failed to prune retention cleanup queue"
+                );
             }
         }
 

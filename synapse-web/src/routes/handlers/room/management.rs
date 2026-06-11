@@ -2,6 +2,7 @@ use super::{ensure_room_state_write_access, ensure_room_view_access, UpgradeRoom
 use synapse_common::ApiError;
 use synapse_common::map_internal;
 use synapse_services::CreateRoomConfig;
+use crate::utils::auth::resolve_request_id;
 use crate::routes::{
     ensure_room_member, extract_token_from_headers, validate_room_id, AppState, AuthenticatedUser,
     OptionalAuthenticatedUser,
@@ -226,6 +227,7 @@ pub(crate) async fn create_room(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
     let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
@@ -332,7 +334,13 @@ pub(crate) async fn create_room(
             parent_space_id: None,
         };
         if let Err(e) = state.services.rooms.space_service.create_space(space_request).await {
-            ::tracing::error!("Failed to create space record: {}", e);
+            ::tracing::error!(
+                request_id = %request_id,
+                user_id = %user_id,
+                room_type = ?config.room_type,
+                error = %e,
+                "Failed to create space record"
+            );
         }
     }
 

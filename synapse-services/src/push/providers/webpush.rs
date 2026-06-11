@@ -175,14 +175,24 @@ impl PushProvider for WebPushProvider {
         let subscription = match self.parse_subscription(token) {
             Ok(s) => s,
             Err(e) => {
-                error!("Invalid WebPush subscription: {}", e);
+                error!(
+                    %e,
+                    title_present = !payload.title.is_empty(),
+                    room_id = payload.room_id,
+                    event_id = payload.event_id,
+                    "Invalid WebPush subscription"
+                );
                 return PushResult::failure(&e);
             }
         };
 
         info!(
-            "Sending WebPush notification to endpoint: {}...",
-            &subscription.endpoint[..50.min(subscription.endpoint.len())]
+            endpoint_present = !subscription.endpoint.is_empty(),
+            endpoint_len = subscription.endpoint.len(),
+            title_present = !payload.title.is_empty(),
+            room_id = payload.room_id,
+            event_id = payload.event_id,
+            "Sending WebPush notification"
         );
 
         let payload_json = serde_json::to_string(&serde_json::json!({
@@ -199,13 +209,13 @@ impl PushProvider for WebPushProvider {
 
         match self.send_to_endpoint(&subscription, &encrypted).await {
             Ok(_) => {
-                debug!("WebPush successful");
+                debug!(title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "WebPush successful");
                 PushResult::success()
             }
             Err(e) => {
                 let should_retry = e.contains("429") || e.contains("503") || e.contains("500");
 
-                error!("WebPush error: {}", e);
+                error!(%e, title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "WebPush error");
 
                 if should_retry {
                     PushResult::retryable_failure(&e)

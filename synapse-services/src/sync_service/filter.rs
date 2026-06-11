@@ -145,7 +145,12 @@ impl SyncService {
 
             let inserted = current_target.entry(segment.to_string()).or_insert_with(|| Value::Object(Map::new()));
             let Some(obj) = inserted.as_object_mut() else {
-                ::tracing::error!("merge_json_nested: expected object for segment {}", segment);
+                ::tracing::error!(
+                    root_key = %root_key,
+                    path = %path,
+                    segment = %segment,
+                    "merge_json_nested: expected object for segment"
+                );
                 return;
             };
             current_target = obj;

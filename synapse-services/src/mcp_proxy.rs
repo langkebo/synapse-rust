@@ -21,7 +21,7 @@ impl McpProxyService {
             .timeout(Duration::from_secs(30)) // 增加超时时间以适应大模型生成或爬虫
             .build()
             .unwrap_or_else(|e| {
-                error!("Failed to build HTTP client for McpProxyService: {}", e);
+                error!(error = %e, timeout_secs = 30_u64, "Failed to build HTTP client for McpProxyService");
                 Client::new()
             });
 
@@ -72,11 +72,17 @@ impl McpProxyService {
         if let Some(ref key) = cache_key {
             match self.cache.get::<Value>(key).await {
                 Ok(Some(cached_val)) => {
-                    info!("MCP tool call {} hit cache.", tool_name);
+                    info!(tool_name = %tool_name, provider = %provider, cache_hit = true, "MCP tool call hit cache");
                     return Ok(cached_val);
                 }
                 Ok(None) => {} // Cache miss
-                Err(e) => warn!("Failed to read cache for MCP tool call: {}", e),
+                Err(e) => warn!(
+                    error = %e,
+                    provider = %provider,
+                    tool_name = %tool_name,
+                    cache_key = cache_key.as_deref(),
+                    "Failed to read cache for MCP tool call"
+                ),
             }
         }
 
@@ -96,9 +102,21 @@ impl McpProxyService {
         // 写入缓存 (10分钟 / 600秒 过期)
         if let Some(ref key) = cache_key {
             if let Err(e) = self.cache.set(key, &result, 600).await {
-                warn!("Failed to write MCP result to cache: {}", e);
+                warn!(
+                    error = %e,
+                    provider = %provider,
+                    tool_name = %tool_name,
+                    cache_key = %key,
+                    cache_ttl_secs = 600_u64,
+                    "Failed to write MCP result to cache"
+                );
             } else {
-                info!("MCP tool call {} cached successfully for 600s.", tool_name);
+                info!(
+                    tool_name = %tool_name,
+                    provider = %provider,
+                    cache_ttl_secs = 600_u64,
+                    "Cached MCP tool call result"
+                );
             }
         }
 
@@ -148,12 +166,17 @@ impl McpProxyService {
             }
         }
 
-        info!("Sending MCP request to {}: {}", endpoint, payload);
+        info!(
+            has_endpoint = !endpoint.is_empty(),
+            method = payload.get("method").and_then(Value::as_str).unwrap_or("unknown"),
+            has_params = payload.get("params").is_some(),
+            "Sending MCP request"
+        );
 
         let response =
             self.client.post(endpoint).header("Content-Type", "application/json").json(&payload).send().await.map_err(
                 |e| {
-                    error!("MCP request failed: {}", e);
+                    error!(error = %e, has_endpoint = !endpoint.is_empty(), "MCP request failed");
                     ApiError::internal_with_log("Failed to connect to MCP server", &e)
                 },
             )?;
@@ -161,18 +184,30 @@ impl McpProxyService {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            warn!("MCP server returned error {}: {}", status, error_text);
+            warn!(
+                status = %status,
+                has_endpoint = !endpoint.is_empty(),
+                response_body_present = !error_text.is_empty(),
+                response_body_len = error_text.len(),
+                "MCP server returned error"
+            );
             return Err(ApiError::internal_with_log("MCP server error", &error_text));
         }
 
         let result: Value = response.json().await.map_err(|e| {
-            error!("Failed to parse MCP response: {}", e);
+            error!(error = %e, has_endpoint = !endpoint.is_empty(), "Failed to parse MCP response");
             ApiError::internal("Invalid JSON response from MCP server")
         })?;
 
         // 检查 JSON-RPC 错误
         if let Some(err) = result.get("error") {
-            warn!("MCP tool execution error: {}", err);
+            warn!(
+                has_endpoint = !endpoint.is_empty(),
+                error_code = err.get("code").and_then(Value::as_i64),
+                error_message_present = err.get("message").is_some(),
+                error_data_present = err.get("data").is_some(),
+                "MCP tool execution error"
+            );
             return Err(ApiError::internal_with_log("MCP error", &err));
         }
 

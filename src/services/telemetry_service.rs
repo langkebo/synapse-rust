@@ -71,15 +71,22 @@ impl TelemetryService {
 
     pub fn initialize(&self) -> Result<Option<SdkTracerProvider>, Box<dyn std::error::Error + Send + Sync>> {
         if !self.is_enabled() {
-            info!("Telemetry is disabled");
+            info!(
+                service_name = %self.get_service_name(),
+                trace_enabled = self.is_trace_enabled(),
+                metrics_enabled = self.is_metrics_enabled(),
+                prometheus_enabled = self.prometheus_config.enabled,
+                "Telemetry is disabled"
+            );
             return Ok(None);
         }
 
         info!(
-            "Initializing telemetry service: {} (trace: {}, metrics: {})",
-            self.get_service_name(),
-            self.is_trace_enabled(),
-            self.is_metrics_enabled()
+            service_name = %self.get_service_name(),
+            trace_enabled = self.is_trace_enabled(),
+            metrics_enabled = self.is_metrics_enabled(),
+            prometheus_enabled = self.prometheus_config.enabled,
+            "Initializing telemetry service"
         );
 
         let provider = if self.config.is_trace_enabled() { Some(self.initialize_tracing()?) } else { None };
@@ -88,21 +95,35 @@ impl TelemetryService {
             self.initialize_metrics()?;
         }
 
-        info!("Telemetry service initialized successfully");
+        info!(
+            service_name = %self.get_service_name(),
+            trace_enabled = self.is_trace_enabled(),
+            metrics_enabled = self.is_metrics_enabled(),
+            prometheus_enabled = self.prometheus_config.enabled,
+            "Telemetry service initialized successfully"
+        );
         Ok(provider)
     }
 
     fn initialize_tracing(&self) -> Result<SdkTracerProvider, Box<dyn std::error::Error + Send + Sync>> {
         let Some(endpoint) = self.config.resolve_otlp_endpoint() else {
-            tracing::warn!("OTLP endpoint is not configured; tracing will not be initialized. \
-                Set the otlp_endpoint config or OTEL_EXPORTER_OTLP_ENDPOINT env var to enable OTLP tracing.");
+            tracing::warn!(
+                trace_enabled = self.config.is_trace_enabled(),
+                metrics_enabled = self.config.is_metrics_enabled(),
+                prometheus_enabled = self.prometheus_config.enabled,
+                otlp_endpoint_configured = false,
+                env_var = %"OTEL_EXPORTER_OTLP_ENDPOINT",
+                config_key = %"otlp_endpoint",
+                "OTLP endpoint is not configured; tracing will not be initialized. Set the otlp_endpoint config or OTEL_EXPORTER_OTLP_ENDPOINT env var to enable OTLP tracing."
+            );
             return Err("OTLP endpoint not configured".into());
         };
 
         info!(
-            "Initializing OTLP tracing with endpoint: {} and sampling ratio: {}",
-            endpoint,
-            self.get_sampling_ratio()
+            service_name = %self.get_service_name(),
+            otlp_endpoint_configured = !endpoint.is_empty(),
+            sampling_ratio = self.get_sampling_ratio(),
+            "Initializing OTLP tracing"
         );
 
         let resource = Resource::builder()
@@ -129,19 +150,31 @@ impl TelemetryService {
     fn initialize_metrics(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.prometheus_config.enabled {
             info!(
-                "Prometheus metrics export is enabled (port: {}, path: {})",
-                self.prometheus_config.port, self.prometheus_config.path
+                service_name = %self.get_service_name(),
+                port = self.prometheus_config.port,
+                path = %self.prometheus_config.path,
+                "Prometheus metrics export is enabled"
             );
         }
         if self.config.is_metrics_enabled() {
-            info!("OTLP metrics export is enabled");
+            info!(
+                service_name = %self.get_service_name(),
+                metrics_enabled = self.config.is_metrics_enabled(),
+                "OTLP metrics export is enabled"
+            );
         }
         Ok(())
     }
 
     pub fn shutdown(&self) {
         if self.is_enabled() {
-            info!("Shutting down telemetry service");
+            info!(
+                service_name = %self.get_service_name(),
+                trace_enabled = self.is_trace_enabled(),
+                metrics_enabled = self.is_metrics_enabled(),
+                prometheus_enabled = self.prometheus_config.enabled,
+                "Shutting down telemetry service"
+            );
             // TracerProvider should be explicitly shutdown if kept
         }
     }
@@ -316,7 +349,7 @@ impl TelemetryAlertService {
         let mut alerts = match self.alerts.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                tracing::error!(error = %e, lock = %"alerts", access = %"write", operation = %"evaluate_health", "Failed to acquire alerts write lock");
                 return Ok((health, Vec::new()));
             }
         };
@@ -368,7 +401,15 @@ impl TelemetryAlertService {
         let mut alerts = match self.alerts.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                tracing::error!(
+                    error = %e,
+                    lock = %"alerts",
+                    access = %"write",
+                    operation = %"raise_alert",
+                    alert_key = %alert_key,
+                    rule_name = %rule_name,
+                    "Failed to acquire alerts write lock"
+                );
                 return Self::build_alert(alert_key, rule_name, severity, owner, message.to_string(), metrics);
             }
         };
@@ -391,7 +432,7 @@ impl TelemetryAlertService {
         let alerts = match self.alerts.read() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("Failed to acquire alerts read lock: {}", e);
+                tracing::error!(error = %e, lock = %"alerts", access = %"read", operation = %"list_alerts", "Failed to acquire alerts read lock");
                 return Ok(Vec::new());
             }
         };
@@ -409,7 +450,15 @@ impl TelemetryAlertService {
         let mut alerts = match self.alerts.write() {
             Ok(guard) => guard,
             Err(e) => {
-                tracing::error!("Failed to acquire alerts write lock: {}", e);
+                tracing::error!(
+                    error = %e,
+                    lock = %"alerts",
+                    access = %"write",
+                    operation = %"acknowledge_alert",
+                    alert_id = %alert_id,
+                    acknowledged_by = %acknowledged_by,
+                    "Failed to acquire alerts write lock"
+                );
                 return Err(ApiError::internal("Failed to acquire alerts write lock"));
             }
         };
