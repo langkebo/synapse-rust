@@ -120,6 +120,91 @@
 - job 3：在同一 live backend 上叠加 `docker-compose.web.yml`，通过 `scripts/test/run_element_web_browser_harness.sh` 启动 Element Web + nginx，并默认运行 `tests/element-web-harness/basic-interactions.mjs`；`workflow_dispatch` 可切回 `smoke:login`
 - 说明：当前 CI 已接入 SDK-backed real-backend verification，并把 Element Web 浏览器级 harness 默认提升到登录 + 房间创建 + 发消息的基础交互；Android/iOS 真机矩阵与更完整的浏览器互操作矩阵仍是 Phase 3 后续项
 
+### 5.3.1 Android/iOS 手动验收入口（2026-06-11）
+
+- **统一后端入口**：优先复用现有 `scripts/test/run_sdk_verification_real_backend.sh`，新增 `SKIP_SDK_TEST=1` 可只启动 live backend、不跑 `matrix-js-sdk`，并自动落基础证据到 artifact 目录
+
+```bash
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-mobile"
+SKIP_SDK_TEST=1 \
+KEEP_STACK_RUNNING=1 \
+SDK_INTEROP_ARTIFACT_DIR="artifacts/e2ee-interop/mobile/${RUN_ID}/backend" \
+bash scripts/test/run_sdk_verification_real_backend.sh
+```
+
+- **Element Web 叠加入口**：若需要与 Android/iOS 做同一后端上的交叉验证，可在 backend ready 后叠加浏览器层
+
+```bash
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-mobile"
+BROWSER_ONLY_OVERLAY=1 \
+KEEP_STACK_RUNNING=1 \
+TEST_SCRIPT=test:basic \
+ELEMENT_HARNESS_ARTIFACT_DIR="artifacts/e2ee-interop/mobile/${RUN_ID}/element-web" \
+bash scripts/test/run_element_web_browser_harness.sh
+```
+
+- **客户端接入地址建议**：
+  - `Element iOS Simulator`：`http://localhost:8008`
+  - `Element Android Emulator`：`http://10.0.2.2:8008`
+  - 真机：准备自定义 `DOCKER_ENV_FILE`，把 `SERVER_NAME` / `PUBLIC_BASEURL` / `ALLOWED_ORIGINS` 改成宿主机可达地址后，再以同样方式运行 backend 脚本
+- **执行顺序建议**：
+  1. 运行 backend-only 入口并保留栈
+  2. 在 Android / iOS 登录两个测试账号并加入同一加密房间
+  3. 如需 Web 参与交叉验证，再叠加 `BROWSER_ONLY_OVERLAY=1` 的 Element Web harness
+  4. 按 4.2 的 I-1 ~ I-8 case 顺序记录结果
+
+### 5.3.2 结果记录规范（Android/iOS）
+
+- **artifact 目录约定**：
+
+```text
+artifacts/e2ee-interop/mobile/<run-id>/
+├── backend/
+│   ├── backend-entry.txt
+│   ├── docker-compose.ps.txt
+│   └── client-versions.json
+├── android/
+│   ├── summary.md
+│   ├── case-I1.png
+│   ├── case-I2.png
+│   └── case-matrix.md
+├── ios/
+│   ├── summary.md
+│   ├── case-I1.png
+│   ├── case-I2.png
+│   └── case-matrix.md
+└── element-web/
+    └── ...
+```
+
+- **每个平台至少保留**：
+  - `summary.md`：客户端版本、设备型号、运行环境（模拟器/真机）、homeserver 地址、执行时间
+  - `case-matrix.md`：I-1 ~ I-8 每项的 `pass/fail/not-run`、失败摘要、对应截图或日志路径
+  - 关键截图：登录成功、加密房间创建/加入、消息明文可见、cross-signing/backup 状态页
+- **`summary.md` 最小模板**：
+
+```md
+# Android Interop Summary
+
+- run_id: 20260611T120000Z-mobile
+- client_version: Element Android x.y.z
+- device: Pixel 7 Emulator / Android 15
+- homeserver: http://10.0.2.2:8008
+- companion_clients: Element Web / Element iOS
+- result: partial
+- notes: I-1~I-3 pass, I-4 blocked by device re-login
+```
+
+- **`case-matrix.md` 最小模板**：
+
+```md
+| Case | Result | Evidence | Notes |
+|---|---|---|---|
+| I-1 | pass | `case-I1.png` | 房间加密状态同步成功 |
+| I-2 | pass | `case-I2.png` | 明文可见 |
+| I-3 | not-run | - | 待长时间离线场景 |
+```
+
 ### 5.4 Phase 4 边界冻结补充（2026-06-11）
 
 - `Aes256Gcm*` 仍需保留：生产路径仍由 `src/e2ee/ssss/service.rs` 用于 SSSS 密钥封装，并由 `src/e2ee/vodozemac_megolm.rs` 用于 Phase 2 双写 legacy `session_key` 兼容写入
