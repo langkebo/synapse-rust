@@ -448,6 +448,7 @@ pub struct AdminServices {
     pub rendezvous_storage: synapse_storage::rendezvous::RendezvousStorage,
     pub app_service_storage: ApplicationServiceStorage,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
+    pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
     pub worker_storage: crate::worker::WorkerStorage,
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
@@ -545,6 +546,9 @@ fn assemble_admin_support(
         Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned())),
         config.server.get_server_name().to_owned(),
     ));
+    let app_service_scheduler =
+        Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
+    app_service_scheduler.clone().start();
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
     let worker_manager =
@@ -583,6 +587,7 @@ fn assemble_admin_support(
         rendezvous_storage,
         app_service_storage,
         app_service_manager,
+        app_service_scheduler,
         worker_storage,
         worker_manager,
     }

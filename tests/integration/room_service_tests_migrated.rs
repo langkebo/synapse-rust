@@ -295,10 +295,10 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,
-        user_storage: UserStorage::new(pool, canonical_cache),
+        user_storage: UserStorage::new(pool, canonical_cache.clone()),
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
-            cache,
+            canonical_cache.clone(),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
