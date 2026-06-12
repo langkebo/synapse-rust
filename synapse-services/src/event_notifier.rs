@@ -22,7 +22,7 @@ pub struct EventNotifyMessage {
 }
 
 /// Whether a notification targets a room or a user.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventNotifyKind {
     Room,
     User,
@@ -180,8 +180,7 @@ impl EventNotifier {
             return;
         };
 
-        let msg =
-            EventNotifyMessage { kind: kind.clone(), key: key.to_string(), sender_instance: self.instance_id.clone() };
+        let msg = EventNotifyMessage { kind, key: key.to_string(), sender_instance: self.instance_id.clone() };
 
         let encoded = match serde_json::to_vec(&msg) {
             Ok(v) => v,
@@ -353,5 +352,110 @@ mod tests {
         // Should not panic
         notifier.notify_room("!empty:example.com");
         notifier.notify_user("@nobody:example.com");
+    }
+
+    // ========== EventNotifyKind tests ==========
+
+    #[test]
+    fn test_event_notify_kind_room() {
+        assert_eq!(EventNotifyKind::Room, EventNotifyKind::Room);
+        assert_ne!(EventNotifyKind::Room, EventNotifyKind::User);
+    }
+
+    #[test]
+    fn test_event_notify_kind_clone() {
+        let kind = EventNotifyKind::Room;
+        assert_eq!(kind, EventNotifyKind::Room);
+    }
+
+    #[test]
+    fn test_event_notify_kind_copy() {
+        let kind = EventNotifyKind::Room;
+        let copied = kind;
+        assert_eq!(kind, copied);
+        assert_eq!(copied, EventNotifyKind::Room);
+    }
+
+    // ========== EventNotifyMessage tests ==========
+
+    #[test]
+    fn test_event_notify_message_room() {
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::Room,
+            key: "!room:example.com".to_string(),
+            sender_instance: "instance-1".to_string(),
+        };
+        assert_eq!(msg.kind, EventNotifyKind::Room);
+        assert_eq!(msg.key, "!room:example.com");
+        assert_eq!(msg.sender_instance, "instance-1");
+    }
+
+    #[test]
+    fn test_event_notify_message_user() {
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::User,
+            key: "@alice:example.com".to_string(),
+            sender_instance: "instance-2".to_string(),
+        };
+        assert_eq!(msg.kind, EventNotifyKind::User);
+        assert_eq!(msg.key, "@alice:example.com");
+    }
+
+    #[test]
+    fn test_event_notify_message_serialization() {
+        let msg = EventNotifyMessage {
+            kind: EventNotifyKind::Room,
+            key: "!room:example.com".to_string(),
+            sender_instance: "instance-1".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: EventNotifyMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.kind, EventNotifyKind::Room);
+        assert_eq!(deserialized.key, "!room:example.com");
+        assert_eq!(deserialized.sender_instance, "instance-1");
+    }
+
+    // ========== EventNotifier tests ==========
+
+    #[test]
+    fn test_event_notifier_new() {
+        let notifier = EventNotifier::new();
+        assert_eq!(notifier.broadcast_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn test_event_notifier_default() {
+        let notifier = EventNotifier::default();
+        assert_eq!(notifier.broadcast_subscriber_count(), 0);
+    }
+
+    #[test]
+    fn test_event_notifier_with_instance_id() {
+        let notifier = EventNotifier::new().with_instance_id("custom-id".to_string());
+        // Just verify it doesn't panic and the builder works
+        let _ = notifier.clone();
+    }
+
+    #[test]
+    fn test_event_notifier_clone() {
+        let notifier = EventNotifier::new();
+        let cloned = notifier.clone();
+        assert_eq!(cloned.broadcast_subscriber_count(), notifier.broadcast_subscriber_count());
+    }
+
+    #[test]
+    fn test_event_notifier_debug() {
+        let notifier = EventNotifier::new();
+        let debug_str = format!("{:?}", notifier);
+        assert!(debug_str.contains("EventNotifier"));
+        assert!(debug_str.contains("has_redis"));
+    }
+
+    // ========== EventBroadcaster impl tests ==========
+
+    #[test]
+    fn test_event_notifier_broadcast_subscriber_count() {
+        let notifier = EventNotifier::new();
+        assert_eq!(notifier.broadcast_subscriber_count(), 0);
     }
 }

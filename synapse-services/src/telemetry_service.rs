@@ -546,3 +546,357 @@ impl TelemetryAlertService {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== TelemetryAlertSeverity tests ==========
+
+    #[test]
+    fn test_telemetry_alert_severity() {
+        assert_ne!(TelemetryAlertSeverity::Warning, TelemetryAlertSeverity::Critical);
+    }
+
+    #[test]
+    fn test_telemetry_alert_severity_clone() {
+        let s = TelemetryAlertSeverity::Critical;
+        assert_eq!(s.clone(), s);
+    }
+
+    // ========== TelemetryAlertStatus tests ==========
+
+    #[test]
+    fn test_telemetry_alert_status() {
+        assert_ne!(TelemetryAlertStatus::Warning, TelemetryAlertStatus::Critical);
+        assert_ne!(TelemetryAlertStatus::Acknowledged, TelemetryAlertStatus::Recovered);
+        assert_ne!(TelemetryAlertStatus::Recovered, TelemetryAlertStatus::Closed);
+    }
+
+    #[test]
+    fn test_telemetry_alert_status_clone() {
+        let s = TelemetryAlertStatus::Acknowledged;
+        assert_eq!(s.clone(), s);
+    }
+
+    // ========== TelemetryAlertFilters tests ==========
+
+    #[test]
+    fn test_telemetry_alert_filters_default() {
+        let filters = TelemetryAlertFilters::default();
+        assert!(filters.status.is_none());
+        assert!(filters.severity.is_none());
+    }
+
+    #[test]
+    fn test_telemetry_alert_filters_with_status() {
+        let filters = TelemetryAlertFilters { status: Some("warning".to_string()), severity: None };
+        assert_eq!(filters.status, Some("warning".to_string()));
+    }
+
+    #[test]
+    fn test_telemetry_alert_filters_with_severity() {
+        let filters = TelemetryAlertFilters { status: None, severity: Some("critical".to_string()) };
+        assert_eq!(filters.severity, Some("critical".to_string()));
+    }
+
+    // ========== TelemetryAlert struct tests ==========
+
+    #[test]
+    fn test_telemetry_alert() {
+        let alert = TelemetryAlert {
+            alert_id: "alert-1".to_string(),
+            alert_key: "db_health".to_string(),
+            rule_name: "Database Health".to_string(),
+            severity: TelemetryAlertSeverity::Critical,
+            status: TelemetryAlertStatus::Critical,
+            owner: "database".to_string(),
+            message: "Database is unhealthy".to_string(),
+            trigger_count: 3,
+            triggered_at: 1700000000000,
+            last_seen_ts: 1700000001000,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: None,
+            metrics: serde_json::json!({"is_healthy": false}),
+        };
+        assert_eq!(alert.alert_id, "alert-1");
+        assert_eq!(alert.trigger_count, 3);
+        assert!(alert.acknowledged_at.is_none());
+    }
+
+    // ========== TelemetryAlertService::status_from_severity tests ==========
+
+    #[test]
+    fn test_status_from_severity_warning() {
+        let status = TelemetryAlertService::status_from_severity(&TelemetryAlertSeverity::Warning);
+        assert_eq!(status, TelemetryAlertStatus::Warning);
+    }
+
+    #[test]
+    fn test_status_from_severity_critical() {
+        let status = TelemetryAlertService::status_from_severity(&TelemetryAlertSeverity::Critical);
+        assert_eq!(status, TelemetryAlertStatus::Critical);
+    }
+
+    // ========== TelemetryAlertService::validate_filters tests ==========
+
+    #[test]
+    fn test_validate_filters_empty() {
+        let filters = TelemetryAlertFilters::default();
+        assert!(TelemetryAlertService::validate_filters(&filters).is_ok());
+    }
+
+    #[test]
+    fn test_validate_filters_valid_status() {
+        let valid_statuses = ["warning", "critical", "acknowledged", "recovered", "closed"];
+        for s in &valid_statuses {
+            let filters = TelemetryAlertFilters { status: Some(s.to_string()), severity: None };
+            assert!(TelemetryAlertService::validate_filters(&filters).is_ok(), "status '{}' should be valid", s);
+        }
+    }
+
+    #[test]
+    fn test_validate_filters_invalid_status() {
+        let filters = TelemetryAlertFilters { status: Some("invalid".to_string()), severity: None };
+        assert!(TelemetryAlertService::validate_filters(&filters).is_err());
+    }
+
+    #[test]
+    fn test_validate_filters_valid_severity() {
+        let valid_severities = ["warning", "critical"];
+        for s in &valid_severities {
+            let filters = TelemetryAlertFilters { status: None, severity: Some(s.to_string()) };
+            assert!(TelemetryAlertService::validate_filters(&filters).is_ok(), "severity '{}' should be valid", s);
+        }
+    }
+
+    #[test]
+    fn test_validate_filters_invalid_severity() {
+        let filters = TelemetryAlertFilters { status: None, severity: Some("invalid".to_string()) };
+        assert!(TelemetryAlertService::validate_filters(&filters).is_err());
+    }
+
+    // ========== TelemetryAlertService::matches_status tests ==========
+
+    #[test]
+    fn test_matches_status_warning() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Warning,
+            status: TelemetryAlertStatus::Warning,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: None,
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_status(&alert, "warning"));
+        assert!(!TelemetryAlertService::matches_status(&alert, "critical"));
+        assert!(!TelemetryAlertService::matches_status(&alert, "acknowledged"));
+    }
+
+    #[test]
+    fn test_matches_status_acknowledged() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Critical,
+            status: TelemetryAlertStatus::Acknowledged,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: None,
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_status(&alert, "acknowledged"));
+        assert!(!TelemetryAlertService::matches_status(&alert, "warning"));
+    }
+
+    #[test]
+    fn test_matches_status_recovered() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Warning,
+            status: TelemetryAlertStatus::Recovered,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: Some(1),
+            closed_at: None,
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_status(&alert, "recovered"));
+        assert!(!TelemetryAlertService::matches_status(&alert, "closed"));
+    }
+
+    #[test]
+    fn test_matches_status_closed() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Critical,
+            status: TelemetryAlertStatus::Closed,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: Some(1),
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_status(&alert, "closed"));
+    }
+
+    // ========== TelemetryAlertService::matches_severity tests ==========
+
+    #[test]
+    fn test_matches_severity_warning() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Warning,
+            status: TelemetryAlertStatus::Warning,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: None,
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_severity(&alert, "warning"));
+        assert!(!TelemetryAlertService::matches_severity(&alert, "critical"));
+    }
+
+    #[test]
+    fn test_matches_severity_critical() {
+        let alert = TelemetryAlert {
+            alert_id: "a".to_string(),
+            alert_key: "k".to_string(),
+            rule_name: "r".to_string(),
+            severity: TelemetryAlertSeverity::Critical,
+            status: TelemetryAlertStatus::Critical,
+            owner: "o".to_string(),
+            message: "m".to_string(),
+            trigger_count: 1,
+            triggered_at: 1,
+            last_seen_ts: 1,
+            acknowledged_at: None,
+            acknowledged_by: None,
+            recovered_at: None,
+            closed_at: None,
+            metrics: serde_json::json!({}),
+        };
+        assert!(TelemetryAlertService::matches_severity(&alert, "critical"));
+        assert!(!TelemetryAlertService::matches_severity(&alert, "warning"));
+    }
+
+    // ========== TelemetryBuilder tests ==========
+
+    #[test]
+    fn test_telemetry_builder_default() {
+        let builder = TelemetryBuilder::default();
+        let service = builder.build();
+        assert!(!service.is_trace_enabled());
+        assert!(!service.is_metrics_enabled());
+    }
+
+    #[test]
+    fn test_telemetry_builder_with_service_name() {
+        let service = TelemetryBuilder::new().with_service_name("my-service").build();
+        assert_eq!(service.get_service_name(), "my-service");
+    }
+
+    #[test]
+    fn test_telemetry_builder_with_trace_enabled() {
+        let service =
+            TelemetryBuilder::new().with_otlp_endpoint("http://localhost:4317").with_trace_enabled(true).build();
+        assert!(service.is_trace_enabled());
+    }
+
+    #[test]
+    fn test_telemetry_builder_with_sampling_ratio() {
+        let service = TelemetryBuilder::new()
+            .with_otlp_endpoint("http://localhost:4317")
+            .with_trace_enabled(true)
+            .with_sampling_ratio(0.5)
+            .build();
+        assert_eq!(service.get_sampling_ratio(), 0.5);
+    }
+
+    #[test]
+    fn test_telemetry_builder_with_otlp_endpoint() {
+        let service = TelemetryBuilder::new().with_otlp_endpoint("http://localhost:4317").build();
+        assert!(service.is_enabled());
+    }
+
+    #[test]
+    fn test_telemetry_builder_with_prometheus() {
+        let service = TelemetryBuilder::new().with_prometheus(9090, "/metrics").build();
+        assert!(service.is_metrics_enabled());
+    }
+
+    #[test]
+    fn test_telemetry_builder_chain() {
+        let service = TelemetryBuilder::new()
+            .with_service_name("test")
+            .with_service_version("1.0")
+            .with_otlp_endpoint("http://localhost:4317")
+            .with_trace_enabled(true)
+            .with_metrics_enabled(true)
+            .with_sampling_ratio(0.1)
+            .build();
+        assert_eq!(service.get_service_name(), "test");
+        assert!(service.is_trace_enabled());
+        assert!(service.is_metrics_enabled());
+        assert_eq!(service.get_sampling_ratio(), 0.1);
+    }
+
+    // ========== ExportConfig tests ==========
+
+    #[test]
+    fn test_export_config() {
+        let config = ExportConfig {
+            otlp_endpoint: Some("http://localhost:4317".to_string()),
+            prometheus_port: Some(9090),
+            prometheus_path: Some("/metrics".to_string()),
+            batch_export: true,
+            export_timeout_seconds: 30,
+            max_queue_size: 2048,
+            max_export_batch_size: 512,
+            scheduled_delay_millis: 5000,
+        };
+        assert_eq!(config.otlp_endpoint, Some("http://localhost:4317".to_string()));
+        assert_eq!(config.prometheus_port, Some(9090));
+        assert!(config.batch_export);
+    }
+}

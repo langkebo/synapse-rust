@@ -1,6 +1,6 @@
 # synapse-rust 全面深度技术审计报告
 
-**版本**: 8.5.2（2026-06-12 appservice 旁路入口回归测试补齐版）
+**版本**: 8.5.3（2026-06-12 appservice 回归测试夹具收口版）
 **审计基线**: `/Users/ljf/Desktop/hu_ts/synapse-rust` 当前工作区状态（含未提交改动）
 **对标基线**: Matrix Spec v1.18；element-hq/synapse v1.153.x 文档与架构实践
 **审计对象**:
@@ -66,6 +66,12 @@
   - 修复范围：补齐 root `Cargo.toml` 对 `runtime-ddl` / `voip-tracking` / `privacy-ext` 的 feature 透传；收敛 root cache 注入 canonical `UserStorage` / `PresenceStorage` 的构造点；修正 `RendezvousMessageStorage` 的使用对象，并显式调用 `SlidingSyncStorage::delete_connection_data(...)` 与 `RoomStorage::get_user_rooms_paginated(...)`；同步修复 `openclaw` messages 分页适配、`sync_service` 的 `tracing` 宏歧义，以及 appservice 建房分发辅助结构的可见性/注入收尾
 - `cargo test --features test-utils --test integration test_create_room_enqueues_appservice_events_after_commit -- --exact --nocapture`：**通过**
 - `cargo test --features test-utils --test integration test_join_room_enqueues_appservice_membership_event -- --exact --nocapture`：**通过**
+- `cargo test --features test-utils --test integration --no-run --locked`：**再次通过**
+  - 验证点：继续收敛 `sync_service` / `presence_storage` / `api_device_presence` / `protocol_compliance` / `sliding_sync` / `to_device_sync` 等 integration 夹具中的 `PresenceStorage` 导出路径、canonical cache 注入和 `set_presence()` API 漂移后，新增 appservice 回归测试已不再被编译门禁阻塞
+- `cargo test --features test-utils --test integration invite_user_enqueues_appservice_membership_event -- --nocapture`：**环境阻塞，未完成断言验证**
+  - 阻塞点：本地 integration 数据库初始化在 `shared-template-schema` 阶段超时 120s，测试在进入断言前失败；当前已确认不是 appservice 逻辑或测试编译错误
+- `cargo test --features test-utils --test integration upgrade_room_enqueues_tombstone_and_replacement_create_events -- --nocapture`：**环境阻塞，未完成断言验证**
+  - 阻塞点：同样卡在 integration 数据库初始化超时，说明新增测试已可被目标正确发现并启动，但本地 PostgreSQL/模板 schema 准备仍需额外环境支持
 - `cargo tree -d --workspace | head -n 120`：**确认存在重复依赖版本**
   - 已确认案例：`base64 v0.21.7` 与 `base64 v0.22.1`
 
@@ -256,7 +262,7 @@
 
 ### P0-02 Application Service 架构与上游 Synapse 存在结构性缺口
 
-- **当前验证**：`app_service_config_files` 已有启动期 YAML 装载、regex/URL/`sender` 基本校验与幂等导入，运行时会在服务容器装配后自动消费配置；`RoomService::create_event()` 已接入 `app_service_manager.enqueue_matching_event(...)`，本地房间消息、状态事件和 pinned state 更新会按 `room_id` / `sender` / `state_key` 做 namespace 匹配并写入 appservice pending queue；联邦 `transaction` / `membership` 路由与 `voip` / `room redaction` / `com.hula.privacy` 等路由旁路事件入口在持久化成功后会 best-effort 进入 appservice queue；`join_room()` / `leave_room()` / `invite_user()` / `ban_user()` / `unban_user()` / `kick_user()` / `upgrade_room()` / `FriendRoomService::send_state_event()` 等 service 旁路入口已经切回统一事件链路；建房链路中的 `m.room.create`、`m.room.member`、`m.room.power_levels`、`m.room.join_rules`、`m.room.history_visibility`、`m.room.guest_access`、`m.room.encryption`、`com.hula.privacy`、`initial_state`、metadata 与邀请事件会先在事务内持久化，再在 commit 成功后统一 dispatch 到 appservice queue；`room_service_tests_migrated.rs` 已新增回归测试，覆盖 `create_room()` 提交后 enqueue 与 `join_room()` 旁路 membership enqueue；`ApplicationServiceManager::start_sender(...)` 已在 server 启动后开启周期 sender，会优先重试未完成 transaction，没有未完成 transaction 时再从 pending queue 组批回填原始 room event payload 并发送；新增 `retry_backoff_ms(...)`、`is_transaction_ready_to_retry(...)`、HTTP 失败分类与自动禁用阈值后，单 AS 在存在未完成 transaction 时已按 `retry_count` 执行基础退避重试，并会在连续失败超过阈值时写入 delivery state 且自动禁用对应 AS。与上游 Synapse 的自动事件推送、scheduler、transaction controller、recoverer 相比，当前实现已具备基础调度闭环、联邦/更广的旁路覆盖，以及第二层 recoverer 治理，但事务模型和完整调度组件仍偏首版。
+- **当前验证**：`app_service_config_files` 已有启动期 YAML 装载、regex/URL/`sender` 基本校验与幂等导入，运行时会在服务容器装配后自动消费配置；`RoomService::create_event()` 已接入 `app_service_manager.enqueue_matching_event(...)`，本地房间消息、状态事件和 pinned state 更新会按 `room_id` / `sender` / `state_key` 做 namespace 匹配并写入 appservice pending queue；联邦 `transaction` / `membership` 路由与 `voip` / `room redaction` / `com.hula.privacy` 等路由旁路事件入口在持久化成功后会 best-effort 进入 appservice queue；`join_room()` / `leave_room()` / `invite_user()` / `ban_user()` / `unban_user()` / `kick_user()` / `upgrade_room()` / `FriendRoomService::send_state_event()` 等 service 旁路入口已经切回统一事件链路；建房链路中的 `m.room.create`、`m.room.member`、`m.room.power_levels`、`m.room.join_rules`、`m.room.history_visibility`、`m.room.guest_access`、`m.room.encryption`、`com.hula.privacy`、`initial_state`、metadata 与邀请事件会先在事务内持久化，再在 commit 成功后统一 dispatch 到 appservice queue；`room_service_tests_migrated.rs` 已新增回归测试，覆盖 `create_room()` 提交后 enqueue、`join_room()` / `invite_user()` 旁路 membership enqueue，以及 `upgrade_room()` 的 `m.room.tombstone` 与 replacement room `m.room.create` enqueue；当前 `integration --no-run` 已恢复通过，但 `invite_user` / `upgrade_room` 两条新增测试的本地运行仍受 integration 数据库初始化超时阻塞，尚未完成断言级验证；`ApplicationServiceManager::start_sender(...)` 已在 server 启动后开启周期 sender，会优先重试未完成 transaction，没有未完成 transaction 时再从 pending queue 组批回填原始 room event payload 并发送；新增 `retry_backoff_ms(...)`、`is_transaction_ready_to_retry(...)`、HTTP 失败分类与自动禁用阈值后，单 AS 在存在未完成 transaction 时已按 `retry_count` 执行基础退避重试，并会在连续失败超过阈值时写入 delivery state 且自动禁用对应 AS。与上游 Synapse 的自动事件推送、scheduler、transaction controller、recoverer 相比，当前实现已具备基础调度闭环、联邦/更广的旁路覆盖，以及第二层 recoverer 治理，但事务模型和完整调度组件仍偏首版。
 - **复现步骤**：检索 `enqueue_matching_event(`、`dispatch_appservice_event(` 与 `RoomService::create_event()` 调用面，可见本地房间事件已开始自动挂接 appservice；检索 `src/web/routes/federation/transaction.rs`、`src/web/routes/federation/membership.rs`、`src/web/routes/voip.rs`、`src/web/routes/room.rs` 与 `src/web/routes/handlers/room/events.rs` 中的 `dispatch_appservice_event(` 调用，可见联邦/路由旁路入口已补齐一批 best-effort enqueue；检索 `src/services/room/membership_actions.rs`、`src/services/room/membership_moderation.rs`、`src/services/room/upgrade.rs`、`src/services/friend_room_service/mod.rs` 中对 `self.create_event(` 或 `room_service.create_event(` 的调用，以及 `src/services/room/create.rs` 中 commit 后统一 `dispatch_appservice_event(` 的循环，可见 service 旁路与建房事务后分发已落地；继续检索 `retry_backoff_ms(`、`is_transaction_ready_to_retry(`、`classify_http_failure(`、`should_disable_service(` 与 `delivery_status` / `delivery_last_error` / `delivery_disabled_reason` 等 state key，可见 recoverer 已扩展到失败分类与坏 AS 自动隔离。
 - **影响范围**：桥接类 AS（IRC/Slack/Discord 等）、第三方服务集成、从 Synapse 迁移的配置兼容性。
 - **发生场景**：部署 bridge、期待 namespace 事件自动推送、使用 Synapse YAML appservice 配置迁移时。
@@ -267,8 +273,8 @@
   3. 已完成首版：实现周期 sender，优先重试未完成 transaction，再从 pending queue 组批发送。
   4. 已完成首版：补齐基础 backoff/recoverer，失败 transaction 会更新时间基线，sender 会按 `retry_count` 退避重试最早未完成 transaction。
   5. 已完成增强：补齐联邦 `transaction` / `membership` 与部分旁路事件入口的 best-effort enqueue，并为 recoverer 增加失败分类、delivery state 与坏 AS 自动禁用阈值。
-  6. 已完成增强：补充 `create_room()` 提交后 enqueue 与 `join_room()` membership enqueue 的 integration 回归测试，开始把 appservice 关键分发链路纳入可重复验证。
-  7. 待完成：补齐更完整的 per-AS 调度治理、bridge 端到端集成测试与失败重试验证，并继续清点少量仍保留为显式直写+手动 dispatch 的入口是否需要进一步统一。
+  6. 已完成增强：补充 `create_room()` 提交后 enqueue、`join_room()` / `invite_user()` membership enqueue，以及 `upgrade_room()` 的 tombstone / replacement room create enqueue 回归测试；同时继续收口 integration 夹具中的 `PresenceStorage` / canonical cache 漂移，确保新增测试已能纳入编译门禁。
+  7. 待完成：补齐更完整的 per-AS 调度治理、bridge 端到端集成测试与失败重试验证，并在具备可用 PostgreSQL/integration 模板 schema 环境后完成 `invite_user` / `upgrade_room` 两条新增回归测试的断言级运行验证；同时继续清点少量仍保留为显式直写+手动 dispatch 的入口是否需要进一步统一。
 - **责任节点**：协议兼容负责人、应用服务负责人、测试负责人、运维负责人。
 - **资源投入**：后端 2~3 人周，QA 1 人周，SRE 0.5 人周。
 - **验收标准**：

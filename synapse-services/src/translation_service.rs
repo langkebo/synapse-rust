@@ -353,3 +353,162 @@ pub enum TranslationError {
     #[error("Text too long: {length} bytes (max: {max})")]
     TextTooLong { length: usize, max: usize },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== TranslationResult tests ==========
+
+    #[test]
+    fn test_translation_result() {
+        let result = TranslationResult {
+            translated_text: "Bonjour".to_string(),
+            detected_source_lang: Some("en".to_string()),
+            target_lang: "fr".to_string(),
+            provider: "google".to_string(),
+        };
+        assert_eq!(result.translated_text, "Bonjour");
+        assert_eq!(result.detected_source_lang, Some("en".to_string()));
+        assert_eq!(result.target_lang, "fr");
+        assert_eq!(result.provider, "google");
+    }
+
+    #[test]
+    fn test_translation_result_no_detected_lang() {
+        let result = TranslationResult {
+            translated_text: "Hello".to_string(),
+            detected_source_lang: None,
+            target_lang: "en".to_string(),
+            provider: "deepl".to_string(),
+        };
+        assert_eq!(result.translated_text, "Hello");
+        assert!(result.detected_source_lang.is_none());
+    }
+
+    #[test]
+    fn test_translation_result_clone() {
+        let result = TranslationResult {
+            translated_text: "test".to_string(),
+            detected_source_lang: None,
+            target_lang: "en".to_string(),
+            provider: "google".to_string(),
+        };
+        let cloned = result.clone();
+        assert_eq!(cloned.translated_text, result.translated_text);
+    }
+
+    // ========== TranslationCacheKey tests ==========
+
+    #[test]
+    fn test_translation_cache_key() {
+        let key = TranslationCacheKey {
+            text: "hello".to_string(),
+            target_lang: "fr".to_string(),
+            source_lang: Some("en".to_string()),
+            provider: "google".to_string(),
+        };
+        assert_eq!(key.text, "hello");
+        assert_eq!(key.target_lang, "fr");
+    }
+
+    #[test]
+    fn test_translation_cache_key_equality() {
+        let key1 = TranslationCacheKey {
+            text: "hello".to_string(),
+            target_lang: "fr".to_string(),
+            source_lang: Some("en".to_string()),
+            provider: "google".to_string(),
+        };
+        let key2 = TranslationCacheKey {
+            text: "hello".to_string(),
+            target_lang: "fr".to_string(),
+            source_lang: Some("en".to_string()),
+            provider: "google".to_string(),
+        };
+        assert_eq!(key1, key2);
+    }
+
+    #[test]
+    fn test_translation_cache_key_inequality() {
+        let key1 = TranslationCacheKey {
+            text: "hello".to_string(),
+            target_lang: "fr".to_string(),
+            source_lang: None,
+            provider: "google".to_string(),
+        };
+        let key2 = TranslationCacheKey {
+            text: "hello".to_string(),
+            target_lang: "fr".to_string(),
+            source_lang: Some("en".to_string()),
+            provider: "google".to_string(),
+        };
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn test_translation_cache_key_clone() {
+        let key = TranslationCacheKey {
+            text: "test".to_string(),
+            target_lang: "en".to_string(),
+            source_lang: None,
+            provider: "google".to_string(),
+        };
+        let cloned = key.clone();
+        assert_eq!(cloned, key);
+    }
+
+    // ========== TranslationError tests ==========
+
+    #[test]
+    fn test_translation_error_request_failed() {
+        let err = TranslationError::RequestFailed { provider: "google".to_string(), reason: "timeout".to_string() };
+        let msg = err.to_string();
+        assert!(msg.contains("google"));
+        assert!(msg.contains("timeout"));
+    }
+
+    #[test]
+    fn test_translation_error_provider_error() {
+        let err = TranslationError::ProviderError {
+            provider: "deepl".to_string(),
+            status: 403,
+            message: "Forbidden".to_string(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("deepl"));
+        assert!(msg.contains("403"));
+        assert!(msg.contains("Forbidden"));
+    }
+
+    #[test]
+    fn test_translation_error_parse_error() {
+        let err =
+            TranslationError::ParseError { provider: "libretranslate".to_string(), reason: "invalid JSON".to_string() };
+        let msg = err.to_string();
+        assert!(msg.contains("libretranslate"));
+        assert!(msg.contains("invalid JSON"));
+    }
+
+    #[test]
+    fn test_translation_error_unsupported_provider() {
+        let err = TranslationError::UnsupportedProvider { provider: "unknown".to_string() };
+        let msg = err.to_string();
+        assert!(msg.contains("unknown"));
+    }
+
+    #[test]
+    fn test_translation_error_text_too_long() {
+        let err = TranslationError::TextTooLong { length: 5000, max: 1000 };
+        let msg = err.to_string();
+        assert!(msg.contains("5000"));
+        assert!(msg.contains("1000"));
+    }
+
+    #[test]
+    fn test_translation_error_debug() {
+        let err = TranslationError::TextTooLong { length: 10, max: 5 };
+        let debug_str = format!("{:?}", err);
+        assert!(debug_str.contains("TextTooLong"));
+    }
+}
