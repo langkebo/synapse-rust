@@ -56,8 +56,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
 
         Ok(())
     }
@@ -175,8 +175,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
 
         Ok(())
     }
@@ -206,8 +206,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
 
         Ok(())
     }
@@ -262,8 +262,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
 
         Ok(())
     }

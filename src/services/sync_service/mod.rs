@@ -110,7 +110,8 @@ impl SyncService {
 
         if let (Some(device_id), Some(token)) = (device_id, &since_token) {
             if let Some(to_device_since) = token.to_device_stream_id {
-                if let Err(e) = self.to_device_storage.delete_messages_up_to(user_id, device_id, to_device_since).await {
+                if let Err(e) = self.to_device_storage.delete_messages_up_to(user_id, device_id, to_device_since).await
+                {
                     ::tracing::warn!(%e, user_id, device_id, to_device_since, "Failed to delete to_device messages");
                 }
             }

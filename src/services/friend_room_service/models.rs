@@ -1,7 +1,7 @@
 use crate::cache::CacheManager;
 use crate::federation::friend::FriendFederationClient;
 use crate::services::RoomService;
-use crate::storage::{EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use crate::storage::{FriendRoomStorage, PresenceStorage, UserStorage};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

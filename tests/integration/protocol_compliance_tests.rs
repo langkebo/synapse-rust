@@ -4,8 +4,9 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::{PresenceStorage, ServiceContainer};
+use synapse_rust::services::ServiceContainer;
 use synapse_rust::storage::{CreateEventParams, EventStorage, RoomStorage};
+use synapse_rust::PresenceStorage;
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Option<Pool<Postgres>> {
@@ -77,7 +78,7 @@ fn test_typing_set_and_clear() {
         };
         let arc_pool = Arc::new(pool.clone());
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let presence = PresenceStorage::new(arc_pool.clone(), cache.clone());
+        let presence = PresenceStorage::new(arc_pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
 
         let room_id = "!room:test";
         let user_id = "@alice:localhost";

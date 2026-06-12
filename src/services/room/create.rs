@@ -221,10 +221,7 @@ impl RoomService {
             origin_server_ts: now + 4,
         };
         let history_visibility_dispatch = PendingAppserviceDispatch::from_params(&history_visibility_event);
-        let result = self
-            .event_storage
-            .create_event(history_visibility_event, Some(&mut tx))
-            .await;
+        let result = self.event_storage.create_event(history_visibility_event, Some(&mut tx)).await;
 
         if let Err(e) = result {
             let _ = tx.rollback().await;

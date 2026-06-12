@@ -2,8 +2,8 @@ pub use synapse_services::registration_token_service::*;
 
 #[cfg(test)]
 mod tests {
-    use crate::storage::registration_token::decode_registration_token_cursor;
     use super::RegistrationTokenService;
+    use crate::storage::registration_token::decode_registration_token_cursor;
     use crate::storage::registration_token::{RegistrationTokenCursor, RegistrationTokenStorage};
     use std::sync::Arc;
 

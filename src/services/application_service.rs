@@ -3,7 +3,9 @@ pub use synapse_services::application_service::*;
 #[cfg(test)]
 mod tests {
     use super::{ApplicationServiceManager, NamespacesInfo};
-    use crate::storage::application_service::{ApplicationServiceNamespace, ApplicationServiceStorage, UpdateApplicationServiceRequest};
+    use crate::storage::application_service::{
+        ApplicationServiceNamespace, ApplicationServiceStorage, UpdateApplicationServiceRequest,
+    };
     use crate::storage::EventStorage;
     use std::sync::Arc;
 
