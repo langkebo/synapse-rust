@@ -213,6 +213,7 @@ pub struct AccountValidityResponse {
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(user_id)
         .await

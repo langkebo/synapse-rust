@@ -406,8 +406,18 @@ pub(crate) async fn deactivate_account(
 ) -> Result<axum::response::Response, ApiError> {
     let flows = UiaService::get_deactivate_account_flows();
     let auth = body.get("auth");
-    if let Err(uia_response) =
-        state.services.extensions.uia_service.require_uia(auth, &auth_user.user_id, flows, &state.services.core.auth_service).await
+    if let Err(uia_response) = state
+        .services
+        .extensions
+        .uia_service
+        .require_uia(
+            auth,
+            &auth_user.user_id,
+            flows,
+            &state.services.core.auth_service,
+            &state.services.account.threepid_storage,
+        )
+        .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }

@@ -428,7 +428,7 @@ impl ApplicationServiceStorage {
         sqlx::query_as::<_, ApplicationServiceEvent>(
             r"
             INSERT INTO application_service_events (
-                event_id, as_id, room_id, event_type, processed, processed_ts, created_ts
+                event_id, as_id, room_id, event_type, is_processed, processed_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, FALSE, NULL, $5)
             RETURNING
@@ -472,7 +472,7 @@ impl ApplicationServiceStorage {
                 processed_ts,
                 NULL::text AS transaction_id
             FROM application_service_events
-            WHERE as_id = $1 AND processed_ts IS NULL
+            WHERE as_id = $1 AND is_processed = FALSE
             ORDER BY created_ts ASC
             LIMIT $2
             ",
@@ -483,14 +483,13 @@ impl ApplicationServiceStorage {
         .await
     }
 
-    pub async fn mark_event_processed(&self, event_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r"UPDATE application_service_events SET processed_ts = $2, transaction_id = $3 WHERE event_id = $1",
+            r"UPDATE application_service_events SET is_processed = TRUE, processed_ts = $2 WHERE event_id = $1",
         )
         .bind(event_id)
         .bind(now)
-        .bind(transaction_id)
         .execute(&*self.pool)
         .await?;
         Ok(())

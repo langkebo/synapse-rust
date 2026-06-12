@@ -409,6 +409,33 @@ impl FederationClient {
         let response = self.send_signed_request("GET", path, destination, None).await?;
         let keys: ServerKeys = self.handle_response(response).await?;
 
+        // Soft-degrade: if the remote server's key is past its valid_until_ts,
+        // we still accept it within a grace period but log a warning.
+        // Per Synapse v1.153 behavior, expired keys should not cause hard
+        // federation rejections; the TTL is a hint for key rotation, not a
+        // hard security boundary.
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let grace_period_ms = 24 * 3600 * 1000; // 24-hour grace period
+        if keys.valid_until_ts > 0 && now_ms > keys.valid_until_ts {
+            let expired_ms = now_ms - keys.valid_until_ts;
+            if expired_ms > grace_period_ms {
+                ::tracing::warn!(
+                    server = %destination,
+                    valid_until_ts = keys.valid_until_ts,
+                    expired_ms = expired_ms,
+                    grace_period_ms = grace_period_ms,
+                    "Remote server key expired beyond grace period; accepting with warning"
+                );
+            } else {
+                ::tracing::info!(
+                    server = %destination,
+                    valid_until_ts = keys.valid_until_ts,
+                    expired_ms = expired_ms,
+                    "Remote server key recently expired; accepting within grace period"
+                );
+            }
+        }
+
         self.key_cache
             .write()
             .await

@@ -40,7 +40,7 @@ enum DirectMapUpdateAction {
 
 #[cfg(not(feature = "friends"))]
 async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let content = state.services.user_storage.get_account_data_content(user_id, "m.direct").await.map_err(|e| {
+    let content = state.services.account.user_storage.get_account_data_content(user_id, "m.direct").await.map_err(|e| {
         tracing::error!("Failed to load m.direct account data: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -56,6 +56,7 @@ async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, 
 async fn save_direct_map(state: &AppState, user_id: &str, direct_map: &Map<String, Value>) -> Result<(), ApiError> {
     state
         .services
+        .account
         .user_storage
         .upsert_account_data_content(user_id, "m.direct", &Value::Object(direct_map.clone()))
         .await

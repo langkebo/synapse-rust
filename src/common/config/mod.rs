@@ -1,6 +1,8 @@
 use serde::Deserialize;
 
 mod manager;
+mod loader;
+mod validation;
 
 pub use manager::ConfigManager;
 
@@ -15,9 +17,9 @@ pub mod error;
 pub mod experimental;
 pub mod federation;
 pub mod identity;
-mod loader;
 pub mod logging;
 pub mod performance;
+pub mod policy_server;
 pub mod push;
 pub mod rate_limit;
 pub mod retention;
@@ -28,7 +30,6 @@ pub mod smtp;
 #[cfg(test)]
 mod tests;
 pub mod translate;
-mod validation;
 pub mod voip;
 pub mod worker;
 
@@ -45,24 +46,22 @@ pub use federation::{FederationConfig, TrustedKeyServer};
 pub use identity::IdentityConfig;
 pub use logging::LoggingConfig;
 pub use performance::PerformanceConfig;
+pub use policy_server::PolicyServerConfig;
 pub use rate_limit::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule, SyncRateLimitConfig};
 pub use retention::{RetentionConfig, RetentionPolicy, RetentionPurgeJob};
 pub use search::{PostgresFtsConfig, PostgresFtsWeights, SearchConfig};
-pub use security::{AdminRegistrationConfig, CorsConfig, SecurityConfig};
-pub use server::ServerConfig;
-pub use smtp::{SmtpConfig, SmtpRateLimitConfig};
+pub use security::{
+    default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_allowed_headers,
+    default_allowed_methods, default_cors_max_age, default_ui_auth_session_timeout,
+    AdminRegistrationConfig, CorsConfig, SecurityConfig,
+};
+pub use server::{default_dehydrated_device_cleanup_interval_secs, ServerConfig};
+pub use smtp::SmtpConfig;
 pub use translate::TranslateConfig;
 pub use voip::{
     ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig,
 };
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
-
-// Re-export helper functions used in tests and serde defaults
-pub use security::{
-    default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_allowed_headers,
-    default_allowed_methods, default_cors_max_age, default_ui_auth_session_timeout,
-};
-pub use server::default_dehydrated_device_cleanup_interval_secs;
 
 // ============================================================================
 // Config — central configuration struct

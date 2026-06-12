@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::{
+use crate::storage::rendezvous::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
 };
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
@@ -83,7 +83,8 @@ async fn create_session(
 
     ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
-    let rendezvous_url: String = format!("matrix://rendezvous/{}/{}", &state.services.server_name, session.session_id);
+    let rendezvous_url: String =
+        format!("matrix://rendezvous/{}/{}", &state.services.core.server_name, session.session_id);
 
     Ok(Json(json!({
         "url": rendezvous_url,
@@ -206,6 +207,7 @@ async fn update_session(
 
             let token: String = state
                 .services
+                .core
                 .auth_service
                 .generate_access_token(user_id, &device_id, false)
                 .await

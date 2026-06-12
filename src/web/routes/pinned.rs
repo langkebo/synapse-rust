@@ -41,7 +41,12 @@ pub async fn pin_event(
     validate_event_id(&body.event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to modify pinned events")
         .await?;
-    state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
+    state
+        .services
+        .core
+        .auth_service
+        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+        .await?;
 
     let mut pinned_list: Vec<String> = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
 
@@ -70,7 +75,12 @@ pub async fn unpin_event(
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to modify pinned events")
         .await?;
-    state.services.auth_service.verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events").await?;
+    state
+        .services
+        .core
+        .auth_service
+        .verify_state_event_write(&room_id, &auth_user.user_id, "m.room.pinned_events")
+        .await?;
 
     let mut pinned_list: Vec<String> = state.services.rooms.room_service.get_pinned_event_ids(&room_id).await?;
 

@@ -81,13 +81,15 @@ mod tests {
     #[tokio::test]
     async fn test_health_checker_creation() {
         let checker = HealthChecker::new("1.0.0".to_string());
-        assert_eq!(checker.version, "1.0.0");
+        let status = checker.check_liveness().await;
+        assert_eq!(status.version, "1.0.0");
     }
 
     #[tokio::test]
     async fn test_health_checker_default() {
         let checker = HealthChecker::default();
-        assert_eq!(checker.version, "0.1.0");
+        let status = checker.check_liveness().await;
+        assert_eq!(status.version, "0.1.0");
     }
 
     #[tokio::test]

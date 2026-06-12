@@ -5,7 +5,6 @@ pub use crate::auth::*;
 pub use crate::cache::*;
 pub use crate::common::*;
 pub use crate::storage::PresenceStorage;
-pub use crate::storage::*;
 pub use container::ServiceContainer;
 
 // =============================================================================

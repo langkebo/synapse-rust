@@ -26,26 +26,26 @@ redundant_else = "warn"
 default = ["server", "core-private-chat", "openclaw"]
 server = ["dep:axum", "dep:tower-http"]
 openclaw = ["openclaw-routes"]
-openclaw-routes = []
+openclaw-routes = ["synapse-common/openclaw-routes", "synapse-services/openclaw-routes", "synapse-storage/openclaw-routes"]
 runtime-ddl = []
 performance-tests = []
 test-utils = []
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
-friends = []
-voice-extended = ["server"]
-saml-sso = []
-cas-sso = []
-beacons = []
+friends = ["synapse-services/friends"]
+voice-extended = ["server", "synapse-services/voice-extended"]
+saml-sso = ["synapse-services/saml-sso"]
+cas-sso = ["synapse-services/cas-sso"]
+beacons = ["synapse-services/beacons"]
 voip-tracking = []
-widgets = []
-server-notifications = []
-burn-after-read = []
+widgets = ["synapse-services/widgets"]
+server-notifications = ["synapse-services/server-notifications"]
+burn-after-read = ["synapse-services/burn-after-read"]
 privacy-ext = []
-external-services = []
-builtin-oidc = []
-geo-ip = []
+external-services = ["synapse-services/external-services"]
+builtin-oidc = ["synapse-services/builtin-oidc"]
+geo-ip = ["synapse-services/geo-ip"]
 
 # Meta-feature: enable all extensions (default for backwards compatibility)
 all-extensions = [
@@ -138,6 +138,9 @@ ammonia = "4.1"
 infer = "0.19.0"
 textwrap = "0.16"
 synapse-common = { path = "synapse-common" }
+synapse-cache = { path = "synapse-cache" }
+synapse-services = { path = "synapse-services" }
+synapse-storage = { path = "synapse-storage" }
 
 image = "0.25"
 hex = "0.4.3"

@@ -529,4 +529,362 @@ mod tests {
         let (id, _) = select_endpoint_rule(&config, "/_matrix/client/r0/login");
         assert_eq!(id, "login_endpoint");
     }
+
+    // — RateLimitConfigManager tests —
+
+    fn temp_config_path() -> (PathBuf, NamedTempFile) {
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path().to_path_buf();
+        (path, temp_file)
+    }
+
+    #[tokio::test]
+    async fn test_manager_new_and_get_config() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        let manager = RateLimitConfigManager::new(config.clone(), path);
+
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.enabled, config.enabled);
+        assert_eq!(retrieved.default.per_second, config.default.per_second);
+    }
+
+    #[tokio::test]
+    async fn test_manager_get_config_ref() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        let manager = RateLimitConfigManager::new(config, path);
+
+        let config_ref = manager.get_config_ref();
+        let locked = config_ref.read();
+        assert_eq!(locked.default.per_second, 10);
+        assert_eq!(locked.default.burst_size, 20);
+    }
+
+    #[tokio::test]
+    async fn test_manager_from_file() {
+        let config = RateLimitConfigFile {
+            enabled: true,
+            default: RateLimitRule { per_second: 30, burst_size: 60 },
+            ..Default::default()
+        };
+
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.default.per_second, 30);
+        assert_eq!(retrieved.default.burst_size, 60);
+    }
+
+    #[tokio::test]
+    async fn test_manager_reload() {
+        let config = RateLimitConfigFile {
+            default: RateLimitRule { per_second: 10, burst_size: 20 },
+            ..Default::default()
+        };
+
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+
+        // Modify the file on disk
+        let updated = RateLimitConfigFile {
+            default: RateLimitRule { per_second: 99, burst_size: 199 },
+            ..Default::default()
+        };
+        updated.save(&path).await.unwrap();
+
+        manager.reload().await.unwrap();
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.default.per_second, 99);
+        assert_eq!(retrieved.default.burst_size, 199);
+    }
+
+    #[tokio::test]
+    async fn test_manager_set_enabled() {
+        let config = RateLimitConfigFile { enabled: true, ..Default::default() };
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        assert!(manager.get_config().enabled);
+
+        manager.set_enabled(false).await.unwrap();
+        assert!(!manager.get_config().enabled);
+
+        // Verify persisted on disk
+        let loaded = RateLimitConfigFile::load(&path).await.unwrap();
+        assert!(!loaded.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_manager_set_default_rule() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        manager.set_default_rule(RateLimitRule { per_second: 50, burst_size: 100 }).await.unwrap();
+
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.default.per_second, 50);
+        assert_eq!(retrieved.default.burst_size, 100);
+    }
+
+    #[tokio::test]
+    async fn test_manager_add_endpoint_rule() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        manager
+            .add_endpoint_rule(RateLimitEndpointRule {
+                path: "/custom/endpoint".to_string(),
+                match_type: RateLimitMatchType::Prefix,
+                rule: RateLimitRule { per_second: 5, burst_size: 10 },
+            })
+            .await
+            .unwrap();
+
+        let retrieved = manager.get_config();
+        let found = retrieved.endpoints.iter().any(|e| e.path == "/custom/endpoint");
+        assert!(found);
+    }
+
+    #[tokio::test]
+    async fn test_manager_remove_endpoint_rule() {
+        let mut config = RateLimitConfigFile::default();
+        config.endpoints.push(RateLimitEndpointRule {
+            path: "/custom/endpoint".to_string(),
+            match_type: RateLimitMatchType::Exact,
+            rule: RateLimitRule::default(),
+        });
+
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        assert_eq!(manager.get_config().endpoints.len(), 4); // 3 defaults + 1 custom
+
+        manager.remove_endpoint_rule("/custom/endpoint").await.unwrap();
+
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.endpoints.len(), 3);
+        assert!(!retrieved.endpoints.iter().any(|e| e.path == "/custom/endpoint"));
+    }
+
+    #[tokio::test]
+    async fn test_manager_add_exempt_path() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        manager.add_exempt_path("/custom/exempt".to_string()).await.unwrap();
+
+        let retrieved = manager.get_config();
+        assert!(retrieved.exempt_paths.contains(&"/custom/exempt".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_manager_add_exempt_path_dedup() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        let original_count = manager.get_config().exempt_paths.len();
+
+        // Add same path twice — should not add duplicate
+        manager.add_exempt_path("/dedup/path".to_string()).await.unwrap();
+        manager.add_exempt_path("/dedup/path".to_string()).await.unwrap();
+
+        let retrieved = manager.get_config();
+        assert_eq!(retrieved.exempt_paths.len(), original_count + 1);
+    }
+
+    #[tokio::test]
+    async fn test_manager_remove_exempt_path() {
+        let mut config = RateLimitConfigFile::default();
+        config.exempt_paths.push("/custom/exempt".to_string());
+
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        assert!(manager.get_config().exempt_paths.contains(&"/custom/exempt".to_string()));
+
+        manager.remove_exempt_path("/custom/exempt").await.unwrap();
+
+        let retrieved = manager.get_config();
+        assert!(!retrieved.exempt_paths.contains(&"/custom/exempt".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_manager_update_validation_rejects_zero_per_second() {
+        let config = RateLimitConfigFile::default();
+        let (path, _temp) = temp_config_path();
+        config.save(&path).await.unwrap();
+
+        let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
+        let result = manager.set_default_rule(RateLimitRule { per_second: 0, burst_size: 10 }).await;
+        assert!(result.is_err());
+    }
+
+    // — RateLimitConfigAdapter tests —
+
+    #[test]
+    fn test_adapter_from_config_file() {
+        let config = RateLimitConfigFile {
+            enabled: true,
+            default: RateLimitRule { per_second: 25, burst_size: 50 },
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/test".to_string(),
+                match_type: RateLimitMatchType::Prefix,
+                rule: RateLimitRule { per_second: 5, burst_size: 10 },
+            }],
+            ip_header_priority: vec!["x-custom".to_string()],
+            include_headers: false,
+            exempt_paths: vec!["/exempt".to_string()],
+            exempt_path_prefixes: vec!["/prefix".to_string()],
+            endpoint_aliases: {
+                let mut m = HashMap::new();
+                m.insert("/test".to_string(), "test_alias".to_string());
+                m
+            },
+            fail_open_on_error: true,
+            ..Default::default()
+        };
+
+        let adapter = RateLimitConfigAdapter::from(config);
+        assert!(adapter.enabled);
+        assert_eq!(adapter.default.per_second, 25);
+        assert_eq!(adapter.default.burst_size, 50);
+        assert_eq!(adapter.endpoints.len(), 1);
+        assert_eq!(adapter.endpoints[0].path, "/test");
+        assert_eq!(adapter.ip_header_priority, vec!["x-custom"]);
+        assert!(!adapter.include_headers);
+        assert_eq!(adapter.exempt_paths, vec!["/exempt"]);
+        assert_eq!(adapter.exempt_path_prefixes, vec!["/prefix"]);
+        assert_eq!(adapter.endpoint_aliases.get("/test"), Some(&"test_alias".to_string()));
+        assert!(adapter.fail_open_on_error);
+    }
+
+    // — select_endpoint_rule additional tests —
+
+    #[test]
+    fn test_select_endpoint_rule_exact_no_match() {
+        let config = RateLimitConfigFile {
+            endpoints: vec![RateLimitEndpointRule {
+                path: "/exact/match".to_string(),
+                match_type: RateLimitMatchType::Exact,
+                rule: RateLimitRule { per_second: 5, burst_size: 10 },
+            }],
+            ..Default::default()
+        };
+
+        // Exact match on a different path — should fall back to default
+        let (id, rule) = select_endpoint_rule(&config, "/exact/match/extra");
+        assert_eq!(id, "/exact/match/extra");
+        assert_eq!(rule.per_second, config.default.per_second);
+    }
+
+    // — select_endpoint_rule_runtime tests —
+
+    #[test]
+    fn test_select_endpoint_rule_runtime_exact() {
+        let config = crate::common::config::RateLimitConfig {
+            enabled: true,
+            default: crate::common::config::RateLimitRule { per_second: 10, burst_size: 20 },
+            endpoints: vec![crate::common::config::RateLimitEndpointRule {
+                path: "/_matrix/client/r0/login".to_string(),
+                match_type: crate::common::config::RateLimitMatchType::Exact,
+                rule: crate::common::config::RateLimitRule { per_second: 5, burst_size: 10 },
+            }],
+            ..Default::default()
+        };
+
+        let (id, rule) = select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
+        assert_eq!(id, "/_matrix/client/r0/login");
+        assert_eq!(rule.per_second, 5);
+    }
+
+    #[test]
+    fn test_select_endpoint_rule_runtime_prefix() {
+        let config = crate::common::config::RateLimitConfig {
+            enabled: true,
+            default: crate::common::config::RateLimitRule { per_second: 10, burst_size: 20 },
+            endpoints: vec![
+                crate::common::config::RateLimitEndpointRule {
+                    path: "/_matrix/client".to_string(),
+                    match_type: crate::common::config::RateLimitMatchType::Prefix,
+                    rule: crate::common::config::RateLimitRule { per_second: 50, burst_size: 100 },
+                },
+                crate::common::config::RateLimitEndpointRule {
+                    path: "/_matrix/client/r0/sync".to_string(),
+                    match_type: crate::common::config::RateLimitMatchType::Prefix,
+                    rule: crate::common::config::RateLimitRule { per_second: 20, burst_size: 40 },
+                },
+            ],
+            ..Default::default()
+        };
+
+        let (id, rule) = select_endpoint_rule_runtime(&config, "/_matrix/client/r0/sync?since=123");
+        assert_eq!(id, "/_matrix/client/r0/sync");
+        assert_eq!(rule.per_second, 20);
+    }
+
+    #[test]
+    fn test_select_endpoint_rule_runtime_default() {
+        let config = crate::common::config::RateLimitConfig::default();
+        let (id, rule) = select_endpoint_rule_runtime(&config, "/unknown/path");
+        assert_eq!(id, "/unknown/path");
+        assert_eq!(rule.per_second, config.default.per_second);
+    }
+
+    #[test]
+    fn test_select_endpoint_rule_runtime_alias() {
+        let mut config = crate::common::config::RateLimitConfig {
+            enabled: true,
+            default: crate::common::config::RateLimitRule { per_second: 10, burst_size: 20 },
+            endpoints: vec![crate::common::config::RateLimitEndpointRule {
+                path: "/_matrix/client/r0/login".to_string(),
+                match_type: crate::common::config::RateLimitMatchType::Exact,
+                rule: crate::common::config::RateLimitRule { per_second: 5, burst_size: 10 },
+            }],
+            ..Default::default()
+        };
+        config.endpoint_aliases.insert("/_matrix/client/r0/login".to_string(), "login".to_string());
+
+        let (id, _) = select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
+        assert_eq!(id, "login");
+    }
+
+    // — validate() additional edge cases —
+
+    #[test]
+    fn test_validate_endpoint_per_second_zero() {
+        let mut config = RateLimitConfigFile::default();
+        config.endpoints.push(RateLimitEndpointRule {
+            path: "/test".to_string(),
+            match_type: RateLimitMatchType::Exact,
+            rule: RateLimitRule { per_second: 0, burst_size: 10 },
+        });
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_endpoint_burst_size_zero() {
+        let mut config = RateLimitConfigFile::default();
+        config.endpoints.push(RateLimitEndpointRule {
+            path: "/test".to_string(),
+            match_type: RateLimitMatchType::Exact,
+            rule: RateLimitRule { per_second: 10, burst_size: 0 },
+        });
+        assert!(config.validate().is_err());
+    }
 }

@@ -136,7 +136,7 @@ pub(super) async fn get_event(
     match event {
         Some(e) => {
             super::validate_federation_origin_in_room(&state, &e.room_id, &auth.origin).await?;
-            Ok(Json(build_federation_event_response(&state.services.server_name, &e)))
+            Ok(Json(build_federation_event_response(&state.services.core.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
@@ -160,7 +160,7 @@ pub(super) async fn get_room_event(
             if e.room_id != room_id {
                 return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
             }
-            Ok(Json(build_federation_event_response(&state.services.server_name, &e)))
+            Ok(Json(build_federation_event_response(&state.services.core.server_name, &e)))
         }
         None => Err(ApiError::not_found("Event not found".to_string())),
     }
@@ -175,11 +175,11 @@ pub(super) async fn get_state(
     super::validate_federation_origin_can_observe_room(&state, &room_id, &auth.origin).await?;
 
     let mut events = load_federation_state_events(&state, &room_id, query.event_id.as_deref()).await?;
-    let (pdus, auth_chain) = build_federation_state_payload(&state.services.server_name, &mut events);
+    let (pdus, auth_chain) = build_federation_state_payload(&state.services.core.server_name, &mut events);
 
     Ok(Json(json!({
         "room_id": room_id,
-        "origin": state.services.server_name,
+        "origin": state.services.core.server_name,
         "pdus": pdus,
         "auth_chain": auth_chain
     })))
@@ -207,7 +207,7 @@ pub(super) async fn get_state_ids(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "origin": state.services.server_name,
+        "origin": state.services.core.server_name,
         "pdu_ids": pdu_ids,
         "auth_chain_ids": auth_chain_ids
     })))
@@ -232,7 +232,7 @@ pub(super) async fn room_directory_query(
 
         return Ok(Json(json!({
             "room_id": room.room_id,
-            "servers": [state.services.server_name]
+            "servers": [state.services.core.server_name]
         })));
     }
 
@@ -295,7 +295,7 @@ async fn build_profile_query_response(
         ));
     }
 
-    if !super::user_matches_origin(user_id, &state.services.server_name) {
+    if !super::user_matches_origin(user_id, &state.services.core.server_name) {
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
@@ -400,7 +400,7 @@ pub(super) async fn query_directory(
     let Some((_, alias_server_name)) = room_alias[1..].rsplit_once(':') else {
         return Err(ApiError::bad_request("Invalid room alias format".to_string()));
     };
-    if alias_server_name != state.services.server_name {
+    if alias_server_name != state.services.core.server_name {
         return Err(ApiError::not_found("Room alias is not hosted on this server".to_string()));
     }
 
@@ -423,14 +423,14 @@ pub(super) async fn query_directory(
 
     Ok(Json(json!({
         "room_id": room_id,
-        "servers": [state.services.server_name.clone()]
+        "servers": [state.services.core.server_name.clone()]
     })))
 }
 
 pub(super) async fn query_destination(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
-        "server_name": state.services.server_name,
-        "destination": state.services.server_name,
+        "server_name": state.services.core.server_name,
+        "destination": state.services.core.server_name,
         "retry_last_ts": 0,
         "retry_interval_ms": 0
     })))
@@ -575,17 +575,17 @@ pub(super) async fn backfill(
         .get_state_events_at_or_before(&room_id, backfill_before_ts)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get auth chain", &e))?;
-    let (_, auth_chain) = build_federation_state_payload(&state.services.server_name, &mut auth_events);
+    let (_, auth_chain) = build_federation_state_payload(&state.services.core.server_name, &mut auth_events);
 
     let mut pdus: Vec<Value> =
-        events.into_iter().map(|event| serialize_room_event_minimal(&state.services.server_name, &event)).collect();
+        events.into_iter().map(|event| serialize_room_event_minimal(&state.services.core.server_name, &event)).collect();
 
     topological_sort(&mut pdus);
 
     ::tracing::debug!("Backfill returning {} sorted PDUs", pdus.len());
 
     Ok(Json(json!({
-        "origin": state.services.server_name,
+        "origin": state.services.core.server_name,
         "origin_server_ts": chrono::Utc::now().timestamp_millis(),
         "pdus": pdus,
         "auth_chain": auth_chain

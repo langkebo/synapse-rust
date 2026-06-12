@@ -81,7 +81,13 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                     }
                 }
                 "m.login.token" => {
-                    if let Err(e) = state.services.extensions.uia_service.verify_token_stage(auth_val, &auth_user.user_id) {
+                    if let Err(e) = state
+                        .services
+                        .extensions
+                        .uia_service
+                        .verify_token_stage(auth_val, &auth_user.user_id, &state.services.core.auth_service)
+                        .await
+                    {
                         let session = state
                             .services
                             .extensions

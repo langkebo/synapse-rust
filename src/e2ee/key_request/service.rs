@@ -1,4 +1,4 @@
-use crate::e2ee::key_request::models::{KeyRequestInfo, KeyShareResponse};
+use crate::e2ee::key_request::models::{KeyRequestInfo, KeyRequestPagination, KeyShareResponse};
 use crate::e2ee::key_request::storage::KeyRequestStorage;
 use crate::e2ee::megolm::MegolmProvider;
 use crate::error::ApiError;
@@ -155,17 +155,9 @@ impl KeyRequestService {
 
     pub async fn get_requests_paginated(
         &self,
-        user_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-        from_id: Option<&str>,
-        status: Option<&str>,
-        room_id: Option<&str>,
-        session_id: Option<&str>,
+        pagination: KeyRequestPagination<'_>,
     ) -> Result<Vec<KeyRequestInfo>, ApiError> {
-        self.storage
-            .get_requests_paginated(user_id, limit, from_ts, from_id, status, room_id, session_id)
-            .await
+        self.storage.get_requests_paginated(pagination).await
     }
 
     pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {

@@ -3,9 +3,9 @@ use super::{
 };
 use crate::common::ApiError;
 use crate::map_internal;
-use crate::services::CreateEventParams;
+use crate::storage::CreateEventParams;
 #[cfg(feature = "beacons")]
-use crate::services::CreateBeaconInfoParams;
+use crate::storage::CreateBeaconInfoParams;
 use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -111,7 +111,7 @@ pub(crate) async fn send_state_event(
 
     let content = body;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -235,7 +235,7 @@ pub(crate) async fn put_state_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -392,7 +392,7 @@ pub(crate) async fn put_state_event_empty_key(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
@@ -430,7 +430,7 @@ pub(crate) async fn put_state_event_no_key(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);

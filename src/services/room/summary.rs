@@ -1,249 +1,55 @@
-//! Room summary service — core CRUD operations.
-//!
-//! State and sync operations live in [`summary_state`].
-//! Stats and queue operations live in [`summary_stats`].
+pub use synapse_services::room::summary::*;
 
-use crate::common::{ApiError, ApiResult};
-use crate::storage::event::EventStorage;
-use crate::storage::membership::RoomMemberStorage;
-pub use crate::storage::room_summary::{
-    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
-    RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
-};
-use crate::storage::room_summary::*;
-use std::sync::Arc;
-use tracing::{debug, info, instrument};
+#[cfg(test)]
+mod tests {
+    use super::{CreateRoomSummaryRequest, RoomSummaryResponse};
 
-pub struct RoomSummaryService {
-    pub(crate) storage: Arc<RoomSummaryStorage>,
-    pub(crate) event_storage: Arc<EventStorage>,
-    pub(crate) member_storage: Option<Arc<RoomMemberStorage>>,
-}
-
-impl RoomSummaryService {
-    pub fn new(
-        storage: Arc<RoomSummaryStorage>,
-        event_storage: Arc<EventStorage>,
-        member_storage: Option<Arc<RoomMemberStorage>>,
-    ) -> Self {
-        Self { storage, event_storage, member_storage }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
-        let summary_res = self
-            .storage
-            .get_summary(room_id)
-            .await;
-        
-        let summary = match summary_res {
-            Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get room summary", &e)),
+    #[test]
+    fn root_room_summary_service_reexport_keeps_create_request_shape() {
+        let request = CreateRoomSummaryRequest {
+            room_id: "!room:example.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Test Room".to_string()),
+            topic: Some("A test room".to_string()),
+            avatar_url: Some("mxc://avatar".to_string()),
+            canonical_alias: Some("#test:example.com".to_string()),
+            join_rule: Some("public".to_string()),
+            history_visibility: Some("shared".to_string()),
+            guest_access: Some("forbidden".to_string()),
+            is_direct: Some(false),
+            is_space: Some(true),
         };
 
-        if let Some(summary) = summary {
-            let heroes = self.get_heroes(room_id).await?;
-            Ok(Some(summary.to_response(heroes)))
-        } else {
-            Ok(None)
-        }
+        assert_eq!(request.room_id, "!room:example.com");
+        assert_eq!(request.room_type.as_deref(), Some("m.space"));
+        assert_eq!(request.is_space, Some(true));
     }
 
-    #[instrument(skip(self))]
-    pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
-        let summaries_res = self
-            .storage
-            .get_summaries_for_user(user_id)
-            .await;
-        
-        let summaries = match summaries_res {
-            Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get user room summaries", &e)),
+    #[test]
+    fn root_room_summary_service_reexport_keeps_response_serialization() {
+        let response = RoomSummaryResponse {
+            room_id: "!room:example.com".to_string(),
+            room_type: None,
+            name: Some("Test Room".to_string()),
+            topic: Some("A test room".to_string()),
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: "public".to_string(),
+            history_visibility: "shared".to_string(),
+            guest_access: "forbidden".to_string(),
+            is_direct: false,
+            is_space: false,
+            is_encrypted: true,
+            member_count: 10,
+            joined_member_count: 8,
+            invited_member_count: 2,
+            heroes: Vec::new(),
+            last_event_ts: Some(1234567890),
+            last_message_ts: Some(1234567891),
         };
 
-        let mut responses = Vec::new();
-        for summary in summaries {
-            let heroes = self.get_heroes(&summary.room_id).await?;
-            responses.push(summary.to_response(heroes));
-        }
-
-        Ok(responses)
-    }
-
-    pub(crate) async fn get_heroes(&self, room_id: &str) -> Result<Vec<RoomSummaryHero>, ApiError> {
-        let members_res = self
-            .storage
-            .get_heroes(room_id, 5)
-            .await;
-        
-        let members = match members_res {
-            Ok(m) => m,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes", &e)),
-        };
-
-        Ok(members.into_iter().map(RoomSummaryHero::from).collect())
-    }
-
-    pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> ApiResult<RoomSummaryResponse> {
-        info!(room_id = %request.room_id, "Creating room summary");
-
-        let room_id = request.room_id.clone();
-
-        let summary_exists_res = self
-            .storage
-            .get_summary(&room_id)
-            .await;
-        
-        let exists = match summary_exists_res {
-            Ok(s) => s.is_some(),
-            Err(e) => return Err(ApiError::internal_with_log("Failed to check room summary", &e)),
-        };
-
-        if exists {
-            let update_res = self.storage
-                .update_summary(&room_id, Self::create_request_to_update_request(&request))
-                .await;
-            if let Err(e) = update_res {
-                return Err(ApiError::internal_with_log("Failed to update room summary", &e));
-            }
-        } else {
-            let create_res = self.storage
-                .create_summary(request)
-                .await;
-            if let Err(e) = create_res {
-                return Err(ApiError::internal_with_log("Failed to create room summary", &e));
-            }
-        }
-
-        let sync_res: ApiResult<()> = self.synchronize_room_snapshot(&room_id).await;
-        if let Err(e) = sync_res {
-            return Err(e);
-        }
-
-        let final_summary: Option<RoomSummaryResponse> = match self.get_summary(&room_id).await {
-            Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get summary after sync", &e)),
-        };
-        final_summary.ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
-    }
-
-    fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
-        UpdateRoomSummaryRequest {
-            name: request.name.clone(),
-            topic: request.topic.clone(),
-            avatar_url: request.avatar_url.clone(),
-            canonical_alias: request.canonical_alias.clone(),
-            join_rule: request.join_rule.clone(),
-            history_visibility: request.history_visibility.clone(),
-            guest_access: request.guest_access.clone(),
-            is_direct: request.is_direct,
-            is_space: request.is_space,
-            ..Default::default()
-        }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn update_summary(
-        &self,
-        room_id: &str,
-        request: UpdateRoomSummaryRequest,
-    ) -> Result<RoomSummaryResponse, ApiError> {
-        let summary = self
-            .storage
-            .update_summary(room_id, request)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update room summary", &e))?;
-
-        let heroes = self.get_heroes(room_id).await?;
-        Ok(summary.to_response(heroes))
-    }
-
-    #[instrument(skip(self))]
-    pub async fn delete_summary(&self, room_id: &str) -> Result<(), ApiError> {
-        info!(room_id = %room_id, "Deleting room summary");
-
-        self.storage
-            .delete_summary(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete room summary", &e))?;
-
-        Ok(())
-    }
-
-    #[instrument(skip(self))]
-    pub async fn add_member(&self, request: CreateSummaryMemberRequest) -> Result<RoomSummaryMember, ApiError> {
-        debug!("Adding member {} to room {}", request.user_id, request.room_id);
-
-        let member = self
-            .storage
-            .add_member(request)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to add member", &e))?;
-
-        Ok(member)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn update_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        request: UpdateSummaryMemberRequest,
-    ) -> Result<RoomSummaryMember, ApiError> {
-        let member = self
-            .storage
-            .update_member(room_id, user_id, request)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update member", &e))?;
-
-        Ok(member)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), ApiError> {
-        debug!("Removing member {} from room {}", user_id, room_id);
-
-        self.storage
-            .remove_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to remove member", &e))?;
-
-        Ok(())
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_members(&self, room_id: &str) -> Result<Vec<RoomSummaryMember>, ApiError> {
-        let members = self
-            .storage
-            .get_members(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get members", &e))?;
-
-        Ok(members)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_summaries_by_ids(&self, room_ids: &[String]) -> Result<Vec<RoomSummaryResponse>, ApiError> {
-        if room_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let summaries_res = self
-            .storage
-            .get_summaries_by_ids(room_ids)
-            .await;
-        
-        let summaries = match summaries_res {
-            Ok(s) => s,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get room summaries", &e)),
-        };
-
-        let mut responses = Vec::with_capacity(summaries.len());
-        for summary in summaries {
-            let heroes = self.get_heroes(&summary.room_id).await?;
-            responses.push(summary.to_response(heroes));
-        }
-
-        Ok(responses)
+        let json = serde_json::to_value(&response).expect("serialize room summary response");
+        assert_eq!(json.get("room_id").and_then(serde_json::Value::as_str), Some("!room:example.com"));
+        assert_eq!(json.get("is_encrypted").and_then(serde_json::Value::as_bool), Some(true));
     }
 }

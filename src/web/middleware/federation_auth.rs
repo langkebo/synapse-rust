@@ -44,7 +44,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
                 target: "security_audit",
                 event = "federation_destination_mismatch",
                 claimed_destination = dest,
-                local_server = state.services.server_name,
+                local_server = state.services.core.server_name,
                 origin = params.origin,
                 "Federation request destination does not match local server - possible replay attack"
             );
@@ -101,7 +101,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
         tracing::warn!(
             "Unauthorized federation request from {:?}. Server name: {}. Error: {}",
             parts.headers.get("x-forwarded-for").or(parts.headers.get("host")),
-            state.services.server_name,
+            state.services.core.server_name,
             e
         );
         return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
@@ -114,7 +114,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
             sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1",
                 origin_server
             )
-            .fetch_optional(&*state.services.user_storage.pool)
+            .fetch_optional(&*state.services.account.user_storage.pool)
             .await
             .ok()
             .flatten();
@@ -136,7 +136,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
                     origin_server,
                     now
                 )
-                .execute(&*state.services.user_storage.pool)
+                .execute(&*state.services.account.user_storage.pool)
                 .await;
 
                 tracing::info!("New federation server '{}' registered as pending", origin_server);

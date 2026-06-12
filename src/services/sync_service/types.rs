@@ -1,6 +1,7 @@
 use crate::common::*;
-use crate::services::*;
-use crate::storage::PresenceStorage;
+use crate::storage::{
+    DeviceStorage, EventStorage, FilterStorage, PresenceStorage, RoomEvent, RoomMemberStorage, RoomStorage,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -58,7 +59,7 @@ impl SyncToken {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncFilter {
     pub limit: Option<i64>,
     pub types: Option<Vec<String>>,
@@ -292,4 +293,275 @@ pub(crate) struct StateEventsBatchParams<'a> {
     pub(crate) is_incremental: bool,
     pub(crate) lazy_load_members: bool,
     pub(crate) user_id: &'a str,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== SyncToken parse/encode tests ==========
+
+    #[test]
+    fn test_sync_token_parse_simple() {
+        let token = SyncToken::parse("s12345").unwrap();
+        assert_eq!(token.stream_id, 12345);
+        assert_eq!(token.to_device_stream_id, None);
+        assert_eq!(token.device_list_stream_id, None);
+    }
+
+    #[test]
+    fn test_sync_token_parse_with_to_device_and_device_list() {
+        let token = SyncToken::parse("s100_200_300").unwrap();
+        assert_eq!(token.stream_id, 100);
+        assert_eq!(token.to_device_stream_id, Some(200));
+        assert_eq!(token.device_list_stream_id, Some(300));
+    }
+
+    #[test]
+    fn test_sync_token_parse_no_s_prefix() {
+        assert!(SyncToken::parse("12345").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_parse_invalid_number() {
+        assert!(SyncToken::parse("sabc").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_parse_empty() {
+        assert!(SyncToken::parse("").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_parse_just_s() {
+        assert!(SyncToken::parse("s").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_parse_zero() {
+        let token = SyncToken::parse("s0").unwrap();
+        assert_eq!(token.stream_id, 0);
+    }
+
+    #[test]
+    fn test_sync_token_parse_negative() {
+        let token = SyncToken::parse("s-1").unwrap();
+        assert_eq!(token.stream_id, -1);
+    }
+
+    #[test]
+    fn test_sync_token_parse_large_number() {
+        let token = SyncToken::parse("s9223372036854775807").unwrap();
+        assert_eq!(token.stream_id, i64::MAX);
+    }
+
+    #[test]
+    fn test_sync_token_parse_with_invalid_to_device() {
+        assert!(SyncToken::parse("s100_abc_300").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_parse_with_missing_device_list() {
+        // Only one underscore after the stream_id, can't parse to_device and device_list
+        assert!(SyncToken::parse("s100_200").is_none());
+    }
+
+    #[test]
+    fn test_sync_token_encode_simple() {
+        let token = SyncToken {
+            stream_id: 42,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: None,
+        };
+        assert_eq!(token.encode(), "s42");
+    }
+
+    #[test]
+    fn test_sync_token_encode_with_to_device() {
+        let token = SyncToken {
+            stream_id: 10,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: Some(20),
+            device_list_stream_id: None,
+        };
+        // Only one is Some, so it falls to the simple format
+        assert_eq!(token.encode(), "s10");
+    }
+
+    #[test]
+    fn test_sync_token_encode_with_device_list_only() {
+        let token = SyncToken {
+            stream_id: 10,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: Some(30),
+        };
+        assert_eq!(token.encode(), "s10");
+    }
+
+    #[test]
+    fn test_sync_token_encode_with_both() {
+        let token = SyncToken {
+            stream_id: 1,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: Some(2),
+            device_list_stream_id: Some(3),
+        };
+        assert_eq!(token.encode(), "s1_2_3");
+    }
+
+    #[test]
+    fn test_sync_token_roundtrip_simple() {
+        let original = SyncToken {
+            stream_id: 999,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: None,
+        };
+        let encoded = original.encode();
+        let parsed = SyncToken::parse(&encoded).unwrap();
+        assert_eq!(parsed.stream_id, original.stream_id);
+        assert_eq!(parsed.to_device_stream_id, original.to_device_stream_id);
+        assert_eq!(parsed.device_list_stream_id, original.device_list_stream_id);
+    }
+
+    #[test]
+    fn test_sync_token_roundtrip_full() {
+        let original = SyncToken {
+            stream_id: 500,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: Some(600),
+            device_list_stream_id: Some(700),
+        };
+        let encoded = original.encode();
+        let parsed = SyncToken::parse(&encoded).unwrap();
+        assert_eq!(parsed.stream_id, original.stream_id);
+        assert_eq!(parsed.to_device_stream_id, original.to_device_stream_id);
+        assert_eq!(parsed.device_list_stream_id, original.device_list_stream_id);
+    }
+
+    // ========== SyncFilter default tests ==========
+
+    #[test]
+    fn test_sync_filter_default() {
+        let filter = SyncFilter::default();
+        assert_eq!(filter.limit, Some(100));
+        assert!(filter.types.is_none());
+        assert!(filter.not_types.is_none());
+        assert!(filter.rooms.is_none());
+        assert!(filter.not_rooms.is_none());
+        assert!(filter.contains_url.is_none());
+        assert!(filter.lazy_load_members.is_none());
+        assert!(filter.include_redundant_members.is_none());
+        assert!(filter.senders.is_none());
+        assert!(filter.not_senders.is_none());
+    }
+
+    #[test]
+    fn test_sync_filter_custom() {
+        let filter = SyncFilter {
+            limit: Some(50),
+            types: Some(vec!["m.room.message".to_string()]),
+            not_types: None,
+            rooms: None,
+            not_rooms: None,
+            contains_url: Some(true),
+            lazy_load_members: Some(true),
+            include_redundant_members: None,
+            senders: None,
+            not_senders: None,
+        };
+        assert_eq!(filter.limit, Some(50));
+        assert_eq!(filter.types, Some(vec!["m.room.message".to_string()]));
+        assert_eq!(filter.contains_url, Some(true));
+        assert_eq!(filter.lazy_load_members, Some(true));
+    }
+
+    // ========== SyncEventFormat tests ==========
+
+    #[test]
+    fn test_sync_event_format_default() {
+        assert_eq!(SyncEventFormat::default(), SyncEventFormat::Client);
+    }
+
+    #[test]
+    fn test_sync_event_format_serialization() {
+        let client = SyncEventFormat::Client;
+        let json = serde_json::to_string(&client).unwrap();
+        assert_eq!(json, "\"client\"");
+
+        let federation = SyncEventFormat::Federation;
+        let json = serde_json::to_string(&federation).unwrap();
+        assert_eq!(json, "\"federation\"");
+    }
+
+    #[test]
+    fn test_sync_event_format_deserialization() {
+        let client: SyncEventFormat = serde_json::from_str("\"client\"").unwrap();
+        assert_eq!(client, SyncEventFormat::Client);
+
+        let federation: SyncEventFormat = serde_json::from_str("\"federation\"").unwrap();
+        assert_eq!(federation, SyncEventFormat::Federation);
+    }
+
+    // ========== RoomFilter default tests ==========
+
+    #[test]
+    fn test_room_filter_default() {
+        let filter = RoomFilter::default();
+        assert_eq!(filter.include_leave, Some(false));
+        assert!(filter.state.is_some());
+        assert!(filter.timeline.is_some());
+        assert!(filter.ephemeral.is_some());
+        assert!(filter.account_data.is_some());
+    }
+
+    // ========== SyncResponseFilter default tests ==========
+
+    #[test]
+    fn test_sync_response_filter_default() {
+        let filter = SyncResponseFilter::default();
+        assert!(filter.event_fields.is_none());
+        assert_eq!(filter.event_format, SyncEventFormat::Client);
+        assert!(filter.room.is_some());
+        assert!(filter.presence.is_some());
+    }
+
+    // ========== LazyLoadedMembersCacheKey tests ==========
+
+    #[test]
+    fn test_lazy_loaded_members_cache_key() {
+        let key = LazyLoadedMembersCacheKey::new("@alice:example.com", Some("device1"), "!room:example.com");
+        assert_eq!(key.user_id, "@alice:example.com");
+        assert_eq!(key.device_id, Some("device1".to_string()));
+        assert_eq!(key.room_id, "!room:example.com");
+    }
+
+    #[test]
+    fn test_lazy_loaded_members_cache_key_no_device() {
+        let key = LazyLoadedMembersCacheKey::new("@bob:example.com", None, "!room:example.com");
+        assert_eq!(key.user_id, "@bob:example.com");
+        assert_eq!(key.device_id, None);
+        assert_eq!(key.room_id, "!room:example.com");
+    }
+
+    #[test]
+    fn test_sync_room_section() {
+        assert_eq!(SyncRoomSection::Join, SyncRoomSection::Join);
+        assert_ne!(SyncRoomSection::Join, SyncRoomSection::Leave);
+    }
+
+    #[test]
+    fn test_incremental_update() {
+        assert_eq!(IncrementalUpdate::Events, IncrementalUpdate::Events);
+        assert_ne!(IncrementalUpdate::Events, IncrementalUpdate::Timeout);
+        assert_ne!(IncrementalUpdate::ToDevice, IncrementalUpdate::DeviceLists);
+    }
 }

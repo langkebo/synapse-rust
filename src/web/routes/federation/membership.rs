@@ -71,7 +71,7 @@ pub(super) async fn knock_room(
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
-    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -120,7 +120,7 @@ pub(super) async fn thirdparty_invite(
     validate_federation_user_origin(&auth.origin, sender)?;
     let _room_version = federatable_room_version(&state, room_id).await?;
 
-    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.server_name));
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
 
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -217,7 +217,7 @@ pub(super) async fn get_user_devices(
     Extension(_auth): Extension<FederationRequestAuth>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !super::user_matches_origin(&user_id, &state.services.server_name) {
+    if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 

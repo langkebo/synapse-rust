@@ -171,16 +171,14 @@ impl AuthService {
 
     pub async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
         let now = Utc::now();
-        let jti = uuid::Uuid::new_v4().to_string();
-        let claims = super::Claims {
-            sub: user_id.to_string(),
-            user_id: user_id.to_string(),
-            jti,
-            is_admin: admin,
-            exp: (now + Duration::seconds(self.token_expiry)).timestamp(),
-            iat: now.timestamp(),
-            device_id: Some(device_id.to_string()),
-        };
+        let claims = super::ClaimsBuilder::new()
+            .sub(user_id.to_string())
+            .user_id(user_id.to_string())
+            .is_admin(admin)
+            .exp((now + Duration::seconds(self.token_expiry)).timestamp())
+            .iat(now.timestamp())
+            .device_id(Some(device_id.to_string()))
+            .build();
 
         let mut header = Header::new(Algorithm::HS256);
         header.typ = Some("JWT".to_string());

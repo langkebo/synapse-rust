@@ -1,6 +1,6 @@
 # synapse-rust 文档索引
 
-> 最后更新: 2026-06-07
+> 最后更新: 2026-06-12
 > 维护原则: 现行文档集中在 `docs/synapse-rust/` 与 `docs/{db,quality,sdk}/`；
 > 归档文档统一进入 `docs/archive/`，不再修改，仅供历史溯源。
 
@@ -25,7 +25,7 @@
 
 | 报告 | 范围 | 末次更新 |
 |------|------|----------|
-| [`COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`](./synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) | **当前基线**：P0/P1/P2 + Step 1-12 执行状态 + 30 项修复路线 | 2026-06-06 |
+| [`COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`](./synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) | **当前基线**：P0/P1/P2 + Step 1-12 执行状态 + 30 项修复路线 | 2026-06-12 |
 | [`MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`](./synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) | Matrix v1.18 / Synapse v1.153 协议对齐 + 优化 backlog | 2026-05-29 |
 | [`SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md`](./synapse-rust/SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md) | 优化总蓝图 | 2026-05-27 |
 | [`SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md`](./synapse-rust/SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md) | 上游 Synapse 行为研究 | 2026-05-27 |
@@ -327,8 +327,8 @@
 | Synapse 稳定标签 | v1.153.0 |
 | Synapse 预发布 | v1.154.0rc1 |
 | synapse-rust 当前版本 | 见 `Cargo.toml` |
-| 最近基线审查 | 2026-06-06 |
-| 文档索引版本 | 2026-06-07（m-24 审计项修复） |
+| 最近基线审查 | 2026-06-12 |
+| 文档索引版本 | 2026-06-12（测试覆盖率提升 + 编译错误修复） |
 
 基线版本变更时，需同步更新：
 1. `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_*.md`（最新基线报告）

@@ -1,7 +1,7 @@
 use crate::cache::CacheManager;
 use crate::common::constants::USER_PROFILE_CACHE_TTL;
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, QueryBuilder};
 use std::sync::Arc;
 use tracing;
 
@@ -10,6 +10,152 @@ const USER_PROFILE_BATCH_CACHE_TTL: u64 = 300;
 
 fn escape_like_pattern(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_escape_like_pattern_normal() {
+        assert_eq!(escape_like_pattern("hello"), "hello");
+    }
+
+    #[test]
+    fn test_escape_like_pattern_percent() {
+        assert_eq!(escape_like_pattern("100%"), "100\\%");
+    }
+
+    #[test]
+    fn test_escape_like_pattern_underscore() {
+        assert_eq!(escape_like_pattern("a_b"), "a\\_b");
+    }
+
+    #[test]
+    fn test_escape_like_pattern_backslash() {
+        assert_eq!(escape_like_pattern("a\\b"), "a\\\\b");
+    }
+
+    #[test]
+    fn test_escape_like_pattern_combined() {
+        assert_eq!(escape_like_pattern("a\\b%c_d"), "a\\\\b\\%c\\_d");
+    }
+
+    #[test]
+    fn test_escape_like_pattern_empty() {
+        assert_eq!(escape_like_pattern(""), "");
+    }
+
+    #[test]
+    fn test_user_id_method() {
+        let user = User {
+            user_id: "@alice:example.com".into(),
+            username: "alice".into(),
+            password_hash: None,
+            is_admin: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: false,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: 0,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+        assert_eq!(user.user_id(), "@alice:example.com");
+    }
+
+    #[test]
+    fn test_user_password_hash_skipped_in_serialization() {
+        let user = User {
+            user_id: "@alice:example.com".into(),
+            username: "alice".into(),
+            password_hash: Some("secret_hash".into()),
+            is_admin: false,
+            is_guest: false,
+            is_shadow_banned: false,
+            is_deactivated: false,
+            created_ts: 1700000000000,
+            updated_ts: None,
+            displayname: None,
+            avatar_url: None,
+            email: None,
+            phone: None,
+            generation: 0,
+            consent_version: None,
+            appservice_id: None,
+            user_type: None,
+            invalid_update_at: None,
+            migration_state: None,
+            password_changed_ts: None,
+            is_password_change_required: false,
+            password_expires_at: None,
+            failed_login_attempts: 0,
+            locked_until: None,
+            must_change_password: false,
+        };
+        let json = serde_json::to_string(&user).unwrap();
+        assert!(!json.contains("password_hash"));
+        assert!(!json.contains("secret_hash"));
+    }
+
+    #[test]
+    fn test_user_profile_fields() {
+        let profile = UserProfile {
+            user_id: "@bob:example.com".into(),
+            username: "bob".into(),
+            displayname: Some("Bob".into()),
+            avatar_url: None,
+            created_ts: 1700000000000,
+        };
+        assert_eq!(profile.user_id, "@bob:example.com");
+        assert_eq!(profile.displayname, Some("Bob".into()));
+    }
+
+    #[test]
+    fn test_user_profile_serialization() {
+        let profile = UserProfile {
+            user_id: "@cat:example.com".into(),
+            username: "cat".into(),
+            displayname: Some("Cat".into()),
+            avatar_url: Some("mxc://example.com/avatar".into()),
+            created_ts: 1700000000000,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        let decoded: UserProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.user_id, profile.user_id);
+        assert_eq!(decoded.username, profile.username);
+        assert_eq!(decoded.displayname, profile.displayname);
+        assert_eq!(decoded.avatar_url, profile.avatar_url);
+    }
+
+    #[test]
+    fn test_user_search_result_roundtrip() {
+        let result = UserSearchResult {
+            user_id: "@dan:example.com".into(),
+            username: "dan".into(),
+            displayname: None,
+            avatar_url: None,
+            created_ts: 1700000000000,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: UserSearchResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.user_id, result.user_id);
+        assert_eq!(decoded.username, result.username);
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
@@ -88,6 +234,27 @@ pub struct UserDirectorySearchResult {
     pub last_active_ts: Option<i64>,
     pub match_score: i32,
     pub match_type: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct AdminUserListEntry {
+    pub user_id: String,
+    pub created_ts: i64,
+    pub is_admin: bool,
+    pub is_guest: bool,
+    pub user_type: Option<String>,
+    pub is_deactivated: bool,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct AdminUserCountStats {
+    pub total_users: i64,
+    pub active_users: i64,
+    pub admin_users: i64,
+    pub deactivated_users: i64,
+    pub guest_users: i64,
 }
 
 #[derive(Clone)]
@@ -460,6 +627,74 @@ impl UserStorage {
         }
     }
 
+    pub async fn list_admin_users(
+        &self,
+        limit: i64,
+        cursor_created_ts: Option<i64>,
+        cursor_user_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<Vec<AdminUserListEntry>, sqlx::Error> {
+        let mut query = QueryBuilder::<Postgres>::new(
+            "SELECT user_id, created_ts, COALESCE(is_admin, FALSE) AS is_admin, \
+             COALESCE(is_guest, FALSE) AS is_guest, user_type, \
+             COALESCE(is_deactivated, FALSE) AS is_deactivated, displayname, avatar_url \
+             FROM users WHERE 1=1",
+        );
+
+        if let Some(name) = name_filter {
+            query.push(" AND username LIKE ");
+            query.push_bind(format!("%{name}%"));
+        }
+
+        if let (Some(created_ts), Some(user_id)) = (cursor_created_ts, cursor_user_id) {
+            query.push(" AND (created_ts < ");
+            query.push_bind(created_ts);
+            query.push(" OR (created_ts = ");
+            query.push_bind(created_ts);
+            query.push(" AND user_id < ");
+            query.push_bind(user_id);
+            query.push("))");
+        }
+
+        query.push(" ORDER BY created_ts DESC, user_id DESC LIMIT ");
+        query.push_bind(limit);
+
+        query.build_query_as::<AdminUserListEntry>().fetch_all(&*self.pool).await
+    }
+
+    pub async fn get_admin_user_count_stats(&self) -> Result<AdminUserCountStats, sqlx::Error> {
+        sqlx::query_as!(
+            AdminUserCountStats,
+            r#"
+            SELECT
+                COUNT(*)::BIGINT AS "total_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE)::BIGINT AS "active_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE)::BIGINT AS "admin_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE)::BIGINT AS "deactivated_users!",
+                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE)::BIGINT AS "guest_users!"
+            FROM users
+            "#
+        )
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn count_user_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*)::BIGINT AS "count!"
+            FROM events
+            WHERE sender = $1
+              AND event_type = 'm.room.message'
+              AND is_redacted = FALSE
+            "#,
+            user_id,
+        )
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
+
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar!(
             r#"SELECT COALESCE(COUNT(*), 0) AS "count!" FROM users"#
@@ -542,6 +777,17 @@ impl UserStorage {
     pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
         tracing::info!(user_id = %user_id, "Deactivating user");
         sqlx::query!(r"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1",
+            user_id,
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn set_deactivated_status(&self, user_id: &str, is_deactivated: bool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r"UPDATE users SET is_deactivated = $1 WHERE user_id = $2",
+            is_deactivated,
             user_id,
         )
         .execute(&*self.pool)

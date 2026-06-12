@@ -248,4 +248,160 @@ mod tests {
         assert_eq!(result.sso_url, "https://idp.example.com/sso");
         assert_eq!(result.slo_url, Some("https://idp.example.com/slo".to_string()));
     }
+
+    // — SAML Response error paths —
+
+    #[test]
+    fn test_parse_saml_response_missing_name_id() {
+        let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
+            <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+            </saml:Assertion>
+        </samlp:Response>
+        "#;
+
+        let result = parse_saml_response(xml);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
+
+    #[test]
+    fn test_parse_saml_response_multiple_attributes() {
+        let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
+            <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Subject>
+                    <saml:NameID>user@example.com</saml:NameID>
+                </saml:Subject>
+                <saml:AttributeStatement>
+                    <saml:Attribute Name="email">
+                        <saml:AttributeValue>user@example.com</saml:AttributeValue>
+                    </saml:Attribute>
+                    <saml:Attribute Name="groups">
+                        <saml:AttributeValue>admin</saml:AttributeValue>
+                    </saml:Attribute>
+                </saml:AttributeStatement>
+            </saml:Assertion>
+        </samlp:Response>
+        "#;
+
+        let result = parse_saml_response(xml).unwrap();
+        assert_eq!(result.name_id, "user@example.com");
+        assert_eq!(result.issuer, "https://idp.example.com");
+        assert_eq!(result.attributes.get("email").unwrap(), &vec!["user@example.com".to_string()]);
+        assert_eq!(result.attributes.get("groups").unwrap(), &vec!["admin".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_saml_response_no_session_index() {
+        let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
+            <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Subject>
+                    <saml:NameID>user@example.com</saml:NameID>
+                </saml:Subject>
+                <saml:AuthnStatement/>
+            </saml:Assertion>
+        </samlp:Response>
+        "#;
+
+        let result = parse_saml_response(xml).unwrap();
+        assert_eq!(result.name_id, "user@example.com");
+        assert_eq!(result.session_index, None);
+    }
+
+    #[test]
+    fn test_parse_saml_response_no_issuer() {
+        let xml = r#"
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
+            <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
+                <saml:Subject>
+                    <saml:NameID>user@example.com</saml:NameID>
+                </saml:Subject>
+            </saml:Assertion>
+        </samlp:Response>
+        "#;
+
+        let result = parse_saml_response(xml).unwrap();
+        assert_eq!(result.name_id, "user@example.com");
+        assert_eq!(result.issuer, "");
+    }
+
+    // — SAML Metadata error paths —
+
+    #[test]
+    fn test_parse_saml_metadata_missing_entity_id() {
+        let xml = r#"
+        <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata">
+            <md:IDPSSODescriptor>
+                <md:SingleSignOnService Location="https://idp.example.com/sso"/>
+            </md:IDPSSODescriptor>
+        </md:EntityDescriptor>
+        "#;
+
+        let result = parse_saml_metadata(xml);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
+
+    #[test]
+    fn test_parse_saml_metadata_missing_sso_url() {
+        let xml = r#"
+        <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com">
+            <md:IDPSSODescriptor>
+            </md:IDPSSODescriptor>
+        </md:EntityDescriptor>
+        "#;
+
+        let result = parse_saml_metadata(xml);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
+
+    #[test]
+    fn test_parse_saml_metadata_no_slo_url() {
+        let xml = r#"
+        <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com">
+            <md:IDPSSODescriptor>
+                <md:SingleSignOnService Location="https://idp.example.com/sso"/>
+            </md:IDPSSODescriptor>
+        </md:EntityDescriptor>
+        "#;
+
+        let result = parse_saml_metadata(xml).unwrap();
+        assert_eq!(result.entity_id, "https://idp.example.com");
+        assert_eq!(result.sso_url, "https://idp.example.com/sso");
+        assert_eq!(result.slo_url, None);
+    }
+
+    #[test]
+    fn test_parse_saml_metadata_no_certificate() {
+        let xml = r#"
+        <md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="https://idp.example.com">
+            <md:IDPSSODescriptor>
+                <md:SingleSignOnService Location="https://idp.example.com/sso"/>
+            </md:IDPSSODescriptor>
+        </md:EntityDescriptor>
+        "#;
+
+        let result = parse_saml_metadata(xml).unwrap();
+        assert_eq!(result.certificate, "");
+    }
+
+    #[test]
+    fn test_parse_saml_response_empty_input() {
+        let result = parse_saml_response("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
+
+    #[test]
+    fn test_parse_saml_metadata_empty_input() {
+        let result = parse_saml_metadata("");
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), XmlParseError::MissingElement(_)));
+    }
 }

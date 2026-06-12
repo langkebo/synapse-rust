@@ -513,8 +513,13 @@ async fn oidc_token(
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
-                let existing_user: Option<crate::storage::user::User> =
-                    state.services.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None);
+                let existing_user: Option<crate::storage::user::User> = state
+                    .services
+                    .account
+                    .user_storage
+                    .get_user_by_id(&matrix_user_id)
+                    .await
+                    .unwrap_or(None);
                 if existing_user.is_some() {
                     ::tracing::warn!(
                         target: "security_audit",
@@ -563,6 +568,7 @@ async fn oidc_token(
             // 生成 Matrix Access Token
             let user_info: Option<crate::storage::user::User> = state
                 .services
+                .account
                 .user_storage
                 .get_user_by_username(&localpart)
                 .await
@@ -571,7 +577,7 @@ async fn oidc_token(
             let is_admin: bool = user_info.is_some_and(|u| u.is_admin);
 
             let matrix_token: String =
-                state.services.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
+                state.services.core.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
 
             tracing::info!(
                 "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}, device_id: {}",
@@ -867,7 +873,7 @@ async fn oidc_callback(
             .get_config()
             .callback_url
             .clone()
-            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.server_name))
+            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name))
     } else {
         auth_session.redirect_uri.clone()
     };
@@ -897,10 +903,11 @@ async fn oidc_callback(
 
     // 创建或登录 Matrix 用户
     // First check if user exists by localpart
-    let user_id: String = format!("@{}:{}", oidc_user.localpart, state.services.server_name);
+    let user_id: String = format!("@{}:{}", oidc_user.localpart, state.services.core.server_name);
 
     let existing_user: Option<crate::storage::user::User> = state
         .services
+        .account
         .user_storage
         .get_user_by_username(&oidc_user.localpart)
         .await
@@ -912,12 +919,14 @@ async fn oidc_callback(
         let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let access_token: String = state
             .services
+            .core
             .auth_service
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
         let refresh_token: String = state
             .services
+            .core
             .auth_service
             .generate_refresh_token(&user_id, &device_id)
             .await
@@ -930,7 +939,7 @@ async fn oidc_callback(
         // Get displayname from OIDC user info
         let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
-        match state.services.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
+        match state.services.core.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)
@@ -940,6 +949,7 @@ async fn oidc_callback(
                     // User was created by another request, try to get them
                     let existing: crate::storage::user::User = state
                         .services
+                        .account
                         .user_storage
                         .get_user_by_username(&oidc_user.localpart)
                         .await
@@ -949,12 +959,14 @@ async fn oidc_callback(
                     let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
                     let access_token: String = state
                         .services
+                        .core
                         .auth_service
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
                     let refresh_token: String = state
                         .services
+                        .core
                         .auth_service
                         .generate_refresh_token(&user_id, &device_id)
                         .await
@@ -973,7 +985,7 @@ async fn oidc_callback(
     Ok(Json(serde_json::json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": state.services.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry,
         "device_id": device_id,
         "user_id": user_id_for_log,
     })))

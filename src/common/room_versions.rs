@@ -121,7 +121,8 @@ mod tests {
     use super::{
         can_create_room_version, can_federate_room_version, can_join_room_version, can_parse_room_version,
         client_room_versions_capability, federation_room_versions_capability, is_supported_room_version,
-        resolve_room_version, DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS,
+        resolve_room_version, RoomVersionCapability, RoomVersionDisposition, DEFAULT_ROOM_VERSION,
+        SUPPORTED_ROOM_VERSIONS,
     };
 
     #[test]
@@ -180,6 +181,90 @@ mod tests {
                 available.get(supported.version).and_then(|value| value.get("status")).and_then(|value| value.as_str()),
                 Some(supported.disposition_str())
             );
+        }
+    }
+
+    #[test]
+    fn test_room_version_disposition_as_str() {
+        assert_eq!(RoomVersionDisposition::Stable.as_str(), "stable");
+        assert_eq!(RoomVersionDisposition::Unstable.as_str(), "unstable");
+    }
+
+    #[test]
+    fn test_room_version_capability_stable_constructor() {
+        let cap = RoomVersionCapability::stable("1");
+        assert_eq!(cap.version, "1");
+        assert_eq!(cap.disposition, RoomVersionDisposition::Stable);
+        assert!(cap.can_create);
+        assert!(cap.can_join);
+        assert!(cap.can_parse);
+        assert!(cap.can_federate);
+    }
+
+    #[test]
+    fn test_room_version_capability_disposition_str() {
+        let stable = RoomVersionCapability::stable("1");
+        assert_eq!(stable.disposition_str(), "stable");
+    }
+
+    #[test]
+    fn test_is_supported_room_version_rejects_unknown() {
+        assert!(!is_supported_room_version("0"));
+        assert!(!is_supported_room_version("14"));
+        assert!(!is_supported_room_version("99"));
+        assert!(!is_supported_room_version(""));
+    }
+
+    #[test]
+    fn test_can_create_room_version_edge_cases() {
+        assert!(can_create_room_version("1"));
+        assert!(can_create_room_version("10"));
+        assert!(!can_create_room_version("14"));
+        assert!(!can_create_room_version(""));
+    }
+
+    #[test]
+    fn test_can_join_room_version_edge_cases() {
+        assert!(can_join_room_version("1"));
+        assert!(can_join_room_version("13"));
+        assert!(!can_join_room_version("14"));
+        assert!(!can_join_room_version(""));
+    }
+
+    #[test]
+    fn test_can_parse_room_version_edge_cases() {
+        assert!(can_parse_room_version("1"));
+        assert!(can_parse_room_version("13"));
+        assert!(!can_parse_room_version("14"));
+    }
+
+    #[test]
+    fn test_can_federate_room_version_edge_cases() {
+        assert!(can_federate_room_version("1"));
+        assert!(can_federate_room_version("13"));
+        assert!(!can_federate_room_version("14"));
+    }
+
+    #[test]
+    fn test_resolve_room_version_explicit_default() {
+        assert_eq!(resolve_room_version(Some(DEFAULT_ROOM_VERSION)), Some(DEFAULT_ROOM_VERSION));
+    }
+
+    #[test]
+    fn test_client_room_versions_capability_structure() {
+        let capability = client_room_versions_capability();
+        assert!(capability.get("default").is_some());
+        assert!(capability.get("available").is_some());
+        assert!(capability["available"].is_object());
+    }
+
+    #[test]
+    fn test_federation_room_versions_capability_structure() {
+        let capability = federation_room_versions_capability();
+        assert!(capability.is_object());
+        // Each entry should have a "status" field
+        for (_, value) in capability.as_object().unwrap() {
+            assert!(value.get("status").is_some());
         }
     }
 }

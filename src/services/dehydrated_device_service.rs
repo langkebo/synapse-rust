@@ -199,3 +199,151 @@ impl DehydratedDeviceService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ========== generate_device_id tests ==========
+
+    #[test]
+    fn test_generate_device_id_format() {
+        let id = DehydratedDeviceService::generate_device_id();
+        assert!(id.starts_with("DEHYDRATED"), "Device ID should start with DEHYDRATED, got: {}", id);
+        assert_eq!(id.len(), 20, "Device ID should be 20 chars (DEHYDRATED + 10 hex), got: {} (len={})", id, id.len());
+        // The hex part should be uppercase
+        let hex_part = &id[10..];
+        assert!(hex_part.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn test_generate_device_id_uniqueness() {
+        let id1 = DehydratedDeviceService::generate_device_id();
+        let id2 = DehydratedDeviceService::generate_device_id();
+        assert_ne!(id1, id2, "Two generated device IDs should be different");
+    }
+
+    // ========== ensure_response_fields tests ==========
+
+    #[test]
+    fn test_ensure_response_fields_basic() {
+        let mut map = Map::new();
+        DehydratedDeviceService::ensure_response_fields(&mut map, "DEV1", "m.olm.v1.curve25519-aes-sha2", None, None);
+        assert_eq!(map["device_id"], json!("DEV1"));
+        assert_eq!(map["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+        assert!(!map.contains_key("account"));
+        assert!(!map.contains_key("expires_at"));
+    }
+
+    #[test]
+    fn test_ensure_response_fields_with_account() {
+        let mut map = Map::new();
+        let account = json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]});
+        DehydratedDeviceService::ensure_response_fields(
+            &mut map,
+            "DEV1",
+            "m.olm.v1.curve25519-aes-sha2",
+            Some(&account),
+            None,
+        );
+        assert_eq!(map["account"], account);
+    }
+
+    #[test]
+    fn test_ensure_response_fields_with_expires_at() {
+        let mut map = Map::new();
+        DehydratedDeviceService::ensure_response_fields(
+            &mut map,
+            "DEV1",
+            "m.olm.v1.curve25519-aes-sha2",
+            None,
+            Some(1700000000000),
+        );
+        assert_eq!(map["expires_at"], json!(1700000000000_i64));
+    }
+
+    #[test]
+    fn test_ensure_response_fields_does_not_overwrite_existing() {
+        let mut map = Map::new();
+        map.insert("algorithm".to_string(), json!("custom_algo"));
+        map.insert("account".to_string(), json!("existing_account"));
+        map.insert("expires_at".to_string(), json!(1600000000000_i64));
+
+        DehydratedDeviceService::ensure_response_fields(
+            &mut map,
+            "DEV1",
+            "m.olm.v1.curve25519-aes-sha2",
+            Some(&json!("new_account")),
+            Some(1700000000000),
+        );
+        // device_id is always overwritten
+        assert_eq!(map["device_id"], json!("DEV1"));
+        // algorithm should NOT be overwritten (or_insert_with)
+        assert_eq!(map["algorithm"], json!("custom_algo"));
+        // account should NOT be overwritten (or_insert_with)
+        assert_eq!(map["account"], json!("existing_account"));
+        // expires_at should NOT be overwritten (or_insert_with)
+        assert_eq!(map["expires_at"], json!(1600000000000_i64));
+    }
+
+    // ========== record_to_response tests ==========
+
+    #[test]
+    fn test_record_to_response_basic() {
+        let record = DehydratedDevice {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEV123".to_string(),
+            device_data: json!({"key": "value"}),
+            algorithm: "m.olm.v1.curve25519-aes-sha2".to_string(),
+            account: None,
+            created_ts: 1700000000000,
+            updated_ts: 1700000001000,
+            expires_at: None,
+        };
+        let result = DehydratedDeviceService::record_to_response(record);
+        assert_eq!(result["device_id"], json!("DEV123"));
+        assert_eq!(result["key"], json!("value"));
+        assert_eq!(result["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+    }
+
+    #[test]
+    fn test_record_to_response_with_account() {
+        let record = DehydratedDevice {
+            id: 2,
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEV456".to_string(),
+            device_data: Value::Object(Map::new()),
+            algorithm: "org.matrix.msc3814.v1.olm".to_string(),
+            account: Some(json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]})),
+            created_ts: 1700000000000,
+            updated_ts: 1700000001000,
+            expires_at: Some(1700086400000),
+        };
+        let result = DehydratedDeviceService::record_to_response(record);
+        assert_eq!(result["device_id"], json!("DEV456"));
+        assert_eq!(result["algorithm"], json!("org.matrix.msc3814.v1.olm"));
+        assert_eq!(result["account"], json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]}));
+        assert_eq!(result["expires_at"], json!(1700086400000_i64));
+    }
+
+    #[test]
+    fn test_record_to_response_non_object_data() {
+        let record = DehydratedDevice {
+            id: 3,
+            user_id: "@carol:example.com".to_string(),
+            device_id: "DEV789".to_string(),
+            device_data: json!("non_object_data"),
+            algorithm: "m.olm.v1.curve25519-aes-sha2".to_string(),
+            account: None,
+            created_ts: 1700000000000,
+            updated_ts: 1700000001000,
+            expires_at: None,
+        };
+        let result = DehydratedDeviceService::record_to_response(record);
+        assert_eq!(result["device_id"], json!("DEV789"));
+        assert_eq!(result["device_data"], json!("non_object_data"));
+        assert_eq!(result["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+    }
+}

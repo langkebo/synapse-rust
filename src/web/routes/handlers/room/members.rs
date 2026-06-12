@@ -19,7 +19,7 @@ pub(crate) async fn join_room(
     validate_room_id(&room_id)?;
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     state.services.rooms.room_service.join_room(&room_id, &user_id).await?;
     Ok(Json(json!({
@@ -36,7 +36,7 @@ pub(crate) async fn join_room_by_id_or_alias(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -49,7 +49,7 @@ pub(crate) async fn join_room_by_id_or_alias(
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
-        let alias = format!("#{}:{}", room_id_or_alias, state.services.config.server.name);
+        let alias = format!("#{}:{}", room_id_or_alias, state.services.core.server_name);
         state
             .services.rooms.room_service
             .get_room_by_alias(&alias)
@@ -110,7 +110,7 @@ pub(crate) async fn knock_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -123,7 +123,7 @@ pub(crate) async fn knock_room(
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
-        let alias = format!("#{}:{}", room_id_or_alias, state.services.config.server.name);
+        let alias = format!("#{}:{}", room_id_or_alias, state.services.core.server_name);
         state
             .services.rooms.room_service
             .get_room_by_alias(&alias)
@@ -163,7 +163,7 @@ pub(crate) async fn invite_user(
 
     validate_user_id(invitee)?;
 
-    state.services.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
+    state.services.core.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
 
     state.services.rooms.room_service.invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
@@ -182,7 +182,7 @@ pub(crate) async fn invite_user_by_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
 
@@ -193,7 +193,7 @@ pub(crate) async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    state.services.auth_service.can_invite_user(&room_id, &user_id).await?;
+    state.services.core.auth_service.can_invite_user(&room_id, &user_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -222,7 +222,7 @@ pub(crate) async fn get_room_members(
     let request_id = resolve_request_id(&headers);
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let room = state.services.rooms.room_service.get_room(&room_id).await?;
 
@@ -303,7 +303,7 @@ pub(crate) async fn get_room_members_recent(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
     let members = state.services.rooms.room_service.get_room_members(&room_id, &user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);

@@ -298,7 +298,7 @@ pub async fn setup_test_app_with_pool(
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<synapse_rust::cache::CacheManager>)> {
     let cached = DEFAULT_APP.get_or_init(|| async { build_test_app(|_| {}).await }).await;
     cached.as_ref().map(|(app, state)| {
-        let pool = state.services.user_storage.pool.clone();
+        let pool = state.services.account.user_storage.pool.clone();
         let cache = state.cache.clone();
         (app.clone(), pool, cache)
     })

@@ -156,7 +156,11 @@ impl FederationBlacklistStorage {
                 expires_at = $6,
                 is_enabled = true,
                 metadata = $7
-            RETURNING id, server_name, block_type, reason, blocked_by as "blocked_by!", created_ts as "created_ts!", updated_ts as "updated_ts!", expires_at, is_enabled, metadata
+            RETURNING id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
+                      reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
+                      COALESCE(created_ts, added_ts) AS "created_ts!",
+                      COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                      expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
             "#,
             &request.server_name,
             &request.block_type,
@@ -212,16 +216,16 @@ impl FederationBlacklistStorage {
             FederationBlacklist,
             r#"
             SELECT
-                id,
-                server_name,
-                'blacklist' AS "block_type!",
-                reason,
+                id AS "id!",
+                server_name AS "server_name!",
+                block_type AS "block_type!",
+                reason AS "reason?",
                 COALESCE(added_by, 'system') AS "blocked_by!",
-                added_ts AS "created_ts!",
+                COALESCE(created_ts, added_ts) AS "created_ts!",
                 COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                NULL::BIGINT AS expires_at,
-                TRUE AS "is_enabled!",
-                '{}'::jsonb AS "metadata!"
+                expires_at AS "expires_at?",
+                is_enabled AS "is_enabled!",
+                metadata AS "metadata!"
             FROM federation_blacklist
             WHERE server_name = $1
             "#,
@@ -251,20 +255,24 @@ impl FederationBlacklistStorage {
     }
 
     pub async fn is_server_whitelisted(&self, server_name: &str) -> Result<bool, ApiError> {
-        let exists = sqlx::query_scalar!(
+        let row = sqlx::query_as!(
+            FederationBlacklist,
             r#"
-            SELECT EXISTS(
-                SELECT 1 FROM federation_blacklist
-                WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
-            ) AS "exists!"
+            SELECT id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
+                   reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
+                   COALESCE(created_ts, added_ts) AS "created_ts!",
+                   COALESCE(updated_ts, added_ts) AS "updated_ts!",
+                   expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
+            FROM federation_blacklist
+            WHERE server_name = $1 AND block_type = 'whitelist' AND is_enabled = true
             "#,
             server_name
         )
-        .fetch_one(&*self.pool)
+        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check whitelist", &e))?;
 
-        Ok(exists)
+        Ok(row.is_some())
     }
 
     pub async fn get_all_blacklist(
@@ -277,16 +285,16 @@ impl FederationBlacklistStorage {
                 FederationBlacklist,
                 r#"
                 SELECT
-                    id,
-                    server_name,
-                    'blacklist' AS "block_type!",
-                    reason,
+                    id AS "id!",
+                    server_name AS "server_name!",
+                    block_type AS "block_type!",
+                    reason AS "reason?",
                     COALESCE(added_by, 'system') AS "blocked_by!",
-                    added_ts AS "created_ts!",
+                    COALESCE(created_ts, added_ts) AS "created_ts!",
                     COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    NULL::BIGINT AS expires_at,
-                    TRUE AS "is_enabled!",
-                    '{}'::jsonb AS "metadata!"
+                    expires_at AS "expires_at?",
+                    is_enabled AS "is_enabled!",
+                    metadata AS "metadata!"
                 FROM federation_blacklist
                 WHERE (added_ts, server_name) < ($1, $2)
                 ORDER BY added_ts DESC, server_name DESC
@@ -304,16 +312,16 @@ impl FederationBlacklistStorage {
                 FederationBlacklist,
                 r#"
                 SELECT
-                    id,
-                    server_name,
-                    'blacklist' AS "block_type!",
-                    reason,
+                    id AS "id!",
+                    server_name AS "server_name!",
+                    block_type AS "block_type!",
+                    reason AS "reason?",
                     COALESCE(added_by, 'system') AS "blocked_by!",
-                    added_ts AS "created_ts!",
+                    COALESCE(created_ts, added_ts) AS "created_ts!",
                     COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                    NULL::BIGINT AS expires_at,
-                    TRUE AS "is_enabled!",
-                    '{}'::jsonb AS "metadata!"
+                    expires_at AS "expires_at?",
+                    is_enabled AS "is_enabled!",
+                    metadata AS "metadata!"
                 FROM federation_blacklist
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
@@ -326,7 +334,7 @@ impl FederationBlacklistStorage {
         };
 
         let next_batch = if rows.len() > limit as usize {
-            rows.get(limit as usize).map(|last| {
+            rows.get(limit as usize - 1).map(|last| {
                 encode_federation_blacklist_cursor(&FederationBlacklistCursor {
                     created_ts: last.created_ts,
                     server_name: last.server_name.clone(),

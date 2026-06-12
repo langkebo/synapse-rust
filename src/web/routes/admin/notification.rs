@@ -1,7 +1,7 @@
 #[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
-use crate::services::{decode_server_notification_cursor, CreateNotificationRequest};
+use crate::storage::{decode_server_notification_cursor, CreateNotificationRequest};
 #[cfg(feature = "server-notifications")]
 use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
@@ -135,7 +135,7 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
 
 #[cfg(feature = "server-notifications")]
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let user = state.services.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {
+    let user = state.services.account.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {
         tracing::error!("Database error: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -344,7 +344,13 @@ pub async fn send_server_notice(
     State(state): State<AppState>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let target_user = state.services.user_storage.get_user_by_identifier(&body.user_id).await.map_err(|e| {
+    let target_user = state
+        .services
+        .account
+        .user_storage
+        .get_user_by_identifier(&body.user_id)
+        .await
+        .map_err(|e| {
         tracing::error!("Database error: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;

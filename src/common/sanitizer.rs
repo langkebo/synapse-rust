@@ -274,4 +274,59 @@ mod tests {
         // ammonia removes the dangerous onerror attribute regardless of comments
         assert!(!output.contains("onerror"));
     }
+
+    #[test]
+    fn test_sanitize_plain_text() {
+        let sanitizer = ContentSanitizer::default();
+        let input = "<strong>Bold</strong> and <em>italic</em>";
+        let output = sanitizer.sanitize_plain_text(input);
+        assert!(!output.contains("<strong>"));
+        assert!(!output.contains("<em>"));
+        assert!(output.contains("Bold"));
+        assert!(output.contains("italic"));
+    }
+
+    #[test]
+    fn test_contains_html_with_html() {
+        let sanitizer = ContentSanitizer::default();
+        assert!(sanitizer.contains_html("<b>text</b>"));
+    }
+
+    #[test]
+    fn test_contains_html_plain_text() {
+        let sanitizer = ContentSanitizer::default();
+        assert!(!sanitizer.contains_html("plain text"));
+    }
+
+    #[test]
+    fn test_create_sanitizer() {
+        let sanitizer = create_sanitizer();
+        let output = sanitizer.sanitize("<script>xss</script>safe");
+        assert!(!output.contains("<script>"));
+        assert!(output.contains("safe"));
+    }
+
+    #[test]
+    fn test_create_strict_sanitizer() {
+        let sanitizer = create_strict_sanitizer();
+        let output = sanitizer.sanitize("<b>text</b>");
+        assert!(!output.contains("<b>"));
+        assert!(output.contains("text"));
+    }
+
+    #[test]
+    fn test_custom_mode_sanitize() {
+        let sanitizer = ContentSanitizer::new(SanitizerMode::Custom, 5000);
+        let output = sanitizer.sanitize("<script>alert(1)</script>hello");
+        assert!(!output.contains("<script>"));
+        assert!(output.contains("hello"));
+    }
+
+    #[test]
+    fn test_sanitize_plain_text_length_limit() {
+        let sanitizer = ContentSanitizer::new(SanitizerMode::Default, 5);
+        let input = "<b>very long input</b>";
+        let output = sanitizer.sanitize_plain_text(input);
+        assert!(output.len() <= 5);
+    }
 }

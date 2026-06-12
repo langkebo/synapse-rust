@@ -1,6 +1,6 @@
 use super::types::*;
 use super::SyncService;
-use crate::services::*;
+use crate::storage::RoomEvent;
 use std::collections::HashMap;
 
 impl SyncService {

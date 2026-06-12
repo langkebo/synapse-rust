@@ -1,389 +1,12 @@
-use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
-use std::sync::Arc;
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct EventRelation {
-    pub id: i64,
-    pub room_id: String,
-    pub event_id: String,
-    pub relates_to_event_id: String,
-    pub relation_type: String,
-    pub sender: String,
-    pub origin_server_ts: i64,
-    pub content: serde_json::Value,
-    pub is_redacted: bool,
-    pub created_ts: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateRelationParams {
-    pub room_id: String,
-    pub event_id: String,
-    pub relates_to_event_id: String,
-    pub relation_type: String,
-    pub sender: String,
-    pub origin_server_ts: i64,
-    pub content: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RelationQueryParams {
-    pub room_id: String,
-    pub relates_to_event_id: String,
-    pub relation_type: Option<String>,
-    pub limit: Option<i32>,
-    pub from: Option<String>,
-    pub direction: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AggregationResult {
-    pub relation_type: String,
-    pub key: Option<String>,
-    pub count: i64,
-    pub sender: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct RelationsStorage {
-    pub pool: Arc<Pool<Postgres>>,
-}
-
-impl RelationsStorage {
-    pub fn new(pool: &Arc<Pool<Postgres>>) -> Self {
-        Self { pool: pool.clone() }
-    }
-
-    pub async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-
-        sqlx::query_as!(
-            EventRelation,
-            r##"INSERT INTO event_relations (
-                room_id, event_id, relates_to_event_id, relation_type,
-                sender, origin_server_ts, content, created_ts
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (event_id, relation_type, sender) DO UPDATE SET
-                content = EXCLUDED.content,
-                origin_server_ts = EXCLUDED.origin_server_ts,
-                is_redacted = FALSE
-            RETURNING id, room_id, event_id, relates_to_event_id, relation_type,
-                      sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                      created_ts AS "created_ts!"
-            "##,
-            &params.room_id,
-            &params.event_id,
-            &params.relates_to_event_id,
-            &params.relation_type,
-            &params.sender,
-            params.origin_server_ts,
-            &params.content,
-            now
-        )
-        .fetch_one(&*self.pool)
-        .await
-    }
-
-    pub async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
-        sqlx::query_as!(
-            EventRelation,
-            r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                   sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                   created_ts AS "created_ts!"
-            FROM event_relations
-            WHERE room_id = $1 AND event_id = $2 AND is_redacted = FALSE"##,
-            room_id,
-            event_id
-        )
-        .fetch_optional(&*self.pool)
-        .await
-    }
-
-    pub async fn count_relations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        relation_type: Option<&str>,
-    ) -> Result<i64, sqlx::Error> {
-        let count = sqlx::query_scalar!(
-            r#"SELECT COUNT(*)::BIGINT FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND ($3::text IS NULL OR relation_type = $3)
-              AND is_redacted = FALSE"#,
-            room_id,
-            relates_to_event_id,
-            relation_type
-        )
-        .fetch_one(&*self.pool)
-        .await?;
-
-        Ok(count.unwrap_or(0))
-    }
-
-    pub async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
-        let limit = params.limit.unwrap_or(50).min(100) as i64;
-        let direction = params.direction.as_deref().unwrap_or("f");
-
-        let query = match direction {
-            "b" => {
-                let from = params.from.unwrap_or_default();
-                if let Some(ref rel_type) = params.relation_type {
-                    sqlx::query_as!(
-                        EventRelation,
-                        r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                               created_ts AS "created_ts!"
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND relation_type = $3
-                          AND ($4::text = '' OR event_id < $4)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts DESC, event_id DESC
-                        LIMIT $5"##,
-                        &params.room_id,
-                        &params.relates_to_event_id,
-                        rel_type,
-                        &from,
-                        limit
-                    )
-                    .fetch_all(&*self.pool)
-                    .await
-                } else {
-                    sqlx::query_as!(
-                        EventRelation,
-                        r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                               created_ts AS "created_ts!"
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND ($3::text = '' OR event_id < $3)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts DESC, event_id DESC
-                        LIMIT $4"##,
-                        &params.room_id,
-                        &params.relates_to_event_id,
-                        &from,
-                        limit
-                    )
-                    .fetch_all(&*self.pool)
-                    .await
-                }
-            }
-            _ => {
-                let from = params.from.unwrap_or_default();
-                if let Some(ref rel_type) = params.relation_type {
-                    sqlx::query_as!(
-                        EventRelation,
-                        r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                               created_ts AS "created_ts!"
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND relation_type = $3
-                          AND ($4::text = '' OR event_id > $4)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts ASC, event_id ASC
-                        LIMIT $5"##,
-                        &params.room_id,
-                        &params.relates_to_event_id,
-                        rel_type,
-                        &from,
-                        limit
-                    )
-                    .fetch_all(&*self.pool)
-                    .await
-                } else {
-                    sqlx::query_as!(
-                        EventRelation,
-                        r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                               sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                               created_ts AS "created_ts!"
-                        FROM event_relations
-                        WHERE room_id = $1 AND relates_to_event_id = $2
-                          AND ($3::text = '' OR event_id > $3)
-                          AND is_redacted = FALSE
-                        ORDER BY origin_server_ts ASC, event_id ASC
-                        LIMIT $4"##,
-                        &params.room_id,
-                        &params.relates_to_event_id,
-                        &from,
-                        limit
-                    )
-                    .fetch_all(&*self.pool)
-                    .await
-                }
-            }
-        };
-
-        query
-    }
-
-    pub async fn get_annotations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<EventRelation>, sqlx::Error> {
-        let limit = limit.unwrap_or(50).min(100) as i64;
-
-        sqlx::query_as!(
-            EventRelation,
-            r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                   sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                   created_ts AS "created_ts!"
-            FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND relation_type = 'm.annotation'
-              AND is_redacted = FALSE
-            ORDER BY origin_server_ts DESC
-            LIMIT $3"##,
-            room_id,
-            relates_to_event_id,
-            limit
-        )
-        .fetch_all(&*self.pool)
-        .await
-    }
-
-    pub async fn get_references(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<EventRelation>, sqlx::Error> {
-        let limit = limit.unwrap_or(50).min(100) as i64;
-
-        sqlx::query_as!(
-            EventRelation,
-            r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                   sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                   created_ts AS "created_ts!"
-            FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND relation_type = 'm.reference'
-              AND is_redacted = FALSE
-            ORDER BY origin_server_ts DESC
-            LIMIT $3"##,
-            room_id,
-            relates_to_event_id,
-            limit
-        )
-        .fetch_all(&*self.pool)
-        .await
-    }
-
-    pub async fn get_replacement(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        sender: &str,
-    ) -> Result<Option<EventRelation>, sqlx::Error> {
-        sqlx::query_as!(
-            EventRelation,
-            r##"SELECT id, room_id, event_id, relates_to_event_id, relation_type,
-                   sender, origin_server_ts, content, is_redacted AS "is_redacted!",
-                   created_ts AS "created_ts!"
-            FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND relation_type = 'm.replace'
-              AND sender = $3
-              AND is_redacted = FALSE
-            ORDER BY origin_server_ts DESC
-            LIMIT 1"##,
-            room_id,
-            relates_to_event_id,
-            sender
-        )
-        .fetch_optional(&*self.pool)
-        .await
-    }
-
-    pub async fn aggregate_annotations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-    ) -> Result<Vec<AggregationResult>, sqlx::Error> {
-        sqlx::query_as!(
-            AggregationResult,
-            r##"SELECT
-                relation_type,
-                content->>'body' as key,
-                COUNT(*)::BIGINT as "count!",
-                NULL::text as sender
-            FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND relation_type = 'm.annotation'
-              AND is_redacted = FALSE
-            GROUP BY relation_type, content->>'body'
-            ORDER BY 3 DESC"##,
-            room_id,
-            relates_to_event_id
-        )
-        .fetch_all(&*self.pool)
-        .await
-    }
-
-    pub async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            r#"UPDATE event_relations
-            SET is_redacted = TRUE, content = '{}'
-            WHERE room_id = $1 AND event_id = $2"#,
-            room_id,
-            event_id
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    pub async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query!(
-            r#"DELETE FROM event_relations
-            WHERE room_id = $1 AND event_id = $2 AND sender = $3"#,
-            room_id,
-            event_id,
-            sender
-        )
-        .execute(&*self.pool)
-        .await?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    pub async fn relation_exists(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        relation_type: &str,
-        sender: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT 1 FROM event_relations
-            WHERE room_id = $1 AND relates_to_event_id = $2
-              AND relation_type = $3 AND sender = $4
-              AND is_redacted = FALSE
-            LIMIT 1"#,
-            room_id,
-            relates_to_event_id,
-            relation_type,
-            sender
-        )
-        .fetch_optional(&*self.pool)
-        .await?;
-
-        Ok(result.is_some())
-    }
-}
+pub use synapse_storage::relations::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{AggregationResult, EventRelation, RelationQueryParams};
 
-    fn create_test_relation() -> EventRelation {
-        EventRelation {
+    #[test]
+    fn root_relations_storage_reexport_keeps_relation_shape() {
+        let relation = EventRelation {
             id: 1,
             room_id: "!test:example.com".to_string(),
             event_id: "$reaction1".to_string(),
@@ -394,20 +17,15 @@ mod tests {
             content: serde_json::json!({"body": "👍"}),
             is_redacted: false,
             created_ts: 1234567890,
-        }
-    }
+        };
 
-    #[test]
-    fn test_relation_creation() {
-        let relation = create_test_relation();
-        assert_eq!(relation.id, 1);
         assert_eq!(relation.room_id, "!test:example.com");
         assert_eq!(relation.relation_type, "m.annotation");
         assert!(!relation.is_redacted);
     }
 
     #[test]
-    fn test_relation_query_params() {
+    fn root_relations_storage_reexport_keeps_query_params_and_aggregation() {
         let params = RelationQueryParams {
             room_id: "!test:example.com".to_string(),
             relates_to_event_id: "$original:example.com".to_string(),
@@ -416,18 +34,14 @@ mod tests {
             from: None,
             direction: Some("f".to_string()),
         };
-        assert_eq!(params.room_id, "!test:example.com");
-        assert!(params.limit.is_some());
-    }
-
-    #[test]
-    fn test_aggregation_result() {
         let agg = AggregationResult {
             relation_type: "m.annotation".to_string(),
             key: Some("👍".to_string()),
             count: 5,
             sender: None,
         };
+
+        assert_eq!(params.limit, Some(50));
         assert_eq!(agg.count, 5);
         assert_eq!(agg.key.as_deref(), Some("👍"));
     }

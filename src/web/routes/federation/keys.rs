@@ -22,7 +22,7 @@ pub(super) async fn key_query(
     State(state): State<AppState>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name == state.services.server_name || server_name == state.services.config.federation.server_name {
+    if server_name == state.services.core.server_name || server_name == state.services.config.federation.server_name {
         return server_key(State(state)).await;
     }
 
@@ -50,7 +50,7 @@ pub(super) async fn keys_claim(
         let mut allowed_local_users = std::collections::HashSet::new();
 
         for user_id in requested_users {
-            if !super::user_matches_origin(&user_id, &state.services.server_name) {
+            if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
                 continue;
             }
 
@@ -70,7 +70,7 @@ pub(super) async fn keys_claim(
     );
 
     let response =
-        state.services.e2ee.device_keys_service.claim_keys_for_federation(request, &state.services.server_name).await?;
+        state.services.e2ee.device_keys_service.claim_keys_for_federation(request, &state.services.core.server_name).await?;
 
     Ok(Json(json!({
         "one_time_keys": response.one_time_keys,
@@ -91,7 +91,7 @@ pub(super) async fn keys_query(
         let mut allowed_local_users = std::collections::HashSet::new();
 
         for user_id in requested_users {
-            if !super::user_matches_origin(&user_id, &state.services.server_name) {
+            if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
                 continue;
             }
 
@@ -111,7 +111,7 @@ pub(super) async fn keys_query(
     );
 
     let response =
-        state.services.e2ee.device_keys_service.query_keys_for_federation(request, &state.services.server_name).await?;
+        state.services.e2ee.device_keys_service.query_keys_for_federation(request, &state.services.core.server_name).await?;
 
     Ok(Json(json!({
         "device_keys": response.device_keys,

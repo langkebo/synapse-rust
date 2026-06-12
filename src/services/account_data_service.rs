@@ -214,3 +214,61 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_validate_account_data_ok() {
+        let body = json!({"key": "value"});
+        assert!(validate_account_data_payload("test.type", &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_account_data_empty_body() {
+        let body = json!({});
+        assert!(validate_account_data_payload("empty.type", &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_account_data_type_too_long() {
+        let body = json!({"key": "value"});
+        let long_type = "a".repeat(129);
+        let result = validate_account_data_payload(&long_type, &body);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("too long"));
+    }
+
+    #[test]
+    fn test_validate_account_data_type_at_limit() {
+        let body = json!({"key": "value"});
+        let max_type = "a".repeat(128);
+        assert!(validate_account_data_payload(&max_type, &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_account_data_type_empty() {
+        let body = json!({"key": "value"});
+        assert!(validate_account_data_payload("", &body).is_ok());
+    }
+
+    #[test]
+    fn test_validate_account_data_body_too_large() {
+        let large_value = "x".repeat(65537);
+        let body = json!({"key": large_value});
+        let result = validate_account_data_payload("test.type", &body);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("too large"));
+    }
+
+    #[test]
+    fn test_validate_account_data_body_at_limit() {
+        let value = "x".repeat(65500);
+        let body = json!({"key": value});
+        assert!(validate_account_data_payload("test.type", &body).is_ok());
+    }
+}

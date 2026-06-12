@@ -36,7 +36,7 @@ pub async fn auth_middleware(
         None => return ApiError::missing_token().into_response(),
     };
 
-    if let Err(err) = state.services.auth_service.validate_token(&token).await {
+    if let Err(err) = state.services.core.auth_service.validate_token(&token).await {
         return err.into_response();
     }
 
@@ -66,7 +66,7 @@ pub async fn shadow_ban_middleware(
         None => return next.run(request).await,
     };
 
-    match state.services.auth_service.validate_token(&token).await {
+    match state.services.core.auth_service.validate_token(&token).await {
         Ok((_, _, _, is_shadow_banned, is_guest)) => {
             if is_shadow_banned {
                 ::tracing::warn!(
@@ -150,7 +150,7 @@ pub async fn admin_auth_middleware(
             let response = err.into_response();
             let status = response.status().as_u16();
             let (actor_id, device_id, authenticated_admin) = match extract_token_from_headers(&headers) {
-                Ok(token) => match state.services.auth_service.validate_token(&token).await {
+                Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, _, _)) => (user_id, device_id, Some(is_admin)),
                     Err(_) => ("anonymous".to_string(), None, None),
                 },

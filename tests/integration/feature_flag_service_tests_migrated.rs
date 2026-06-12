@@ -3,13 +3,13 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::admin_audit_service::AdminAuditService;
 use synapse_rust::services::feature_flag_service::FeatureFlagService;
 use synapse_rust::storage::audit::AuditEventStorage;
 use synapse_rust::storage::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
+use synapse_services::cache::{CacheConfig, CacheManager};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

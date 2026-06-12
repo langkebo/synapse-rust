@@ -5,7 +5,7 @@
 > 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 > 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 >
-> **当前基线**: v8.0.0（2026-06-06 锁定；与 `COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` 同步）
+> **当前基线**: v10.0.0（2026-06-12；迁移 v10 双文件基线，审计报告 v7.1）
 
 ---
 
@@ -14,7 +14,8 @@
 | 版本 | 发布日期 | 性质 | 主要内容 |
 |------|----------|------|----------|
 | [Unreleased](#unreleased) | TBD | 进行中 | C-5 Phase 3/4 vodozemac 互操作矩阵 + 清理自研路径 |
-| [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 🚧 **预发布基线** | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
+| [v10.0.0](#v10000---2026-06-12) | 2026-06-12 | 🚧 **当前基线** | P0/P1 全部修复 / v10 迁移基线 / clippy 门禁修复 / 文档同步 / P2 #7 L1 unwrap 治理 |
+| [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 历史 | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
 | [v7.x](#v7x---2026-05-28-前) | 2026-05-28 前 | 历史 | 旧 `Cargo.toml` 版本基线，包含 v7 迁移文件（已被 v8 收敛） |
 
 ---
@@ -47,7 +48,7 @@
   - 同步更新上层调用点 `signed_json.rs`，并移除对 `ed25519_dalek::{Verifier, VerifyingKey}` 的直接依赖
 - **C-5 Phase 3 跨端验收入口整理**（2026-06-11）：
   - `scripts/test/run_sdk_verification_real_backend.sh` 新增 `SKIP_SDK_TEST=1` 与 `SDK_INTEROP_ARTIFACT_DIR`，可仅启动 live backend 并自动落基础证据
-  - `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` 新增 Android/iOS 手动验收入口、Element Web 叠加方式与 `artifacts/e2ee-interop/mobile/<run-id>/` 结果记录规范
+  - `docs/synapse-rust/E2EE_VODOZEMAC_MIGRATION.md` 新增 Android/iOS 手动验收入口、Element Web 叠加方式、`artifacts/e2ee-interop/mobile/<run-id>/` 结果记录规范，以及 I-1 ~ I-8 的逐项执行 checklist
 - E2EE 评估口径：审查报告 P0 项 4 状态从「🚧 Phase 1+2 ✅ / Phase 3 进行中 / Phase 4 待 Phase 3 收尾」更新为「🚧 Phase 1+2 ✅ / Phase 3 浏览器验证 ✅ / Phase 4 协议层边界基本冻结」。
 - `ServiceContainer` 状态口径：核心字段数 35 → 48（实际，比 2.2 报告多 13）。
 - `config/mod.rs` 行数：4081 → 4056（聚合文件，已拆 18 子模块）。

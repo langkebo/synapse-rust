@@ -1338,6 +1338,7 @@ mod tests {
 
     async fn register_test_user(container: &ServiceContainer, username: &str, display_name: &str) -> String {
         let (user, _, _, _) = container
+            .core
             .auth_service
             .register(username, "Test@123", false, Some(display_name))
             .await

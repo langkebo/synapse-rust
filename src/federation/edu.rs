@@ -127,7 +127,7 @@ async fn handle_presence_edu(
             .unwrap_or(crate::common::PresenceState::Online);
         let status_msg = update.get("status_msg").and_then(|v| v.as_str());
 
-        let exists = match state.services.user_storage.user_exists(user_id).await {
+        let exists = match state.services.account.user_storage.user_exists(user_id).await {
             Ok(exists) => exists,
             Err(error) => {
                 ::tracing::warn!("Failed to validate presence user {} from {}: {}", user_id, origin, error);
@@ -142,7 +142,7 @@ async fn handle_presence_edu(
             continue;
         }
 
-        if let Err(error) = state.services.presence_storage.set_presence(user_id, presence, status_msg).await {
+        if let Err(error) = state.services.account.presence_storage.set_presence(user_id, presence, status_msg).await {
             ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
             result.errored += 1;
             set_presence_backoff(state, origin).await;
@@ -198,7 +198,7 @@ async fn handle_typing_edu(
 
     let mut result = EduProcessResult::default();
     for user_id in &user_ids {
-        match state.services.presence_storage.set_typing(room_id, user_id, true).await {
+        match state.services.account.presence_storage.set_typing(room_id, user_id, true).await {
             Ok(()) => result.processed += 1,
             Err(e) => {
                 ::tracing::warn!(
@@ -338,5 +338,119 @@ impl EduDispatcher {
         };
 
         Some(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- EduType ---
+
+    #[test]
+    fn test_edu_type_from_str_valid() {
+        assert_eq!("m.typing".parse::<EduType>().unwrap(), EduType::Typing);
+        assert_eq!("m.presence".parse::<EduType>().unwrap(), EduType::Presence);
+        assert_eq!("m.device_list_update".parse::<EduType>().unwrap(), EduType::DeviceListUpdate);
+    }
+
+    #[test]
+    fn test_edu_type_from_str_invalid() {
+        assert!("m.unknown".parse::<EduType>().is_err());
+        assert!("".parse::<EduType>().is_err());
+        assert!("random".parse::<EduType>().is_err());
+    }
+
+    #[test]
+    fn test_edu_type_from_str_error_message() {
+        let err = "m.typo".parse::<EduType>().unwrap_err();
+        assert_eq!(err.to_string(), "unknown EDU type: m.typo");
+        assert_eq!(err.0, "m.typo");
+    }
+
+    #[test]
+    fn test_edu_type_copy() {
+        let edu = EduType::Presence;
+        let copied = edu;
+        assert_eq!(edu, copied);
+    }
+
+    #[test]
+    fn test_edu_type_equality() {
+        assert_eq!(EduType::Typing, EduType::Typing);
+        assert_ne!(EduType::Typing, EduType::Presence);
+        assert_ne!(EduType::Presence, EduType::DeviceListUpdate);
+    }
+
+    #[test]
+    fn test_edu_type_clone() {
+        assert_eq!(EduType::Typing.clone(), EduType::Typing);
+    }
+
+    // --- UnknownEduType ---
+
+    #[test]
+    fn test_unknown_edu_type_display() {
+        let err = UnknownEduType("m.custom_edu".to_string());
+        assert_eq!(err.to_string(), "unknown EDU type: m.custom_edu");
+    }
+
+    #[test]
+    fn test_unknown_edu_type_clone() {
+        let err = UnknownEduType("test".to_string());
+        assert_eq!(err.clone().0, "test");
+    }
+
+    // --- EduProcessResult ---
+
+    #[test]
+    fn test_edu_process_result_default() {
+        let result = EduProcessResult::default();
+        assert_eq!(result.processed, 0);
+        assert_eq!(result.dropped, 0);
+        assert_eq!(result.errored, 0);
+    }
+
+    #[test]
+    fn test_edu_process_result_is_empty() {
+        assert!(EduProcessResult::default().is_empty());
+        assert!(!EduProcessResult { processed: 1, dropped: 0, errored: 0 }.is_empty());
+        assert!(!EduProcessResult { processed: 0, dropped: 1, errored: 0 }.is_empty());
+        assert!(!EduProcessResult { processed: 0, dropped: 0, errored: 1 }.is_empty());
+    }
+
+    #[test]
+    fn test_edu_process_result_clone() {
+        let result = EduProcessResult { processed: 5, dropped: 2, errored: 1 };
+        let cloned = result.clone();
+        assert_eq!(cloned.processed, 5);
+        assert_eq!(cloned.dropped, 2);
+        assert_eq!(cloned.errored, 1);
+    }
+
+    // --- user_matches_origin ---
+
+    #[test]
+    fn test_user_matches_origin_valid() {
+        assert!(user_matches_origin("@alice:example.com", "example.com"));
+        assert!(user_matches_origin("@bob:matrix.org", "matrix.org"));
+        assert!(user_matches_origin("@user:sub.domain.com", "sub.domain.com"));
+    }
+
+    #[test]
+    fn test_user_matches_origin_invalid() {
+        assert!(!user_matches_origin("@alice:example.com", "other.com"));
+        assert!(!user_matches_origin("@bob:example.com", "example.org"));
+    }
+
+    #[test]
+    fn test_user_matches_origin_no_colon() {
+        // user_id without colon should not match
+        assert!(!user_matches_origin("plainuser", "example.com"));
+    }
+
+    #[test]
+    fn test_user_matches_origin_empty_origin() {
+        assert!(!user_matches_origin("@alice:example.com", ""));
     }
 }
