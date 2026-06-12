@@ -7,6 +7,7 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_rust::common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 use wiremock::{
@@ -261,6 +262,8 @@ async fn test_federation_query_destination_returns_minimal_payload() {
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert!(json["server_name"].is_string());
     assert!(json["destination"].is_string());
+    assert_eq!(json["capabilities"]["m.change_password"], true);
+    assert_eq!(json["capabilities"]["m.room_versions"]["default"], DEFAULT_ROOM_VERSION);
 }
 
 #[tokio::test]

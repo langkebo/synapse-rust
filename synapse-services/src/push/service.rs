@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct PushNotificationService {
@@ -519,14 +519,17 @@ impl PushNotificationService {
     }
 
     fn matches_contains_display_name(_event: &JsonValue) -> bool {
+        warn!("matches_contains_display_name: stub called, returning default");
         false
     }
 
     fn matches_room_member_count(_condition: &JsonValue, _event: &JsonValue) -> bool {
+        warn!("matches_room_member_count: stub called, returning default");
         true
     }
 
     fn matches_sender_notification_permission(_condition: &JsonValue, _event: &JsonValue) -> bool {
+        warn!("matches_sender_notification_permission: stub called, returning default");
         true
     }
 

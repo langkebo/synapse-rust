@@ -1,4 +1,3 @@
-pub use crate::storage::cas::{CasRegisteredService, RegisterServiceRequest};
 pub use synapse_services::cas_service::*;
 
 #[cfg(test)]

@@ -12,6 +12,9 @@ use tokio::fs;
 use tracing::{error, info, instrument, warn};
 use url::Url;
 
+pub mod scheduler;
+pub use scheduler::ApplicationServiceScheduler;
+
 const APPSERVICE_RETRY_BACKOFF_BASE_MS: i64 = 5_000;
 const APPSERVICE_RETRY_BACKOFF_MAX_MS: i64 = 5 * 60 * 1_000;
 const APPSERVICE_FATAL_FAILURE_THRESHOLD: i32 = 3;

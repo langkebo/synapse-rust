@@ -79,12 +79,11 @@ fn compute_hmac(
 }
 
 fn create_service(pool: &Arc<sqlx::PgPool>, shared_secret: &str, enabled: bool) -> AdminRegistrationService {
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()).to_synapse_cache_manager());
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(pool, cache.clone(), metrics.clone(), &make_security_config(), "localhost");
     let config = make_admin_config(shared_secret, enabled);
-    AdminRegistrationService::new(auth_service, config, UserStorage::new(pool, canonical_cache), cache, metrics)
+    AdminRegistrationService::new(auth_service, config, UserStorage::new(pool, cache.clone()), cache, metrics)
 }
 
 #[tokio::test]
