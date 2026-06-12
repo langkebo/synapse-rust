@@ -1,6 +1,6 @@
 # synapse-rust 全面深度技术审计报告
 
-**版本**: 8.5.3（2026-06-12 appservice 回归测试夹具收口版）
+**版本**: 8.5.5（2026-06-12 Matrix capability 真值源收口版）
 **审计基线**: `/Users/ljf/Desktop/hu_ts/synapse-rust` 当前工作区状态（含未提交改动）
 **对标基线**: Matrix Spec v1.18；element-hq/synapse v1.153.x 文档与架构实践
 **审计对象**:
@@ -72,6 +72,11 @@
   - 阻塞点：本地 integration 数据库初始化在 `shared-template-schema` 阶段超时 120s，测试在进入断言前失败；当前已确认不是 appservice 逻辑或测试编译错误
 - `cargo test --features test-utils --test integration upgrade_room_enqueues_tombstone_and_replacement_create_events -- --nocapture`：**环境阻塞，未完成断言验证**
   - 阻塞点：同样卡在 integration 数据库初始化超时，说明新增测试已可被目标正确发现并启动，但本地 PostgreSQL/模板 schema 准备仍需额外环境支持
+- `cargo test --lib web::routes::handlers::versions::tests --locked`：**通过**
+- `cargo test --features test-utils --test integration versions_and_public_capabilities_match_declared_room_version_surface -- --nocapture`：**通过**
+  - 验证点：`/_matrix/client/versions` 仍保守声明到 `v1.13`，公开 `/_matrix/client/v3/capabilities` 中的 `m.room_versions` 已与 `SUPPORTED_ROOM_VERSIONS` 常量保持一致，并继续对未认证请求隐藏 `m.sso` / `io.hula.*` 私有扩展能力
+- `cargo test --features test-utils --test integration federation_query_destination_returns_minimal_payload -- --nocapture`：**通过**
+  - 验证点：`/_matrix/federation/v1/query/destination` 返回的 `m.change_password` 与 `m.room_versions.default` 已与 client 能力面共用同一真值来源，不再单独手写漂移值
 - `cargo tree -d --workspace | head -n 120`：**确认存在重复依赖版本**
   - 已确认案例：`base64 v0.21.7` 与 `base64 v0.22.1`
 
@@ -345,16 +350,16 @@
 
 ### P1-06 Matrix surface 文档与能力声明治理仍不闭环
 
-- **当前验证**：`SUPPORTED_MATRIX_SURFACE.md` 仍写“room version 仅 1..11，暂不声明 12”，但代码当前已支持并声明到 `13`；同时若干 capability 仍通过静态 `true` 宣称。
+- **当前验证**：`SUPPORTED_MATRIX_SURFACE.md` 的 room version 矩阵已修正为与代码一致的 `1..13`，并补入当前证据来源；`tests/integration/api_auth_routes_tests.rs` 已新增 `/versions` 与公开 `/capabilities` 的合约测试，校验 room version 常量、默认版本与未认证公开能力边界；`m.change_password` / `m.set_displayname` / `m.set_avatar_url` / `m.3pid_changes` 已从裸常量插入收敛为 `versions.rs` 中集中具名真值函数，`/_matrix/federation/v1/query/destination` 已复用同一 `m.change_password` 真值来源，`src/web/api_doc.rs` 的 capability 示例也已同步到当前 room version 矩阵；但 capability 仍未完全收敛到“配置/路由存在性/实现证据”三层驱动。
 - **复现步骤**：查看 `src/common/room_versions.rs` 与 `src/web/routes/handlers/versions.rs`。
 - **影响范围**：客户端兼容预期、联邦行为说明、协议声明可信度。
 - **发生场景**：客户端依据 `/versions` 与 `/capabilities` 判定支持面、对外对标 Synapse 时。
 - **优化方案**：把协议声明治理收敛到“代码常量 + route ledger + contract test + 文档生成”闭环。
 - **实施步骤**：
-  1. 修正文档中的 room version 支持矩阵。
-  2. 对 capability 按“静态真值、配置控制、真实路由存在性”分类清理。
-  3. 增加 `/versions` 与 `/capabilities` 合约测试。
-  4. 未来的支持面文档改为由代码常量或验证脚本生成。
+  1. 已完成：修正文档中的 room version 支持矩阵，并补入 `SUPPORTED_ROOM_VERSIONS` / `client_room_versions_capability()` / integration contract test 的证据链。
+  2. 已完成首轮：对一组稳定 capability 做集中具名真值收口，并让 federation discovery 与 API 文档示例复用同一声明事实。
+  3. 已完成首版：增加 `/versions` 与 `/capabilities` 合约测试，固定 room version surface 与未认证公开能力边界。
+  4. 待完成：将支持面文档进一步收敛为由代码常量或验证脚本生成，并继续把剩余 capability 分类到“配置控制 / 路由存在性 / 静态稳定”三类。
 - **责任节点**：协议兼容负责人、文档负责人、测试负责人。
 - **资源投入**：后端 1 人周，QA 0.5 人周。
 - **验收标准**：

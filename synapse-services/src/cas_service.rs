@@ -4,9 +4,10 @@ use rand::RngCore;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::cas::{
-    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
-    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStorage, CasTicket,
+    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest,
 };
+pub use synapse_storage::cas::{CasRegisteredService, RegisterServiceRequest};
 use tracing::{info, instrument};
 
 pub struct CasService {

@@ -624,11 +624,23 @@ pub fn get_server_version() -> axum::Json<serde_json::Value> {
                     "m.change_password": { "enabled": true },
                     "m.set_displayname": { "enabled": true },
                     "m.set_avatar_url": { "enabled": true },
+                    "m.3pid_changes": { "enabled": true },
                     "m.room_versions": {
-                        "default": "11",
+                        "default": "10",
                         "available": {
+                            "1": "stable",
+                            "2": "stable",
+                            "3": "stable",
+                            "4": "stable",
+                            "5": "stable",
+                            "6": "stable",
+                            "7": "stable",
+                            "8": "stable",
+                            "9": "stable",
                             "10": "stable",
-                            "11": "stable"
+                            "11": "stable",
+                            "12": "stable",
+                            "13": "stable"
                         }
                     }
                 },
@@ -7998,7 +8010,21 @@ pub fn get_federation_version_doc() -> axum::Json<serde_json::Value> {
                     "m.change_password": true,
                     "m.room_versions": {
                         "default": "10",
-                        "available": { "1": "stable", "10": "stable" }
+                        "available": {
+                            "1": "stable",
+                            "2": "stable",
+                            "3": "stable",
+                            "4": "stable",
+                            "5": "stable",
+                            "6": "stable",
+                            "7": "stable",
+                            "8": "stable",
+                            "9": "stable",
+                            "10": "stable",
+                            "11": "stable",
+                            "12": "stable",
+                            "13": "stable"
+                        }
                     }
                 }
             })

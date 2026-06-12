@@ -2,7 +2,7 @@ use rand::Rng;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::captcha::*;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone)]
 pub struct CaptchaService {
@@ -203,25 +203,14 @@ impl CaptchaService {
         content
     }
 
-    fn send_email(_to: &str, subject: Option<&str>, content: &str) -> Result<(), ApiError> {
-        info!(
-            delivery_channel = %"email",
-            subject_present = subject.is_some(),
-            content_len = content.len(),
-            "Sending captcha notification"
-        );
-
-        Ok(())
+    fn send_email(_to: &str, _subject: Option<&str>, _content: &str) -> Result<(), ApiError> {
+        warn!("send_email: stub called, not yet implemented");
+        todo!("send_email: not yet implemented")
     }
 
-    fn send_sms(_to: &str, content: &str) -> Result<(), ApiError> {
-        info!(
-            delivery_channel = %"sms",
-            content_len = content.len(),
-            "Sending captcha notification"
-        );
-
-        Ok(())
+    fn send_sms(_to: &str, _content: &str) -> Result<(), ApiError> {
+        warn!("send_sms: stub called, not yet implemented");
+        todo!("send_sms: not yet implemented")
     }
 
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
