@@ -458,10 +458,12 @@ fn assemble_admin_support(
     config: &Config,
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
+    user_storage: &UserStorage,
 ) -> AdminServices {
     let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
         auth_service.clone(),
         config.admin_registration.clone(),
+        user_storage.clone(),
         cache.clone(),
         metrics.clone(),
     );
@@ -685,7 +687,7 @@ impl ServiceContainer {
             crate::voice_service::VoiceService::new(media_service.clone(), voice_storage, &config.server.name);
 
         // Admin & support services — domain assembly
-        let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service);
+        let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service, &user_storage);
         rooms.room_service.set_app_service_manager(admin.app_service_manager.clone()).await;
         let media_domain_service = {
             let svc = crate::media::MediaDomainService::new(

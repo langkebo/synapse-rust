@@ -26,6 +26,13 @@ pub struct DataLifecycleCleanupSummary {
     pub failed_tasks: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct RetentionStatusSummary {
+    pub rooms_with_custom_policy: i64,
+    pub server_policy_enabled: bool,
+    pub last_run: Option<DataLifecycleCleanupSummary>,
+}
+
 #[derive(Clone)]
 struct RetentionLifecycleMetrics {
     cycles_total: Counter,
@@ -215,6 +222,17 @@ impl RetentionService {
     }
 
     #[instrument(skip(self))]
+    pub async fn get_server_policy_optional(&self) -> Result<Option<ServerRetentionPolicy>, ApiError> {
+        let policy = self
+            .storage
+            .get_server_policy_optional()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get server policy", &e))?;
+
+        Ok(policy)
+    }
+
+    #[instrument(skip(self))]
     pub async fn update_server_policy(
         &self,
         request: UpdateServerRetentionPolicyRequest,
@@ -231,6 +249,27 @@ impl RetentionService {
             .update_server_policy(request)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update server policy", &e))?;
+
+        Ok(policy)
+    }
+
+    #[instrument(skip(self))]
+    pub async fn upsert_server_policy(
+        &self,
+        request: UpdateServerRetentionPolicyRequest,
+    ) -> Result<ServerRetentionPolicy, ApiError> {
+        info!(
+            max_lifetime = ?request.max_lifetime,
+            min_lifetime = ?request.min_lifetime,
+            expire_on_clients = ?request.is_expire_on_clients,
+            "Upserting server retention policy"
+        );
+
+        let policy = self
+            .storage
+            .upsert_server_policy(request)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to upsert server policy", &e))?;
 
         Ok(policy)
     }
@@ -364,6 +403,23 @@ impl RetentionService {
 
     pub async fn get_last_lifecycle_summary(&self) -> Option<DataLifecycleCleanupSummary> {
         self.last_lifecycle_summary.read().await.clone()
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_status_summary(&self) -> Result<RetentionStatusSummary, ApiError> {
+        let rooms_with_custom_policy = self
+            .storage
+            .count_room_policies()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to count room retention policies", &e))?;
+        let server_policy_enabled = self
+            .storage
+            .has_server_policy()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check server retention policy", &e))?;
+        let last_run = self.get_last_lifecycle_summary().await;
+
+        Ok(RetentionStatusSummary { rooms_with_custom_policy, server_policy_enabled, last_run })
     }
 
     #[cfg(feature = "beacons")]

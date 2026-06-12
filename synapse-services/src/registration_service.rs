@@ -31,6 +31,14 @@ impl RegistrationService {
         Self { user_storage, auth_service, metrics, base_url, enable_registration, task_queue }
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            username_present = !username.is_empty(),
+            has_displayname = displayname.is_some(),
+            has_initial_device_display_name = initial_device_display_name.is_some()
+        )
+    )]
     pub async fn register_user(
         &self,
         username: &str,
@@ -106,6 +114,14 @@ impl RegistrationService {
         }))
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            username_present = !username.is_empty(),
+            has_device_id = device_id.is_some(),
+            has_initial_display_name = initial_display_name.is_some()
+        )
+    )]
     pub async fn login(
         &self,
         username: &str,
@@ -147,6 +163,14 @@ impl RegistrationService {
         }))
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            has_current_password = current_password.is_some(),
+            has_current_device_id = current_device_id.is_some()
+        )
+    )]
     pub async fn change_password(
         &self,
         user_id: &str,
@@ -158,11 +182,13 @@ impl RegistrationService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
         self.auth_service.deactivate_user(user_id).await?;
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn get_profile(&self, user_id: &str) -> ApiResult<serde_json::Value> {
         let user = self
             .user_storage
@@ -180,6 +206,7 @@ impl RegistrationService {
         }
     }
 
+    #[::tracing::instrument(skip_all, fields(batch_size = user_ids.len()))]
     pub async fn get_profiles(&self, user_ids: &[String]) -> ApiResult<Vec<serde_json::Value>> {
         let profiles = self
             .user_storage
@@ -199,6 +226,7 @@ impl RegistrationService {
             .collect())
     }
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id, displayname_len = displayname.len()))]
     pub async fn set_displayname(&self, user_id: &str, displayname: &str) -> ApiResult<()> {
         self.user_storage.update_displayname(user_id, Some(displayname)).await.map_err(|e| {
             if e.to_string().contains("too long") {
@@ -210,6 +238,7 @@ impl RegistrationService {
         Ok(())
     }
 
+    #[::tracing::instrument(skip_all, fields(user_id = %user_id, avatar_url_len = avatar_url.len()))]
     pub async fn set_avatar_url(&self, user_id: &str, avatar_url: &str) -> ApiResult<()> {
         self.user_storage.update_avatar_url(user_id, Some(avatar_url)).await.map_err(|e| {
             if e.to_string().contains("too long") {
@@ -221,6 +250,14 @@ impl RegistrationService {
         Ok(())
     }
 
+    #[::tracing::instrument(
+        skip_all,
+        fields(
+            user_id = %user_id,
+            has_displayname = displayname.is_some(),
+            has_avatar_url = avatar_url.is_some()
+        )
+    )]
     pub async fn update_user_profile(
         &self,
         user_id: &str,

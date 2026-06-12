@@ -169,6 +169,7 @@ mod tests {
 
         let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
+        services.core.server_name = "matrix.example.com".to_string();
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
@@ -204,6 +205,7 @@ mod tests {
 
         let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
+        services.core.server_name = "matrix.example.com".to_string();
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
@@ -239,8 +241,9 @@ mod tests {
 
         let mut services = ServiceContainer::new_test().await;
         services.server_name = "matrix.example.com".to_string();
+        services.core.server_name = "matrix.example.com".to_string();
 
-        let csrf_manager = CsrfTokenManager::new(services.server_name.clone());
+        let csrf_manager = CsrfTokenManager::new(services.core.server_name.clone());
         let session_id = "sid=session-cookie";
         let csrf_token = csrf_manager.generate_token(session_id);
 
