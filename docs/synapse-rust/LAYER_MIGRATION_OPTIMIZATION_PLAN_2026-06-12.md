@@ -1,10 +1,10 @@
 # 分层迁移优化方案：类型边界与重复实现治理
 
-> 日期: 2026-06-12
-> 版本: v4.0.0
+> 日期: 2026-06-13
+> 版本: v5.0.0
 > 审查范围: `admin_user_service.rs`、`application_service.rs` 及全项目同类问题
 > 参考基准: [element-hq/synapse](https://github.com/element-hq/synapse) v1.153.0
-> 状态: Phase 0-3 已完成，AS 管道待实现
+> 状态: Phase 0-4 已完成，全部优化计划执行完毕
 
 ---
 
@@ -16,7 +16,7 @@
 | Phase 1 | 消除 A 类全量副本（16 个 service shim） | ✅ 完成 | `4ef01b54` |
 | Phase 2 | 存储层迁移 + 类型边界 + 错误吞没 + CI 守卫 | ✅ 完成 | `cf27fab2` |
 | Phase 3 | C 类文件合并 + AuthService 统一 + Container 修复 | ✅ 完成 | `77616ed1` |
-| Phase 4 | AS 事件自动推送管道 + 剩余 stub 修复 | ⏳ 待执行 | — |
+| Phase 4 | AS 事件自动推送管道 + 剩余 stub 修复 | ✅ 完成 | `bb990d72`, `cd084a00` |
 
 ### Phase 0-2 已完成工作总结
 
@@ -53,6 +53,20 @@
 | 测试修复 | CSRF 中间件 `server_name` 引用 | 1 |
 | 编译状态 | `cargo check` + `cargo clippy` 零错误零警告 | — |
 | 测试状态 | 1497 lib tests passed, 0 failures | — |
+
+### Phase 4 已完成工作总结
+
+| 类别 | 完成项 | 数量 |
+|------|--------|:---:|
+| AS 调度器实现 | `ApplicationServiceScheduler` 含 Recoverer 指数退避恢复器（2s→1h） | 1 |
+| 调度器容器集成 | 集成到 `synapse-services/src/container.rs` 和 `src/services/container.rs` | 2 |
+| 调度器功能 | Per-AS 并发控制、连续失败跟踪、自动禁用（10 次失败后） | 3 |
+| Recoverer 实现 | 指数退避（初始 2s，每次翻倍，最大 1h），成功重置 | 1 |
+| 存储类型泄漏修复 | `cas_service.rs` 移除 `pub use crate::storage::cas::*`，改为 `synapse-services` 公开导出 | 1 |
+| Stub 状态确认 | `event_report_service.rs`/`space.rs` 已实现；`captcha/geo_ip/retention` 使用 `todo!()` 显式失败 | 6 |
+| Scheduler 单元测试 | 4 个测试（常量验证、指数退避增长、上限测试、就绪判断） | 4 |
+| CI 分层隔离 | 零 ERROR | — |
+| 编译状态 | `cargo check` + `cargo clippy --all-features` 零错误零警告 | — |
 
 ---
 
@@ -1012,3 +1026,4 @@ Week 8-11: Phase 3 — 清理存储层 + CI 守卫 + AS 管道
 | 2.0.0 | 2026-06-12 | 全面审查升级：验证所有 v1.0.0 问题；新增 18 项发现（含 8 项 Critical）；参考 element-hq/synapse v1.153.0 对比分析；新增 Phase 0 紧急修复和 AS 架构补全；问题统计从 6 项扩展到 151 个问题点 |
 | 3.0.0 | 2026-06-12 | Phase 0-2 执行完成：46 个文件 shim 化、9 个孤儿文件删除、5 个 borrow-after-move 修复、9 处存储类型泄漏修复、6 处错误吞没修复、CI 守卫脚本创建；更新 C 类文件清单 |
 | 4.0.0 | 2026-06-12 | Phase 3 执行完成：19 个 C 类文件全部合并到 `synapse-services/`；`src/auth/mod.rs` → shim 统一 AuthService 类型；级联 shim `task_queue.rs`/`validation.rs`/`background_job.rs`；3 个阻塞文件解锁；Container 依赖注入修复；Clippy 零警告；lib tests 1497 passed |
+| 5.0.0 | 2026-06-13 | Phase 4 执行完成：AS 调度器集成 + Recoverer 指数退避恢复器（2s→1h）；容器双集成；per-AS 并发控制 + 自动禁用机制；`cas_service.rs` 存储类型泄漏修复；Stub 状态确认；调度器 4 个单元测试通过；CI 分层隔离零 ERROR；全部优化计划执行完毕 |
