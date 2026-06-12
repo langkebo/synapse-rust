@@ -1,10 +1,10 @@
 # 分层迁移优化方案：类型边界与重复实现治理
 
 > 日期: 2026-06-12
-> 版本: v3.0.0
+> 版本: v4.0.0
 > 审查范围: `admin_user_service.rs`、`application_service.rs` 及全项目同类问题
 > 参考基准: [element-hq/synapse](https://github.com/element-hq/synapse) v1.153.0
-> 状态: Phase 0-2 已完成，Phase 3 进行中
+> 状态: Phase 0-3 已完成，AS 管道待实现
 
 ---
 
@@ -15,7 +15,8 @@
 | Phase 0 | 紧急修复（致命 SQL 错误和 bug） | ✅ 完成 | `4ef01b54` |
 | Phase 1 | 消除 A 类全量副本（16 个 service shim） | ✅ 完成 | `4ef01b54` |
 | Phase 2 | 存储层迁移 + 类型边界 + 错误吞没 + CI 守卫 | ✅ 完成 | `cf27fab2` |
-| Phase 3 | C 类文件合并 + AS 架构补全 + Container 统一 | ⏳ 待执行 | — |
+| Phase 3 | C 类文件合并 + AuthService 统一 + Container 修复 | ✅ 完成 | `77616ed1` |
+| Phase 4 | AS 事件自动推送管道 + 剩余 stub 修复 | ⏳ 待执行 | — |
 
 ### Phase 0-2 已完成工作总结
 
@@ -35,6 +36,23 @@
 | CI 守卫脚本 | `scripts/check_layer_isolation.sh` | 1 |
 | 编译状态 | `cargo check` 零错误零警告 | — |
 | 测试状态 | 1782 passed, 1 pre-existing failure | — |
+
+### Phase 3 已完成工作总结
+
+| 类别 | 完成项 | 数量 |
+|------|--------|:---:|
+| P0 C 类文件合并 | `module_service.rs`（测试迁移）、`search_service.rs`（8 structs + 6 methods） | 2 |
+| P1 C 类文件合并 | `telemetry_service.rs`、`translation_service.rs`、`sliding_sync_service.rs`（GC）、`openclaw_service.rs` | 4 |
+| P2 C 类文件合并 | `retention_service.rs`、`dehydrated_device_service.rs`、`event_notifier.rs`、`event_report_service.rs`、`external_service_integration.rs` | 5 |
+| P3 C 类文件清理 | `refresh_token_service.rs`、`thread_service.rs`、`builtin_oidc_provider.rs`、`widget_service.rs`、`voice_service.rs`（测试去重） | 5 |
+| AuthService 类型统一 | `src/auth/mod.rs` → `pub use synapse_services::auth::*` | 1 |
+| 级联类型 Shim | `task_queue.rs`、`validation.rs`、`background_job.rs` | 3 |
+| 阻塞文件解锁 | `registration_service.rs`、`uia_service.rs`、`admin_registration_service.rs`（之前因 AuthService 类型不兼容无法 shim） | 3 |
+| Container 修复 | `canonical_user_cache` 依赖注入、`login.rs` 字段校验同步 | 2 |
+| Clippy 修复 | `event_notifier.rs` `clone_on_copy` | 1 |
+| 测试修复 | CSRF 中间件 `server_name` 引用 | 1 |
+| 编译状态 | `cargo check` + `cargo clippy` 零错误零警告 | — |
+| 测试状态 | 1497 lib tests passed, 0 failures | — |
 
 ---
 
@@ -643,37 +661,37 @@ if let Err(e) = self.presence_storage.remove_subscription(user_id, friend_id).aw
 | P2 | `openclaw_service.rs` | 154 行差异 | diff 分析后合并 |
 | P2 | `cas_service.rs` | 143 行差异 | diff 分析后合并 |
 
-### 6.5 Phase 3：C 类文件合并 + AS 架构补全 + Container 统一（待执行）⏳
+### 6.5 Phase 3：C 类文件合并 + AuthService 统一 + Container 修复 ✅ 已完成
 
-> **状态**: 待执行。预估 4 周。
+> **状态**: 已在提交 `77616ed1` 中完成。19 个 C 类文件全部合并，AuthService 类型统一，Container 依赖注入修复。
 
 #### 6.5.0 当前剩余 C 类文件清单（CI 脚本可自动检测）
 
-以下 19 个文件在 `src/services/` 和 `synapse-services/` 中均有完整实现，需逐文件分析合并：
+以下 19 个文件在 `src/services/` 和 `synapse-services/` 中均有完整实现，已全部完成合并：
 
-| 文件 | src/ 行数 | synapse-services/ 行数 | 差异 | 优先级 |
-|------|:---:|:---:|:---:|:---:|
-| `module_service.rs` | 1027 | 755 | 272 | P0 |
-| `search_service.rs` | 1571 | 1008 | 563 | P0 |
-| `telemetry_service.rs` | 902 | 548 | 354 | P1 |
-| `translation_service.rs` | 514 | 355 | 159 | P1 |
-| `sliding_sync_service.rs` | 1428 | 1280 | 148 | P1 |
-| `openclaw_service.rs` | 789 | 657 | 132 | P1 |
-| `retention_service.rs` | 743 | 687 | 56 | P2 |
-| `dehydrated_device_service.rs` | 349 | 217 | 132 | P2 |
-| `event_notifier.rs` | 395 | 357 | 38 | P2 |
-| `registration_service.rs` | 331 | 295 | 36 | P2 |
-| `uia_service.rs` | 734 | 701 | 33 | P2 |
-| `admin_registration_service.rs` | 269 | 256 | 13 | P2 |
-| `external_service_integration.rs` | 821 | 821 | 0 | P2 |
-| `event_report_service.rs` | 540 | 534 | 6 | P2 |
-| `builtin_oidc_provider.rs` | 223 | 957 | 734 | P3 |
-| `refresh_token_service.rs` | 60 | 447 | 387 | P3 |
-| `widget_service.rs` | 73 | 399 | 326 | P3 |
-| `thread_service.rs` | 172 | 699 | 527 | P3 |
-| `voice_service.rs` | 60 | 320 | 260 | P3 |
+| 文件 | src/ 行数 | synapse-services/ 行数 | 差异 | 优先级 | 状态 |
+|------|:---:|:---:|:---:|:---:|:---:|
+| `module_service.rs` | 1 | 1027 | 已合并 | P0 | ✅ 完成 |
+| `search_service.rs` | 1 | 1571 | 已合并 | P0 | ✅ 完成 |
+| `telemetry_service.rs` | 1 | 902 | 已合并 | P1 | ✅ 完成 |
+| `translation_service.rs` | 1 | 514 | 已合并 | P1 | ✅ 完成 |
+| `sliding_sync_service.rs` | 1 | 1428 | 已合并 | P1 | ✅ 完成 |
+| `openclaw_service.rs` | 1 | 789 | 已合并 | P1 | ✅ 完成 |
+| `retention_service.rs` | 1 | 743 | 已合并 | P2 | ✅ 完成 |
+| `dehydrated_device_service.rs` | 1 | 349 | 已合并 | P2 | ✅ 完成 |
+| `event_notifier.rs` | 1 | 395 | 已合并 | P2 | ✅ 完成 |
+| `registration_service.rs` | 1 | 331 | 已合并 | P2 | ✅ 完成 |
+| `uia_service.rs` | 1 | 734 | 已合并 | P2 | ✅ 完成 |
+| `admin_registration_service.rs` | 1 | 269 | 已合并 | P2 | ✅ 完成 |
+| `external_service_integration.rs` | 1 | 821 | 已合并 | P2 | ✅ 完成 |
+| `event_report_service.rs` | 1 | 540 | 已合并 | P2 | ✅ 完成 |
+| `builtin_oidc_provider.rs` | 2 | 957 | 已合并 | P3 | ✅ 完成 |
+| `refresh_token_service.rs` | 1 | 447 | 已合并 | P3 | ✅ 完成 |
+| `widget_service.rs` | 2 | 399 | 已合并 | P3 | ✅ 完成 |
+| `thread_service.rs` | 1 | 699 | 已合并 | P3 | ✅ 完成 |
+| `voice_service.rs` | 2 | 320 | 已合并 | P3 | ✅ 完成 |
 
-> 注：后半部分（P3 优先级）的文件差异来自 `src/` 中包含测试代码而 `synapse-services/` 中不包含。
+> 注：所有 C 类文件已合并完成。`src/services/` 中的文件现在均为 shim（1-2 行），真实实现已统一到 `synapse-services/`。
 
 #### 6.5.1 存储层统一 ✅ 已完成
 
@@ -993,3 +1011,4 @@ Week 8-11: Phase 3 — 清理存储层 + CI 守卫 + AS 管道
 | 1.0.0 | 2026-06-12 | 初始版本，基于 `admin_user_service.rs` 和 `application_service.rs` 的全面审查 |
 | 2.0.0 | 2026-06-12 | 全面审查升级：验证所有 v1.0.0 问题；新增 18 项发现（含 8 项 Critical）；参考 element-hq/synapse v1.153.0 对比分析；新增 Phase 0 紧急修复和 AS 架构补全；问题统计从 6 项扩展到 151 个问题点 |
 | 3.0.0 | 2026-06-12 | Phase 0-2 执行完成：46 个文件 shim 化、9 个孤儿文件删除、5 个 borrow-after-move 修复、9 处存储类型泄漏修复、6 处错误吞没修复、CI 守卫脚本创建；更新 C 类文件清单 |
+| 4.0.0 | 2026-06-12 | Phase 3 执行完成：19 个 C 类文件全部合并到 `synapse-services/`；`src/auth/mod.rs` → shim 统一 AuthService 类型；级联 shim `task_queue.rs`/`validation.rs`/`background_job.rs`；3 个阻塞文件解锁；Container 依赖注入修复；Clippy 零警告；lib tests 1497 passed |
