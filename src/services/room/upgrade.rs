@@ -60,8 +60,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create tombstone event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create tombstone event", &e))?;
 
         Ok(new_room_id)
     }

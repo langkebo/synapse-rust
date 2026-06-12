@@ -12,7 +12,6 @@ use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::services::sync_service::SyncService;
-use synapse_rust::services::PresenceStorage;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::filter::{CreateFilterRequest, FilterStorage};
@@ -21,6 +20,7 @@ use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::room_summary::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
+use synapse_rust::PresenceStorage;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
@@ -366,7 +366,7 @@ async fn test_sync_success() {
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = PresenceStorage::new(pool.clone(), canonical_cache.clone());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
@@ -419,7 +419,7 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = PresenceStorage::new(pool.clone(), canonical_cache.clone());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
@@ -469,7 +469,8 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let presence_storage = PresenceStorage::new(pool.clone(), canonical_cache);
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
@@ -489,7 +490,8 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
     sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await.unwrap();
     sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None).await.unwrap();
 
-    let persisted = presence_storage.get_presence("@alice:localhost").await.unwrap().unwrap();
+    let persisted: (String, Option<String>) =
+        PresenceStorage::get_presence(&presence_storage, "@alice:localhost").await.unwrap().unwrap();
     assert_eq!(persisted.0, "offline");
 }
 
@@ -500,7 +502,8 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let presence_storage = PresenceStorage::new(pool.clone(), canonical_cache);
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
@@ -534,16 +537,17 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage,
         room_storage,
@@ -630,16 +634,17 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage.clone(),
         room_storage,
@@ -741,16 +746,17 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage.clone(),
         room_storage,
@@ -846,16 +852,17 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
     create_test_user(&pool, "@alice:localhost", "alice").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage,
         room_storage,
@@ -925,16 +932,17 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage.clone(),
         room_storage,
@@ -1086,10 +1094,11 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service = create_room_service(
         &pool,
@@ -1100,7 +1109,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     );
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache.clone()),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
@@ -1202,7 +1211,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     assert!(persisted_count >= 2, "expected persisted lazy-load members for alice and bob");
 
     let restarted_sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage.clone(),
         room_storage,
@@ -1250,10 +1259,11 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
 
     let room_service = create_room_service(
         &pool,
@@ -1264,7 +1274,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     );
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache.clone()),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
@@ -1347,7 +1357,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     let restarted_sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage,
         room_storage,
@@ -1390,10 +1400,11 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     create_test_user(&pool, "@bob:localhost", "bob").await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
     let filter_storage = FilterStorage::new(&pool);
 
     filter_storage
@@ -1420,7 +1431,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     );
 
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache.clone()),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
@@ -1493,7 +1504,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     let restarted_sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), cache),
+        PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager())),
         member_storage,
         event_storage,
         room_storage,

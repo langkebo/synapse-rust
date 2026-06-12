@@ -1,8 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::push_notification_service::SendNotificationRequest;
-use crate::storage::push_notification::{
-    CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest,
-};
+use crate::storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},

@@ -581,9 +581,9 @@ impl OpenClawStorage {
         };
 
         let next_batch = if messages.len() > limit as usize {
-            messages.get(limit as usize).map(|message| {
-                encode_message_cursor(&MessageCursor { created_ts: message.created_ts, id: message.id })
-            })
+            messages
+                .get(limit as usize)
+                .map(|message| encode_message_cursor(&MessageCursor { created_ts: message.created_ts, id: message.id }))
         } else {
             None
         };

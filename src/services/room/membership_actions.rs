@@ -101,8 +101,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
 
         Ok(())
     }
@@ -132,8 +132,8 @@ impl RoomService {
             },
             None,
         )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
 
         Ok(())
     }

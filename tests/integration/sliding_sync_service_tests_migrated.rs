@@ -6,12 +6,12 @@ use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::sliding_sync_service::SlidingSyncService;
 use synapse_rust::services::typing_service::TypingService;
-use synapse_rust::services::PresenceStorage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::sliding_sync::{
     SlidingSyncFilters, SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage,
 };
+use synapse_rust::PresenceStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -308,7 +308,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let storage = SlidingSyncStorage::new(pool.clone());
     let event_storage = EventStorage::new(pool, "localhost".to_string());
     let typing_service = Arc::new(TypingService::default());
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
     let member_storage = RoomMemberStorage::new(pool, "localhost");
 
     SlidingSyncService::new(storage, cache, event_storage, typing_service, presence_storage, member_storage)

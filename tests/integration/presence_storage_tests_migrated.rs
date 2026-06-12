@@ -90,7 +90,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
     .expect("Failed to create typing table");
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let storage = PresenceStorage::new(pool.clone(), cache);
+    let storage = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
 
     Some((pool, storage))
 }
@@ -123,7 +123,7 @@ async fn test_set_and_get_presence() {
     let user_id = format!("@presence_user_{suffix}:localhost");
     insert_test_user(&pool, &user_id).await;
 
-    storage.set_presence(&user_id, PresenceState::Online, Some("working")).await.unwrap();
+    storage.set_presence(&user_id, PresenceState::Online.as_str(), Some("working")).await.unwrap();
 
     let result = storage.get_presence(&user_id).await.unwrap();
     assert!(result.is_some());
@@ -154,7 +154,7 @@ async fn test_set_presence_without_status_msg() {
     let user_id = format!("@presence_user_{suffix}:localhost");
     insert_test_user(&pool, &user_id).await;
 
-    storage.set_presence(&user_id, PresenceState::Unavailable, None).await.unwrap();
+    storage.set_presence(&user_id, PresenceState::Unavailable.as_str(), None).await.unwrap();
 
     let result = storage.get_presence(&user_id).await.unwrap();
     assert!(result.is_some());
@@ -174,9 +174,9 @@ async fn test_presence_upsert_updates_existing() {
     let user_id = format!("@presence_user_{suffix}:localhost");
     insert_test_user(&pool, &user_id).await;
 
-    storage.set_presence(&user_id, PresenceState::Online, Some("working")).await.unwrap();
+    storage.set_presence(&user_id, PresenceState::Online.as_str(), Some("working")).await.unwrap();
 
-    storage.set_presence(&user_id, PresenceState::Offline, Some("gone home")).await.unwrap();
+    storage.set_presence(&user_id, PresenceState::Offline.as_str(), Some("gone home")).await.unwrap();
 
     let result = storage.get_presence(&user_id).await.unwrap();
     assert!(result.is_some());
@@ -196,7 +196,7 @@ async fn test_get_presence_with_meta() {
     let user_id = format!("@presence_user_{suffix}:localhost");
     insert_test_user(&pool, &user_id).await;
 
-    storage.set_presence(&user_id, PresenceState::Online, Some("active")).await.unwrap();
+    storage.set_presence(&user_id, PresenceState::Online.as_str(), Some("active")).await.unwrap();
 
     let result = storage.get_presence_with_meta(&user_id).await.unwrap();
     assert!(result.is_some());
@@ -234,8 +234,8 @@ async fn test_get_presences_batch() {
     insert_test_user(&pool, &user2).await;
     insert_test_user(&pool, &user3).await;
 
-    storage.set_presence(&user1, PresenceState::Online, Some("working")).await.unwrap();
-    storage.set_presence(&user2, PresenceState::Unavailable, None).await.unwrap();
+    storage.set_presence(&user1, PresenceState::Online.as_str(), Some("working")).await.unwrap();
+    storage.set_presence(&user2, PresenceState::Unavailable.as_str(), None).await.unwrap();
 
     let user_ids = vec![user1.clone(), user2.clone(), user3.clone()];
     let result = storage.get_presences(&user_ids).await.unwrap();
@@ -456,8 +456,8 @@ async fn test_get_presence_batch() {
     insert_test_user(&pool, &user1).await;
     insert_test_user(&pool, &user2).await;
 
-    storage.set_presence(&user1, PresenceState::Online, Some("active")).await.unwrap();
-    storage.set_presence(&user2, PresenceState::Offline, None).await.unwrap();
+    storage.set_presence(&user1, PresenceState::Online.as_str(), Some("active")).await.unwrap();
+    storage.set_presence(&user2, PresenceState::Offline.as_str(), None).await.unwrap();
 
     let user_ids = vec![user1.clone(), user2.clone()];
     let result = storage.get_presence_batch(&user_ids).await.unwrap();
@@ -497,8 +497,8 @@ async fn test_get_presence_snapshots() {
     insert_test_user(&pool, &user1).await;
     insert_test_user(&pool, &user2).await;
 
-    storage.set_presence(&user1, PresenceState::Online, Some("active")).await.unwrap();
-    storage.set_presence(&user2, PresenceState::Unavailable, None).await.unwrap();
+    storage.set_presence(&user1, PresenceState::Online.as_str(), Some("active")).await.unwrap();
+    storage.set_presence(&user2, PresenceState::Unavailable.as_str(), None).await.unwrap();
 
     let user_ids = vec![user1.clone(), user2.clone()];
     let result = storage.get_presence_snapshots(&user_ids).await.unwrap();

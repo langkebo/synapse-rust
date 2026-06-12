@@ -734,10 +734,8 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
     let storage = ApplicationServiceStorage::new(&pool);
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
-    let room_val = room_service
-        .create_room(&alice_id, CreateRoomConfig::default())
-        .await
-        .expect("room creation should succeed");
+    let room_val =
+        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
     let room_id = room_val["room_id"].as_str().expect("room_id should be present");
 
     let before_member_events = storage
@@ -748,10 +746,7 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
         .filter(|event| event.event_type == "m.room.member")
         .count();
 
-    room_service
-        .invite_user(room_id, &alice_id, &bob_id)
-        .await
-        .expect("invite_user should succeed");
+    room_service.invite_user(room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
 
     let after_member_events = storage
         .get_pending_events(&as_id, 64)
@@ -858,20 +853,16 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let storage = ApplicationServiceStorage::new(&pool);
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
-    let room_val = room_service
-        .create_room(&alice_id, CreateRoomConfig::default())
-        .await
-        .expect("room creation should succeed");
+    let room_val =
+        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
     let old_room_id = room_val["room_id"].as_str().expect("room_id should be present").to_string();
 
     let before_pending = storage.get_pending_events(&as_id, 256).await.expect("pending events should load");
     let before_create_events = before_pending.iter().filter(|event| event.event_type == "m.room.create").count();
     let before_tombstone_events = before_pending.iter().filter(|event| event.event_type == "m.room.tombstone").count();
 
-    let new_room_id = room_service
-        .upgrade_room(&old_room_id, "11", &alice_id)
-        .await
-        .expect("upgrade_room should succeed");
+    let new_room_id =
+        room_service.upgrade_room(&old_room_id, "11", &alice_id).await.expect("upgrade_room should succeed");
 
     let after_pending = storage.get_pending_events(&as_id, 256).await.expect("pending events should load");
     let after_create_events = after_pending.iter().filter(|event| event.event_type == "m.room.create").count();
