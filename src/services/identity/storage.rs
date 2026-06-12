@@ -54,7 +54,7 @@ impl IdentityStorage {
     }
 
     pub async fn validate_three_pid(&self, address: &str, medium: &str, user_id: &str) -> Result<(), ApiError> {
-        let _ = self.threepid_storage.verify_threepid(user_id, medium, address).await?;
+        self.threepid_storage.verify_threepid(user_id, medium, address).await?;
         Ok(())
     }
 

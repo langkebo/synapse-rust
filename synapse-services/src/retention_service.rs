@@ -1,14 +1,14 @@
-use synapse_common::config::RetentionConfig;
-use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
-use synapse_common::ApiError;
 #[cfg(feature = "beacons")]
 use crate::beacon_service::BeaconService;
 use crate::media::chunked_upload::ChunkedUploadService;
-use synapse_storage::audit::AuditEventStorage;
-use synapse_storage::retention::*;
 use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::config::RetentionConfig;
+use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
+use synapse_common::ApiError;
+use synapse_storage::audit::AuditEventStorage;
+use synapse_storage::retention::*;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
 

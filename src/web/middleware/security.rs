@@ -273,11 +273,7 @@ mod tests {
     }
 
     async fn request_id_echo_handler(headers: axum::http::HeaderMap) -> String {
-        headers
-            .get("x-request-id")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_string()
+        headers.get("x-request-id").and_then(|value| value.to_str().ok()).unwrap_or_default().to_string()
     }
 
     #[tokio::test]
@@ -299,8 +295,7 @@ mod tests {
             .and_then(|value| value.to_str().ok())
             .expect("response should include x-request-id")
             .to_string();
-        let body =
-            axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.expect("body should be readable");
         let body_text = String::from_utf8_lossy(&body).to_string();
 
         assert!(!header_value.is_empty());

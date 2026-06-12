@@ -3,10 +3,10 @@
 
 use crate::megolm::{MegolmProvider, MegolmSession};
 use crate::olm::OlmService;
-use synapse_common::ApiError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct KeyRotationService {
     #[allow(dead_code)]
@@ -386,13 +386,14 @@ impl KeyRotationStorage {
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
-        let result = sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+        let result =
+            sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
+                .execute(&*self.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error: {e}");
+                    ApiError::database("A database error occurred".to_string())
+                })?;
 
         Ok(result.rows_affected() as i64)
     }

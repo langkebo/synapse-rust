@@ -116,11 +116,13 @@ impl ClientPushService {
     }
 
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
-        sqlx::query_scalar::<_, Value>(r#"SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#)
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
+        sqlx::query_scalar::<_, Value>(
+            r#"SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#,
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
     }
 
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {

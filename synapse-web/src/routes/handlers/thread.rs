@@ -1,8 +1,3 @@
-use synapse_common::error::ApiError;
-use synapse_services::thread_service::{
-    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
-    SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
-};
 use crate::routes::{ensure_room_member_strict, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -12,6 +7,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::error::ApiError;
+use synapse_services::thread_service::{
+    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
+    SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
+};
 
 #[derive(Debug, Deserialize)]
 struct CreateThreadBody {
@@ -282,7 +282,9 @@ async fn ensure_thread_management_access(
     ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage threads").await?;
 
     let is_creator = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -309,7 +311,9 @@ async fn list_visible_threads(
     from: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
     let room_ids = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to list user rooms", &e))?;
@@ -317,7 +321,9 @@ async fn list_visible_threads(
     let mut threads = Vec::new();
     for room_id in room_ids {
         let mut response = state
-            .services.rooms.thread_service
+            .services
+            .rooms
+            .thread_service
             .list_threads(ListThreadsRequest { room_id, limit: None, from: None, include_all: true })
             .await?;
         threads.append(&mut response.threads);
@@ -424,7 +430,9 @@ async fn delete_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -445,7 +453,9 @@ async fn freeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -466,7 +476,9 @@ async fn unfreeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

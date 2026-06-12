@@ -1,4 +1,3 @@
-use synapse_common::*;
 use crate::middleware::FederationRequestAuth;
 use crate::routes::AppState;
 use crate::utils::auth::resolve_request_id;
@@ -8,6 +7,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_common::*;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const TXN_DEDUP_TTL_SECS: u64 = 86400;
@@ -51,7 +51,8 @@ pub(super) async fn send_transaction(
     let process_inbound_edus = state.services.core.config.federation.process_inbound_edus;
     let process_inbound_presence_edus = state.services.core.config.federation.process_inbound_presence_edus;
     let inbound_edus_max_per_txn = state.services.core.config.federation.inbound_edus_max_per_txn;
-    let inbound_presence_updates_max_per_txn = state.services.core.config.federation.inbound_presence_updates_max_per_txn;
+    let inbound_presence_updates_max_per_txn =
+        state.services.core.config.federation.inbound_presence_updates_max_per_txn;
 
     if process_inbound_edus {
         if let Some(edus) = edus {
@@ -271,7 +272,8 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) = state.services.core.auth_service.verify_state_event_write(room_id, user_id, event_type).await
+            if let Err(error) =
+                state.services.core.auth_service.verify_state_event_write(room_id, user_id, event_type).await
             {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
@@ -503,8 +505,8 @@ async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Op
 }
 
 async fn set_presence_backoff(state: &AppState, origin: &str) {
-    let until =
-        chrono::Utc::now().timestamp_millis() + state.services.core.config.federation.inbound_presence_backoff_ms as i64;
+    let until = chrono::Utc::now().timestamp_millis()
+        + state.services.core.config.federation.inbound_presence_backoff_ms as i64;
     let mut guard = state.federation_presence_backoff_until.write().await;
     guard.insert(origin.to_string(), until);
 }

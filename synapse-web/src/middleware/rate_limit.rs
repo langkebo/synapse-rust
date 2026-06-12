@@ -1,12 +1,12 @@
-use synapse_cache::*;
-use synapse_common::error::ApiError;
-use synapse_common::rate_limit_config::RateLimitBackend;
 use crate::routes::AppState;
 use crate::utils::ip::extract_client_ip;
 use axum::extract::State;
 use axum::http::{HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
+use synapse_cache::*;
+use synapse_common::error::ApiError;
+use synapse_common::rate_limit_config::RateLimitBackend;
 
 fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     matches!(
@@ -127,14 +127,14 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_cache::{CacheConfig, CacheManager};
-    use synapse_common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
-    use synapse_services::ServiceContainer;
     use crate::routes::AppState;
     use crate::utils::ip::extract_client_ip;
     use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
+    use synapse_services::ServiceContainer;
     use tower::ServiceExt;
 
     #[test]

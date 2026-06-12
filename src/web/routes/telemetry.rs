@@ -151,7 +151,9 @@ pub async fn list_alerts(
     }
 
     let alerts = state
-        .services.admin.telemetry_alert_service
+        .services
+        .admin
+        .telemetry_alert_service
         .list_alerts(&TelemetryAlertFilters { status: query.status, severity: query.severity })?;
 
     Ok(Json(TelemetryAlertsResponse { alerts }))
@@ -166,7 +168,9 @@ pub async fn acknowledge_alert(
     let alert = state.services.admin.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     state
-        .services.admin.admin_audit_service
+        .services
+        .admin
+        .admin_audit_service
         .create_event(crate::storage::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),

@@ -1,6 +1,7 @@
 use crate::common::error::ApiError;
-use crate::services::push_notification_service::{
-    CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest, SendNotificationRequest,
+use crate::services::push_notification_service::SendNotificationRequest;
+use crate::storage::push_notification::{
+    CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest,
 };
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
@@ -81,7 +82,7 @@ impl From<PushDevice> for DeviceResponse {
             platform: device.platform,
             enabled: device.is_enabled,
             created_ts: device.created_ts,
-            last_used_ts: device.last_used_at,
+            last_used_ts: device.last_used_ts,
         }
     }
 }
@@ -130,7 +131,8 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device: crate::services::push_notification_service::PushDevice = state.services.admin.push_notification_service.register_device(request).await?;
+    let device: crate::storage::push_notification::PushDevice =
+        state.services.admin.push_notification_service.register_device(request).await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -151,7 +153,8 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices: Vec<crate::services::push_notification_service::PushDevice> = state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
+    let devices: Vec<crate::storage::push_notification::PushDevice> =
+        state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -198,7 +201,8 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule: crate::services::push_notification_service::PushRule = state.services.admin.push_notification_service.create_push_rule(request).await?;
+    let rule: crate::storage::push_notification::PushRule =
+        state.services.admin.push_notification_service.create_push_rule(request).await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -207,7 +211,8 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules: Vec<crate::services::push_notification_service::PushRule> = state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
+    let rules: Vec<crate::storage::push_notification::PushRule> =
+        state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 
@@ -220,7 +225,9 @@ pub async fn delete_rule(
     Path(path): Path<RulePath>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
-        .services.admin.push_notification_service
+        .services
+        .admin
+        .push_notification_service
         .delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id)
         .await?;
 
@@ -236,7 +243,8 @@ pub async fn process_queue(
 ) -> Result<impl IntoResponse, ApiError> {
     let batch_size: i32 = query.batch_size.unwrap_or(100).clamp(1, 500);
 
-    let processed_u64: u64 = state.services.admin.push_notification_service.process_pending_notifications(batch_size).await?;
+    let processed_u64: u64 =
+        state.services.admin.push_notification_service.process_pending_notifications(batch_size).await?;
     let processed = processed_u64 as i32;
 
     Ok(Json(serde_json::json!({

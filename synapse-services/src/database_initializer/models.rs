@@ -1,6 +1,6 @@
-use synapse_storage::SchemaValidator;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_storage::SchemaValidator;
 use tracing::{error, info};
 
 #[derive(Debug, Clone, PartialEq)]

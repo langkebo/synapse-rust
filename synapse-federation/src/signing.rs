@@ -256,8 +256,8 @@ mod tests {
 
     fn generate_test_key() -> (String, ed25519_dalek::SigningKey) {
         let secret_bytes: [u8; 32] = [
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
-            24, 25, 26, 27, 28, 29, 30, 31, 32,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+            30, 31, 32,
         ];
         let signing_key = SigningKey::from_bytes(&secret_bytes);
         let secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(secret_bytes);
@@ -287,9 +287,7 @@ mod tests {
         copy.as_object_mut().unwrap().remove("signatures");
         copy.as_object_mut().unwrap().remove("unsigned");
         let canonical = canonical_json_string(&copy);
-        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD
-            .decode(sig_value)
-            .unwrap();
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value).unwrap();
         let signature = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
         assert!(verifying_key.verify(canonical.as_bytes(), &signature).is_ok());
     }
@@ -315,13 +313,11 @@ mod tests {
         let canonical = canonical_json_string(&copy);
 
         let sig_value = value["signatures"]["server"]["ed25519:1"].as_str().unwrap();
-        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD
-            .decode(sig_value)
-            .unwrap();
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value).unwrap();
 
         let tampered_secret: [u8; 32] = [
-            99, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-            23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+            99, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+            30, 31, 32,
         ];
         let tampered_signing_key = SigningKey::from_bytes(&tampered_secret);
         let verifying_key = tampered_signing_key.verifying_key();
@@ -391,16 +387,14 @@ mod tests {
         sign_json("server", "ed25519:1", &secret_b64, &mut value).unwrap();
 
         let new_secret: [u8; 32] = [
-            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79,
-            78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68,
+            99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73,
+            72, 71, 70, 69, 68,
         ];
         let new_signing_key = SigningKey::from_bytes(&new_secret);
         let new_verifying_key = new_signing_key.verifying_key();
 
         let sig_value = value["signatures"]["server"]["ed25519:1"].as_str().unwrap();
-        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD
-            .decode(sig_value)
-            .unwrap();
+        let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value).unwrap();
         let signature = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
 
         let mut copy = value.clone();

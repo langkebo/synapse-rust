@@ -79,7 +79,11 @@ impl StickyEventStorage {
     }
 
     /// Get all is_sticky events for a room and user
-    pub async fn get_all_is_sticky_events(&self, room_id: &str, user_id: &str) -> Result<Vec<StickyEvent>, sqlx::Error> {
+    pub async fn get_all_is_sticky_events(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<StickyEvent>, sqlx::Error> {
         let rows = sqlx::query_as::<_, (String, String, String, String, bool, i64, i64)>(
             r"
             SELECT room_id, user_id, event_id, event_type, is_sticky, created_ts, updated_ts
@@ -108,7 +112,12 @@ impl StickyEventStorage {
     }
 
     /// Clear is_sticky event for a room, user, and event type
-    pub async fn clear_is_sticky_event(&self, room_id: &str, user_id: &str, event_type: &str) -> Result<(), sqlx::Error> {
+    pub async fn clear_is_sticky_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+    ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query(

@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
-use synapse_common::traits::DehydratedDeviceProvider;
-use synapse_storage::{DehydratedDevice, DehydratedDeviceStorage, UpsertDehydratedDeviceParams};
 use serde_json::{Map, Value};
+use synapse_common::traits::DehydratedDeviceProvider;
+use synapse_common::ApiError;
+use synapse_storage::{DehydratedDevice, DehydratedDeviceStorage, UpsertDehydratedDeviceParams};
 
 #[derive(Clone)]
 pub struct DehydratedDeviceService {

@@ -5,9 +5,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use synapse_common::ApiError;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
+use synapse_common::ApiError;
 
 #[derive(Debug, Deserialize)]
 pub struct ProtocolQuery {

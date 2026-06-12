@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OpenIdToken {

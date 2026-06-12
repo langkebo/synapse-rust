@@ -18,12 +18,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log(&format!("Failed to set {marker_type} marker"), &e))
     }
 
-    pub async fn set_read_markers(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        body: &serde_json::Value,
-    ) -> ApiResult<()> {
+    pub async fn set_read_markers(&self, room_id: &str, user_id: &str, body: &serde_json::Value) -> ApiResult<()> {
         if let Some(event_id) = body.get("m.fully_read").and_then(|v| v.as_str()) {
             if event_id.starts_with('$') {
                 self.update_read_marker(room_id, user_id, event_id, "m.fully_read").await?;

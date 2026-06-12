@@ -1,8 +1,8 @@
-use synapse_cache::CacheManager;
-use synapse_common::constants::USER_PROFILE_CACHE_TTL;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::constants::USER_PROFILE_CACHE_TTL;
 use tracing;
 
 const USER_DIRECTORY_SEARCH_CACHE_TTL_SECS: u64 = 30;
@@ -1108,5 +1108,55 @@ impl UserStorage {
         .bind(offset)
         .fetch_all(&*self.pool)
         .await
+    }
+
+    pub async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE users SET is_guest = $1 WHERE user_id = $2")
+            .bind(is_guest)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+
+        let guest_cache_key = format!("user:guest:{user_id}");
+        let _ = self.cache.delete(&guest_cache_key).await;
+        Ok(())
+    }
+
+    pub async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error> {
+        sqlx::query!(r"UPDATE users SET user_type = $1 WHERE user_id = $2", user_type, user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn upgrade_guest_account(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            UPDATE users
+            SET username = $1,
+                is_guest = FALSE,
+                password_hash = $2,
+                password_changed_ts = $3,
+                is_password_change_required = FALSE,
+                must_change_password = FALSE
+            WHERE user_id = $4
+            ",
+        )
+        .bind(username)
+        .bind(password_hash)
+        .bind(now)
+        .bind(user_id)
+        .execute(&*self.pool)
+        .await?;
+
+        let guest_cache_key = format!("user:guest:{user_id}");
+        let _ = self.cache.delete(&guest_cache_key).await;
+        Ok(())
     }
 }

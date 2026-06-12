@@ -1,5 +1,3 @@
-use synapse_common::ApiError;
-use synapse_storage::CreateAuditEventRequest;
 use crate::routes::admin::audit::resolve_request_id;
 use crate::routes::extract_token_from_headers;
 use crate::routes::AppState;
@@ -10,6 +8,8 @@ use axum::http::{HeaderMap, Method, Request};
 use axum::response::IntoResponse;
 use axum::{body::Body, response::Response, Json};
 use serde_json::json;
+use synapse_common::ApiError;
+use synapse_storage::CreateAuditEventRequest;
 
 pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
     if let Some(token) = crate::utils::auth::bearer_token_opt(headers) {
@@ -158,7 +158,9 @@ pub async fn admin_auth_middleware(
             };
 
             if let Err(error) = state
-                .services.admin.admin_audit_service
+                .services
+                .admin
+                .admin_audit_service
                 .create_event(CreateAuditEventRequest {
                     actor_id,
                     action: format!("{method} {path}"),
@@ -192,7 +194,9 @@ pub async fn admin_auth_middleware(
     let result = if response.status().is_success() { "success" } else { "failure" };
 
     if let Err(error) = state
-        .services.admin.admin_audit_service
+        .services
+        .admin
+        .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: admin.user_id.clone(),
             action: format!("{method} {path}"),

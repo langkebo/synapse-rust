@@ -14,10 +14,10 @@
 //! - [`space`] — space/child management
 //! - [`summary`] — room summary computation
 
+use crate::auth::AuthService;
 use crate::common::error::{ApiError, ApiResult};
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
-use crate::auth::AuthService;
 use crate::services::room_summary_service::RoomSummaryService;
 use crate::storage::{EventStorage, RoomMemberStorage, RoomStorage, UserStorage};
 use serde_json::json;
@@ -67,6 +67,7 @@ pub struct RoomServiceConfig {
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: crate::storage::relations::RelationsStorage,
     pub event_broadcaster: Option<Arc<crate::federation::event_broadcaster::EventBroadcaster>>,
+    pub app_service_manager: Option<Arc<crate::services::application_service::ApplicationServiceManager>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -88,6 +89,8 @@ pub struct RoomService {
     pub room_summary_service: Arc<RoomSummaryService>,
     pub(crate) relations_storage: crate::storage::relations::RelationsStorage,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<crate::federation::event_broadcaster::EventBroadcaster>>>>,
+    pub(crate) app_service_manager:
+        Arc<RwLock<Option<Arc<crate::services::application_service::ApplicationServiceManager>>>>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
 }
@@ -109,6 +112,7 @@ impl RoomService {
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             relations_storage: config.relations_storage,
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
+            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
         }
@@ -170,6 +174,40 @@ impl RoomService {
         event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
     ) {
         *self.event_broadcaster.write().await = Some(event_broadcaster);
+    }
+
+    pub async fn set_app_service_manager(
+        &self,
+        app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
+    ) {
+        *self.app_service_manager.write().await = Some(app_service_manager);
+    }
+
+    pub(crate) async fn dispatch_appservice_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        event_type: &str,
+        sender: &str,
+        content: &serde_json::Value,
+        state_key: Option<&str>,
+    ) {
+        let app_service_manager = self.app_service_manager.read().await.clone();
+        let Some(app_service_manager) = app_service_manager else {
+            return;
+        };
+
+        if let Err(error) =
+            app_service_manager.enqueue_matching_event(event_id, room_id, event_type, sender, content, state_key).await
+        {
+            ::tracing::warn!(
+                error = %error,
+                event_id = %event_id,
+                room_id = %room_id,
+                event_type = %event_type,
+                "Failed to enqueue application service event"
+            );
+        }
     }
 
     // ── Basic room queries ──
@@ -260,6 +298,7 @@ impl RoomService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_common::{generate_event_id, generate_room_id};
 
     #[test]
     fn test_room_id_format() {

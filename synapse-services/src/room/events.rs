@@ -77,14 +77,22 @@ impl RoomService {
             }
         }
 
+        if should_update_summary {
+            self.dispatch_appservice_event(
+                &event.event_id,
+                &event.room_id,
+                &event.event_type,
+                &event.user_id,
+                &event.content,
+                event.state_key.as_deref(),
+            )
+            .await;
+        }
+
         Ok(event)
     }
 
-    pub async fn get_state_events_by_type(
-        &self,
-        room_id: &str,
-        event_type: &str,
-    ) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
             .event_storage
             .get_state_events_by_type(room_id, event_type)
@@ -115,12 +123,7 @@ impl RoomService {
             .and_then(|event| event.get("content"))
             .and_then(|content| content.get("pinned").or_else(|| content.get("pinned_events")))
             .and_then(|value| value.as_array())
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|value| value.as_str().map(ToString::to_string))
-                    .collect()
-            })
+            .map(|entries| entries.iter().filter_map(|value| value.as_str().map(ToString::to_string)).collect())
             .unwrap_or_default();
         Ok(pinned)
     }
@@ -133,21 +136,20 @@ impl RoomService {
     ) -> ApiResult<()> {
         let event_id = generate_event_id(&self.server_name);
         let now = chrono::Utc::now().timestamp_millis();
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.pinned_events".to_string(),
-                    content: json!({ "pinned": pinned_event_ids }),
-                    state_key: Some(String::new()),
-                    origin_server_ts: now,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to persist pinned events state", &e))?;
+        self.create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.pinned_events".to_string(),
+                content: json!({ "pinned": pinned_event_ids }),
+                state_key: Some(String::new()),
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to persist pinned events state", &e))?;
         Ok(())
     }
 

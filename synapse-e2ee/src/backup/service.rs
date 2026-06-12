@@ -2,8 +2,8 @@ use super::models::*;
 use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 use crate::device_keys::DeviceKeyStorage;
 use crate::signed_json::verify_signed_json;
-use synapse_common::ApiError;
 use sqlx::Row;
+use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
 pub struct BackupKeyUploadParams {

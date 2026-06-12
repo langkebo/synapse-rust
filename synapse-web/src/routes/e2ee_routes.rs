@@ -1,5 +1,4 @@
 use super::{AppState, AuthenticatedUser};
-use synapse_e2ee::secure_backup::RestoreSecureBackupRequest;
 use crate::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
 use crate::routes::MatrixJson;
 use crate::ApiError;
@@ -13,6 +12,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_e2ee::secure_backup::RestoreSecureBackupRequest;
 
 fn parse_stream_id(value: &Value) -> Option<i64> {
     if let Some(n) = value.as_i64() {
@@ -250,8 +250,13 @@ async fn query_keys(
     if let Some(device_keys_obj) = response.device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
-            let batch_result =
-                state.services.e2ee.cross_signing_service.get_verified_devices_batch(&user_ids).await.unwrap_or_default();
+            let batch_result = state
+                .services
+                .e2ee
+                .cross_signing_service
+                .get_verified_devices_batch(&user_ids)
+                .await
+                .unwrap_or_default();
 
             for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map
@@ -355,20 +360,24 @@ async fn key_changes(
     let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
     let to = params.get("to").and_then(parse_stream_id);
 
-    let max_stream_id: i64 = state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
-        tracing::error!("Failed to get device list stream position: {e}");
-        ApiError::database("Failed to get device list stream position")
-    })?;
+    let max_stream_id: i64 =
+        state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+            tracing::error!("Failed to get device list stream position: {e}");
+            ApiError::database("Failed to get device list stream position")
+        })?;
 
     let to = to.unwrap_or(max_stream_id);
 
-    let changed: Vec<String> =
-        state.services.account.device_storage.get_device_list_changed_users(from, to, &auth_user.user_id).await.map_err(
-            |e| {
-                tracing::error!("Failed to get key changes: {e}");
-                ApiError::database("Failed to get key changes")
-            },
-        )?;
+    let changed: Vec<String> = state
+        .services
+        .account
+        .device_storage
+        .get_device_list_changed_users(from, to, &auth_user.user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get key changes: {e}");
+            ApiError::database("Failed to get key changes")
+        })?;
     let changed = filter_users_with_shared_rooms(&state, &auth_user.user_id, &changed)
         .await
         .into_iter()
@@ -376,10 +385,12 @@ async fn key_changes(
         .collect::<Vec<_>>();
 
     let left: Vec<String> =
-        state.services.account.device_storage.get_device_list_left_users(from, to, &auth_user.user_id).await.map_err(|e| {
-            tracing::error!("Failed to get key changes left: {e}");
-            ApiError::database("Failed to get key changes left")
-        })?;
+        state.services.account.device_storage.get_device_list_left_users(from, to, &auth_user.user_id).await.map_err(
+            |e| {
+                tracing::error!("Failed to get key changes left: {e}");
+                ApiError::database("Failed to get key changes left")
+            },
+        )?;
     let left = filter_users_with_shared_rooms(&state, &auth_user.user_id, &left)
         .await
         .into_iter()
@@ -414,10 +425,11 @@ async fn device_list_update(
     let mut left: Vec<String> = Vec::new();
 
     if since.is_none() {
-        let devices_by_user = state.services.account.device_storage.get_users_devices_batch(&users).await.map_err(|e| {
-            tracing::error!("Failed to get devices: {e}");
-            ApiError::database("Failed to get devices")
-        })?;
+        let devices_by_user =
+            state.services.account.device_storage.get_users_devices_batch(&users).await.map_err(|e| {
+                tracing::error!("Failed to get devices: {e}");
+                ApiError::database("Failed to get devices")
+            })?;
 
         for user_id in &users {
             if let Some(devices) = devices_by_user.get(user_id) {
@@ -449,17 +461,19 @@ async fn device_list_update(
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
-    let max_stream_id: i64 = state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
-        tracing::error!("Failed to get device list stream position: {e}");
-        ApiError::database("Failed to get device list stream position")
-    })?;
+    let max_stream_id: i64 =
+        state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+            tracing::error!("Failed to get device list stream position: {e}");
+            ApiError::database("Failed to get device list stream position")
+        })?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
-    let change_rows = state.services.account.device_storage.get_device_list_changes(since, to, &users).await.map_err(|e| {
-        tracing::error!("Failed to get device list changes: {e}");
-        ApiError::database("Failed to get device list changes")
-    })?;
+    let change_rows =
+        state.services.account.device_storage.get_device_list_changes(since, to, &users).await.map_err(|e| {
+            tracing::error!("Failed to get device list changes: {e}");
+            ApiError::database("Failed to get device list changes")
+        })?;
 
     let mut latest: HashMap<(String, String), String> = HashMap::new();
     for (user_id, device_id, change_type, _stream_id) in change_rows {
@@ -487,13 +501,16 @@ async fn device_list_update(
         let user_ids: Vec<&str> = active_pairs.iter().map(|(u, _)| u.as_str()).collect();
         let device_ids: Vec<&str> = active_pairs.iter().map(|(_, d)| d.as_str()).collect();
 
-        let device_rows =
-            state.services.account.device_storage.get_devices_by_user_device_pairs(&user_ids, &device_ids).await.map_err(
-                |e| {
-                    tracing::error!("Failed to batch get device data: {e}");
-                    ApiError::database("Failed to get device data")
-                },
-            )?;
+        let device_rows = state
+            .services
+            .account
+            .device_storage
+            .get_devices_by_user_device_pairs(&user_ids, &device_ids)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to batch get device data: {e}");
+                ApiError::database("Failed to get device data")
+            })?;
 
         for (user_id, device_id, display_name, last_seen_ts) in device_rows {
             changed.push(json!({
@@ -575,7 +592,9 @@ async fn send_to_device(
     }
 
     state
-        .services.e2ee.to_device_service
+        .services
+        .e2ee
+        .to_device_service
         .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
 
@@ -634,7 +653,9 @@ async fn upload_device_signing(
         if let Some(key_obj) = master_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services.e2ee.cross_signing_service
+                    .services
+                    .e2ee
+                    .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, master_key)
                     .await?;
             }
@@ -645,7 +666,9 @@ async fn upload_device_signing(
         if let Some(key_obj) = self_signing_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services.e2ee.cross_signing_service
+                    .services
+                    .e2ee
+                    .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
                     .await?;
             }
@@ -656,7 +679,9 @@ async fn upload_device_signing(
         if let Some(key_obj) = user_signing_key.as_object() {
             if !key_obj.is_empty() {
                 state
-                    .services.e2ee.cross_signing_service
+                    .services
+                    .e2ee
+                    .cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
                     .await?;
             }
@@ -678,7 +703,9 @@ async fn create_room_key_request(
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
 
     let request = state
-        .services.e2ee.key_request_service
+        .services
+        .e2ee
+        .key_request_service
         .create_request(
             &auth_user.user_id,
             device_id,
@@ -812,7 +839,9 @@ async fn request_device_verification(
     };
 
     let response = state
-        .services.e2ee.device_trust_service
+        .services
+        .e2ee
+        .device_trust_service
         .request_device_verification(
             &auth_user.user_id,
             new_device_id,
@@ -845,7 +874,9 @@ async fn respond_device_verification(
     let approved = body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let response = state
-        .services.e2ee.device_trust_service
+        .services
+        .e2ee
+        .device_trust_service
         .respond_to_verification(&auth_user.user_id, request_token, approved)
         .await?;
 
@@ -907,7 +938,8 @@ async fn get_device_trust(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let status = state.services.e2ee.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
+    let status =
+        state.services.e2ee.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
 
     match status {
         Some(s) => Ok(Json(serde_json::json!({
@@ -992,7 +1024,9 @@ async fn create_secure_backup(
     } else if let (Some(algorithm), Some(auth_data_val)) = (algorithm, auth_data_val) {
         // Standard mode: client provides algorithm and auth_data
         let response = state
-            .services.e2ee.secure_backup_service
+            .services
+            .e2ee
+            .secure_backup_service
             .create_backup_with_data(&auth_user.user_id, algorithm, auth_data_val)
             .await?;
 
@@ -1064,7 +1098,9 @@ async fn store_secure_backup_keys(
         .unwrap_or_default();
 
     let key_count = state
-        .services.e2ee.secure_backup_service
+        .services
+        .e2ee
+        .secure_backup_service
         .store_session_keys(&auth_user.user_id, &backup_id, passphrase, session_keys)
         .await?;
 
@@ -1082,7 +1118,9 @@ async fn restore_secure_backup(
     MatrixJson(body): MatrixJson<RestoreSecureBackupRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let response = state
-        .services.e2ee.secure_backup_service
+        .services
+        .e2ee
+        .secure_backup_service
         .restore_backup(&auth_user.user_id, &backup_id, &body.passphrase, body.rooms)
         .await?;
 

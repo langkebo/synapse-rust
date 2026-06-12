@@ -236,11 +236,10 @@ impl DatabaseInitService {
     }
 
     async fn check_cache_valid(&self) -> Result<bool, sqlx::Error> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT value::BIGINT AS "value!" FROM db_metadata WHERE key = 'last_init_ts'"#
-        )
-        .fetch_optional(&*self.pool)
-        .await;
+        let result =
+            sqlx::query_scalar!(r#"SELECT value::BIGINT AS "value!" FROM db_metadata WHERE key = 'last_init_ts'"#)
+                .fetch_optional(&*self.pool)
+                .await;
 
         match result {
             Ok(Some(last_init_ts)) => {
@@ -522,12 +521,7 @@ impl DatabaseInitService {
             }
         }
 
-        info!(
-            success_count,
-            skip_count,
-            error_count,
-            "迁移完成"
-        );
+        info!(success_count, skip_count, error_count, "迁移完成");
         Ok(format!("数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"))
     }
 

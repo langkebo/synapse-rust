@@ -2,7 +2,6 @@
 // E2EE Phase 3: Secure key backup with passphrase
 
 use crate::secure_backup::models::*;
-use synapse_common::ApiError;
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
@@ -12,6 +11,7 @@ use base64::Engine;
 use rand::RngCore;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 #[derive(Clone)]
 pub struct SecureBackupService {

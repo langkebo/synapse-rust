@@ -3,6 +3,7 @@
 //! Contains `create_room` and small utility helpers.
 //! Event creation helpers live in [`create_events`].
 
+use super::create_events::PendingAppserviceDispatch;
 use super::service::{CreateRoomConfig, RoomService};
 use super::utils::validate_room_alias_input;
 use crate::common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
@@ -62,6 +63,7 @@ impl RoomService {
         }
 
         let now = chrono::Utc::now().timestamp_millis();
+        let mut pending_dispatches: Vec<PendingAppserviceDispatch> = Vec::new();
         let mut create_content = json!({
             "creator": user_id,
             "room_version": room_version,
@@ -79,24 +81,20 @@ impl RoomService {
         if let Some(ref room_type) = config.room_type {
             create_content["type"] = json!(room_type);
         }
-        let result = self
-            .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.create".to_string(),
-                    content: create_content,
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now,
-                },
-                Some(&mut tx),
-            )
-            .await;
-        
+        let create_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.create".to_string(),
+            content: create_content,
+            state_key: Some("".to_string()),
+            origin_server_ts: now,
+        };
+        let create_dispatch = PendingAppserviceDispatch::from_params(&create_event);
+        let result = self.event_storage.create_event(create_event, Some(&mut tx)).await;
+
         match result {
-            Ok(_) => {},
+            Ok(_) => pending_dispatches.push(create_dispatch),
             Err(e) => {
                 ::tracing::error!(
                     room_id = %room_id,
@@ -122,29 +120,26 @@ impl RoomService {
             return Err(e);
         }
 
-        let result = self
-            .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "join",
-                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
-                    }),
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: now + 1,
-                },
-                Some(&mut tx),
-            )
-            .await;
-        
+        let creator_join_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.member".to_string(),
+            content: json!({
+                "membership": "join",
+                "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+            }),
+            state_key: Some(user_id.to_string()),
+            origin_server_ts: now + 1,
+        };
+        let creator_join_dispatch = PendingAppserviceDispatch::from_params(&creator_join_event);
+        let result = self.event_storage.create_event(creator_join_event, Some(&mut tx)).await;
+
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.member event", &e));
         }
+        pending_dispatches.push(creator_join_dispatch);
 
         let mut power_levels = json!({
             "users": { user_id: 100 },
@@ -173,47 +168,41 @@ impl RoomService {
                 }
             }
         }
-        let result = self
-            .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.power_levels".to_string(),
-                    content: power_levels,
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 2,
-                },
-                Some(&mut tx),
-            )
-            .await;
-        
+        let power_levels_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.power_levels".to_string(),
+            content: power_levels,
+            state_key: Some("".to_string()),
+            origin_server_ts: now + 2,
+        };
+        let power_levels_dispatch = PendingAppserviceDispatch::from_params(&power_levels_event);
+        let result = self.event_storage.create_event(power_levels_event, Some(&mut tx)).await;
+
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.power_levels event", &e));
         }
+        pending_dispatches.push(power_levels_dispatch);
 
-        let result = self
-            .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.join_rules".to_string(),
-                    content: json!({ "join_rule": join_rule }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 3,
-                },
-                Some(&mut tx),
-            )
-            .await;
-        
+        let join_rules_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.join_rules".to_string(),
+            content: json!({ "join_rule": join_rule }),
+            state_key: Some("".to_string()),
+            origin_server_ts: now + 3,
+        };
+        let join_rules_dispatch = PendingAppserviceDispatch::from_params(&join_rules_event);
+        let result = self.event_storage.create_event(join_rules_event, Some(&mut tx)).await;
+
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.join_rules event", &e));
         }
+        pending_dispatches.push(join_rules_dispatch);
 
         let history_visibility = config.history_visibility.clone().unwrap_or_else(|| {
             if is_trusted_private {
@@ -222,48 +211,45 @@ impl RoomService {
                 "shared".to_string()
             }
         });
+        let history_visibility_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.history_visibility".to_string(),
+            content: json!({ "history_visibility": history_visibility }),
+            state_key: Some("".to_string()),
+            origin_server_ts: now + 4,
+        };
+        let history_visibility_dispatch = PendingAppserviceDispatch::from_params(&history_visibility_event);
         let result = self
             .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.history_visibility".to_string(),
-                    content: json!({ "history_visibility": history_visibility }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 4,
-                },
-                Some(&mut tx),
-            )
+            .create_event(history_visibility_event, Some(&mut tx))
             .await;
-        
+
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.history_visibility event", &e));
         }
+        pending_dispatches.push(history_visibility_dispatch);
 
         let guest_access = if is_public { "can_join" } else { "forbidden" };
-        let result = self
-            .event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.clone(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.guest_access".to_string(),
-                    content: json!({ "guest_access": guest_access }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: now + 5,
-                },
-                Some(&mut tx),
-            )
-            .await;
-        
+        let guest_access_event = CreateEventParams {
+            event_id: generate_event_id(&self.server_name),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.guest_access".to_string(),
+            content: json!({ "guest_access": guest_access }),
+            state_key: Some("".to_string()),
+            origin_server_ts: now + 5,
+        };
+        let guest_access_dispatch = PendingAppserviceDispatch::from_params(&guest_access_event);
+        let result = self.event_storage.create_event(guest_access_event, Some(&mut tx)).await;
+
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to create m.room.guest_access event", &e));
         }
+        pending_dispatches.push(guest_access_dispatch);
 
         let result = self
             .set_room_metadata(
@@ -273,6 +259,7 @@ impl RoomService {
                 config.topic.as_deref(),
                 now + 6,
                 Some(&mut tx),
+                &mut pending_dispatches,
             )
             .await;
         if let Err(e) = result {
@@ -280,7 +267,16 @@ impl RoomService {
             return Err(ApiError::internal_with_log("Failed to set room metadata", &e));
         }
 
-        let result = self.process_invites(&room_id, config.invite_list.as_ref(), user_id, now + 7, Some(&mut tx)).await;
+        let result = self
+            .process_invites(
+                &room_id,
+                config.invite_list.as_ref(),
+                user_id,
+                now + 7,
+                Some(&mut tx),
+                &mut pending_dispatches,
+            )
+            .await;
         if let Err(e) = result {
             let _ = tx.rollback().await;
             return Err(ApiError::internal_with_log("Failed to process invites", &e));
@@ -305,21 +301,17 @@ impl RoomService {
                     has_encryption_in_initial_state = true;
                 }
 
-                let result = self
-                    .event_storage
-                    .create_event(
-                        CreateEventParams {
-                            event_id: generate_event_id(&self.server_name),
-                            room_id: room_id.clone(),
-                            user_id: user_id.to_string(),
-                            event_type: event_type.to_string(),
-                            content,
-                            state_key: Some(state_key),
-                            origin_server_ts: now + 9 + idx as i64,
-                        },
-                        Some(&mut tx),
-                    )
-                    .await;
+                let initial_state_event = CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: event_type.to_string(),
+                    content,
+                    state_key: Some(state_key),
+                    origin_server_ts: now + 9 + idx as i64,
+                };
+                let initial_state_dispatch = PendingAppserviceDispatch::from_params(&initial_state_event);
+                let result = self.event_storage.create_event(initial_state_event, Some(&mut tx)).await;
                 if let Err(e) = result {
                     ::tracing::error!(
                         room_id = %room_id,
@@ -331,6 +323,7 @@ impl RoomService {
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to apply initial_state event {event_type}", &e));
                 }
+                pending_dispatches.push(initial_state_dispatch);
 
                 if event_type == "m.room.join_rules" {
                     if let Some(jr) = evt.get("content").and_then(|c| c.get("join_rule")).and_then(|v| v.as_str()) {
@@ -343,33 +336,27 @@ impl RoomService {
         if let Some(ref algorithm) = config.encryption {
             if !has_encryption_in_initial_state {
                 let encryption_ts = config.initial_state.as_ref().map_or(now + 9, |s| now + 9 + s.len() as i64);
-                let result = self
-                    .event_storage
-                    .create_event(
-                        CreateEventParams {
-                            event_id: generate_event_id(&self.server_name),
-                            room_id: room_id.clone(),
-                            user_id: user_id.to_string(),
-                            event_type: "m.room.encryption".to_string(),
-                            content: json!({ "algorithm": algorithm }),
-                            state_key: Some("".to_string()),
-                            origin_server_ts: encryption_ts,
-                        },
-                        Some(&mut tx),
-                    )
-                    .await;
+                let encryption_event = CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.clone(),
+                    user_id: user_id.to_string(),
+                    event_type: "m.room.encryption".to_string(),
+                    content: json!({ "algorithm": algorithm }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: encryption_ts,
+                };
+                let encryption_dispatch = PendingAppserviceDispatch::from_params(&encryption_event);
+                let result = self.event_storage.create_event(encryption_event, Some(&mut tx)).await;
                 if let Err(e) = result {
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to create m.room.encryption event", &e));
                 }
+                pending_dispatches.push(encryption_dispatch);
             }
         }
 
         if let Some(ref jr) = initial_join_rule {
-            if let Err(e) = sqlx::query!("UPDATE rooms SET join_rules = $1 WHERE room_id = $2",
-                    jr,
-                    &room_id
-                )
+            if let Err(e) = sqlx::query!("UPDATE rooms SET join_rules = $1 WHERE room_id = $2", jr, &room_id)
                 .execute(&mut *tx)
                 .await
             {
@@ -380,24 +367,20 @@ impl RoomService {
 
         if is_trusted_private {
             let privacy_content = json!({ "action": "block_screenshot" });
-            let result = self
-                .event_storage
-                .create_event(
-                    CreateEventParams {
-                        event_id: generate_event_id(&self.server_name),
-                        room_id: room_id.clone(),
-                        user_id: user_id.to_string(),
-                        event_type: "com.hula.privacy".to_string(),
-                        content: privacy_content,
-                        state_key: Some("".to_string()),
-                        origin_server_ts: now + 8,
-                    },
-                    Some(&mut tx),
-                )
-                .await;
-            
+            let privacy_event = CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "com.hula.privacy".to_string(),
+                content: privacy_content,
+                state_key: Some("".to_string()),
+                origin_server_ts: now + 8,
+            };
+            let privacy_dispatch = PendingAppserviceDispatch::from_params(&privacy_event);
+            let result = self.event_storage.create_event(privacy_event, Some(&mut tx)).await;
+
             match result {
-                Ok(_) => {},
+                Ok(_) => pending_dispatches.push(privacy_dispatch),
                 Err(e) => {
                     let _ = tx.rollback().await;
                     return Err(ApiError::internal_with_log("Failed to set privacy marker", &e));
@@ -408,6 +391,17 @@ impl RoomService {
         let commit_res = tx.commit().await;
         if let Err(e) = commit_res {
             return Err(ApiError::internal_with_log("Failed to commit transaction", &e));
+        }
+        for dispatch in pending_dispatches {
+            self.dispatch_appservice_event(
+                &dispatch.event_id,
+                &dispatch.room_id,
+                &dispatch.event_type,
+                &dispatch.sender,
+                &dispatch.content,
+                dispatch.state_key.as_deref(),
+            )
+            .await;
         }
 
         let summary_request = crate::storage::room_summary::CreateRoomSummaryRequest {
@@ -423,7 +417,8 @@ impl RoomService {
             is_direct: config.is_direct,
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
-        let summary_res: ApiResult<crate::storage::room_summary::RoomSummaryResponse> = self.room_summary_service.create_summary(summary_request).await;
+        let summary_res: ApiResult<crate::storage::room_summary::RoomSummaryResponse> =
+            self.room_summary_service.create_summary(summary_request).await;
         if let Err(e) = summary_res {
             ::tracing::warn!(
                 error = %e,

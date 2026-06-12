@@ -1,10 +1,7 @@
-use synapse_common::ApiError;
-use synapse_storage::device::DeviceStorage;
-use synapse_storage::user::UserStorage;
 use crate::routes::extractors::{AuthenticatedUser, MatrixJson};
 use crate::routes::AppState;
-use crate::utils::auth::resolve_request_id;
 use crate::utils::admin_auth::enforce_admin_login_mfa;
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -12,6 +9,9 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+use synapse_common::ApiError;
+use synapse_storage::device::DeviceStorage;
+use synapse_storage::user::UserStorage;
 
 pub(crate) async fn register(
     State(state): State<AppState>,
@@ -45,9 +45,14 @@ pub(crate) async fn register(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
-        DeviceStorage::create_device(&state.services.account.device_storage, &device_id, &user.user_id, Some("Guest Device"))
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
+        DeviceStorage::create_device(
+            &state.services.account.device_storage,
+            &device_id,
+            &user.user_id,
+            Some("Guest Device"),
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
         let access_token = state
             .services
@@ -206,7 +211,9 @@ pub(crate) async fn request_email_verification_with_submit_path(
     });
 
     let token_id = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
@@ -271,7 +278,9 @@ pub(crate) async fn submit_email_token(
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
     let verification_token = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
@@ -298,7 +307,9 @@ pub(crate) async fn submit_email_token(
     }
 
     state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .mark_token_used(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;

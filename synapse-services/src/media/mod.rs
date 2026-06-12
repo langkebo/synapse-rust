@@ -2,13 +2,13 @@ pub mod chunked_upload;
 
 pub use chunked_upload::*;
 
-use synapse_common::random_string;
-use synapse_common::ApiError;
 use crate::media_quota_service::MediaQuotaService;
 use crate::media_service::MediaService;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::random_string;
+use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaFinalizationResponse {
@@ -74,27 +74,20 @@ impl MediaDomainService {
     /// Quarantine a media item by server_name/media_id.
     /// Records the change in the quarantine stream and updates media_metadata.
     /// Invalidates relevant caches in multi-worker deployments.
-    pub async fn quarantine_media(
-        &self,
-        server_name: &str,
-        media_id: &str,
-        changed_by: &str,
-    ) -> Result<i64, ApiError> {
-        let storage = self.quarantine_change_storage.as_ref().ok_or_else(|| {
-            ApiError::internal("Quarantine stream storage not configured")
-        })?;
+    pub async fn quarantine_media(&self, server_name: &str, media_id: &str, changed_by: &str) -> Result<i64, ApiError> {
+        let storage = self
+            .quarantine_change_storage
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
         let now_ts = chrono::Utc::now().timestamp_millis();
 
         // Record the quarantine change in the stream
-        let stream_id = storage
-            .record_media_quarantine_change(media_id, server_name, "quarantine", changed_by, now_ts)
-            .await?;
+        let stream_id =
+            storage.record_media_quarantine_change(media_id, server_name, "quarantine", changed_by, now_ts).await?;
 
         // Update the actual quarantine status on the media record
-        storage
-            .set_media_quarantine_status(media_id, server_name, "quarantined")
-            .await?;
+        storage.set_media_quarantine_status(media_id, server_name, "quarantined").await?;
 
         // Invalidate caches for this media item across workers
         if let Some(cache_mgr) = &self.cache_invalidation {
@@ -123,21 +116,19 @@ impl MediaDomainService {
         media_id: &str,
         changed_by: &str,
     ) -> Result<i64, ApiError> {
-        let storage = self.quarantine_change_storage.as_ref().ok_or_else(|| {
-            ApiError::internal("Quarantine stream storage not configured")
-        })?;
+        let storage = self
+            .quarantine_change_storage
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
 
         let now_ts = chrono::Utc::now().timestamp_millis();
 
         // Record the unquarantine change in the stream
-        let stream_id = storage
-            .record_media_quarantine_change(media_id, server_name, "unquarantine", changed_by, now_ts)
-            .await?;
+        let stream_id =
+            storage.record_media_quarantine_change(media_id, server_name, "unquarantine", changed_by, now_ts).await?;
 
         // Update the actual quarantine status on the media record
-        storage
-            .set_media_quarantine_status(media_id, server_name, "")
-            .await?;
+        storage.set_media_quarantine_status(media_id, server_name, "").await?;
 
         // Invalidate caches for this media item across workers
         if let Some(cache_mgr) = &self.cache_invalidation {
@@ -164,9 +155,10 @@ impl MediaDomainService {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<Vec<synapse_storage::media::QuarantinedMediaChange>, ApiError> {
-        let storage = self.quarantine_change_storage.as_ref().ok_or_else(|| {
-            ApiError::internal("Quarantine stream storage not configured")
-        })?;
+        let storage = self
+            .quarantine_change_storage
+            .as_ref()
+            .ok_or_else(|| ApiError::internal("Quarantine stream storage not configured"))?;
         storage.get_quarantined_media_changes(since_stream_id, limit).await
     }
 
@@ -411,10 +403,7 @@ impl MediaDomainService {
         Ok(())
     }
 
-    pub async fn get_user_quota(
-        &self,
-        user_id: &str,
-    ) -> Result<crate::media_quota_service::UserQuotaInfo, ApiError> {
+    pub async fn get_user_quota(&self, user_id: &str) -> Result<crate::media_quota_service::UserQuotaInfo, ApiError> {
         self.media_quota_service.get_user_quota(user_id).await
     }
 
@@ -539,12 +528,12 @@ fn build_media_response_headers(
 mod tests {
     use super::*;
     use crate::media_quota_service::MediaQuotaService;
-    use synapse_storage::media_quota::{MediaQuotaStorage, SetUserQuotaRequest};
-    use synapse_storage::user::UserStorage;
     use crate::test_utils;
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
     use std::time::Duration;
+    use synapse_storage::media_quota::{MediaQuotaStorage, SetUserQuotaRequest};
+    use synapse_storage::user::UserStorage;
 
     async fn prepare_media_test_pool() -> Result<Arc<sqlx::PgPool>, String> {
         let database_url = test_utils::resolve_test_database_url().await?;

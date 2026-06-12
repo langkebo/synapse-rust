@@ -74,8 +74,11 @@ impl GuestAuthExt for AuthService {
         self.validator.validate_password(password)?;
 
         let guest_user = self.require_guest_user(user_id).await?;
-        let existing =
-            self.user_storage.get_user_by_username(username).await.map_err(|e| ApiError::internal_with_log("Failed to check username", &e))?;
+        let existing = self
+            .user_storage
+            .get_user_by_username(username)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check username", &e))?;
 
         if existing.as_ref().is_some_and(|user| user.user_id != user_id) {
             return Err(ApiError::conflict("Username already exists".to_string()));

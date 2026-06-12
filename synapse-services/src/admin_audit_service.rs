@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::{AuditEvent, AuditEventFilters, AuditEventStorage, CreateAuditEventRequest};
-use std::sync::Arc;
 use tracing::{error, instrument};
 
 type AuditListResult = Result<(Vec<AuditEvent>, i64, Option<String>), ApiError>;

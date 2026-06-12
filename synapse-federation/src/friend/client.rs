@@ -1,4 +1,3 @@
-use synapse_common::{ApiError, ApiResult};
 use crate::signing::canonical_federation_request_bytes;
 use crate::KeyRotationManager;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
@@ -7,6 +6,7 @@ use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use synapse_common::{ApiError, ApiResult};
 
 pub struct FriendFederationClient {
     client: Client,

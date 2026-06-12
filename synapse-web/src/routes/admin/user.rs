@@ -1,8 +1,4 @@
 use super::audit::{record_audit_event, resolve_request_id};
-use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use synapse_common::crypto::hash_password;
-use synapse_common::ApiError;
-use synapse_storage::User;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -13,6 +9,10 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
+use synapse_common::crypto::hash_password;
+use synapse_common::ApiError;
+use synapse_storage::User;
 use validator::Validate;
 
 fn decode_user_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
@@ -169,7 +169,9 @@ async fn evict_user(
     let user = resolve_user(&state, &user_id).await?;
 
     let joined_rooms = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -515,7 +517,9 @@ pub async fn get_user_rooms_admin(
     let user = resolve_user(&state, &user_id).await?;
 
     let rooms = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_user_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -911,7 +915,9 @@ pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) ->
     let guest_users = stats.get::<i64, _>("guest_users");
 
     let room_count = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room_count()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
@@ -938,7 +944,9 @@ pub async fn get_single_user_stats(
     let user = resolve_user(&state, &user_id).await?;
 
     let rooms_joined: i64 = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_room_count(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to count rooms", &e))?;
@@ -1167,7 +1175,9 @@ pub async fn get_account_details(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let room_count: i64 = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_room_count(canonical_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

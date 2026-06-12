@@ -1,11 +1,11 @@
-use synapse_common::claims::Claims;
-use synapse_common::ApiError;
 use deadpool_redis::{Config, Pool, PoolConfig, Runtime};
 use moka::sync::Cache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::claims::Claims;
+use synapse_common::ApiError;
 use thiserror::Error;
 use tokio::time::timeout;
 

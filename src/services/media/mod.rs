@@ -445,19 +445,19 @@ mod tests {
         let search_path_sql = format!("SET search_path TO {schema_name}, public");
         let pool = Arc::new(
             PgPoolOptions::new()
-            .max_connections(4)
-            .min_connections(0)
-            .acquire_timeout(Duration::from_secs(30))
-            .after_connect(move |connection, _meta| {
-                let search_path_sql = search_path_sql.clone();
-                Box::pin(async move {
-                    sqlx::query(&search_path_sql).execute(connection).await?;
-                    Ok(())
+                .max_connections(4)
+                .min_connections(0)
+                .acquire_timeout(Duration::from_secs(30))
+                .after_connect(move |connection, _meta| {
+                    let search_path_sql = search_path_sql.clone();
+                    Box::pin(async move {
+                        sqlx::query(&search_path_sql).execute(connection).await?;
+                        Ok(())
+                    })
                 })
-            })
-            .connect(&database_url)
-            .await
-            .map_err(|error| format!("failed to connect media test pool for {schema_name}: {error}"))?,
+                .connect(&database_url)
+                .await
+                .map_err(|error| format!("failed to connect media test pool for {schema_name}: {error}"))?,
         );
 
         sqlx::raw_sql(
@@ -619,7 +619,7 @@ mod tests {
         let media_path = temp_dir.path().to_str().expect("temp dir path should be valid utf-8");
 
         let user_storage =
-            UserStorage::new(&pool, Arc::new(crate::cache::CacheManager::new(&crate::cache::CacheConfig::default())));
+            UserStorage::new(&pool, Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())));
         let mut users = Vec::new();
         for username in usernames {
             let user_id = format!("@{username}:test.server");

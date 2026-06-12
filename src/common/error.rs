@@ -1,12 +1,11 @@
 pub use synapse_common::error::{
-    init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, ErrorContext, ErrorSource,
-    MatrixErrorCode,
+    init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, ErrorContext, ErrorSource, MatrixErrorCode,
 };
 
 // Re-export macros
 pub use synapse_common::{
-    bail, dbg_context, ensure, ensure_forbidden, ensure_not_found, ensure_unauthorized,
-    safe_unwrap, safe_unwrap_ctx, wrap_result,
+    bail, dbg_context, ensure, ensure_forbidden, ensure_not_found, ensure_unauthorized, safe_unwrap, safe_unwrap_ctx,
+    wrap_result,
 };
 
 // ---------------------------------------------------------------------------

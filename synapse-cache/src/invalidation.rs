@@ -1,10 +1,10 @@
-use synapse_common::ApiError;
 use deadpool_redis::Pool;
 use futures::StreamExt;
 use redis::{AsyncCommands, Client};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::ApiError;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 

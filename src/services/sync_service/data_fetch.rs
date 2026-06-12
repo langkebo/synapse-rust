@@ -7,9 +7,9 @@ use std::collections::{HashMap, HashSet};
 
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
-        let presence_state = crate::common::PresenceState::from_str_opt(set_presence)
-            .unwrap_or(crate::common::PresenceState::Online);
-        self.presence_storage.set_presence(user_id, presence_state, None).await.ok();
+        let presence_state =
+            crate::common::PresenceState::from_str_opt(set_presence).unwrap_or(crate::common::PresenceState::Online);
+        self.presence_storage.set_presence(user_id, presence_state.as_str(), None).await.ok();
         Ok(())
     }
 
@@ -382,10 +382,7 @@ impl SyncService {
         .await
         .map_err(map_internal!("Failed to get left device lists"))?;
 
-        let left: Vec<String> = left_rows
-            .iter()
-            .map(|row| row.user_id.clone())
-            .collect();
+        let left: Vec<String> = left_rows.iter().map(|row| row.user_id.clone()).collect();
 
         Ok((
             json!({

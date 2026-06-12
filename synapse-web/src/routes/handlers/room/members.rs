@@ -1,17 +1,17 @@
 use super::ensure_room_view_access;
-use synapse_common::ApiError;
-use synapse_common::map_internal;
-use synapse_storage::CreateEventParams;
-use crate::utils::auth::resolve_request_id;
 use crate::routes::{
     extract_token_from_headers, is_joined_room_member, is_joined_room_member_or_creator, validate_membership,
     validate_room_id, validate_user_id, AppState, AuthenticatedUser,
 };
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::map_internal;
+use synapse_common::ApiError;
+use synapse_storage::CreateEventParams;
 
 pub(crate) async fn join_room(
     State(state): State<AppState>,
@@ -45,7 +45,9 @@ pub(crate) async fn join_room_by_id_or_alias(
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         state
-            .services.rooms.room_service
+            .services
+            .rooms
+            .room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -53,7 +55,9 @@ pub(crate) async fn join_room_by_id_or_alias(
     } else {
         let alias = format!("#{}:{}", room_id_or_alias, state.services.core.config.server.name);
         state
-            .services.rooms.room_service
+            .services
+            .rooms
+            .room_service
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -120,7 +124,9 @@ pub(crate) async fn knock_room(
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         state
-            .services.rooms.room_service
+            .services
+            .rooms
+            .room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -128,7 +134,9 @@ pub(crate) async fn knock_room(
     } else {
         let alias = format!("#{}:{}", room_id_or_alias, state.services.core.config.server.name);
         state
-            .services.rooms.room_service
+            .services
+            .rooms
+            .room_service
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -346,7 +354,9 @@ pub(crate) async fn get_joined_members(
     }
 
     let members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_members(&room_id)
         .await
         .map_err(map_internal!("Failed to get joined members"))?;
@@ -383,7 +393,9 @@ pub(crate) async fn get_room_membership(
     validate_user_id(&target_user_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -394,7 +406,9 @@ pub(crate) async fn get_room_membership(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let membership = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_member(&room_id, &target_user_id)
         .await
         .map_err(map_internal!("Database error"))?
@@ -418,7 +432,9 @@ pub(crate) async fn get_membership_events(
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100).min(1000) as i64;
 
     let memberships = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_membership_history(&room_id, limit)
         .await
         .map_err(map_internal!("Failed to get membership events"))?;
@@ -451,7 +467,9 @@ pub(crate) async fn get_room_invites(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -462,13 +480,17 @@ pub(crate) async fn get_room_invites(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let _invites = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_members(&room_id)
         .await
         .map_err(map_internal!("Failed to get room invites"))?;
 
     let invited_members: Vec<serde_json::Value> = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(&room_id, "invite")
         .await
         .map_err(map_internal!("Failed to get room members"))?
@@ -518,7 +540,9 @@ pub(crate) async fn kick_user(
     }
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -547,13 +571,17 @@ pub(crate) async fn kick_user(
     });
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .remove_member(&room_id, target)
         .await
         .map_err(map_internal!("Failed to kick user"))?;
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             CreateEventParams {
                 event_id,
@@ -625,7 +653,9 @@ pub(crate) async fn ban_user(
     }
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -654,13 +684,17 @@ pub(crate) async fn ban_user(
     });
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .add_member(&room_id, target, "ban", None, None, None, None)
         .await
         .map_err(map_internal!("Failed to ban user"))?;
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             CreateEventParams {
                 event_id,
@@ -726,7 +760,9 @@ pub(crate) async fn unban_user(
 
     let _unbanned_by = auth_user.user_id.clone();
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .remove_member(&room_id, target)
         .await
         .map_err(map_internal!("Failed to unban user"))?;
@@ -737,7 +773,9 @@ pub(crate) async fn unban_user(
     });
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             CreateEventParams {
                 event_id,

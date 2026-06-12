@@ -218,10 +218,7 @@ mod tests {
             ip_address: "1.2.3.4".to_string(),
             user_agent: Some("Mozilla/5.0".to_string()),
             timestamp: 1700000000000,
-            geo_info: Some(GeoIpResult {
-                country: Some("US".to_string()),
-                ..Default::default()
-            }),
+            geo_info: Some(GeoIpResult { country: Some("US".to_string()), ..Default::default() }),
         };
         assert_eq!(location.user_id, "@user:example.com");
         assert_eq!(location.ip_address, "1.2.3.4");

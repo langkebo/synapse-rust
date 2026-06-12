@@ -1,5 +1,5 @@
-use synapse_common::ApiError;
 use axum::http::HeaderMap;
+use synapse_common::ApiError;
 
 pub(crate) fn generate_request_id() -> String {
     format!("req-{}", uuid::Uuid::new_v4())

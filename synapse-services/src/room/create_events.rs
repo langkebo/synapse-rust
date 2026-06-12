@@ -3,10 +3,10 @@
 //! Contains private helper methods for creating room events during room creation.
 
 use super::service::RoomService;
+use serde_json::json;
 use synapse_common::generate_event_id;
 use synapse_common::{ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
-use serde_json::json;
 
 impl RoomService {
     pub(crate) async fn create_room_in_db(

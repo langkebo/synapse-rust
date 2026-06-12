@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::media_quota::*;
-use std::sync::Arc;
 use tracing::{info, instrument};
 
 pub struct MediaQuotaService {

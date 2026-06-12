@@ -1,7 +1,8 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
 use crate::services::{
-    decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor, encode_pending_federation_cursor,
+    decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
+    encode_pending_federation_cursor,
 };
 use crate::storage::federation_blacklist::decode_federation_blacklist_cursor;
 use crate::web::routes::{AdminUser, AppState};
@@ -122,7 +123,9 @@ pub struct DestinationsQuery {
     pub offset: Option<i64>,
 }
 
-fn validate_destinations_query(query: &DestinationsQuery) -> Result<(i32, Option<crate::services::DestinationCursor>), ApiError> {
+fn validate_destinations_query(
+    query: &DestinationsQuery,
+) -> Result<(i32, Option<crate::services::DestinationCursor>), ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = decode_destination_cursor(query.from.as_deref());
 
@@ -146,12 +149,8 @@ pub async fn get_destinations(
 ) -> Result<Json<Value>, ApiError> {
     let (limit, cursor) = validate_destinations_query(&query)?;
 
-    let (destinations, total, next_batch) = state
-        .services
-        .admin
-        .admin_federation_service
-        .list_destinations(limit, cursor)
-        .await?;
+    let (destinations, total, next_batch) =
+        state.services.admin.admin_federation_service.list_destinations(limit, cursor).await?;
 
     Ok(Json(json!({
         "destinations": destinations,
@@ -199,12 +198,7 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_list = state
-        .services
-        .admin
-        .admin_federation_service
-        .get_destination_rooms(&destination)
-        .await?;
+    let room_list = state.services.admin.admin_federation_service.get_destination_rooms(&destination).await?;
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -245,17 +239,9 @@ pub async fn resolve_federation(
     Json(body): Json<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let server_name = &body.server_name;
-    let result = state
-        .services
-        .admin
-        .admin_federation_service
-        .resolve_federation(server_name)
-        .await?;
+    let result = state.services.admin.admin_federation_service.resolve_federation(server_name).await?;
 
-    info!(
-        "Federation resolve for {}: resolved={}, blacklisted={}",
-        server_name, result.resolved, result.blacklisted
-    );
+    info!("Federation resolve for {}: resolved={}, blacklisted={}", server_name, result.resolved, result.blacklisted);
 
     Ok(Json(json!({
         "server_name": server_name,
@@ -303,12 +289,8 @@ pub async fn list_pending_federation(
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).min(500);
     let cursor = decode_pending_federation_cursor(query.from.as_deref());
-    let (list, total, next_batch) = state
-        .services
-        .admin
-        .admin_federation_service
-        .list_pending_federation(limit, cursor)
-        .await?;
+    let (list, total, next_batch) =
+        state.services.admin.admin_federation_service.list_pending_federation(limit, cursor).await?;
     let next_batch = next_batch.as_ref().map(encode_pending_federation_cursor);
 
     Ok(Json(json!({
@@ -358,12 +340,7 @@ pub async fn add_to_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .admin
-        .admin_federation_service
-        .add_to_blacklist(&server_name, &admin.user_id)
-        .await?;
+    state.services.admin.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -373,12 +350,7 @@ pub async fn remove_from_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .admin
-        .admin_federation_service
-        .remove_from_blacklist(&server_name, &admin.user_id)
-        .await?;
+    state.services.admin.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -395,12 +367,7 @@ pub async fn delete_federation_cache_entry(
     State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .admin
-        .admin_federation_service
-        .delete_federation_cache_entry(&key)
-        .await?;
+    state.services.admin.admin_federation_service.delete_federation_cache_entry(&key).await?;
     Ok(Json(json!({})))
 }
 
@@ -416,11 +383,7 @@ mod destinations_query_tests {
 
     #[test]
     fn rejects_legacy_offset_pagination() {
-        let query = DestinationsQuery {
-            limit: Some(50),
-            from: None,
-            offset: Some(10),
-        };
+        let query = DestinationsQuery { limit: Some(50), from: None, offset: Some(10) };
 
         let err = validate_destinations_query(&query).expect_err("legacy offset must be rejected");
         assert!(err.to_string().contains("Legacy offset pagination"));
@@ -428,11 +391,7 @@ mod destinations_query_tests {
 
     #[test]
     fn rejects_invalid_from_cursor() {
-        let query = DestinationsQuery {
-            limit: Some(50),
-            from: Some("bad-cursor".to_string()),
-            offset: None,
-        };
+        let query = DestinationsQuery { limit: Some(50), from: Some("bad-cursor".to_string()), offset: None };
 
         let err = validate_destinations_query(&query).expect_err("invalid cursor must be rejected");
         assert!(err.to_string().contains("Invalid destination pagination cursor"));
@@ -440,11 +399,8 @@ mod destinations_query_tests {
 
     #[test]
     fn accepts_valid_cursor() {
-        let query = DestinationsQuery {
-            limit: Some(50),
-            from: Some("v1|matrix.example.com".to_string()),
-            offset: Some(0),
-        };
+        let query =
+            DestinationsQuery { limit: Some(50), from: Some("v1|matrix.example.com".to_string()), offset: Some(0) };
 
         let (limit, cursor) = validate_destinations_query(&query).expect("cursor should be accepted");
         assert_eq!(limit, 50);

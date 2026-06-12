@@ -6,8 +6,8 @@ use crate::device_keys::DeviceKeyService;
 use crate::device_trust::models::*;
 use crate::device_trust::storage::DeviceTrustStorage;
 use crate::verification::VerificationService;
-use synapse_common::ApiError;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct DeviceTrustService {
     storage: Arc<DeviceTrustStorage>,

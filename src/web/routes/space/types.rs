@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_space_hierarchy_response_contains_rooms_field() {
-        use crate::services::SpaceHierarchyRoom;
+        use crate::storage::space::SpaceHierarchyRoom;
 
         let response = SpaceHierarchyResponse {
             space: SpaceResponse {
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_space_hierarchy_response_serialization_includes_rooms() {
-        use crate::services::SpaceHierarchyRoom;
+        use crate::storage::space::SpaceHierarchyRoom;
 
         let response = SpaceHierarchyResponse {
             space: SpaceResponse {

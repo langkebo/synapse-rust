@@ -229,8 +229,8 @@ impl MediaService {
         let content_vec = content.to_vec();
         let write_result: Result<(), std::io::Error> =
             tokio::task::spawn_blocking(move || std::fs::write(&file_path, content_vec))
-            .await
-            .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
+                .await
+                .map_err(|e| ApiError::internal_with_log("Write task panicked", &e))?;
 
         if let Err(e) = write_result {
             ::tracing::error!(
@@ -316,7 +316,8 @@ impl MediaService {
         let media_url = synapse_common::media_locator::MediaLocator {
             server_name: self.server_name.clone(),
             media_id: media_id.to_string(),
-        }.to_mxc_url();
+        }
+        .to_mxc_url();
 
         Ok(serde_json::json!({
             "content_uri": media_url

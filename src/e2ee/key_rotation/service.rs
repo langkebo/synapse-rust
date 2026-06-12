@@ -383,15 +383,14 @@ impl KeyRotationStorage {
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
-        let result = sqlx::query!(
-            "DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)"
-        )
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+        let result =
+            sqlx::query!("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
+                .execute(&*self.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error: {e}");
+                    ApiError::database("A database error occurred".to_string())
+                })?;
 
         Ok(result.rows_affected() as i64)
     }
@@ -544,10 +543,7 @@ impl KeyRotationStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(rows
-            .iter()
-            .map(|row| (row.new_key_id.clone(), row.rotated_at))
-            .collect())
+        Ok(rows.iter().map(|row| (row.new_key_id.clone(), row.rotated_at)).collect())
     }
 
     /// Get the last rotation timestamp for a specific key id.
@@ -612,16 +608,13 @@ impl KeyRotationStorage {
 
     /// Read a value from the key_rotation_config table.
     pub async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = $1"#,
-            key,
-        )
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to query key rotation config: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let result = sqlx::query_scalar!(r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = $1"#, key,)
+            .fetch_optional(&*self.pool)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to query key rotation config: {e}");
+                ApiError::database("A database error occurred".to_string())
+            })?;
 
         Ok(result)
     }

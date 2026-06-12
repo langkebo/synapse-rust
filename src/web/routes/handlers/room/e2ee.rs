@@ -121,7 +121,9 @@ pub(crate) async fn get_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -150,7 +152,9 @@ pub(crate) async fn get_room_key_count(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -178,7 +182,9 @@ pub(crate) async fn claim_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -215,7 +221,9 @@ pub(crate) async fn get_room_keys_version(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -238,7 +246,9 @@ pub(crate) async fn forward_room_keys(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -251,7 +261,9 @@ pub(crate) async fn forward_room_keys(
 
     if !keys.is_empty() {
         state
-            .services.e2ee.backup_service
+            .services
+            .e2ee
+            .backup_service
             .upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone())
             .await?;
     }

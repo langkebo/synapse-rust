@@ -1,7 +1,7 @@
-use synapse_common::config::CircuitBreakerConfig;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+use synapse_common::config::CircuitBreakerConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {

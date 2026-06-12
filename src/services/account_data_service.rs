@@ -30,10 +30,7 @@ impl AccountDataService {
     }
 
     #[instrument(skip(self))]
-    pub async fn list_account_data(
-        &self,
-        user_id: &str,
-    ) -> Result<serde_json::Map<String, Value>, ApiError> {
+    pub async fn list_account_data(&self, user_id: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
         let result = sqlx::query!(
             r#"SELECT data_type AS "data_type!", content AS "content!" FROM account_data WHERE user_id = $1"#,
             user_id,
@@ -151,22 +148,14 @@ impl AccountDataService {
     pub async fn create_filter(&self, user_id: &str, content: Value) -> Result<String, ApiError> {
         let filter_id = crate::common::random_string(16);
         self.filter_storage
-            .create_filter(CreateFilterRequest {
-                user_id: user_id.to_string(),
-                filter_id: filter_id.clone(),
-                content,
-            })
+            .create_filter(CreateFilterRequest { user_id: user_id.to_string(), filter_id: filter_id.clone(), content })
             .await?;
         Ok(filter_id)
     }
 
     #[instrument(skip(self))]
     pub async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Value>, ApiError> {
-        Ok(self
-            .filter_storage
-            .get_filter(user_id, filter_id)
-            .await?
-            .map(|filter| filter.content))
+        Ok(self.filter_storage.get_filter(user_id, filter_id).await?.map(|filter| filter.content))
     }
 
     #[instrument(skip(self))]
@@ -206,8 +195,7 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
         return Err(ApiError::bad_request("data_type too long (max 128 characters)".to_string()));
     }
 
-    let body_str =
-        serde_json::to_string(body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
+    let body_str = serde_json::to_string(body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
     if body_str.len() > 65536 {
         return Err(ApiError::bad_request("Account data too large (max 64KB)".to_string()));
     }

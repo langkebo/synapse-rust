@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
 use crate::media::models::QuarantinedMediaChange;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 /// Storage layer for the `quarantined_media_changes` stream table.
 ///
@@ -95,12 +95,10 @@ impl QuarantinedMediaChangeStorage {
 
     /// Get the current maximum stream_id (used for position tracking).
     pub async fn get_current_stream_id(&self) -> Result<i64, ApiError> {
-        let stream_id: Option<i64> = sqlx::query_scalar(
-            r"SELECT MAX(stream_id) FROM quarantined_media_changes",
-        )
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get current quarantine stream id", &e))?;
+        let stream_id: Option<i64> = sqlx::query_scalar(r"SELECT MAX(stream_id) FROM quarantined_media_changes")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get current quarantine stream id", &e))?;
 
         Ok(stream_id.unwrap_or(0))
     }

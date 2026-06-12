@@ -164,7 +164,8 @@ async fn sso_redirect(
 
     #[cfg(feature = "saml-sso")]
     if state.services.saml_service.is_enabled() {
-        let auth_request: crate::services::saml_service::SamlAuthRequest = state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
+        let auth_request: crate::services::saml_service::SamlAuthRequest =
+            state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
 
@@ -364,11 +365,8 @@ async fn oidc_userinfo(
     // 目前先使用 registration_service 获取本地 profile
 
     // 获取用户 profile 信息
-    let profile_res: Result<serde_json::Value, ApiError> = state
-        .services
-        .registration_service
-        .get_profile(user_id)
-        .await;
+    let profile_res: Result<serde_json::Value, ApiError> =
+        state.services.registration_service.get_profile(user_id).await;
     let profile_val = profile_res?;
     let profile = profile_val.as_object().ok_or_else(|| ApiError::internal("Profile is not an object"))?;
 
@@ -497,29 +495,17 @@ async fn oidc_token(
             let now_ts: i64 = current_unix_ts() as i64;
 
             // 检查 OIDC 绑定记录
-            let bound_user_id: Option<String> = state
-                .services
-                .oidc_mapping_service
-                .get_bound_user_id(&issuer, &subject)
-                .await?;
+            let bound_user_id: Option<String> =
+                state.services.oidc_mapping_service.get_bound_user_id(&issuer, &subject).await?;
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                state
-                    .services
-                    .oidc_mapping_service
-                    .record_authentication(&issuer, &subject, now_ts)
-                    .await?;
+                state.services.oidc_mapping_service.record_authentication(&issuer, &subject, now_ts).await?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
-                let existing_user: Option<crate::storage::user::User> = state
-                    .services
-                    .account
-                    .user_storage
-                    .get_user_by_id(&matrix_user_id)
-                    .await
-                    .unwrap_or(None);
+                let existing_user: Option<crate::storage::user::User> =
+                    state.services.account.user_storage.get_user_by_id(&matrix_user_id).await.unwrap_or(None);
                 if existing_user.is_some() {
                     ::tracing::warn!(
                         target: "security_audit",
@@ -543,11 +529,7 @@ async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                state
-                    .services
-                    .oidc_mapping_service
-                    .create_mapping(&issuer, &subject, &matrix_user_id, now_ts)
-                    .await?;
+                state.services.oidc_mapping_service.create_mapping(&issuer, &subject, &matrix_user_id, now_ts).await?;
                 matrix_user_id
             };
 
@@ -861,22 +843,22 @@ async fn oidc_callback(
     }
 
     // 需要授权码
-    let code: String = code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
+    let code: String =
+        code.ok_or_else(|| ApiError::bad_request("Missing 'code' parameter in OIDC callback".to_string()))?;
     let callback_state: String = callback_state
         .ok_or_else(|| ApiError::bad_request("Missing 'state' parameter in OIDC callback".to_string()))?;
     let auth_session: OidcAuthSession = consume_oidc_auth_session(&callback_state)?;
     validate_state_pkce_binding(&auth_session)?;
 
     // 获取配置的回调 URL
-    let callback_url: String = if auth_session.redirect_uri.is_empty() {
-        oidc_service
-            .get_config()
-            .callback_url
-            .clone()
-            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name))
-    } else {
-        auth_session.redirect_uri.clone()
-    };
+    let callback_url: String =
+        if auth_session.redirect_uri.is_empty() {
+            oidc_service.get_config().callback_url.clone().unwrap_or_else(|| {
+                format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name)
+            })
+        } else {
+            auth_session.redirect_uri.clone()
+        };
 
     // 兑换令牌
     let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
@@ -913,71 +895,80 @@ async fn oidc_callback(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let (user, access_token, refresh_token, device_id): (crate::storage::user::User, String, String, String) = if let Some(existing) = existing_user {
-        // User exists, generate tokens for them using a simple token generation
-        // Use the existing user's admin status
-        let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
-        let access_token: String = state
-            .services
-            .core
-            .auth_service
-            .generate_access_token(&user_id, &device_id, existing.is_admin)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-        let refresh_token: String = state
-            .services
-            .core
-            .auth_service
-            .generate_refresh_token(&user_id, &device_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
-        (existing, access_token, refresh_token, device_id)
-    } else {
-        // Create new user - use a random password since authentication is done by OIDC provider
-        let random_password: String = OidcService::generate_state();
+    let (user, access_token, refresh_token, device_id): (crate::storage::user::User, String, String, String) =
+        if let Some(existing) = existing_user {
+            // User exists, generate tokens for them using a simple token generation
+            // Use the existing user's admin status
+            let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
+            let access_token: String = state
+                .services
+                .core
+                .auth_service
+                .generate_access_token(&user_id, &device_id, existing.is_admin)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
+            let refresh_token: String = state
+                .services
+                .core
+                .auth_service
+                .generate_refresh_token(&user_id, &device_id)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
+            (existing, access_token, refresh_token, device_id)
+        } else {
+            // Create new user - use a random password since authentication is done by OIDC provider
+            let random_password: String = OidcService::generate_state();
 
-        // Get displayname from OIDC user info
-        let displayname: Option<&str> = oidc_user.displayname.as_deref();
+            // Get displayname from OIDC user info
+            let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
-        match state.services.core.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
-            Ok(result) => result,
-            Err(e) => {
-                // Check if user was created by another request (race condition)
-                let error_msg: String = e.to_string();
-                if error_msg.contains("already taken") || error_msg.contains("in use") || error_msg.contains("conflict")
-                {
-                    // User was created by another request, try to get them
-                    let existing: crate::storage::user::User = state
-                        .services
-                        .account
-                        .user_storage
-                        .get_user_by_username(&oidc_user.localpart)
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-                        .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
+            match state
+                .services
+                .core
+                .auth_service
+                .register(&oidc_user.localpart, &random_password, false, displayname)
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    // Check if user was created by another request (race condition)
+                    let error_msg: String = e.to_string();
+                    if error_msg.contains("already taken")
+                        || error_msg.contains("in use")
+                        || error_msg.contains("conflict")
+                    {
+                        // User was created by another request, try to get them
+                        let existing: crate::storage::user::User = state
+                            .services
+                            .account
+                            .user_storage
+                            .get_user_by_username(&oidc_user.localpart)
+                            .await
+                            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+                            .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
 
-                    let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
-                    let access_token: String = state
-                        .services
-                        .core
-                        .auth_service
-                        .generate_access_token(&user_id, &device_id, existing.is_admin)
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-                    let refresh_token: String = state
-                        .services
-                        .core
-                        .auth_service
-                        .generate_refresh_token(&user_id, &device_id)
-                        .await
-                        .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
-                    (existing, access_token, refresh_token, device_id)
-                } else {
-                    return Err(e);
+                        let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
+                        let access_token: String = state
+                            .services
+                            .core
+                            .auth_service
+                            .generate_access_token(&user_id, &device_id, existing.is_admin)
+                            .await
+                            .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
+                        let refresh_token: String = state
+                            .services
+                            .core
+                            .auth_service
+                            .generate_refresh_token(&user_id, &device_id)
+                            .await
+                            .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
+                        (existing, access_token, refresh_token, device_id)
+                    } else {
+                        return Err(e);
+                    }
                 }
             }
-        }
-    };
+        };
 
     let user_id_for_log: String = user.user_id();
     tracing::info!("OIDC user logged in: {}, device_id: {}", user_id_for_log, device_id);

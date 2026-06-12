@@ -304,10 +304,8 @@ async fn test_thread_root_and_reply_roundtrip() {
     assert_eq!(relation_type, "m.thread");
     assert_eq!(relation_thread_id.as_deref(), Some(thread_id.as_str()));
 
-    let replies = storage
-        .get_thread_replies(&room_id, &thread_id, Some(10), None)
-        .await
-        .expect("Failed to list thread replies");
+    let replies =
+        storage.get_thread_replies(&room_id, &thread_id, Some(10), None).await.expect("Failed to list thread replies");
 
     assert_eq!(replies.len(), 1);
     assert_eq!(replies[0].event_id, reply_event_id);
@@ -316,8 +314,7 @@ async fn test_thread_root_and_reply_roundtrip() {
 
     assert_eq!(reply_count, 1);
 
-    let participants =
-        storage.get_thread_participants(&room_id, &thread_id).await.expect("Failed to get participants");
+    let participants = storage.get_thread_participants(&room_id, &thread_id).await.expect("Failed to get participants");
 
     assert!(participants.contains(&creator));
     assert!(participants.contains(&replier));
@@ -357,8 +354,7 @@ async fn test_thread_root_and_reply_roundtrip() {
     assert_eq!(statistics.first_reply_ts, Some(1234));
     assert_eq!(statistics.last_reply_ts, Some(1234));
 
-    let search_results =
-        storage.search_threads(&room_id, "hello", Some(10)).await.expect("Failed to search threads");
+    let search_results = storage.search_threads(&room_id, "hello", Some(10)).await.expect("Failed to search threads");
 
     assert_eq!(search_results.len(), 1);
     assert_eq!(search_results[0].thread_id, thread_id);
@@ -404,8 +400,7 @@ async fn test_thread_read_receipt_roundtrip() {
 
     assert_eq!(loaded.unread_count, 1);
 
-    let unread =
-        storage.get_threads_with_unread(&reader, Some(&room_id)).await.expect("Failed to list unread threads");
+    let unread = storage.get_threads_with_unread(&reader, Some(&room_id)).await.expect("Failed to list unread threads");
 
     assert_eq!(unread.len(), 1);
     assert_eq!(unread[0].thread_id, thread_id);

@@ -503,7 +503,8 @@ mod tests {
 
     #[test]
     fn test_device_verification_request_approve() {
-        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Sas, "token456", 5);
+        let mut req =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Sas, "token456", 5);
         req.approve();
         assert_eq!(req.status, VerificationRequestStatus::Approved);
         assert!(req.completed_at.is_some());
@@ -511,7 +512,8 @@ mod tests {
 
     #[test]
     fn test_device_verification_request_reject() {
-        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Qr, "token456", 5);
+        let mut req =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Qr, "token456", 5);
         req.reject();
         assert_eq!(req.status, VerificationRequestStatus::Rejected);
         assert!(req.completed_at.is_some());
@@ -519,7 +521,8 @@ mod tests {
 
     #[test]
     fn test_device_verification_request_expire() {
-        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Emoji, "token456", 5);
+        let mut req =
+            DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Emoji, "token456", 5);
         req.expire();
         assert_eq!(req.status, VerificationRequestStatus::Expired);
         assert!(req.completed_at.is_some());
@@ -572,10 +575,7 @@ mod tests {
 
     #[test]
     fn test_verification_respond_response() {
-        let resp = VerificationRespondResponse {
-            success: true,
-            trust_level: Some("verified".to_string()),
-        };
+        let resp = VerificationRespondResponse { success: true, trust_level: Some("verified".to_string()) };
         assert!(resp.success);
         assert_eq!(resp.trust_level, Some("verified".to_string()));
     }

@@ -49,9 +49,14 @@ pub(super) async fn get_space(
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |_state, space: crate::storage::space::Space, _auth_user| async move {
-        Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
-    })
+    with_visible_space(
+        state,
+        space_id,
+        auth_user,
+        |_state, space: crate::storage::space::Space, _auth_user| async move {
+            Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
+        },
+    )
     .await
 }
 
@@ -60,9 +65,14 @@ pub(super) async fn get_space_by_room(
     Path(room_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, room_id, auth_user, |_state, space: crate::storage::space::Space, _auth_user| async move {
-        Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
-    })
+    with_visible_space(
+        state,
+        room_id,
+        auth_user,
+        |_state, space: crate::storage::space::Space, _auth_user| async move {
+            Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
+        },
+    )
     .await
 }
 
@@ -76,7 +86,8 @@ pub(super) async fn update_space(
     let request: crate::storage::space::UpdateSpaceRequest = body.into_request();
 
     with_resolved_space(state, space_id, |state, space: crate::storage::space::Space| async move {
-        let space: crate::storage::space::Space = state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
+        let space: crate::storage::space::Space =
+            state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceResponse>(SpaceResponse::from(space)))
     })
@@ -100,7 +111,8 @@ pub(super) async fn get_user_spaces(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let spaces: Vec<crate::storage::space::Space> = state.services.rooms.space_service.get_user_spaces(&auth_user.user_id).await?;
+    let spaces: Vec<crate::storage::space::Space> =
+        state.services.rooms.space_service.get_user_spaces(&auth_user.user_id).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
@@ -116,7 +128,9 @@ pub(super) async fn get_public_spaces(
     }
 
     let spaces: Vec<crate::storage::space::Space> = state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_public_spaces(limit, cursor.map(|(created_ts, _)| created_ts), cursor.map(|(_, space_id)| space_id))
         .await?;
 
@@ -141,7 +155,8 @@ pub(super) async fn search_spaces(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(10).clamp(1, 100);
 
-    let spaces: Vec<crate::storage::space::Space> = state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
+    let spaces: Vec<crate::storage::space::Space> =
+        state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces.into_iter().map(SpaceResponse::from).collect()))
 }
@@ -158,7 +173,8 @@ pub(super) async fn get_space_statistics(
             continue;
         };
 
-        let space_opt: Option<crate::storage::space::Space> = state.services.rooms.space_service.get_space(space_id).await?;
+        let space_opt: Option<crate::storage::space::Space> =
+            state.services.rooms.space_service.get_space(space_id).await?;
         let Some(space) = space_opt else {
             continue;
         };

@@ -1,5 +1,3 @@
-use synapse_common::ApiError;
-use synapse_storage::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 use crate::routes::{AdminUser, AppState};
 use crate::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
@@ -10,6 +8,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::ApiError;
+use synapse_storage::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 
 pub fn create_audit_router(_state: AppState) -> Router<AppState> {
     Router::new()

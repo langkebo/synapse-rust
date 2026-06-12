@@ -1,10 +1,10 @@
 use super::models::*;
 use super::storage::SignatureStorage;
 use crate::crypto::Ed25519KeyPair;
-use synapse_common::ApiError;
 use chrono::Utc;
 use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey;
+use synapse_common::ApiError;
 
 pub struct SignatureService {
     storage: SignatureStorage<'static>,

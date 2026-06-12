@@ -155,14 +155,9 @@ impl CrossSigningService {
     ) -> Result<(Option<serde_json::Value>, Option<serde_json::Value>), ApiError> {
         let keys = self.storage.get_cross_signing_keys(user_id).await?;
 
-        let master_key = keys
-            .iter()
-            .find(|key| key.key_type == "master")
-            .and_then(|key| key.key_json.clone());
-        let self_signing_key = keys
-            .iter()
-            .find(|key| key.key_type == "self_signing")
-            .and_then(|key| key.key_json.clone());
+        let master_key = keys.iter().find(|key| key.key_type == "master").and_then(|key| key.key_json.clone());
+        let self_signing_key =
+            keys.iter().find(|key| key.key_type == "self_signing").and_then(|key| key.key_json.clone());
 
         Ok((master_key, self_signing_key))
     }

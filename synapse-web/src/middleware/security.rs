@@ -1,4 +1,3 @@
-use synapse_common::error::ApiError;
 use crate::utils::auth::resolve_request_id;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request};
@@ -6,6 +5,7 @@ use axum::middleware::Next;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use std::time::Instant;
+use synapse_common::error::ApiError;
 
 pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::Next) -> Response {
     let start = Instant::now();
@@ -70,9 +70,7 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
     );
 
     // X-Content-Type-Options: 防止 MIME 类型嗅探，全局强制
-    response
-        .headers_mut()
-        .insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    response.headers_mut().insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
 
     // HSTS: 默认启用，max-age=31536000（1年），包含子域名
     // 可通过 HSTS_MAX_AGE_SECS=0 禁用
@@ -190,10 +188,10 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_services::test_utils::EnvGuard;
     use axum::http::StatusCode;
     use axum::{middleware, routing::get, Router};
     use std::time::Duration;
+    use synapse_services::test_utils::EnvGuard;
     use tower::ServiceExt;
 
     #[test]

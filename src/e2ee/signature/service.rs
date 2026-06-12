@@ -1,8 +1,8 @@
 use super::models::*;
 use super::storage::SignatureStorage;
 use crate::e2ee::crypto::Ed25519KeyPair;
-use crate::error::ApiError;
 use crate::error::ed25519_error_to_api_error;
+use crate::error::ApiError;
 use chrono::Utc;
 use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey;

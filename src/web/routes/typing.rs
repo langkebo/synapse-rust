@@ -67,12 +67,7 @@ pub async fn set_typing(
     } else {
         state.services.rooms.typing_service.clear_typing(&room_id, &user_id).await?;
 
-        state
-            .services
-            .rooms
-            .room_service
-            .clear_typing_ephemeral_event(&room_id, &user_id)
-            .await?;
+        state.services.rooms.room_service.clear_typing_ephemeral_event(&room_id, &user_id).await?;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",
@@ -104,7 +99,8 @@ pub async fn get_typing_users(
 ) -> Result<Json<Value>, ApiError> {
     ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-    let typing: std::collections::HashMap<String, u64> = state.services.rooms.typing_service.get_typing_users(&room_id).await?;
+    let typing: std::collections::HashMap<String, u64> =
+        state.services.rooms.typing_service.get_typing_users(&room_id).await?;
     let users: Vec<String> = typing.into_keys().collect();
     Ok(Json(json!({ "typing": users })))
 }
@@ -140,7 +136,8 @@ pub async fn bulk_get_typing(
     for room_id in room_ids {
         ensure_typing_room_access(&state, &auth_user, &room_id).await?;
 
-        let typing: std::collections::HashMap<String, u64> = state.services.rooms.typing_service.get_typing_users(&room_id).await?;
+        let typing: std::collections::HashMap<String, u64> =
+            state.services.rooms.typing_service.get_typing_users(&room_id).await?;
         let users: Vec<String> = typing.into_keys().collect();
         result.insert(room_id, json!({ "typing": users }));
     }

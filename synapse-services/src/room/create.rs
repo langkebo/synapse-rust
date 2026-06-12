@@ -5,10 +5,10 @@
 
 use super::service::{CreateRoomConfig, RoomService};
 use super::utils::validate_room_alias_input;
+use serde_json::json;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
-use serde_json::json;
 
 impl RoomService {
     pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {

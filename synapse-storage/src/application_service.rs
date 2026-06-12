@@ -215,6 +215,64 @@ impl ApplicationServiceStorage {
         Ok(service)
     }
 
+    pub async fn upsert_registration(
+        &self,
+        request: RegisterApplicationServiceRequest,
+    ) -> Result<ApplicationService, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        let protocols = request.protocols.clone().unwrap_or_default();
+        let namespaces = request.namespaces.unwrap_or(serde_json::json!({
+            "users": [],
+            "aliases": [],
+            "rooms": []
+        }));
+        let config = request.config.unwrap_or(serde_json::json!({}));
+
+        let service = sqlx::query_as::<_, ApplicationService>(
+            r"
+            INSERT INTO application_services (
+                as_id, url, as_token, hs_token, sender_localpart, is_enabled,
+                is_rate_limited, protocols, namespaces, created_ts, description, api_key, config
+            )
+            VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, $9, $10, $11, $12)
+            ON CONFLICT (as_id) DO UPDATE SET
+                url = EXCLUDED.url,
+                as_token = EXCLUDED.as_token,
+                hs_token = EXCLUDED.hs_token,
+                sender_localpart = EXCLUDED.sender_localpart,
+                is_enabled = TRUE,
+                is_rate_limited = EXCLUDED.is_rate_limited,
+                protocols = EXCLUDED.protocols,
+                namespaces = EXCLUDED.namespaces,
+                description = EXCLUDED.description,
+                api_key = EXCLUDED.api_key,
+                config = EXCLUDED.config,
+                updated_ts = $13
+            RETURNING *
+            ",
+        )
+        .bind(&request.as_id)
+        .bind(&request.url)
+        .bind(&request.as_token)
+        .bind(&request.hs_token)
+        .bind(&request.sender)
+        .bind(request.is_rate_limited.unwrap_or(false))
+        .bind(&protocols)
+        .bind(&namespaces)
+        .bind(now)
+        .bind(&request.description)
+        .bind(&request.api_key)
+        .bind(&config)
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await?;
+
+        self.clear_namespaces(&service.as_id).await?;
+        self.insert_namespaces(&service).await?;
+
+        Ok(service)
+    }
+
     async fn insert_namespaces(&self, service: &ApplicationService) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
@@ -280,6 +338,23 @@ impl ApplicationServiceStorage {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    async fn clear_namespaces(&self, as_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(r"DELETE FROM application_service_user_namespaces WHERE as_id = $1")
+            .bind(as_id)
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query(r"DELETE FROM application_service_room_alias_namespaces WHERE as_id = $1")
+            .bind(as_id)
+            .execute(&*self.pool)
+            .await?;
+        sqlx::query(r"DELETE FROM application_service_room_namespaces WHERE as_id = $1")
+            .bind(as_id)
+            .execute(&*self.pool)
+            .await?;
 
         Ok(())
     }
@@ -407,10 +482,12 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
-        sqlx::query_as::<_, ApplicationServiceState>(r"SELECT as_id, state_key, state_value, updated_ts FROM application_service_state WHERE as_id = $1")
-            .bind(as_id)
-            .fetch_all(&*self.pool)
-            .await
+        sqlx::query_as::<_, ApplicationServiceState>(
+            r"SELECT as_id, state_key, state_value, updated_ts FROM application_service_state WHERE as_id = $1",
+        )
+        .bind(as_id)
+        .fetch_all(&*self.pool)
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -431,6 +508,10 @@ impl ApplicationServiceStorage {
                 event_id, as_id, room_id, event_type, is_processed, processed_ts, created_ts
             )
             VALUES ($1, $2, $3, $4, FALSE, NULL, $5)
+            ON CONFLICT (event_id) DO UPDATE SET
+                as_id = EXCLUDED.as_id,
+                room_id = EXCLUDED.room_id,
+                event_type = EXCLUDED.event_type
             RETURNING
                 event_id,
                 as_id,
@@ -530,16 +611,27 @@ impl ApplicationServiceStorage {
         Ok(())
     }
 
-    pub async fn fail_transaction(&self, as_id: &str, transaction_id: &str, error: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r"UPDATE application_service_transactions SET retry_count = retry_count + 1, last_error = $3 WHERE as_id = $1 AND transaction_id = $2"
+    pub async fn fail_transaction(
+        &self,
+        as_id: &str,
+        transaction_id: &str,
+        error: &str,
+    ) -> Result<ApplicationServiceTransaction, sqlx::Error> {
+        let now = Utc::now().timestamp_millis();
+        sqlx::query_as::<_, ApplicationServiceTransaction>(
+            r"
+            UPDATE application_service_transactions
+            SET retry_count = retry_count + 1, last_error = $3, sent_ts = $4
+            WHERE as_id = $1 AND transaction_id = $2
+            RETURNING id, as_id, transaction_id, events, sent_ts, completed_ts, retry_count, last_error
+            "
         )
         .bind(as_id)
         .bind(transaction_id)
         .bind(error)
-        .execute(&*self.pool)
-        .await?;
-        Ok(())
+        .bind(now)
+        .fetch_one(&*self.pool)
+        .await
     }
 
     pub async fn get_pending_transactions(

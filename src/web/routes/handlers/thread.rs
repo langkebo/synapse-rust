@@ -99,24 +99,6 @@ impl From<crate::storage::thread::ThreadRoot> for ThreadResponse {
     }
 }
 
-impl From<synapse_storage::thread::ThreadRoot> for ThreadResponse {
-    fn from(root: synapse_storage::thread::ThreadRoot) -> Self {
-        Self {
-            thread_id: root.thread_id,
-            root_event_id: root.root_event_id,
-            room_id: root.room_id,
-            sender: root.sender,
-            reply_count: root.reply_count,
-            last_reply_event_id: root.last_reply_event_id,
-            last_reply_sender: root.last_reply_sender,
-            last_reply_ts: root.last_reply_ts,
-            participants: root.participants,
-            is_fetched: root.is_fetched,
-            created_ts: root.created_ts,
-        }
-    }
-}
-
 #[derive(Debug, Serialize)]
 struct ReplyResponse {
     event_id: String,
@@ -132,22 +114,6 @@ struct ReplyResponse {
 
 impl From<crate::storage::thread::ThreadReply> for ReplyResponse {
     fn from(reply: crate::storage::thread::ThreadReply) -> Self {
-        Self {
-            event_id: reply.event_id,
-            thread_id: reply.thread_id,
-            room_id: reply.room_id,
-            sender: reply.sender,
-            content: reply.content,
-            origin_server_ts: reply.origin_server_ts,
-            in_reply_to_event_id: reply.in_reply_to_event_id,
-            is_edited: reply.is_edited,
-            is_redacted: reply.is_redacted,
-        }
-    }
-}
-
-impl From<synapse_storage::thread::ThreadReply> for ReplyResponse {
-    fn from(reply: synapse_storage::thread::ThreadReply) -> Self {
         Self {
             event_id: reply.event_id,
             thread_id: reply.thread_id,
@@ -316,7 +282,9 @@ async fn ensure_thread_management_access(
     ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage threads").await?;
 
     let is_creator = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -343,7 +311,9 @@ async fn list_visible_threads(
     from: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
     let room_ids = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to list user rooms", &e))?;
@@ -351,7 +321,9 @@ async fn list_visible_threads(
     let mut threads = Vec::new();
     for room_id in room_ids {
         let mut response = state
-            .services.rooms.thread_service
+            .services
+            .rooms
+            .thread_service
             .list_threads(ListThreadsRequest { room_id, limit: None, from: None, include_all: true })
             .await?;
         threads.append(&mut response.threads);
@@ -458,7 +430,9 @@ async fn delete_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -479,7 +453,9 @@ async fn freeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -500,7 +476,9 @@ async fn unfreeze_thread(
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
     let thread = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root(&room_id, &thread_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -594,12 +572,8 @@ async fn mute_thread(
 
     let user_id = auth_user.user_id;
 
-    let subscription: synapse_storage::thread::ThreadSubscription = state
-        .services
-        .rooms
-        .thread_service
-        .mute_thread(&room_id, &thread_id, &user_id)
-        .await?;
+    let subscription: synapse_storage::thread::ThreadSubscription =
+        state.services.rooms.thread_service.mute_thread(&room_id, &thread_id, &user_id).await?;
     Ok(Json(subscription))
 }
 
@@ -647,12 +621,8 @@ async fn search_threads(
 ) -> Result<Json<Vec<synapse_storage::thread::ThreadSummary>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let results: Vec<synapse_storage::thread::ThreadSummary> = state
-        .services
-        .rooms
-        .thread_service
-        .search_threads(&room_id, &query.q, query.limit)
-        .await?;
+    let results: Vec<synapse_storage::thread::ThreadSummary> =
+        state.services.rooms.thread_service.search_threads(&room_id, &query.q, query.limit).await?;
     Ok(Json(results))
 }
 
@@ -663,12 +633,8 @@ async fn get_stats(
 ) -> Result<Json<Option<synapse_storage::thread::ThreadStatistics>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let stats: Option<synapse_storage::thread::ThreadStatistics> = state
-        .services
-        .rooms
-        .thread_service
-        .get_thread_statistics(&room_id, &thread_id)
-        .await?;
+    let stats: Option<synapse_storage::thread::ThreadStatistics> =
+        state.services.rooms.thread_service.get_thread_statistics(&room_id, &thread_id).await?;
     Ok(Json(stats))
 }
 
@@ -727,7 +693,7 @@ async fn get_unread_threads_global(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::thread_service::ThreadSummary;
+    use synapse_storage::thread::ThreadSummary;
 
     #[test]
     fn test_build_legacy_threads_response_shape() {

@@ -1,9 +1,9 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use synapse_cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use synapse_common::health::{CheckResult, DatabaseHealthCheck, HealthCheck, HealthChecker};
 use synapse_common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
 use synapse_services::ServiceContainer;
-use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
 #[derive(Clone)]

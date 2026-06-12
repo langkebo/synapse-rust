@@ -1,8 +1,8 @@
-use tracing::instrument;
 use crate::common::ApiError;
 use crate::storage::UserStorage;
 use sqlx::PgPool;
 use std::sync::Arc;
+use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaCursor {
@@ -88,11 +88,7 @@ impl AdminMediaService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_all_media(
-        &self,
-        limit: i64,
-        cursor: Option<MediaCursor>,
-    ) -> Result<AdminMediaPage, ApiError> {
+    pub async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
         let media: Vec<AdminMediaRow> = sqlx::query_as::<_, AdminMediaRow>(
             r#"SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
                FROM media_metadata
@@ -111,19 +107,13 @@ impl AdminMediaService {
 
         let next_batch = if media.len() as i64 == limit {
             media.last().map(|row| {
-                encode_media_cursor(&MediaCursor {
-                    created_ts: row.created_ts,
-                    media_id: row.media_id.clone(),
-                })
+                encode_media_cursor(&MediaCursor { created_ts: row.created_ts, media_id: row.media_id.clone() })
             })
         } else {
             None
         };
 
-        Ok(AdminMediaPage {
-            media: media.into_iter().map(map_media_row).collect(),
-            next_batch,
-        })
+        Ok(AdminMediaPage { media: media.into_iter().map(map_media_row).collect(), next_batch })
     }
 
     #[instrument(skip(self))]
@@ -159,13 +149,11 @@ impl AdminMediaService {
         let total_size = sqlx::query_scalar::<_, i64>("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
             .fetch_one(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            ;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         let total_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::BIGINT FROM media_metadata")
             .fetch_one(&*self.pool)
             .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            ;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(AdminMediaQuotaSummary { total_size, total_count })
     }
@@ -216,16 +204,11 @@ mod cursor_tests {
 
     #[test]
     fn test_media_cursor_round_trip() {
-        let cursor = encode_media_cursor(&MediaCursor {
-            created_ts: 1_700_000_000_000,
-            media_id: "abc123".to_string(),
-        });
+        let cursor =
+            encode_media_cursor(&MediaCursor { created_ts: 1_700_000_000_000, media_id: "abc123".to_string() });
         assert_eq!(
             decode_media_cursor(Some(&cursor)),
-            Some(MediaCursor {
-                created_ts: 1_700_000_000_000,
-                media_id: "abc123".to_string(),
-            })
+            Some(MediaCursor { created_ts: 1_700_000_000_000, media_id: "abc123".to_string() })
         );
     }
 

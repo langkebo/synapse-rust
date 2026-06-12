@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-pub use crate::storage::module::*;
+use crate::storage::module::*;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -799,12 +799,7 @@ mod tests {
 
     #[test]
     fn test_spam_check_output_allow() {
-        let output = SpamCheckOutput {
-            result: SpamCheckResultType::Allow,
-            score: 0,
-            reason: None,
-            action_taken: None,
-        };
+        let output = SpamCheckOutput { result: SpamCheckResultType::Allow, score: 0, reason: None, action_taken: None };
         assert_eq!(output.result.as_str(), "allow");
         assert_eq!(output.score, 0);
     }
@@ -841,11 +836,7 @@ mod tests {
 
     #[test]
     fn test_third_party_rule_output_allowed() {
-        let output = ThirdPartyRuleOutput {
-            is_allowed: true,
-            reason: None,
-            modified_content: None,
-        };
+        let output = ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None };
         assert!(output.is_allowed);
     }
 
@@ -877,20 +868,14 @@ mod tests {
 
     #[test]
     fn test_password_auth_output_valid() {
-        let output = PasswordAuthOutput {
-            valid: true,
-            user_id: Some("@alice:example.com".to_string()),
-        };
+        let output = PasswordAuthOutput { valid: true, user_id: Some("@alice:example.com".to_string()) };
         assert!(output.valid);
         assert_eq!(output.user_id, Some("@alice:example.com".to_string()));
     }
 
     #[test]
     fn test_password_auth_output_invalid() {
-        let output = PasswordAuthOutput {
-            valid: false,
-            user_id: None,
-        };
+        let output = PasswordAuthOutput { valid: false, user_id: None };
         assert!(!output.valid);
         assert!(output.user_id.is_none());
     }

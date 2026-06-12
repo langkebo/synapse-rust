@@ -167,11 +167,8 @@ async fn test_retention_storage_roundtrip() {
     assert_eq!(policy.min_lifetime, 3_600_000);
     assert!(policy.is_expire_on_clients);
 
-    let loaded = storage
-        .get_room_policy(&room_id)
-        .await
-        .expect("Failed to get room policy")
-        .expect("Room policy should exist");
+    let loaded =
+        storage.get_room_policy(&room_id).await.expect("Failed to get room policy").expect("Room policy should exist");
 
     assert_eq!(loaded.id, policy.id);
 

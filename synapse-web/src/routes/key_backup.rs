@@ -1,7 +1,5 @@
 use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
-use synapse_common::ApiError;
-use synapse_services::uia_service::UiaService;
 use axum::{
     extract::{Path, Query, State},
     http::{Method, StatusCode},
@@ -11,6 +9,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_common::ApiError;
+use synapse_services::uia_service::UiaService;
 use validator::Validate;
 
 /// Nest prefixes under which `create_key_backup_router` mounts its internal
@@ -242,7 +242,9 @@ async fn get_backup_version(
         Some(b) => {
             let version_str = b.version.to_string();
             let count = state
-                .services.e2ee.backup_service
+                .services
+                .e2ee
+                .backup_service
                 .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
                 .await?;
             Ok(Json(serde_json::json!({
@@ -324,9 +326,15 @@ fn write_response(version: &str, count: u64) -> Json<Value> {
     }))
 }
 
-async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) -> Result<(), synapse_common::error::ApiError> {
+async fn ensure_backup_exists(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+) -> Result<(), synapse_common::error::ApiError> {
     state
-        .services.e2ee.backup_service
+        .services
+        .e2ee
+        .backup_service
         .get_backup(user_id, version)
         .await?
         .ok_or_else(|| synapse_common::error::ApiError::not_found(format!("Backup version '{version}' not found")))
@@ -337,7 +345,11 @@ async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) ->
 // GET /room_keys/keys?version=...
 // Returns {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
 // ----------------------------------------------------------------------------
-async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Result<Json<Value>, synapse_common::error::ApiError> {
+async fn read_all_rooms(
+    state: &AppState,
+    user_id: &str,
+    version: &str,
+) -> Result<Json<Value>, synapse_common::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
     let keys = state.services.e2ee.backup_service.get_keys_for_version(user_id, version).await?;
 
@@ -421,9 +433,14 @@ async fn read_session(
     room_id: &str,
     session_id: &str,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
-    let key = state.services.e2ee.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
-        || synapse_common::error::ApiError::not_found(format!("Session '{session_id}' in room '{room_id}' not found")),
-    )?;
+    let key =
+        state.services.e2ee.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
+            || {
+                synapse_common::error::ApiError::not_found(format!(
+                    "Session '{session_id}' in room '{room_id}' not found"
+                ))
+            },
+        )?;
 
     Ok(Json(key.session_data))
 }
@@ -463,7 +480,12 @@ async fn write_all_rooms(
     for (room_id, room_payload) in body.rooms {
         let sessions = room_payload.get("sessions").and_then(|v| v.as_object()).cloned().unwrap_or_default();
         for (session_id, key_data) in sessions {
-            state.services.e2ee.backup_service.upload_session(user_id, version, &room_id, &session_id, key_data).await?;
+            state
+                .services
+                .e2ee
+                .backup_service
+                .upload_session(user_id, version, &room_id, &session_id, key_data)
+                .await?;
             count += 1;
         }
     }
@@ -641,7 +663,8 @@ async fn delete_session_impl(
     session_id: &str,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
     ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.e2ee.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
+    let count =
+        state.services.e2ee.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
     Ok(write_response(version, count))
 }
 
@@ -687,7 +710,8 @@ async fn recover_keys(
         return Err(synapse_common::error::ApiError::bad_request(e.to_string()));
     }
 
-    let response = state.services.e2ee.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
+    let response =
+        state.services.e2ee.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
 
     Ok(Json(serde_json::to_value(response)?))
 }
@@ -725,7 +749,9 @@ async fn batch_recover_keys(
     }
 
     let response = state
-        .services.e2ee.backup_service
+        .services
+        .e2ee
+        .backup_service
         .batch_recover_keys(
             &auth_user.user_id,
             synapse_e2ee::backup::models::BatchRecoveryRequest {
@@ -759,8 +785,12 @@ async fn recover_session_key(
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, synapse_common::error::ApiError> {
-    let key =
-        state.services.e2ee.backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
+    let key = state
+        .services
+        .e2ee
+        .backup_service
+        .recover_session_key(&auth_user.user_id, &version, &room_id, &session_id)
+        .await?;
 
     match key {
         Some(k) => Ok(Json(serde_json::json!({
@@ -768,7 +798,9 @@ async fn recover_session_key(
             "session_id": session_id,
             "session_data": k
         }))),
-        None => Err(synapse_common::error::ApiError::not_found(format!("Session '{session_id}' not found in room '{room_id}'"))),
+        None => Err(synapse_common::error::ApiError::not_found(format!(
+            "Session '{session_id}' not found in room '{room_id}'"
+        ))),
     }
 }
 

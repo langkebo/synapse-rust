@@ -78,8 +78,7 @@ impl EventStorage {
         stream_id: i64,
     ) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
-        self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, now, None)
-            .await
+        self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, now, None).await
     }
 
     #[allow(clippy::too_many_arguments)]

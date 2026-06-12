@@ -1,5 +1,5 @@
-use crate::cache::CacheManager;
 use crate::auth::AuthService;
+use crate::cache::CacheManager;
 use crate::common::config::AdminRegistrationConfig;
 use crate::common::metrics::MetricsCollector;
 use crate::common::*;
@@ -197,7 +197,8 @@ impl AdminRegistrationService {
             return Err(ApiError::internal("Shared secret is not configured".to_string()));
         }
 
-        let provided = crate::common::crypto::decode_hex(&request.mac).map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
+        let provided = crate::common::crypto::decode_hex(&request.mac)
+            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
 
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;

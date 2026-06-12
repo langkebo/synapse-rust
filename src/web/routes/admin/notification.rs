@@ -344,13 +344,7 @@ pub async fn send_server_notice(
     State(state): State<AppState>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let target_user = state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(&body.user_id)
-        .await
-        .map_err(|e| {
+    let target_user = state.services.account.user_storage.get_user_by_identifier(&body.user_id).await.map_err(|e| {
         tracing::error!("Database error: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;

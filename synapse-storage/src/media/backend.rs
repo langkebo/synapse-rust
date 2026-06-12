@@ -1,6 +1,6 @@
 use super::models::*;
-use synapse_common::error::ApiError;
 use async_trait::async_trait;
+use synapse_common::error::ApiError;
 
 #[async_trait]
 pub trait MediaStorageBackend: Send + Sync {

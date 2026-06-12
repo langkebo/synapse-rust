@@ -69,11 +69,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(extensions.uia_service.build_uia_response(
-                                &session,
-                                "M_FORBIDDEN",
-                                &e.to_string(),
-                            )),
+                            Json(extensions.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
                         )
                             .into_response());
                     }
@@ -95,11 +91,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(extensions.uia_service.build_uia_response(
-                                &session,
-                                "M_FORBIDDEN",
-                                &e.to_string(),
-                            )),
+                            Json(extensions.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
                         )
                             .into_response());
                     }

@@ -1,7 +1,7 @@
-use synapse_common::traits::FriendRoomProvider;
-use synapse_common::{ApiError, ApiResult};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::traits::FriendRoomProvider;
+use synapse_common::{ApiError, ApiResult};
 
 pub struct FriendFederation {
     friend_service: Arc<dyn FriendRoomProvider>,

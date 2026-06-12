@@ -1,6 +1,6 @@
 use super::models::*;
-use synapse_common::ApiError;
 use sqlx::PgPool;
+use synapse_common::ApiError;
 
 pub struct SignatureStorage<'a> {
     pool: &'a PgPool,

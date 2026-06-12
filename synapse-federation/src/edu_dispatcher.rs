@@ -116,11 +116,7 @@ pub fn build_outbound_edu(edu_type: EduType, content: serde_json::Value) -> serd
 
 /// Build a well-formed outbound EDU JSON value that also carries a `room_id`
 /// (used by `m.typing` and `m.receipt`).
-pub fn build_outbound_room_edu(
-    edu_type: EduType,
-    room_id: &str,
-    content: serde_json::Value,
-) -> serde_json::Value {
+pub fn build_outbound_room_edu(edu_type: EduType, room_id: &str, content: serde_json::Value) -> serde_json::Value {
     let mut edu = serde_json::Map::new();
     edu.insert("edu_type".to_string(), serde_json::Value::String(edu_type.as_str().to_string()));
     edu.insert("room_id".to_string(), serde_json::Value::String(room_id.to_string()));
@@ -192,11 +188,7 @@ mod tests {
 
     #[test]
     fn test_build_outbound_room_edu() {
-        let edu = build_outbound_room_edu(
-            EduType::Typing,
-            "!room:example.com",
-            serde_json::json!({"user_ids": []}),
-        );
+        let edu = build_outbound_room_edu(EduType::Typing, "!room:example.com", serde_json::json!({"user_ids": []}));
         assert_eq!(edu["edu_type"], "m.typing");
         assert_eq!(edu["room_id"], "!room:example.com");
         assert!(edu.get("content").is_some());

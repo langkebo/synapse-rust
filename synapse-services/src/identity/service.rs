@@ -1,8 +1,8 @@
 use super::models::*;
 use super::storage::IdentityStorage;
-use synapse_common::error::ApiError;
 use crate::ApiResult;
 use reqwest::Client;
+use synapse_common::error::ApiError;
 
 pub struct IdentityService {
     storage: IdentityStorage,

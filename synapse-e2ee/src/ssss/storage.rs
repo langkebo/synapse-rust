@@ -1,6 +1,6 @@
 use super::models::{SecretStorageKey, StoredSecret};
-use synapse_common::ApiError;
 use sqlx::PgPool;
+use synapse_common::ApiError;
 
 /// Internal row representation for `e2ee_secret_storage_keys`.
 ///

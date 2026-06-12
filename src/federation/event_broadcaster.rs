@@ -468,31 +468,30 @@ impl EventBroadcaster {
 
     async fn update_db_status(&self, db_id: i64, status: &str) {
         if let Some(pool) = &self.pool {
-            let result =
-                match status {
-                    "sent" => {
-                        sqlx::query!("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1",
-                            db_id,
-                            chrono::Utc::now().timestamp_millis()
-                        )
-                            .execute(pool)
-                            .await
-                    }
-                    "retry" => sqlx::query!(
+            let result = match status {
+                "sent" => {
+                    sqlx::query!(
+                        "UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1",
+                        db_id,
+                        chrono::Utc::now().timestamp_millis()
+                    )
+                    .execute(pool)
+                    .await
+                }
+                "retry" => {
+                    sqlx::query!(
                         "UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1",
                         db_id
                     )
                     .execute(pool)
-                    .await,
-                    _ => {
-                        sqlx::query!("UPDATE federation_queue SET status = $2 WHERE id = $1",
-                            db_id,
-                            status
-                        )
-                            .execute(pool)
-                            .await
-                    }
-                };
+                    .await
+                }
+                _ => {
+                    sqlx::query!("UPDATE federation_queue SET status = $2 WHERE id = $1", db_id, status)
+                        .execute(pool)
+                        .await
+                }
+            };
 
             if let Err(e) = result {
                 ::tracing::warn!("Failed to update federation_queue status for {}: {}", db_id, e);
@@ -597,13 +596,14 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        sqlx::query!("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1",
+        sqlx::query!(
+            "DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1",
             older_than_ts
         )
-            .execute(pool)
-            .await
-            .map(|r| r.rows_affected())
-            .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+        .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
     }
 }
 
@@ -733,25 +733,16 @@ impl crate::common::traits::EventBroadcaster for EventBroadcaster {
     }
 
     fn broadcast_subscriber_count(&self) -> usize {
-        self.pending_queue
-            .try_read()
-            .map(|q| q.len())
-            .unwrap_or(0)
+        self.pending_queue.try_read().map(|q| q.len()).unwrap_or(0)
     }
 }
 
 impl From<FederationBroadcastError> for crate::common::traits::BroadcastError {
     fn from(e: FederationBroadcastError) -> Self {
         match e {
-            FederationBroadcastError::SendFailed(msg) => {
-                crate::common::traits::BroadcastError::Transport(msg)
-            }
-            FederationBroadcastError::InvalidEvent(msg) => {
-                crate::common::traits::BroadcastError::EncodingFailed(msg)
-            }
-            FederationBroadcastError::NetworkError(msg) => {
-                crate::common::traits::BroadcastError::Transport(msg)
-            }
+            FederationBroadcastError::SendFailed(msg) => crate::common::traits::BroadcastError::Transport(msg),
+            FederationBroadcastError::InvalidEvent(msg) => crate::common::traits::BroadcastError::EncodingFailed(msg),
+            FederationBroadcastError::NetworkError(msg) => crate::common::traits::BroadcastError::Transport(msg),
         }
     }
 }

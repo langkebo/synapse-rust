@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use synapse_rust::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
 use std::sync::Arc;
+use synapse_rust::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
 use synapse_storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
 
 #[tokio::test]

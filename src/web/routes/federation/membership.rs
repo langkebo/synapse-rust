@@ -10,7 +10,9 @@ use serde_json::{json, Value};
 
 async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<String, ApiError> {
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
@@ -26,6 +28,22 @@ async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<Str
     Ok(room.room_version)
 }
 
+async fn dispatch_federation_member_event_to_appservice(
+    state: &AppState,
+    event_id: &str,
+    room_id: &str,
+    sender: &str,
+    content: &Value,
+    state_key: Option<&str>,
+) {
+    state
+        .services
+        .rooms
+        .room_service
+        .dispatch_appservice_event(event_id, room_id, "m.room.member", sender, content, state_key)
+        .await;
+}
+
 pub(super) async fn get_room_members(
     State(state): State<AppState>,
     Extension(auth): Extension<FederationRequestAuth>,
@@ -35,7 +53,9 @@ pub(super) async fn get_room_members(
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(&room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
@@ -73,21 +93,26 @@ pub(super) async fn knock_room(
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
 
+    let content = json!({"membership": "knock"});
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: user_id.clone(),
         event_type: "m.room.member".to_string(),
-        content: json!({"membership": "knock"}),
+        content: content.clone(),
         state_key: Some(user_id.clone()),
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
+    dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, &user_id, &content, Some(&user_id))
+        .await;
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -122,29 +147,33 @@ pub(super) async fn thirdparty_invite(
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
 
+    let content = json!({
+        "membership": "invite",
+        "third_party_invite": {
+            "signed": {
+                "mxid": invitee,
+                "token": format!("third_party_token_{}", event_id)
+            }
+        }
+    });
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.to_string(),
         user_id: sender.to_string(),
         event_type: "m.room.member".to_string(),
-        content: json!({
-            "membership": "invite",
-            "third_party_invite": {
-                "signed": {
-                    "mxid": invitee,
-                    "token": format!("third_party_token_{}", event_id)
-                }
-            }
-        }),
+        content: content.clone(),
         state_key: Some(invitee.to_string()),
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+    dispatch_federation_member_event_to_appservice(&state, &event_id, room_id, sender, &content, Some(invitee)).await;
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -188,7 +217,9 @@ pub(super) async fn get_joined_room_members(
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(&room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
@@ -234,15 +265,15 @@ pub(super) async fn get_user_devices(
         .services
         .device_storage
         .get_max_device_list_stream_id_for_user(&user_id)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
 
     let (master_key, self_signing_key) = state
         .services
         .e2ee
         .cross_signing_service
         .get_public_cross_signing_keys(&user_id)
-    .await
+        .await
         .map_err(|e| ApiError::internal_with_log("Failed to get cross-signing keys", &e))?;
 
     let devices_json: Vec<Value> = devices
@@ -286,6 +317,8 @@ pub(super) async fn invite_v2(
     let _room_version = federatable_room_version(&state, &room_id).await?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
+    let content_for_as = content.clone();
+
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
@@ -300,10 +333,21 @@ pub(super) async fn invite_v2(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+    dispatch_federation_member_event_to_appservice(
+        &state,
+        &event_id,
+        &room_id,
+        sender,
+        &content_for_as,
+        Some(state_key),
+    )
+    .await;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -343,7 +387,9 @@ pub(super) async fn make_join(
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
         let auth_events = state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .get_state_events(&room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
@@ -395,7 +441,9 @@ pub(super) async fn make_leave(
     validate_federation_user_origin(&auth.origin, &user_id)?;
 
     let auth_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
@@ -471,13 +519,19 @@ pub(super) async fn send_join(
             origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
         };
         state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
+        dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, user_id, &content, Some(user_id))
+            .await;
 
         state
-            .services.rooms.member_storage
+            .services
+            .rooms
+            .member_storage
             .add_member(&room_id, user_id, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -531,13 +585,19 @@ pub(super) async fn send_leave(
         origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
     };
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
+    let content = event.get("content").cloned().unwrap_or(json!({}));
+    dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, user_id, &content, Some(user_id)).await;
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .add_member(&room_id, user_id, "leave", None, None, None, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -633,13 +693,19 @@ pub(super) async fn send_join_v2(
                 .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
         };
         state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
+        dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, sender, &content, Some(sender))
+            .await;
 
         state
-            .services.rooms.member_storage
+            .services
+            .rooms
+            .member_storage
             .add_member(&room_id, sender, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -693,6 +759,8 @@ pub(super) async fn send_leave_v2(
         "membership": "leave"
     });
 
+    let membership_content_for_as = membership_content.clone();
+
     let params = crate::storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
@@ -704,13 +772,26 @@ pub(super) async fn send_leave_v2(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
+    dispatch_federation_member_event_to_appservice(
+        &state,
+        &event_id,
+        &room_id,
+        sender,
+        &membership_content_for_as,
+        Some(sender),
+    )
+    .await;
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .remove_member(&room_id, sender)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -1046,8 +1127,13 @@ async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiRes
         None
     };
 
-    let room =
-        state.services.rooms.room_storage.get_room(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room = state
+        .services
+        .rooms
+        .room_storage
+        .get_room(room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     Ok(effective_join_rule.or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone())).unwrap_or_else(
         || {
@@ -1062,7 +1148,9 @@ async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiRes
 
 async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -> ApiResult<Option<Value>> {
     Ok(state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(room_id, "m.room.join_rules")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
@@ -1074,7 +1162,9 @@ async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -
 async fn validate_federation_join_access(state: &AppState, room_id: &str, user_id: &str) -> ApiResult<()> {
     let join_rule = get_effective_room_join_rule(state, room_id).await?;
     let existing_member = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_member(room_id, user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;

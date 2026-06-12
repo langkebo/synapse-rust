@@ -295,10 +295,7 @@ pub struct ErrorSource {
 
 impl ErrorSource {
     pub fn new(module: impl Into<String>, operation: impl Into<String>) -> Self {
-        Self {
-            module: module.into(),
-            operation: operation.into(),
-        }
+        Self { module: module.into(), operation: operation.into() }
     }
 }
 
@@ -425,13 +422,7 @@ impl ApiError {
 
     /// Conflict with a specific Matrix error code.
     pub fn conflict_with(code: MatrixErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            kind: ApiErrorKind::Conflict,
-            code,
-            message: message.into(),
-            source: None,
-            cause: None,
-        }
+        Self { kind: ApiErrorKind::Conflict, code, message: message.into(), source: None, cause: None }
     }
 
     pub fn internal(message: impl Into<String>) -> Self {
@@ -1002,11 +993,7 @@ impl IntoResponse for ApiError {
             }
         }
 
-        let retry_after_ms = if self.kind == ApiErrorKind::RateLimited {
-            Some(5000u64)
-        } else {
-            None
-        };
+        let retry_after_ms = if self.kind == ApiErrorKind::RateLimited { Some(5000u64) } else { None };
 
         let mut body = json!({
             "errcode": errcode,
@@ -1034,15 +1021,9 @@ impl ErrorContext for ApiError {
         if self.kind == ApiErrorKind::Internal || self.kind == ApiErrorKind::BadRequest {
             let src = self.source.map_or_else(
                 || ErrorSource::new(module, operation),
-                |s| ErrorSource::new(
-                    format!("{}::{}", module, s.module),
-                    format!("{}::{}", operation, s.operation),
-                ),
+                |s| ErrorSource::new(format!("{}::{}", module, s.module), format!("{}::{}", operation, s.operation)),
             );
-            Self {
-                source: Some(src),
-                ..self
-            }
+            Self { source: Some(src), ..self }
         } else {
             self
         }
@@ -1081,9 +1062,9 @@ macro_rules! safe_unwrap_ctx {
     ($option:expr, $module:expr, $operation:expr) => {
         match $option {
             Some(v) => Ok(v),
-            None => Err($crate::error::ApiError::internal(
-                format!("[{}::{}] Unexpected None value", $module, $operation),
-            )),
+            None => {
+                Err($crate::error::ApiError::internal(format!("[{}::{}] Unexpected None value", $module, $operation)))
+            }
         }
     };
 }
@@ -1091,12 +1072,7 @@ macro_rules! safe_unwrap_ctx {
 #[macro_export]
 macro_rules! wrap_result {
     ($result:expr, $module:expr, $operation:expr) => {
-        $result.map_err(|e| {
-            $crate::error::ApiError::internal(format!(
-                "[{}::{}] {}",
-                $module, $operation, e
-            ))
-        })
+        $result.map_err(|e| $crate::error::ApiError::internal(format!("[{}::{}] {}", $module, $operation, e)))
     };
 }
 
@@ -1221,13 +1197,7 @@ pub struct ApiResponse<T> {
 
 impl<T> ApiResponse<T> {
     pub fn success(data: T) -> Self {
-        Self {
-            status: "ok".to_string(),
-            data: Some(data),
-            error: None,
-            errcode: None,
-            retry_after_ms: None,
-        }
+        Self { status: "ok".to_string(), data: Some(data), error: None, errcode: None, retry_after_ms: None }
     }
 
     pub fn error(error: String, errcode: String) -> Self {
@@ -1262,9 +1232,7 @@ where
             match self.errcode.as_deref() {
                 Some("M_NOT_FOUND") => StatusCode::NOT_FOUND,
                 Some("M_FORBIDDEN") => StatusCode::FORBIDDEN,
-                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => {
-                    StatusCode::UNAUTHORIZED
-                }
+                Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => StatusCode::UNAUTHORIZED,
                 Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
                 Some("M_UNRECOGNIZED") => StatusCode::NOT_FOUND,
                 Some("M_BAD_JSON")
@@ -1274,9 +1242,7 @@ where
                 | Some("M_INVALID_USERNAME")
                 | Some("M_BAD_STATE")
                 | Some("M_INVALID_ROOM_STATE") => StatusCode::BAD_REQUEST,
-                Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => {
-                    StatusCode::CONFLICT
-                }
+                Some("M_USER_IN_USE") | Some("M_ROOM_IN_USE") | Some("M_THREEPID_IN_USE") => StatusCode::CONFLICT,
                 Some("M_TOO_LARGE") => StatusCode::PAYLOAD_TOO_LARGE,
                 Some("M_SERVER_NOT_TRUSTED") => StatusCode::BAD_GATEWAY,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,

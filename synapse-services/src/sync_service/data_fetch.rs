@@ -1,7 +1,7 @@
 use super::types::*;
 use super::SyncService;
-use synapse_common::*;
 use crate::map_internal;
+use synapse_common::*;
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};

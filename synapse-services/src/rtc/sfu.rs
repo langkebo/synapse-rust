@@ -1,5 +1,5 @@
-use synapse_common::config::LivekitConfig;
 use serde::{Deserialize, Serialize};
+use synapse_common::config::LivekitConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LivekitRoom {

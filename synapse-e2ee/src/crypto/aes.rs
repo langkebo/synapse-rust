@@ -425,11 +425,7 @@ impl Aes256GcmCipher {
     }
 
     #[allow(dead_code)]
-    fn decrypt(
-        key: &Aes256GcmKey,
-        nonce: &Aes256GcmNonce,
-        encrypted: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    fn decrypt(key: &Aes256GcmKey, nonce: &Aes256GcmNonce, encrypted: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let cipher_key = GenericArray::<u8, U32>::from_slice(&key.bytes);
         let cipher = Aes256Gcm::new(cipher_key);
         let nonce_bytes = Nonce::from_slice(&nonce.bytes);

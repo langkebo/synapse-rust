@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::{LockedUser, UserStorage};
-use std::sync::Arc;
 
 pub struct UserLockService {
     user_storage: Arc<UserStorage>,

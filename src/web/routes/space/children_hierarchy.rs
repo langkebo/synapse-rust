@@ -88,7 +88,9 @@ pub(super) async fn get_space_hierarchy_v1(
 
     with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
         let response = state
-            .services.rooms.space_service
+            .services
+            .rooms
+            .space_service
             .get_space_hierarchy_v1(
                 &space.space_id,
                 max_depth,

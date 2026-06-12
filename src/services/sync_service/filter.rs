@@ -416,46 +416,36 @@ mod tests {
 
     #[test]
     fn test_timeline_limit_from_room_filter_no_limit() {
-        let filter = RoomFilter {
-            timeline: Some(SyncFilter { limit: None, ..Default::default() }),
-            ..Default::default()
-        };
+        let filter =
+            RoomFilter { timeline: Some(SyncFilter { limit: None, ..Default::default() }), ..Default::default() };
         assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&filter), 100), 100);
     }
 
     #[test]
     fn test_timeline_limit_from_room_filter_with_limit() {
-        let filter = RoomFilter {
-            timeline: Some(SyncFilter { limit: Some(30), ..Default::default() }),
-            ..Default::default()
-        };
+        let filter =
+            RoomFilter { timeline: Some(SyncFilter { limit: Some(30), ..Default::default() }), ..Default::default() };
         assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&filter), 100), 30);
     }
 
     #[test]
     fn test_timeline_limit_from_room_filter_limit_exceeds_default() {
-        let filter = RoomFilter {
-            timeline: Some(SyncFilter { limit: Some(200), ..Default::default() }),
-            ..Default::default()
-        };
+        let filter =
+            RoomFilter { timeline: Some(SyncFilter { limit: Some(200), ..Default::default() }), ..Default::default() };
         assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&filter), 100), 100);
     }
 
     #[test]
     fn test_timeline_limit_from_room_filter_zero_limit() {
-        let filter = RoomFilter {
-            timeline: Some(SyncFilter { limit: Some(0), ..Default::default() }),
-            ..Default::default()
-        };
+        let filter =
+            RoomFilter { timeline: Some(SyncFilter { limit: Some(0), ..Default::default() }), ..Default::default() };
         assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&filter), 100), 100);
     }
 
     #[test]
     fn test_timeline_limit_from_room_filter_negative_limit() {
-        let filter = RoomFilter {
-            timeline: Some(SyncFilter { limit: Some(-5), ..Default::default() }),
-            ..Default::default()
-        };
+        let filter =
+            RoomFilter { timeline: Some(SyncFilter { limit: Some(-5), ..Default::default() }), ..Default::default() };
         assert_eq!(SyncService::timeline_limit_from_room_filter(Some(&filter), 100), 100);
     }
 
@@ -474,10 +464,7 @@ mod tests {
 
     #[test]
     fn test_event_query_filter_from_sync_filter_with_types() {
-        let filter = SyncFilter {
-            types: Some(vec!["m.room.message".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { types: Some(vec!["m.room.message".to_string()]), ..Default::default() };
         let result = SyncService::event_query_filter_from_sync_filter(Some(&filter));
         assert!(result.is_some());
         assert_eq!(result.unwrap().types, Some(vec!["m.room.message".to_string()]));
@@ -485,10 +472,7 @@ mod tests {
 
     #[test]
     fn test_event_query_filter_from_sync_filter_with_senders() {
-        let filter = SyncFilter {
-            senders: Some(vec!["@alice:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { senders: Some(vec!["@alice:example.com".to_string()]), ..Default::default() };
         let result = SyncService::event_query_filter_from_sync_filter(Some(&filter));
         assert!(result.is_some());
         assert_eq!(result.unwrap().senders, Some(vec!["@alice:example.com".to_string()]));
@@ -618,120 +602,84 @@ mod tests {
 
     #[test]
     fn test_value_matches_sync_filter_type_match() {
-        let filter = SyncFilter {
-            types: Some(vec!["m.room.message".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { types: Some(vec!["m.room.message".to_string()]), ..Default::default() };
         let event = json!({"type": "m.room.message"});
         assert!(SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_type_no_match() {
-        let filter = SyncFilter {
-            types: Some(vec!["m.room.message".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { types: Some(vec!["m.room.message".to_string()]), ..Default::default() };
         let event = json!({"type": "m.room.member"});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_not_type() {
-        let filter = SyncFilter {
-            not_types: Some(vec!["m.room.member".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { not_types: Some(vec!["m.room.member".to_string()]), ..Default::default() };
         let event = json!({"type": "m.room.member"});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_room_match() {
-        let filter = SyncFilter {
-            rooms: Some(vec!["!room1:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { rooms: Some(vec!["!room1:example.com".to_string()]), ..Default::default() };
         let event = json!({"room_id": "!room1:example.com", "type": "m.room.message"});
         assert!(SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_room_no_match() {
-        let filter = SyncFilter {
-            rooms: Some(vec!["!room1:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { rooms: Some(vec!["!room1:example.com".to_string()]), ..Default::default() };
         let event = json!({"room_id": "!room2:example.com", "type": "m.room.message"});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_not_room() {
-        let filter = SyncFilter {
-            not_rooms: Some(vec!["!room1:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { not_rooms: Some(vec!["!room1:example.com".to_string()]), ..Default::default() };
         let event = json!({"room_id": "!room1:example.com", "type": "m.room.message"});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_sender_match() {
-        let filter = SyncFilter {
-            senders: Some(vec!["@alice:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { senders: Some(vec!["@alice:example.com".to_string()]), ..Default::default() };
         let event = json!({"sender": "@alice:example.com", "type": "m.room.message"});
         assert!(SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_not_sender() {
-        let filter = SyncFilter {
-            not_senders: Some(vec!["@bob:example.com".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { not_senders: Some(vec!["@bob:example.com".to_string()]), ..Default::default() };
         let event = json!({"sender": "@bob:example.com", "type": "m.room.message"});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_contains_url_match() {
-        let filter = SyncFilter {
-            contains_url: Some(true),
-            ..Default::default()
-        };
+        let filter = SyncFilter { contains_url: Some(true), ..Default::default() };
         let event = json!({"type": "m.room.message", "content": {"url": "https://example.com"}});
         assert!(SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_contains_url_no_match() {
-        let filter = SyncFilter {
-            contains_url: Some(true),
-            ..Default::default()
-        };
+        let filter = SyncFilter { contains_url: Some(true), ..Default::default() };
         let event = json!({"type": "m.room.message", "content": {"body": "hello"}});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_no_contains_url() {
-        let filter = SyncFilter {
-            contains_url: Some(false),
-            ..Default::default()
-        };
+        let filter = SyncFilter { contains_url: Some(false), ..Default::default() };
         let event = json!({"type": "m.room.message", "content": {"url": "https://example.com"}});
         assert!(!SyncService::value_matches_sync_filter(&event, &filter));
     }
 
     #[test]
     fn test_value_matches_sync_filter_wildcard_type() {
-        let filter = SyncFilter {
-            types: Some(vec!["m.room.*".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { types: Some(vec!["m.room.*".to_string()]), ..Default::default() };
         assert!(SyncService::value_matches_sync_filter(&json!({"type": "m.room.message"}), &filter));
         assert!(SyncService::value_matches_sync_filter(&json!({"type": "m.room.member"}), &filter));
         assert!(!SyncService::value_matches_sync_filter(&json!({"type": "m.space.child"}), &filter));
@@ -772,10 +720,7 @@ mod tests {
 
     #[test]
     fn test_apply_sync_filter_to_values_with_filter() {
-        let filter = SyncFilter {
-            types: Some(vec!["m.room.message".to_string()]),
-            ..Default::default()
-        };
+        let filter = SyncFilter { types: Some(vec!["m.room.message".to_string()]), ..Default::default() };
         let events = vec![
             json!({"type": "m.room.message"}),
             json!({"type": "m.room.member"}),

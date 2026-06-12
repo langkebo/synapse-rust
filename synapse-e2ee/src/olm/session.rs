@@ -1,8 +1,8 @@
 use super::models::{OlmDecryptedMessage, OlmEncryptedMessage, OlmMessageType, OlmSessionData};
 use super::storage::OlmStorage;
-use synapse_common::ApiError;
 use base64::Engine;
 use std::collections::HashMap;
+use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use vodozemac::olm::{Account, Session, SessionConfig};
 

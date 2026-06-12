@@ -94,8 +94,8 @@ pub mod burn_after_read;
 // L0 — Captcha is used by registration flow — keep unconditional
 pub mod captcha;
 
-pub mod oidc_session_storage;
 pub mod oauth_client_storage;
+pub mod oidc_session_storage;
 pub mod url_preview_storage;
 
 pub use self::threepid::UserThreepid;

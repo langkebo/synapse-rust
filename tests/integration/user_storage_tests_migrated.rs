@@ -11,7 +11,6 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-
     sqlx::query(
         r#"
         CREATE TABLE users (
@@ -67,549 +66,549 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
 fn create_user_storage(pool: &Arc<sqlx::PgPool>) -> UserStorage {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    UserStorage::new(pool, cache)
+    UserStorage::new(pool, Arc::new(cache.to_synapse_cache_manager()))
 }
 
 #[tokio::test]
 async fn test_create_user_and_get_by_id() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@testuser_{id}:localhost");
-        let username = format!("testuser_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@testuser_{id}:localhost");
+    let username = format!("testuser_{id}");
 
-        let user = storage.create_user(&user_id, &username, Some("hash123"), false).await.unwrap();
+    let user = storage.create_user(&user_id, &username, Some("hash123"), false).await.unwrap();
 
-        assert_eq!(user.user_id, user_id);
-        assert_eq!(user.username, username);
-        assert_eq!(user.password_hash, Some("hash123".to_string()));
-        assert!(!user.is_admin);
-        assert!(!user.is_guest);
-        assert!(!user.is_deactivated);
-        assert!(user.created_ts > 0);
+    assert_eq!(user.user_id, user_id);
+    assert_eq!(user.username, username);
+    assert_eq!(user.password_hash, Some("hash123".to_string()));
+    assert!(!user.is_admin);
+    assert!(!user.is_guest);
+    assert!(!user.is_deactivated);
+    assert!(user.created_ts > 0);
 
-        let fetched = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(fetched.user_id, user_id);
-        assert_eq!(fetched.username, username);
+    let fetched = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(fetched.user_id, user_id);
+    assert_eq!(fetched.username, username);
 }
 
 #[tokio::test]
 async fn test_get_user_by_id_not_found() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let result = storage.get_user_by_id("@nonexistent:localhost").await.unwrap();
-        assert!(result.is_none());
+    let result = storage.get_user_by_id("@nonexistent:localhost").await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_get_user_by_username() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@username_user_{id}:localhost");
-        let username = format!("username_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@username_user_{id}:localhost");
+    let username = format!("username_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let fetched = storage.get_user_by_username(&username).await.unwrap().unwrap();
-        assert_eq!(fetched.user_id, user_id);
-        assert_eq!(fetched.username, username);
+    let fetched = storage.get_user_by_username(&username).await.unwrap().unwrap();
+    assert_eq!(fetched.user_id, user_id);
+    assert_eq!(fetched.username, username);
 }
 
 #[tokio::test]
 async fn test_get_user_by_username_not_found() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let result = storage.get_user_by_username("nonexistent_user").await.unwrap();
-        assert!(result.is_none());
+    let result = storage.get_user_by_username("nonexistent_user").await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_get_user_by_email() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let id = unique_id();
-        let user_id = format!("@email_user_{id}:localhost");
-        let username = format!("email_user_{id}");
-        let email = format!("email_{id}@example.com");
+    let id = unique_id();
+    let user_id = format!("@email_user_{id}:localhost");
+    let username = format!("email_user_{id}");
+    let email = format!("email_{id}@example.com");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             INSERT INTO users (user_id, username, email, created_ts, generation)
             VALUES ($1, $2, $3, $4, $5)
             "#,
-        )
-        .bind(&user_id)
-        .bind(&username)
-        .bind(&email)
-        .bind(chrono::Utc::now().timestamp_millis())
-        .bind(chrono::Utc::now().timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    )
+    .bind(&user_id)
+    .bind(&username)
+    .bind(&email)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
 
-        let storage = create_user_storage(&pool);
-        let fetched = storage.get_user_by_email(&email).await.unwrap().unwrap();
-        assert_eq!(fetched.user_id, user_id);
-        assert_eq!(fetched.email, Some(email));
+    let storage = create_user_storage(&pool);
+    let fetched = storage.get_user_by_email(&email).await.unwrap().unwrap();
+    assert_eq!(fetched.user_id, user_id);
+    assert_eq!(fetched.email, Some(email));
 }
 
 #[tokio::test]
 async fn test_get_user_by_email_deactivated_excluded() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let id = unique_id();
-        let user_id = format!("@deactivated_email_{id}:localhost");
-        let username = format!("deactivated_email_{id}");
-        let email = format!("deactivated_{id}@example.com");
+    let id = unique_id();
+    let user_id = format!("@deactivated_email_{id}:localhost");
+    let username = format!("deactivated_email_{id}");
+    let email = format!("deactivated_{id}@example.com");
 
-        sqlx::query(
-            r#"
+    sqlx::query(
+        r#"
             INSERT INTO users (user_id, username, email, is_deactivated, created_ts, generation)
             VALUES ($1, $2, $3, TRUE, $4, $5)
             "#,
-        )
-        .bind(&user_id)
-        .bind(&username)
-        .bind(&email)
-        .bind(chrono::Utc::now().timestamp_millis())
-        .bind(chrono::Utc::now().timestamp_millis())
-        .execute(pool.as_ref())
-        .await
-        .unwrap();
+    )
+    .bind(&user_id)
+    .bind(&username)
+    .bind(&email)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
 
-        let storage = create_user_storage(&pool);
-        let result = storage.get_user_by_email(&email).await.unwrap();
-        assert!(result.is_none());
+    let storage = create_user_storage(&pool);
+    let result = storage.get_user_by_email(&email).await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_get_user_by_identifier_user_id() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@ident_user_{id}:localhost");
-        let username = format!("ident_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@ident_user_{id}:localhost");
+    let username = format!("ident_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let fetched = storage.get_user_by_identifier(&user_id).await.unwrap().unwrap();
-        assert_eq!(fetched.user_id, user_id);
+    let fetched = storage.get_user_by_identifier(&user_id).await.unwrap().unwrap();
+    assert_eq!(fetched.user_id, user_id);
 }
 
 #[tokio::test]
 async fn test_get_user_by_identifier_username() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@ident_name_{id}:localhost");
-        let username = format!("ident_name_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@ident_name_{id}:localhost");
+    let username = format!("ident_name_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let fetched = storage.get_user_by_identifier(&username).await.unwrap().unwrap();
-        assert_eq!(fetched.username, username);
+    let fetched = storage.get_user_by_identifier(&username).await.unwrap().unwrap();
+    assert_eq!(fetched.username, username);
 }
 
 #[tokio::test]
 async fn test_get_all_users() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        for i in 0..3 {
-            let id = unique_id();
-            let user_id = format!("@all_user_{id}:localhost");
-            let username = format!("all_user_{id}");
-            storage.create_user(&user_id, &username, None, false).await.unwrap();
-            let _ = i;
-        }
+    for i in 0..3 {
+        let id = unique_id();
+        let user_id = format!("@all_user_{id}:localhost");
+        let username = format!("all_user_{id}");
+        storage.create_user(&user_id, &username, None, false).await.unwrap();
+        let _ = i;
+    }
 
-        let users = storage.get_all_users(10).await.unwrap();
-        assert!(users.len() >= 3);
+    let users = storage.get_all_users(10).await.unwrap();
+    assert!(users.len() >= 3);
 }
 
 #[tokio::test]
 async fn test_get_all_users_limit() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        for _ in 0..5 {
-            let id = unique_id();
-            let user_id = format!("@limit_user_{id}:localhost");
-            let username = format!("limit_user_{id}");
-            storage.create_user(&user_id, &username, None, false).await.unwrap();
-        }
+    for _ in 0..5 {
+        let id = unique_id();
+        let user_id = format!("@limit_user_{id}:localhost");
+        let username = format!("limit_user_{id}");
+        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    }
 
-        let users = storage.get_all_users(2).await.unwrap();
-        assert_eq!(users.len(), 2);
+    let users = storage.get_all_users(2).await.unwrap();
+    assert_eq!(users.len(), 2);
 }
 
 #[tokio::test]
 async fn test_get_user_count() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let count_before = storage.get_user_count().await.unwrap();
+    let count_before = storage.get_user_count().await.unwrap();
 
-        let id = unique_id();
-        let user_id = format!("@count_user_{id}:localhost");
-        let username = format!("count_user_{id}");
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    let id = unique_id();
+    let user_id = format!("@count_user_{id}:localhost");
+    let username = format!("count_user_{id}");
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let count_after = storage.get_user_count().await.unwrap();
-        assert_eq!(count_after, count_before + 1);
+    let count_after = storage.get_user_count().await.unwrap();
+    assert_eq!(count_after, count_before + 1);
 }
 
 #[tokio::test]
 async fn test_user_exists() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@exists_user_{id}:localhost");
-        let username = format!("exists_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@exists_user_{id}:localhost");
+    let username = format!("exists_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        assert!(storage.user_exists(&user_id).await.unwrap());
-        assert!(!storage.user_exists("@no_such_user:localhost").await.unwrap());
+    assert!(storage.user_exists(&user_id).await.unwrap());
+    assert!(!storage.user_exists("@no_such_user:localhost").await.unwrap());
 }
 
 #[tokio::test]
 async fn test_user_exists_deactivated_returns_false() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@deactivated_exists_{id}:localhost");
-        let username = format!("deactivated_exists_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@deactivated_exists_{id}:localhost");
+    let username = format!("deactivated_exists_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        storage.deactivate_user(&user_id).await.unwrap();
-        assert!(!storage.user_exists(&user_id).await.unwrap());
+    storage.deactivate_user(&user_id).await.unwrap();
+    assert!(!storage.user_exists(&user_id).await.unwrap());
 }
 
 #[tokio::test]
 async fn test_update_password() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@pwd_user_{id}:localhost");
-        let username = format!("pwd_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@pwd_user_{id}:localhost");
+    let username = format!("pwd_user_{id}");
 
-        storage.create_user(&user_id, &username, Some("old_hash"), false).await.unwrap();
+    storage.create_user(&user_id, &username, Some("old_hash"), false).await.unwrap();
 
-        storage.update_password(&user_id, "new_hash").await.unwrap();
+    storage.update_password(&user_id, "new_hash").await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(user.password_hash, Some("new_hash".to_string()));
-        assert!(user.password_changed_ts.is_some());
-        assert!(!user.is_password_change_required);
-        assert!(!user.must_change_password);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(user.password_hash, Some("new_hash".to_string()));
+    assert!(user.password_changed_ts.is_some());
+    assert!(!user.is_password_change_required);
+    assert!(!user.must_change_password);
 }
 
 #[tokio::test]
 async fn test_update_displayname() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@display_user_{id}:localhost");
-        let username = format!("display_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@display_user_{id}:localhost");
+    let username = format!("display_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        storage.update_displayname(&user_id, Some("Display Name")).await.unwrap();
+    storage.update_displayname(&user_id, Some("Display Name")).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(user.displayname, Some("Display Name".to_string()));
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(user.displayname, Some("Display Name".to_string()));
 
-        storage.update_displayname(&user_id, None).await.unwrap();
+    storage.update_displayname(&user_id, None).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(user.displayname, None);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(user.displayname, None);
 }
 
 #[tokio::test]
 async fn test_update_avatar_url() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@avatar_user_{id}:localhost");
-        let username = format!("avatar_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@avatar_user_{id}:localhost");
+    let username = format!("avatar_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        storage.update_avatar_url(&user_id, Some("mxc://localhost/avatar123")).await.unwrap();
+    storage.update_avatar_url(&user_id, Some("mxc://localhost/avatar123")).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(user.avatar_url, Some("mxc://localhost/avatar123".to_string()));
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(user.avatar_url, Some("mxc://localhost/avatar123".to_string()));
 
-        storage.update_avatar_url(&user_id, None).await.unwrap();
+    storage.update_avatar_url(&user_id, None).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert_eq!(user.avatar_url, None);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert_eq!(user.avatar_url, None);
 }
 
 #[tokio::test]
 async fn test_deactivate_user() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@deact_user_{id}:localhost");
-        let username = format!("deact_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@deact_user_{id}:localhost");
+    let username = format!("deact_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert!(!user.is_deactivated);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert!(!user.is_deactivated);
 
-        storage.deactivate_user(&user_id).await.unwrap();
+    storage.deactivate_user(&user_id).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert!(user.is_deactivated);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert!(user.is_deactivated);
 }
 
 #[tokio::test]
 async fn test_set_admin_status() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@admin_user_{id}:localhost");
-        let username = format!("admin_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@admin_user_{id}:localhost");
+    let username = format!("admin_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert!(!user.is_admin);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert!(!user.is_admin);
 
-        storage.set_admin_status(&user_id, true).await.unwrap();
+    storage.set_admin_status(&user_id, true).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert!(user.is_admin);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert!(user.is_admin);
 
-        storage.set_admin_status(&user_id, false).await.unwrap();
+    storage.set_admin_status(&user_id, false).await.unwrap();
 
-        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
-        assert!(!user.is_admin);
+    let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+    assert!(!user.is_admin);
 }
 
 #[tokio::test]
 async fn test_delete_user() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@delete_user_{id}:localhost");
-        let username = format!("delete_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@delete_user_{id}:localhost");
+    let username = format!("delete_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        assert!(storage.get_user_by_id(&user_id).await.unwrap().is_some());
+    assert!(storage.get_user_by_id(&user_id).await.unwrap().is_some());
 
-        storage.delete_user(&user_id).await.unwrap();
+    storage.delete_user(&user_id).await.unwrap();
 
-        assert!(storage.get_user_by_id(&user_id).await.unwrap().is_none());
+    assert!(storage.get_user_by_id(&user_id).await.unwrap().is_none());
 }
 
 #[tokio::test]
 async fn test_search_users_by_username() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
-            eprintln!("Skipping test_search_users_by_username: pg_trgm not available");
-            return;
-        }
-        let has_trgm = sqlx::query("SELECT similarity('test', 'test')").execute(pool.as_ref()).await.is_ok();
-        if !has_trgm {
-            eprintln!("Skipping test_search_users_by_username: similarity() not available in search_path");
-            return;
-        }
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@search_user_{id}:localhost");
-        let username = format!("search_user_{id}");
+    if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
+        eprintln!("Skipping test_search_users_by_username: pg_trgm not available");
+        return;
+    }
+    let has_trgm = sqlx::query("SELECT similarity('test', 'test')").execute(pool.as_ref()).await.is_ok();
+    if !has_trgm {
+        eprintln!("Skipping test_search_users_by_username: similarity() not available in search_path");
+        return;
+    }
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@search_user_{id}:localhost");
+    let username = format!("search_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        let results = storage.search_users(&username, 10).await.unwrap();
-        assert!(!results.is_empty());
-        assert_eq!(results[0].user_id, user_id);
+    let results = storage.search_users(&username, 10).await.unwrap();
+    assert!(!results.is_empty());
+    assert_eq!(results[0].user_id, user_id);
 }
 
 #[tokio::test]
 async fn test_search_users_empty_query() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let results = storage.search_users("", 10).await.unwrap();
-        assert!(results.is_empty());
+    let results = storage.search_users("", 10).await.unwrap();
+    assert!(results.is_empty());
 
-        let results = storage.search_users("   ", 10).await.unwrap();
-        assert!(results.is_empty());
+    let results = storage.search_users("   ", 10).await.unwrap();
+    assert!(results.is_empty());
 }
 
 #[tokio::test]
 async fn test_search_users_excludes_deactivated() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
-            eprintln!("Skipping test_search_users_excludes_deactivated: pg_trgm not available");
-            return;
-        }
-        let has_trgm = sqlx::query("SELECT similarity('test', 'test')").execute(pool.as_ref()).await.is_ok();
-        if !has_trgm {
-            eprintln!("Skipping test_search_users_excludes_deactivated: similarity() not available in search_path");
-            return;
-        }
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@deact_search_{id}:localhost");
-        let username = format!("deact_search_{id}");
+    if sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_trgm").execute(pool.as_ref()).await.is_err() {
+        eprintln!("Skipping test_search_users_excludes_deactivated: pg_trgm not available");
+        return;
+    }
+    let has_trgm = sqlx::query("SELECT similarity('test', 'test')").execute(pool.as_ref()).await.is_ok();
+    if !has_trgm {
+        eprintln!("Skipping test_search_users_excludes_deactivated: similarity() not available in search_path");
+        return;
+    }
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@deact_search_{id}:localhost");
+    let username = format!("deact_search_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        storage.deactivate_user(&user_id).await.unwrap();
+    storage.deactivate_user(&user_id).await.unwrap();
 
-        let results = storage.search_users(&username, 10).await.unwrap();
-        let found = results.iter().any(|r| r.user_id == user_id);
-        assert!(!found);
+    let results = storage.search_users(&username, 10).await.unwrap();
+    let found = results.iter().any(|r| r.user_id == user_id);
+    assert!(!found);
 }
 
 #[tokio::test]
 async fn test_filter_existing_users() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id1 = format!("@filter_user_a_{id}:localhost");
-        let username1 = format!("filter_user_a_{id}");
-        let user_id2 = format!("@filter_user_b_{id}:localhost");
-        let username2 = format!("filter_user_b_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id1 = format!("@filter_user_a_{id}:localhost");
+    let username1 = format!("filter_user_a_{id}");
+    let user_id2 = format!("@filter_user_b_{id}:localhost");
+    let username2 = format!("filter_user_b_{id}");
 
-        storage.create_user(&user_id1, &username1, None, false).await.unwrap();
-        storage.create_user(&user_id2, &username2, None, false).await.unwrap();
+    storage.create_user(&user_id1, &username1, None, false).await.unwrap();
+    storage.create_user(&user_id2, &username2, None, false).await.unwrap();
 
-        let input = vec![user_id1.clone(), "@nonexistent:localhost".to_string(), user_id2.clone()];
-        let existing = storage.filter_existing_users(&input).await.unwrap();
-        assert_eq!(existing.len(), 2);
-        assert!(existing.contains(&user_id1));
-        assert!(existing.contains(&user_id2));
+    let input = vec![user_id1.clone(), "@nonexistent:localhost".to_string(), user_id2.clone()];
+    let existing = storage.filter_existing_users(&input).await.unwrap();
+    assert_eq!(existing.len(), 2);
+    assert!(existing.contains(&user_id1));
+    assert!(existing.contains(&user_id2));
 }
 
 #[tokio::test]
 async fn test_filter_existing_users_empty_input() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let existing = storage.filter_existing_users(&[]).await.unwrap();
-        assert!(existing.is_empty());
+    let existing = storage.filter_existing_users(&[]).await.unwrap();
+    assert!(existing.is_empty());
 }
 
 #[tokio::test]
 async fn test_filter_existing_users_excludes_deactivated() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@filter_deact_{id}:localhost");
-        let username = format!("filter_deact_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@filter_deact_{id}:localhost");
+    let username = format!("filter_deact_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
-        storage.deactivate_user(&user_id).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.deactivate_user(&user_id).await.unwrap();
 
-        let existing = storage.filter_existing_users(std::slice::from_ref(&user_id)).await.unwrap();
-        assert!(!existing.contains(&user_id));
+    let existing = storage.filter_existing_users(std::slice::from_ref(&user_id)).await.unwrap();
+    assert!(!existing.contains(&user_id));
 }
 
 #[tokio::test]
 async fn test_get_user_profile() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@profile_user_{id}:localhost");
-        let username = format!("profile_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@profile_user_{id}:localhost");
+    let username = format!("profile_user_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        storage.update_displayname(&user_id, Some("Profile Name")).await.unwrap();
+    storage.update_displayname(&user_id, Some("Profile Name")).await.unwrap();
 
-        let profile = storage.get_user_profile(&user_id).await.unwrap().unwrap();
-        assert_eq!(profile.user_id, user_id);
-        assert_eq!(profile.username, username);
-        assert_eq!(profile.displayname, Some("Profile Name".to_string()));
+    let profile = storage.get_user_profile(&user_id).await.unwrap().unwrap();
+    assert_eq!(profile.user_id, user_id);
+    assert_eq!(profile.username, username);
+    assert_eq!(profile.displayname, Some("Profile Name".to_string()));
 }
 
 #[tokio::test]
 async fn test_get_user_profile_not_found() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
+    let storage = create_user_storage(&pool);
 
-        let result = storage.get_user_profile("@noprofile:localhost").await.unwrap();
-        assert!(result.is_none());
+    let result = storage.get_user_profile("@noprofile:localhost").await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_get_user_profile_deactivated_returns_none() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@deact_profile_{id}:localhost");
-        let username = format!("deact_profile_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@deact_profile_{id}:localhost");
+    let username = format!("deact_profile_{id}");
 
-        storage.create_user(&user_id, &username, None, false).await.unwrap();
-        storage.deactivate_user(&user_id).await.unwrap();
+    storage.create_user(&user_id, &username, None, false).await.unwrap();
+    storage.deactivate_user(&user_id).await.unwrap();
 
-        let result = storage.get_user_profile(&user_id).await.unwrap();
-        assert!(result.is_none());
+    let result = storage.get_user_profile(&user_id).await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
 async fn test_create_user_as_admin() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@admin_create_{id}:localhost");
-        let username = format!("admin_create_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@admin_create_{id}:localhost");
+    let username = format!("admin_create_{id}");
 
-        let user = storage.create_user(&user_id, &username, Some("adminhash"), true).await.unwrap();
+    let user = storage.create_user(&user_id, &username, Some("adminhash"), true).await.unwrap();
 
-        assert!(user.is_admin);
-        assert_eq!(user.password_hash, Some("adminhash".to_string()));
+    assert!(user.is_admin);
+    assert_eq!(user.password_hash, Some("adminhash".to_string()));
 }
 
 #[tokio::test]
 async fn test_create_user_no_password() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
-        let storage = create_user_storage(&pool);
-        let id = unique_id();
-        let user_id = format!("@nopwd_user_{id}:localhost");
-        let username = format!("nopwd_user_{id}");
+    let storage = create_user_storage(&pool);
+    let id = unique_id();
+    let user_id = format!("@nopwd_user_{id}:localhost");
+    let username = format!("nopwd_user_{id}");
 
-        let user = storage.create_user(&user_id, &username, None, false).await.unwrap();
+    let user = storage.create_user(&user_id, &username, None, false).await.unwrap();
 
-        assert_eq!(user.password_hash, None);
+    assert_eq!(user.password_hash, None);
 }

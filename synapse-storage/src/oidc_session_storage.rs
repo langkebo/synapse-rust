@@ -120,10 +120,7 @@ impl OidcSessionStorage {
 
     /// 原子消费：DELETE ... RETURNING，防止授权码重放
     #[instrument(skip(self), fields(key = %session_key))]
-    pub async fn get_and_delete_auth_session(
-        &self,
-        session_key: &str,
-    ) -> Result<Option<OidcAuthSession>, sqlx::Error> {
+    pub async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, OidcAuthSession>(
             r#"
             DELETE FROM oidc_auth_sessions
@@ -280,10 +277,7 @@ impl OidcSessionStorage {
 
     /// 获取同意会话（不删除，用于渲染同意页面）
     #[instrument(skip(self), fields(id = %session_id))]
-    pub async fn get_consent_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+    pub async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
         let row = sqlx::query_as::<_, OidcConsentSession>(
             r#"
             SELECT id, session_id, client_id, client_name, redirect_uri,

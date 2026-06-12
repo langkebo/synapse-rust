@@ -123,7 +123,6 @@ impl PushGateway {
 
         debug!(rejected = gateway_response.rejected.len(), "Push gateway response");
 
-
         Ok(gateway_response)
     }
 

@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::{SlidingSyncRequest, SlidingSyncResponse};
+use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{extract::State, routing::post, Json, Router};
 
@@ -67,7 +67,8 @@ async fn sliding_sync(
     }
 
     // Call the sliding sync service
-    let response: SlidingSyncResponse = state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
+    let response: SlidingSyncResponse =
+        state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
 
     Ok(Json(response))
 }
@@ -122,10 +123,8 @@ mod tests {
         file_config.sync.initial.burst_size = 22;
         file_config.sync.incremental.per_second = 33;
         file_config.sync.incremental.burst_size = 44;
-        let sync_override = SyncRateLimitOverride {
-            fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync,
-        };
+        let sync_override =
+            SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
@@ -146,10 +145,8 @@ mod tests {
         file_config.sync.enabled = false;
         file_config.sync.initial.per_second = 99;
         file_config.sync.initial.burst_size = 99;
-        let sync_override = SyncRateLimitOverride {
-            fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync,
-        };
+        let sync_override =
+            SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));
         assert_eq!(resolve_sliding_sync_rate_limit(&state, None, false), (6, 60));

@@ -1,45 +1,13 @@
 #[cfg(feature = "builtin-oidc")]
 pub use synapse_services::builtin_oidc_provider::*;
 
+// Note: Tests referencing private method compute_at_hash are in
+// synapse-services/src/builtin_oidc_provider.rs where they have access.
+
 #[cfg(test)]
 #[cfg(feature = "builtin-oidc")]
 mod tests {
     use super::*;
-
-    // ========== compute_at_hash tests ==========
-
-    #[test]
-    fn test_compute_at_hash_known_value() {
-        // at_hash is BASE64URL( left-128-bit( SHA256(access_token) ) )
-        let hash = BuiltinOidcProvider::compute_at_hash("test_access_token");
-        // Should be a valid base64url string of 16 bytes = ~22 chars without padding
-        assert!(!hash.is_empty());
-        assert!(!hash.contains('='), "at_hash should be base64url without padding");
-        // Should be decodable
-        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-        let decoded = URL_SAFE_NO_PAD.decode(&hash).unwrap();
-        assert_eq!(decoded.len(), 16, "at_hash should decode to 16 bytes (left 128 bits of SHA256)");
-    }
-
-    #[test]
-    fn test_compute_at_hash_deterministic() {
-        let hash1 = BuiltinOidcProvider::compute_at_hash("same_token");
-        let hash2 = BuiltinOidcProvider::compute_at_hash("same_token");
-        assert_eq!(hash1, hash2, "compute_at_hash should be deterministic");
-    }
-
-    #[test]
-    fn test_compute_at_hash_different_inputs() {
-        let hash1 = BuiltinOidcProvider::compute_at_hash("token_a");
-        let hash2 = BuiltinOidcProvider::compute_at_hash("token_b");
-        assert_ne!(hash1, hash2, "Different inputs should produce different hashes");
-    }
-
-    #[test]
-    fn test_compute_at_hash_empty() {
-        let hash = BuiltinOidcProvider::compute_at_hash("");
-        assert!(!hash.is_empty());
-    }
 
     // ========== OidcDiscoveryDocument tests ==========
 
@@ -160,16 +128,14 @@ mod tests {
     #[test]
     fn test_jwks() {
         let jwks = Jwks {
-            keys: vec![
-                Jwk {
-                    kty: "RSA".to_string(),
-                    use_: "sig".to_string(),
-                    kid: "key_1".to_string(),
-                    alg: "RS256".to_string(),
-                    n: "n1".to_string(),
-                    e: "AQAB".to_string(),
-                },
-            ],
+            keys: vec![Jwk {
+                kty: "RSA".to_string(),
+                use_: "sig".to_string(),
+                kid: "key_1".to_string(),
+                alg: "RS256".to_string(),
+                n: "n1".to_string(),
+                e: "AQAB".to_string(),
+            }],
         };
         assert_eq!(jwks.keys.len(), 1);
         assert_eq!(jwks.keys[0].kid, "key_1");

@@ -71,10 +71,7 @@ async fn get_connection(
     user: AuthenticatedUser,
     Path(id): Path<String>,
 ) -> ApiResult<Json<AiConnection>> {
-    let conn: Option<AiConnection> = state
-        .matrix_ai_connection_service
-        .get_connection(&id, &user.user_id)
-        .await?;
+    let conn: Option<AiConnection> = state.matrix_ai_connection_service.get_connection(&id, &user.user_id).await?;
     let conn: AiConnection = conn.ok_or_else(|| ApiError::not_found("Connection not found"))?;
     Ok(Json(conn))
 }

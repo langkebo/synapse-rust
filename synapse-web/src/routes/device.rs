@@ -19,7 +19,10 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 .services
                 .extensions
                 .uia_service
-                .create_session(&auth_user.user_id, synapse_services::uia_service::UiaService::get_delete_device_flows())
+                .create_session(
+                    &auth_user.user_id,
+                    synapse_services::uia_service::UiaService::get_delete_device_flows(),
+                )
                 .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
@@ -521,11 +524,7 @@ fn device_compat_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
 /// registers. Mirrors `create_device_compat_router` one-for-one — adding a
 /// `.route(...)` there MUST add an entry here.
 pub fn device_route_manifest() -> Vec<crate::routes::route_ledger::RouteEntry> {
-    crate::routes::route_ledger::expand_under_prefixes(
-        "device",
-        DEVICE_NEST_PREFIXES,
-        &device_compat_relative_routes(),
-    )
+    crate::routes::route_ledger::expand_under_prefixes("device", DEVICE_NEST_PREFIXES, &device_compat_relative_routes())
 }
 
 #[cfg(test)]

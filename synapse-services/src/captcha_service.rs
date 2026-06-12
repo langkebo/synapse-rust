@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
-use synapse_storage::captcha::*;
 use rand::Rng;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_storage::captcha::*;
 use tracing::info;
 
 #[derive(Debug, Clone)]

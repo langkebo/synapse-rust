@@ -1,6 +1,3 @@
-use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use synapse_common::ApiError;
-use synapse_storage::registration_token::decode_registration_token_cursor;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -10,6 +7,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
+use synapse_common::ApiError;
+use synapse_storage::registration_token::decode_registration_token_cursor;
 
 pub fn create_token_router(_state: AppState) -> Router<AppState> {
     Router::new()

@@ -268,11 +268,8 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
         assert_eq!(row.get::<String, _>("status"), "processed");
     }
 
-    let summary = storage
-        .get_summary(&room_id)
-        .await
-        .expect("Failed to fetch final summary")
-        .expect("Expected summary to exist");
+    let summary =
+        storage.get_summary(&room_id).await.expect("Failed to fetch final summary").expect("Expected summary to exist");
     assert_eq!(summary.name.as_deref(), Some("Driver Updated"));
     assert_eq!(summary.topic.as_deref(), Some("Driver Topic"));
     assert_eq!(summary.last_event_id.as_deref(), Some(other_event_id.as_str()));
@@ -321,8 +318,7 @@ async fn test_schema_contract_room_summary_queue_failed_items_are_not_reprocesse
     assert_eq!(row.get::<Option<String>, _>("error_message").as_deref(), Some("Not found: Event not found"));
     assert_eq!(row.get::<i32, _>("retry_count"), 1);
 
-    let processed_second =
-        service.process_pending_updates(10).await.expect("Failed to process queue a second time");
+    let processed_second = service.process_pending_updates(10).await.expect("Failed to process queue a second time");
     assert_eq!(processed_second, 0);
 
     let row_after = sqlx::query(

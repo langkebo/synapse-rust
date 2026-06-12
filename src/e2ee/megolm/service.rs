@@ -16,14 +16,8 @@ pub struct MegolmProvider {
 }
 
 impl MegolmProvider {
-    pub fn from_env(
-        storage: MegolmSessionStorage,
-        cache: Arc<CacheManager>,
-        encryption_key: [u8; 32],
-    ) -> Self {
-        Self {
-            inner: MegolmVodozemacService::new(storage, cache).with_encryption_key(encryption_key),
-        }
+    pub fn from_env(storage: MegolmSessionStorage, cache: Arc<CacheManager>, encryption_key: [u8; 32]) -> Self {
+        Self { inner: MegolmVodozemacService::new(storage, cache).with_encryption_key(encryption_key) }
     }
 
     pub async fn create_session(&self, room_id: &str, sender_key: &str) -> Result<MegolmSession, ApiError> {

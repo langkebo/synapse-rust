@@ -462,10 +462,7 @@ mod tests {
 
     #[test]
     fn test_translation_error_request_failed() {
-        let err = TranslationError::RequestFailed {
-            provider: "google".to_string(),
-            reason: "timeout".to_string(),
-        };
+        let err = TranslationError::RequestFailed { provider: "google".to_string(), reason: "timeout".to_string() };
         let msg = err.to_string();
         assert!(msg.contains("google"));
         assert!(msg.contains("timeout"));
@@ -486,10 +483,8 @@ mod tests {
 
     #[test]
     fn test_translation_error_parse_error() {
-        let err = TranslationError::ParseError {
-            provider: "libretranslate".to_string(),
-            reason: "invalid JSON".to_string(),
-        };
+        let err =
+            TranslationError::ParseError { provider: "libretranslate".to_string(), reason: "invalid JSON".to_string() };
         let msg = err.to_string();
         assert!(msg.contains("libretranslate"));
         assert!(msg.contains("invalid JSON"));
@@ -497,19 +492,14 @@ mod tests {
 
     #[test]
     fn test_translation_error_unsupported_provider() {
-        let err = TranslationError::UnsupportedProvider {
-            provider: "unknown".to_string(),
-        };
+        let err = TranslationError::UnsupportedProvider { provider: "unknown".to_string() };
         let msg = err.to_string();
         assert!(msg.contains("unknown"));
     }
 
     #[test]
     fn test_translation_error_text_too_long() {
-        let err = TranslationError::TextTooLong {
-            length: 5000,
-            max: 1000,
-        };
+        let err = TranslationError::TextTooLong { length: 5000, max: 1000 };
         let msg = err.to_string();
         assert!(msg.contains("5000"));
         assert!(msg.contains("1000"));

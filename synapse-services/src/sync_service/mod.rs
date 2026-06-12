@@ -12,13 +12,13 @@ mod types;
 
 pub use types::*;
 
-use synapse_common::*;
 use crate::*;
-use synapse_storage::{PresenceStorage, UserRoomMembership};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::*;
+use synapse_storage::{PresenceStorage, UserRoomMembership};
 use tokio::sync::RwLock;
 
 pub struct SyncService {

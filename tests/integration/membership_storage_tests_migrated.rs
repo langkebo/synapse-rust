@@ -10,7 +10,6 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-
     sqlx::query(
         r#"
         CREATE TABLE users (

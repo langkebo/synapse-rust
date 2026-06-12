@@ -43,20 +43,13 @@ impl RoomService {
                 "content": receipt_content
             });
 
-            let _ = event_broadcaster
-                .broadcast_edu_to_room(room_id, &receipt_edu, &self.server_name)
-                .await;
+            let _ = event_broadcaster.broadcast_edu_to_room(room_id, &receipt_edu, &self.server_name).await;
         }
 
         Ok(())
     }
 
-    pub async fn get_receipts(
-        &self,
-        room_id: &str,
-        receipt_type: &str,
-        event_id: &str,
-    ) -> ApiResult<Vec<Receipt>> {
+    pub async fn get_receipts(&self, room_id: &str, receipt_type: &str, event_id: &str) -> ApiResult<Vec<Receipt>> {
         self.room_storage
             .get_receipts(room_id, receipt_type, event_id)
             .await

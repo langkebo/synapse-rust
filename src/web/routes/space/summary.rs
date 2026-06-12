@@ -6,12 +6,7 @@ pub(super) async fn get_space_summary(
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let summary = state
-            .services
-            .rooms
-            .space_service
-            .get_space_summary(&space.space_id)
-            .await?;
+        let summary = state.services.rooms.space_service.get_space_summary(&space.space_id).await?;
 
         let summary = summary.ok_or_else(|| ApiError::not_found("Space summary not found"))?;
         Ok(Json(serde_json::to_value(summary)?))

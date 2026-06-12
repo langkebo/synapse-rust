@@ -7,8 +7,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rand::rngs::OsRng;
 use rand::Rng;
 use std::collections::HashMap;
-use x25519_dalek::{PublicKey, StaticSecret};
 use std::sync::Arc;
+use x25519_dalek::{PublicKey, StaticSecret};
 
 const SSSS_KEY_LENGTH: usize = 32;
 const SSSS_IV_LENGTH: usize = 12;

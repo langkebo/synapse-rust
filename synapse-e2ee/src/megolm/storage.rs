@@ -1,9 +1,9 @@
 use super::models::*;
-use synapse_common::ApiError;
 use chrono::Utc;
 use sqlx::PgPool;
 use std::str::FromStr;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 /// Internal row struct for `megolm_sessions` (matches DB column types exactly,
 /// including BIGINT timestamps that the public model converts to DateTime<Utc>).
@@ -25,12 +25,9 @@ pub struct MegolmSessionRow {
 
 impl From<MegolmSessionRow> for MegolmSession {
     fn from(row: MegolmSessionRow) -> Self {
-        let created_ts_dt =
-            chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
-        let last_used_ts_dt = row
-            .last_used_ts
-            .and_then(chrono::DateTime::from_timestamp_millis)
-            .unwrap_or(created_ts_dt);
+        let created_ts_dt = chrono::DateTime::from_timestamp_millis(row.created_ts).unwrap_or_else(Utc::now);
+        let last_used_ts_dt =
+            row.last_used_ts.and_then(chrono::DateTime::from_timestamp_millis).unwrap_or(created_ts_dt);
         let expires_at_dt = row.expires_at.and_then(chrono::DateTime::from_timestamp_millis);
 
         MegolmSession {
@@ -308,11 +305,7 @@ impl MegolmSessionStorage {
     }
 
     /// 单用户查询共享的 session key（vodozemac import_session 后使用）
-    pub async fn get_session_key(
-        &self,
-        user_id: &str,
-        session_id: &str,
-    ) -> Result<Option<String>, ApiError> {
+    pub async fn get_session_key(&self, user_id: &str, session_id: &str) -> Result<Option<String>, ApiError> {
         let row: Option<MegolmSessionKeyRow> = sqlx::query_as::<_, MegolmSessionKeyRow>(
             r"
             SELECT encrypted_key

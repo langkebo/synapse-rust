@@ -3,8 +3,8 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 
-use super::utils::validate_room_alias_input;
 use super::service::RoomService;
+use super::utils::validate_room_alias_input;
 
 impl RoomService {
     // ── Alias operations ──

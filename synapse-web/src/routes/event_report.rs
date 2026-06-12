@@ -7,11 +7,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
 };
-use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
@@ -178,7 +178,9 @@ pub async fn get_report(
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let report = state
-        .services.admin.event_report_service
+        .services
+        .admin
+        .event_report_service
         .get_report(id)
         .await?
         .ok_or_else(|| ApiError::not_found("Report not found"))?;
@@ -207,7 +209,9 @@ pub async fn get_reports_by_room(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services.admin.event_report_service
+        .services
+        .admin
+        .event_report_service
         .get_reports_by_room(&room_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -225,7 +229,9 @@ pub async fn get_reports_by_reporter(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services.admin.event_report_service
+        .services
+        .admin
+        .event_report_service
         .get_reports_by_reporter(&reporter_user_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -243,7 +249,9 @@ pub async fn get_reports_by_status(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services.admin.event_report_service
+        .services
+        .admin
+        .event_report_service
         .get_reports_by_status(&status, limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -260,7 +268,9 @@ pub async fn get_all_reports(
     let limit = query.limit.unwrap_or(100);
 
     let reports = state
-        .services.admin.event_report_service
+        .services
+        .admin
+        .event_report_service
         .get_all_reports(limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -289,7 +299,8 @@ pub async fn resolve_report(
     Path(id): Path<i64>,
     Json(body): Json<ResolveReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.admin.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
+    let report =
+        state.services.admin.event_report_service.resolve_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -300,7 +311,8 @@ pub async fn dismiss_report(
     Path(id): Path<i64>,
     Json(body): Json<DismissReportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let report = state.services.admin.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
+    let report =
+        state.services.admin.event_report_service.dismiss_report(id, &_auth_user.user_id, &body.reason).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }

@@ -266,7 +266,6 @@ fn default_limit() -> i64 {
     20
 }
 
-
 const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rust.openclaw";
 
 pub fn create_openclaw_router(state: AppState) -> Router<AppState> {
@@ -339,7 +338,8 @@ async fn list_connections(
     auth: AuthInfo,
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let connections: Vec<crate::storage::openclaw::OpenClawConnection> = svc(&state).list_connections(&auth.user_id).await?;
+    let connections: Vec<crate::storage::openclaw::OpenClawConnection> =
+        svc(&state).list_connections(&auth.user_id).await?;
     Ok(Json(connections.into_iter().map(ConnectionResponse::from).collect()))
 }
 
@@ -369,7 +369,8 @@ async fn get_connection(
     Path(id): Path<i64>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: crate::storage::openclaw::OpenClawConnection = svc(&state).get_connection_for_user(id, &auth.user_id).await?;
+    let conn: crate::storage::openclaw::OpenClawConnection =
+        svc(&state).get_connection_for_user(id, &auth.user_id).await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
 
@@ -411,7 +412,8 @@ async fn test_connection(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (conn, is_healthy, latency_ms): (crate::storage::openclaw::OpenClawConnection, bool, i64) = svc(&state).test_connection(id, &auth.user_id).await?;
+    let (conn, is_healthy, latency_ms): (crate::storage::openclaw::OpenClawConnection, bool, i64) =
+        svc(&state).test_connection(id, &auth.user_id).await?;
     Ok(Json(serde_json::json!({
         "healthy": is_healthy,
         "latency_ms": latency_ms,
@@ -426,7 +428,8 @@ async fn list_conversations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (conversations, next_batch): (Vec<crate::storage::openclaw::AiConversation>, Option<String>) = svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
+    let (conversations, next_batch): (Vec<crate::storage::openclaw::AiConversation>, Option<String>) =
+        svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: Some(conversations.len() as i64),
         limit: query.limit,

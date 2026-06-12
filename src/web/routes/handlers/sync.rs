@@ -87,7 +87,18 @@ pub(crate) async fn sync(
         }
     }
 
-    execute_sync(SyncParams { state, user_id, device_id, timeout, is_full_state, request_id, set_presence, filter, since }).await
+    execute_sync(SyncParams {
+        state,
+        user_id,
+        device_id,
+        timeout,
+        is_full_state,
+        request_id,
+        set_presence,
+        filter,
+        since,
+    })
+    .await
 }
 
 async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {

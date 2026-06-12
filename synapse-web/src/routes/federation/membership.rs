@@ -1,4 +1,3 @@
-use synapse_common::*;
 use crate::middleware::FederationRequestAuth;
 use crate::routes::AppState;
 use crate::utils::auth::resolve_request_id;
@@ -7,10 +6,13 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::{json, Value};
+use synapse_common::*;
 
 async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<String, ApiError> {
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
@@ -35,7 +37,9 @@ pub(super) async fn get_room_members(
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(&room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
@@ -84,7 +88,9 @@ pub(super) async fn knock_room(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
@@ -141,7 +147,9 @@ pub(super) async fn thirdparty_invite(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
@@ -188,7 +196,9 @@ pub(super) async fn get_joined_room_members(
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(&room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))?;
@@ -328,7 +338,9 @@ pub(super) async fn invite_v2(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
@@ -371,7 +383,9 @@ pub(super) async fn make_join(
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
         let auth_events = state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .get_state_events(&room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
@@ -423,7 +437,9 @@ pub(super) async fn make_leave(
     validate_federation_user_origin(&auth.origin, &user_id)?;
 
     let auth_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get auth events", &e))?;
@@ -499,13 +515,17 @@ pub(super) async fn send_join(
             origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
         };
         state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
 
         state
-            .services.rooms.member_storage
+            .services
+            .rooms
+            .member_storage
             .add_member(&room_id, user_id, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -559,13 +579,17 @@ pub(super) async fn send_leave(
         origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
     };
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .add_member(&room_id, user_id, "leave", None, None, None, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -661,13 +685,17 @@ pub(super) async fn send_join_v2(
                 .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
         };
         state
-            .services.rooms.event_storage
+            .services
+            .rooms
+            .event_storage
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
 
         state
-            .services.rooms.member_storage
+            .services
+            .rooms
+            .member_storage
             .add_member(&room_id, sender, "join", display_name, None, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -732,13 +760,17 @@ pub(super) async fn send_leave_v2(
     };
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
 
     state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .remove_member(&room_id, sender)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -1074,8 +1106,13 @@ async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiRes
         None
     };
 
-    let room =
-        state.services.rooms.room_storage.get_room(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room = state
+        .services
+        .rooms
+        .room_storage
+        .get_room(room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     Ok(effective_join_rule.or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone())).unwrap_or_else(
         || {
@@ -1090,7 +1127,9 @@ async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiRes
 
 async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -> ApiResult<Option<Value>> {
     Ok(state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(room_id, "m.room.join_rules")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
@@ -1102,7 +1141,9 @@ async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -
 async fn validate_federation_join_access(state: &AppState, room_id: &str, user_id: &str) -> ApiResult<()> {
     let join_rule = get_effective_room_join_rule(state, room_id).await?;
     let existing_member = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_member(room_id, user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;

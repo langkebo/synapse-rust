@@ -43,7 +43,9 @@ impl SyncService {
         }
 
         if let Some(device_id) = device_id {
-            let _ = self.device_storage.upsert_lazy_loaded_members(user_id, device_id, room_id, known_members).await;
+            if let Err(e) = self.device_storage.upsert_lazy_loaded_members(user_id, device_id, room_id, known_members).await {
+                ::tracing::warn!(%e, user_id, device_id, room_id, "Failed to upsert lazy loaded members");
+            }
         }
     }
 

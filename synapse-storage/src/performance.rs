@@ -3,11 +3,11 @@
 //! This module provides tools for monitoring database connection pool health,
 //! tracking query performance, and identifying slow queries.
 
-use synapse_common::metrics::MetricsCollector;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use synapse_common::metrics::MetricsCollector;
 use tokio::sync::RwLock;
 
 /// Statistics about the database connection pool.

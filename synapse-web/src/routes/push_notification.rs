@@ -1,6 +1,3 @@
-use synapse_common::error::ApiError;
-use synapse_services::push_notification_service::SendNotificationRequest;
-use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -8,6 +5,9 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::error::ApiError;
+use synapse_services::push_notification_service::SendNotificationRequest;
+use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterDeviceBody {
@@ -219,7 +219,9 @@ pub async fn delete_rule(
     Path(path): Path<RulePath>,
 ) -> Result<impl IntoResponse, ApiError> {
     state
-        .services.admin.push_notification_service
+        .services
+        .admin
+        .push_notification_service
         .delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id)
         .await?;
 
@@ -273,10 +275,7 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
     let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/push/process", post(process_queue))
         .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::middleware::admin_auth_middleware,
-        ));
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::middleware::admin_auth_middleware));
 
     public_routes.merge(admin_routes).with_state(state)
 }

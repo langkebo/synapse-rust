@@ -3,9 +3,9 @@ use super::models::{
 };
 use super::session::OlmSessionManager;
 use super::storage::OlmStorage;
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use vodozemac::olm::Account;
 use vodozemac::KeyId;

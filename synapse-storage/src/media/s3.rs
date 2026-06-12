@@ -1,7 +1,7 @@
 use super::backend::MediaStorageBackend;
 use super::models::*;
-use synapse_common::error::ApiError;
 use async_trait::async_trait;
+use synapse_common::error::ApiError;
 
 pub struct S3Backend {
     config: S3Config,

@@ -1,8 +1,8 @@
 use super::models::ThirdPartyId;
-use synapse_common::error::ApiError;
-use synapse_storage::{CreateThreepidRequest, ThreepidStorage};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_storage::{CreateThreepidRequest, ThreepidStorage};
 
 #[derive(Clone)]
 pub struct IdentityStorage {

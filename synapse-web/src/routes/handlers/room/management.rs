@@ -1,12 +1,9 @@
 use super::{ensure_room_state_write_access, ensure_room_view_access, UpgradeRoomRequest, UpgradeRoomResponse};
-use synapse_common::ApiError;
-use synapse_common::map_internal;
-use synapse_services::CreateRoomConfig;
-use crate::utils::auth::resolve_request_id;
 use crate::routes::{
     ensure_room_member, extract_token_from_headers, validate_room_id, AppState, AuthenticatedUser,
     OptionalAuthenticatedUser,
 };
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
@@ -14,6 +11,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::map_internal;
+use synapse_common::ApiError;
+use synapse_services::CreateRoomConfig;
 
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct RoomSyncQueryDto {
@@ -57,7 +57,9 @@ pub(crate) async fn get_room_info(
     }
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -78,7 +80,9 @@ pub(crate) async fn get_room_info(
     .unwrap_or(0);
 
     let guest_can_join = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "m.room.guest_access")
         .await
         .ok()
@@ -129,7 +133,9 @@ pub(crate) async fn get_room_version(
     }
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -354,7 +360,9 @@ pub(crate) async fn get_room_visibility(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -363,7 +371,9 @@ pub(crate) async fn get_room_visibility(
     }
 
     let visibility = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .get_room_visibility(&room_id)
         .await
         .map_err(map_internal!("Failed to get room visibility"))?;
@@ -381,7 +391,9 @@ pub(crate) async fn set_room_visibility(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -402,7 +414,9 @@ pub(crate) async fn set_room_visibility(
         .await?;
 
     let is_creator = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .is_room_creator(&room_id, &auth_user.user_id)
         .await
         .map_err(map_internal!("Failed to check room creator"))?;
@@ -448,7 +462,8 @@ pub(crate) async fn upgrade_room(
 
     ensure_room_state_write_access(&state, &auth_user, &room_id, "m.room.tombstone").await?;
 
-    let new_room_id = state.services.rooms.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
+    let new_room_id =
+        state.services.rooms.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
 
     Ok(Json(UpgradeRoomResponse { replacement_room: new_room_id }))
 }
@@ -477,7 +492,9 @@ pub(crate) async fn room_initial_sync(
     validate_room_id(&room_id)?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Database error"))?
@@ -492,7 +509,9 @@ pub(crate) async fn room_initial_sync(
     let limit = params.get("limit").and_then(|value| value.parse::<i64>().ok()).unwrap_or(10).clamp(1, 100);
 
     let state_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events(&room_id)
         .await
         .map_err(map_internal!("Failed to get room state"))?
@@ -543,7 +562,9 @@ pub(crate) async fn get_room_capabilities(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -554,7 +575,9 @@ pub(crate) async fn get_room_capabilities(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -645,7 +668,9 @@ pub(crate) async fn get_room_sync(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -660,7 +685,9 @@ pub(crate) async fn get_room_sync(
     let since = params.since.as_deref();
 
     let result = state
-        .services.rooms.sync_service
+        .services
+        .rooms
+        .sync_service
         .room_sync_with_timeout(&auth_user.user_id, &room_id, timeout, full_state, since)
         .await?;
 
@@ -704,7 +731,9 @@ pub(crate) async fn get_room_thread_by_id(
     crate::routes::validate_event_id(&thread_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -745,7 +774,9 @@ pub(crate) async fn set_room_account_data(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -789,7 +820,9 @@ pub(crate) async fn get_room_account_data(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -822,7 +855,9 @@ pub(crate) async fn get_room_turn_server(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -860,7 +895,9 @@ pub(crate) async fn get_room_metadata(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -871,7 +908,9 @@ pub(crate) async fn get_room_metadata(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -924,7 +963,9 @@ pub(crate) async fn get_room_vault_data(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -968,7 +1009,9 @@ pub(crate) async fn set_room_vault_data(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1010,7 +1053,9 @@ pub(crate) async fn get_room_rendered(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1021,14 +1066,18 @@ pub(crate) async fn get_room_rendered(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_room_events(&room_id, 20)
         .await
         .map_err(map_internal!("Failed to get room events"))?;
@@ -1067,7 +1116,9 @@ pub(crate) async fn get_room_external_ids(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1078,7 +1129,9 @@ pub(crate) async fn get_room_external_ids(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let aliases = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room_aliases(&room_id)
         .await
         .map_err(map_internal!("Failed to get room aliases"))?;
@@ -1099,7 +1152,9 @@ pub(crate) async fn get_room_service_types(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1110,7 +1165,9 @@ pub(crate) async fn get_room_service_types(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
@@ -1137,7 +1194,9 @@ pub(crate) async fn get_room_device(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1157,7 +1216,9 @@ pub(crate) async fn get_room_device(
         .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
 
     let is_member = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .is_member(&room_id, &device.user_id)
         .await
         .map_err(map_internal!("Failed to verify device membership"))?;
@@ -1188,14 +1249,18 @@ pub(crate) async fn get_room_resolve(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let aliases = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room_aliases(&room_id)
         .await
         .map_err(map_internal!("Failed to get room aliases"))?;
@@ -1215,7 +1280,9 @@ pub(crate) async fn get_room_spaces(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1244,7 +1311,9 @@ pub(crate) async fn get_room_spaces(
     };
 
     let spaces = state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_parent_spaces(&room_id)
         .await?
         .into_iter()
@@ -1276,7 +1345,9 @@ pub(crate) async fn search_room_messages(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1374,7 +1445,9 @@ pub(crate) async fn get_retention_policy(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -1385,7 +1458,9 @@ pub(crate) async fn get_retention_policy(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let room_policy = state
-        .services.admin.retention_storage
+        .services
+        .admin
+        .retention_storage
         .get_room_policy(&room_id)
         .await
         .map_err(map_internal!("Failed to get retention policy"))?;

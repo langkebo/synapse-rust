@@ -1,6 +1,3 @@
-use synapse_cache::CacheManager;
-use synapse_common::metrics::MetricsCollector;
-use synapse_common::*;
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
@@ -9,6 +6,9 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::metrics::MetricsCollector;
+use synapse_common::*;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -184,7 +184,8 @@ impl AdminRegistrationService {
             return Err(ApiError::internal("Shared secret is not configured".to_string()));
         }
 
-        let provided = synapse_common::crypto::decode_hex(&request.mac).map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
+        let provided = synapse_common::crypto::decode_hex(&request.mac)
+            .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
 
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
             .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;

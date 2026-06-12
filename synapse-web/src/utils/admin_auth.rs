@@ -1,6 +1,3 @@
-use synapse_common::config::SecurityConfig;
-use synapse_common::ApiError;
-use synapse_storage::{CreateAuditEventRequest, User};
 use crate::routes::AppState;
 use crate::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
@@ -8,6 +5,9 @@ use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_common::config::SecurityConfig;
+use synapse_common::ApiError;
+use synapse_storage::{CreateAuditEventRequest, User};
 
 type HmacSha1 = Hmac<Sha1>;
 

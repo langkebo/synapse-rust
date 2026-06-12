@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
 use crate::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
 use serde_json::{json, Value};
+use synapse_common::ApiError;
 
 pub fn create_cleanup_router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -36,7 +36,9 @@ pub async fn cleanup_all(
 
     // 1. Cleanup rooms and orphans
     let room_results = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .cleanup_abnormal_data(min_age_ms)
         .await
         .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;
@@ -70,7 +72,9 @@ pub async fn cleanup_all(
     token_results.insert("qr_transactions_deleted".to_string(), json!(qr_txns));
 
     let email_tokens = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Email token cleanup failed", &e))?;
@@ -89,7 +93,9 @@ pub async fn cleanup_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
     let results = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .cleanup_abnormal_data(min_age_ms)
         .await
         .map_err(|e| ApiError::internal_with_log("Room cleanup failed", &e))?;

@@ -1,10 +1,6 @@
 // OIDC (OpenID Connect) 路由
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
-use synapse_common::error::ApiError;
-#[cfg(feature = "builtin-oidc")]
-use synapse_services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
-use synapse_services::oidc_service::OidcService;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Query, State},
@@ -16,6 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_common::error::ApiError;
+#[cfg(feature = "builtin-oidc")]
+use synapse_services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
+use synapse_services::oidc_service::OidcService;
 use validator::Validate;
 
 const OIDC_AUTH_SESSION_TTL_SECONDS: u64 = 600;
@@ -462,8 +462,12 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service =
-        state.services.sso.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcTokenRequest { grant_type, code, redirect_uri, refresh_token, scope, code_verifier, .. } = body;
 
@@ -668,8 +672,12 @@ async fn oidc_authorize(
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service =
-        state.services.sso.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
         query.0;
@@ -859,8 +867,12 @@ async fn oidc_callback(
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service =
-        state.services.sso.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcCallbackRequest { code, state: callback_state, error, error_description } = query.0;
 
@@ -881,15 +893,14 @@ async fn oidc_callback(
     validate_state_pkce_binding(&auth_session)?;
 
     // 获取配置的回调 URL
-    let callback_url = if auth_session.redirect_uri.is_empty() {
-        oidc_service
-            .get_config()
-            .callback_url
-            .clone()
-            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name))
-    } else {
-        auth_session.redirect_uri.clone()
-    };
+    let callback_url =
+        if auth_session.redirect_uri.is_empty() {
+            oidc_service.get_config().callback_url.clone().unwrap_or_else(|| {
+                format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name)
+            })
+        } else {
+            auth_session.redirect_uri.clone()
+        };
 
     // 兑换令牌
     let token_response = oidc_service
@@ -952,7 +963,13 @@ async fn oidc_callback(
         // Get displayname from OIDC user info
         let displayname = oidc_user.displayname.as_deref();
 
-        match state.services.core.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
+        match state
+            .services
+            .core
+            .auth_service
+            .register(&oidc_user.localpart, &random_password, false, displayname)
+            .await
+        {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)

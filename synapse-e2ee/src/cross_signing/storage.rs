@@ -1,8 +1,8 @@
 use super::models::*;
-use synapse_common::ApiError;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 /// Internal row struct for `cross_signing_keys` (BIGINT added_ts maps to
 /// DateTime<Utc> in the public model via helper).
@@ -32,15 +32,10 @@ impl CrossSigningKeyRow {
             .as_ref()
             .and_then(|j| j.get("usage"))
             .and_then(|u| u.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
             .unwrap_or_default();
 
-        let added_ts_dt =
-            chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
+        let added_ts_dt = chrono::DateTime::from_timestamp_millis(self.added_ts).unwrap_or_default();
 
         CrossSigningKey {
             id: uuid::Uuid::new_v4(),
@@ -78,8 +73,7 @@ impl DeviceSignatureRow {
             target_device_id: self.target_device_id,
             target_key_id: self.algorithm,
             signature: self.signature,
-            created_ts: chrono::DateTime::from_timestamp_millis(self.created_ts)
-                .unwrap_or_default(),
+            created_ts: chrono::DateTime::from_timestamp_millis(self.created_ts).unwrap_or_default(),
         }
     }
 }
@@ -152,10 +146,7 @@ impl CrossSigningStorage {
         Ok(row.map(CrossSigningKeyRow::into_key))
     }
 
-    pub async fn get_cross_signing_keys(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<CrossSigningKey>, ApiError> {
+    pub async fn get_cross_signing_keys(&self, user_id: &str) -> Result<Vec<CrossSigningKey>, ApiError> {
         let rows: Vec<CrossSigningKeyRow> = sqlx::query_as::<_, CrossSigningKeyRow>(
             r"
             SELECT
@@ -259,10 +250,7 @@ impl CrossSigningStorage {
 
     pub async fn update_cross_signing_key(&self, key: &CrossSigningKey) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_json_str = key
-            .key_json
-            .as_ref()
-            .map_or_else(|| key.public_key.clone(), |v| v.to_string());
+        let key_json_str = key.key_json.as_ref().map_or_else(|| key.public_key.clone(), |v| v.to_string());
 
         sqlx::query(
             r"
@@ -287,11 +275,7 @@ impl CrossSigningStorage {
 
     pub async fn save_device_key(&self, key: &DeviceKeyInfo) -> Result<(), ApiError> {
         let added_ts = chrono::Utc::now().timestamp_millis();
-        let key_id = format!(
-            "{}:{}",
-            key.algorithm,
-            key.public_key.split(':').next().unwrap_or(&key.public_key)
-        );
+        let key_id = format!("{}:{}", key.algorithm, key.public_key.split(':').next().unwrap_or(&key.public_key));
 
         sqlx::query(
             r"
@@ -607,12 +591,7 @@ mod tests {
 
     #[test]
     fn test_cross_signing_key_usage_values() {
-        let usages = vec![
-            vec!["master"],
-            vec!["self_signing"],
-            vec!["user_signing"],
-            vec!["master", "self_signing"],
-        ];
+        let usages = vec![vec!["master"], vec!["self_signing"], vec!["user_signing"], vec!["master", "self_signing"]];
 
         for usage in usages {
             let key = CrossSigningKey {

@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::services::registration_token_service::decode_registration_token_cursor;
+use crate::storage::registration_token::decode_registration_token_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -146,24 +146,17 @@ pub async fn get_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state
-        .services
-        .admin
-        .admin_token_service
-        .get_registration_token(&token)
-        .await?;
+    let result = state.services.admin.admin_token_service.get_registration_token(&token).await?;
 
     match result {
-        Some(row) => {
-            Ok(Json(json!({
-                "token": &row.token,
-                "uses_allowed": if row.max_uses == 0 { None } else { Some(row.max_uses) },
-                "pending": 0,
-                "completed": row.uses_count,
-                "expiry_time": row.expires_at,
-                "created_ts": row.created_ts
-            })))
-        }
+        Some(row) => Ok(Json(json!({
+            "token": &row.token,
+            "uses_allowed": if row.max_uses == 0 { None } else { Some(row.max_uses) },
+            "pending": 0,
+            "completed": row.uses_count,
+            "expiry_time": row.expires_at,
+            "created_ts": row.created_ts
+        }))),
         None => Err(ApiError::not_found("Token not found".to_string())),
     }
 }
@@ -174,12 +167,7 @@ pub async fn delete_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .admin
-        .admin_token_service
-        .delete_registration_token(&token)
-        .await?;
+    state.services.admin.admin_token_service.delete_registration_token(&token).await?;
 
     Ok(Json(json!({})))
 }
@@ -216,12 +204,7 @@ pub async fn get_user_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = state
-        .services
-        .admin
-        .admin_token_service
-        .get_user_access_tokens(&user_id)
-        .await?;
+    let tokens = state.services.admin.admin_token_service.get_user_access_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -247,12 +230,7 @@ pub async fn delete_user_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state
-        .services
-        .admin
-        .admin_token_service
-        .delete_user_access_token(&user_id, token_id)
-        .await?;
+    state.services.admin.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -265,12 +243,7 @@ pub async fn get_user_refresh_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = state
-        .services
-        .admin
-        .admin_token_service
-        .get_user_refresh_tokens(&user_id)
-        .await?;
+    let tokens = state.services.admin.admin_token_service.get_user_refresh_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -296,12 +269,7 @@ pub async fn delete_refresh_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state
-        .services
-        .admin
-        .admin_token_service
-        .delete_refresh_token(&user_id, token_id)
-        .await?;
+    state.services.admin.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }

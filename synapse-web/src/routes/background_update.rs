@@ -7,12 +7,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::routes::AdminUser;
+use crate::routes::AppState;
 use synapse_common::ApiError;
 use synapse_storage::background_update::{
     BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateStats, CreateBackgroundUpdateRequest,
 };
-use crate::routes::AdminUser;
-use crate::routes::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
@@ -167,7 +167,9 @@ pub async fn get_update(
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state
-        .services.admin.background_update_service
+        .services
+        .admin
+        .background_update_service
         .get_update(&job_name)
         .await?
         .ok_or_else(|| ApiError::not_found("Update not found"))?;
@@ -182,7 +184,8 @@ pub async fn get_all_updates(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (updates, next_batch) = state.services.admin.background_update_service.get_all_updates(limit, query.from).await?;
+    let (updates, next_batch) =
+        state.services.admin.background_update_service.get_all_updates(limit, query.from).await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -231,7 +234,9 @@ pub async fn update_progress(
     Json(body): Json<UpdateProgressBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let update = state
-        .services.admin.background_update_service
+        .services
+        .admin
+        .background_update_service
         .update_progress(&job_name, body.items_processed, body.total_items)
         .await?;
 

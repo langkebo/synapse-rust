@@ -1,6 +1,6 @@
 use super::AuthService;
-use synapse_common::*;
 use chrono::Utc;
+use synapse_common::*;
 
 impl AuthService {
     pub async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {

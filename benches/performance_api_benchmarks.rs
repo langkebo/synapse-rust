@@ -46,11 +46,8 @@ fn server_required(rt: &Runtime, base_url: &str) -> bool {
     // server is up. This keeps CI honest — a missing server
     // makes the bench session fail fast instead of silently
     // running zero-work iter loops.
-    let probe = rt.block_on(async {
-        reqwest::get(format!("{base_url}/_matrix/client/versions"))
-            .await
-            .map(|r| r.status())
-    });
+    let probe =
+        rt.block_on(async { reqwest::get(format!("{base_url}/_matrix/client/versions")).await.map(|r| r.status()) });
     match probe {
         Ok(status) if status.is_success() => true,
         Ok(status) => {
