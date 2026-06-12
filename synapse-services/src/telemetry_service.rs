@@ -1,6 +1,3 @@
-use synapse_common::error::ApiError;
-use synapse_common::telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
-use synapse_storage::{DatabaseHealthStatus, DatabaseMonitor};
 use opentelemetry::{global, KeyValue};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
@@ -12,6 +9,9 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use synapse_common::error::ApiError;
+use synapse_common::telemetry_config::{OpenTelemetryConfig, PrometheusConfig};
+use synapse_storage::{DatabaseHealthStatus, DatabaseMonitor};
 use tracing::info;
 
 pub struct TelemetryService {

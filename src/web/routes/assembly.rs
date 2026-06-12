@@ -396,8 +396,12 @@ async fn post_dehydrated_device_events(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
-    let response =
-        state.services.e2ee.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, 100).await?;
+    let response = state
+        .services
+        .e2ee
+        .dehydrated_device_service
+        .claim_events(&auth_user.user_id, &device_id, next_batch, 100)
+        .await?;
     Ok(Json(response))
 }
 
@@ -477,11 +481,8 @@ async fn load_extended_profile_document(
     state: &AppState,
     user_id: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
-    let Some(content) = state
-        .services
-        .account_data_service
-        .get_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE)
-        .await?
+    let Some(content) =
+        state.services.account_data_service.get_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE).await?
     else {
         return Ok(serde_json::Map::new());
     };
@@ -498,11 +499,7 @@ async fn save_extended_profile_document(
     document: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), ApiError> {
     let content = serde_json::Value::Object(document.clone());
-    state
-        .services
-        .account_data_service
-        .set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content)
-        .await
+    state.services.account_data_service.set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content).await
 }
 
 async fn get_extended_profile(

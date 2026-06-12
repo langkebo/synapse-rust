@@ -8,11 +8,11 @@
 //! When the service is not configured (`enabled = false` or missing `api_key`),
 //! it falls back to returning the original text (passthrough mode).
 
-use synapse_common::config::TranslateConfig;
 use moka::future::Cache;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use synapse_common::config::TranslateConfig;
 
 // ============================================================================
 // Types

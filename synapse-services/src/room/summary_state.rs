@@ -148,15 +148,14 @@ impl RoomSummaryService {
 
         for state in states {
             let event_type_str = state.event_type.as_deref().unwrap_or("");
-            self
-                .update_state(
-                    room_id,
-                    event_type_str,
-                    state.state_key.as_deref().unwrap_or(""),
-                    Some(&state.event_id),
-                    state.content.clone(),
-                )
-                .await?;
+            self.update_state(
+                room_id,
+                event_type_str,
+                state.state_key.as_deref().unwrap_or(""),
+                Some(&state.event_id),
+                state.content.clone(),
+            )
+            .await?;
         }
 
         if let Some(member_storage) = self.member_storage.as_ref() {

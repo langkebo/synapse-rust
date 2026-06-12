@@ -216,12 +216,18 @@ impl ServerMetrics {
                 "megolm_session_key_read_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
             ),
-            megolm_vodozemac_pickle_persist_total: collector.register_counter("megolm_vodozemac_pickle_persist_total".to_string()),
-            megolm_vodozemac_pickle_persist_errors_total: collector.register_counter("megolm_vodozemac_pickle_persist_errors_total".to_string()),
-            megolm_dual_write_promotions_total: collector.register_counter("megolm_dual_write_promotions_total".to_string()),
-            megolm_dual_write_promotion_errors_total: collector.register_counter("megolm_dual_write_promotion_errors_total".to_string()),
-            megolm_lazy_migration_sessions_scanned_total: collector.register_counter("megolm_lazy_migration_sessions_scanned_total".to_string()),
-            megolm_lazy_migration_sessions_promoted_total: collector.register_counter("megolm_lazy_migration_sessions_promoted_total".to_string()),
+            megolm_vodozemac_pickle_persist_total: collector
+                .register_counter("megolm_vodozemac_pickle_persist_total".to_string()),
+            megolm_vodozemac_pickle_persist_errors_total: collector
+                .register_counter("megolm_vodozemac_pickle_persist_errors_total".to_string()),
+            megolm_dual_write_promotions_total: collector
+                .register_counter("megolm_dual_write_promotions_total".to_string()),
+            megolm_dual_write_promotion_errors_total: collector
+                .register_counter("megolm_dual_write_promotion_errors_total".to_string()),
+            megolm_lazy_migration_sessions_scanned_total: collector
+                .register_counter("megolm_lazy_migration_sessions_scanned_total".to_string()),
+            megolm_lazy_migration_sessions_promoted_total: collector
+                .register_counter("megolm_lazy_migration_sessions_promoted_total".to_string()),
             megolm_pickle_persist_duration_ms: collector.register_histogram_with_labels(
                 "megolm_pickle_persist_duration_ms".to_string(),
                 Self::labels(&[("unit", "ms")]),
@@ -364,13 +370,7 @@ impl ServerMetrics {
     /// is the best-effort cache write latency. `success` indicates whether
     /// the database write succeeded (cache failures are recorded separately
     /// via `record_megolm_share_cache_error`).
-    pub fn record_megolm_share(
-        &self,
-        recipients: usize,
-        db_duration_ms: f64,
-        cache_duration_ms: f64,
-        success: bool,
-    ) {
+    pub fn record_megolm_share(&self, recipients: usize, db_duration_ms: f64, cache_duration_ms: f64, success: bool) {
         self.megolm_share_total.inc();
         if success {
             self.megolm_share_recipients_total.inc_by(recipients as u64);

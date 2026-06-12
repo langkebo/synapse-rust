@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use synapse_common::error::ApiError;
 use tracing::{debug, error, info};
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,7 +122,6 @@ impl PushGateway {
             response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse gateway response", &e))?;
 
         debug!(rejected = gateway_response.rejected.len(), "Push gateway response");
-
 
         Ok(gateway_response)
     }

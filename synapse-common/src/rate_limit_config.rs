@@ -390,10 +390,7 @@ impl From<RateLimitConfigFile> for RateLimitConfigAdapter {
                         RateLimitMatchType::Exact => crate::config::RateLimitMatchType::Exact,
                         RateLimitMatchType::Prefix => crate::config::RateLimitMatchType::Prefix,
                     },
-                    rule: crate::config::RateLimitRule {
-                        per_second: e.rule.per_second,
-                        burst_size: e.rule.burst_size,
-                    },
+                    rule: crate::config::RateLimitRule { per_second: e.rule.per_second, burst_size: e.rule.burst_size },
                 })
                 .collect(),
             ip_header_priority: config.ip_header_priority,

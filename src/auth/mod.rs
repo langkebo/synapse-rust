@@ -66,8 +66,9 @@ impl AuthService {
         access_token_lifetime: i64,
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
+        let user_storage_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
         Self {
-            user_storage: UserStorage::new(pool, cache.clone()),
+            user_storage: UserStorage::new(pool, user_storage_cache),
             device_storage: DeviceStorage::new(pool),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: RefreshTokenStorage::new(pool),

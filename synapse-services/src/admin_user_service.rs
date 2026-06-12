@@ -155,11 +155,8 @@ impl AdminUserService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        let total = self
-            .user_storage
-            .get_user_count()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total =
+            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let users = rows
             .iter()
@@ -177,10 +174,7 @@ impl AdminUserService {
 
         let next_token = if rows.len() as i64 == limit {
             rows.last().map(|row| {
-                encode_user_cursor(&AdminUserCursor {
-                    created_ts: row.created_ts,
-                    user_id: row.user_id.clone(),
-                })
+                encode_user_cursor(&AdminUserCursor { created_ts: row.created_ts, user_id: row.user_id.clone() })
             })
         } else {
             None
@@ -296,11 +290,8 @@ impl AdminUserService {
         } else {
             format!("@{}:{}", identifier, self.server_name)
         };
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|value| value.split(':').next())
-            .unwrap_or(identifier)
-            .to_owned();
+        let username =
+            user_id.strip_prefix('@').and_then(|value| value.split(':').next()).unwrap_or(identifier).to_owned();
         let password_hash = if let Some(password) = password {
             hash_password(password).map_err(|e| ApiError::internal_with_log("Password hashing failed", &e))?
         } else {
@@ -374,11 +365,8 @@ impl AdminUserService {
         let admin_users = stats.get::<i64, _>("admin_users");
         let deactivated_users = stats.get::<i64, _>("deactivated_users");
         let guest_users = stats.get::<i64, _>("guest_users");
-        let average_rooms_per_user = if total_users > 0 {
-            (room_count as f64 / total_users as f64).round()
-        } else {
-            0.0
-        };
+        let average_rooms_per_user =
+            if total_users > 0 { (room_count as f64 / total_users as f64).round() } else { 0.0 };
 
         Ok(AdminUserStats {
             total_users,
@@ -420,12 +408,7 @@ impl AdminUserService {
             .filter_map(|device| device.last_seen_ts)
             .max();
 
-        Ok(AdminSingleUserStats {
-            user,
-            rooms_joined,
-            messages_sent,
-            last_seen_ts,
-        })
+        Ok(AdminSingleUserStats { user, rooms_joined, messages_sent, last_seen_ts })
     }
 
     #[instrument(skip(self))]
@@ -441,11 +424,7 @@ impl AdminUserService {
                 hash_password(password).map_err(|e| ApiError::internal_with_log("Failed to hash password", &e))?;
             let full_user_id = format!("@{}:{}", username, self.server_name);
 
-            match self
-                .user_storage
-                .create_user(&full_user_id, username, Some(&password_hash), *is_admin)
-                .await
-            {
+            match self.user_storage.create_user(&full_user_id, username, Some(&password_hash), *is_admin).await {
                 Ok(created) => {
                     if let Some(displayname) = displayname.as_deref() {
                         self.user_storage
@@ -531,10 +510,7 @@ mod cursor_tests {
         });
         assert_eq!(
             decode_user_cursor(Some(&cursor)),
-            Some(AdminUserCursor {
-                created_ts: 1_700_000_000_000,
-                user_id: "@alice:example.com".to_string(),
-            }),
+            Some(AdminUserCursor { created_ts: 1_700_000_000_000, user_id: "@alice:example.com".to_string() }),
         );
     }
 

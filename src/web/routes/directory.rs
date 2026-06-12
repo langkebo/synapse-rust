@@ -43,7 +43,9 @@ async fn ensure_room_alias_write_allowed(
     ensure_room_member(state, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
 
     let is_creator = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -186,14 +188,18 @@ pub async fn get_public_rooms_handler(
     let (rooms, total) = tokio::try_join!(
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .count_public_rooms()
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
@@ -249,14 +255,18 @@ pub async fn search_public_rooms(
     let (rooms, total) = tokio::try_join!(
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .count_public_rooms()
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))

@@ -98,12 +98,7 @@ async fn set_presence_backoff(state: &AppState, origin: &str) {
 // Per-type processing functions
 // ---------------------------------------------------------------------------
 
-async fn handle_presence_edu(
-    state: &AppState,
-    origin: &str,
-    edu: &Value,
-    remaining: usize,
-) -> EduProcessResult {
+async fn handle_presence_edu(state: &AppState, origin: &str, edu: &Value, remaining: usize) -> EduProcessResult {
     let Some(push) = edu.get("content").and_then(|c| c.get("push")).and_then(|v| v.as_array()) else {
         increment_counter(state, "federation_inbound_presence_dropped_total");
         return EduProcessResult::default();
@@ -123,8 +118,8 @@ async fn handle_presence_edu(
         }
 
         let presence_str = update.get("presence").and_then(|v| v.as_str()).unwrap_or("online");
-        let presence = crate::common::PresenceState::from_str_opt(presence_str)
-            .unwrap_or(crate::common::PresenceState::Online);
+        let presence =
+            crate::common::PresenceState::from_str_opt(presence_str).unwrap_or(crate::common::PresenceState::Online);
         let status_msg = update.get("status_msg").and_then(|v| v.as_str());
 
         let exists = match state.services.account.user_storage.user_exists(user_id).await {
@@ -142,7 +137,9 @@ async fn handle_presence_edu(
             continue;
         }
 
-        if let Err(error) = state.services.account.presence_storage.set_presence(user_id, presence, status_msg).await {
+        if let Err(error) =
+            state.services.account.presence_storage.set_presence(user_id, presence.as_str(), status_msg).await
+        {
             ::tracing::warn!("Failed to persist presence update for {} from {}: {}", user_id, origin, error);
             result.errored += 1;
             set_presence_backoff(state, origin).await;
@@ -165,12 +162,7 @@ async fn handle_presence_edu(
     result
 }
 
-async fn handle_typing_edu(
-    state: &AppState,
-    origin: &str,
-    edu: &Value,
-    _remaining: usize,
-) -> EduProcessResult {
+async fn handle_typing_edu(state: &AppState, origin: &str, edu: &Value, _remaining: usize) -> EduProcessResult {
     let room_id = match edu.get("room_id").and_then(|v| v.as_str()) {
         Some(r) => r,
         None => {
@@ -201,13 +193,7 @@ async fn handle_typing_edu(
         match state.services.account.presence_storage.set_typing(room_id, user_id, true).await {
             Ok(()) => result.processed += 1,
             Err(e) => {
-                ::tracing::warn!(
-                    "Failed to persist typing EDU for {} in {} from {}: {}",
-                    user_id,
-                    room_id,
-                    origin,
-                    e
-                );
+                ::tracing::warn!("Failed to persist typing EDU for {} in {} from {}: {}", user_id, room_id, origin, e);
                 result.errored += 1;
             }
         }
@@ -243,11 +229,7 @@ async fn handle_device_list_update_edu(
     };
 
     if !user_matches_origin(user_id, origin) {
-        ::tracing::debug!(
-            "Dropping m.device_list_update EDU: user_id {} does not match origin {}",
-            user_id,
-            origin
-        );
+        ::tracing::debug!("Dropping m.device_list_update EDU: user_id {} does not match origin {}", user_id, origin);
         return EduProcessResult { dropped: 1, ..Default::default() };
     }
 
@@ -255,16 +237,11 @@ async fn handle_device_list_update_edu(
 
     // Record the change in the device_lists_changes stream so that local
     // clients can pick it up via /keys/changes or /sync.
-    let stream_id = content
-        .get("stream_id")
-        .and_then(|v| v.as_i64())
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let stream_id =
+        content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    let change_type = if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) {
-        "deleted"
-    } else {
-        "updated"
-    };
+    let change_type =
+        if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
 
     let pool = &*state.services.device_storage.pool;
     let result = sqlx::query!(
@@ -290,23 +267,12 @@ async fn handle_device_list_update_edu(
                 origin
             );
             increment_counter(state, "federation_inbound_device_list_update_processed_total");
-            EduProcessResult {
-                processed: 1,
-                ..Default::default()
-            }
+            EduProcessResult { processed: 1, ..Default::default() }
         }
         Err(e) => {
-            ::tracing::warn!(
-                "Failed to persist m.device_list_update EDU for {} from {}: {}",
-                user_id,
-                origin,
-                e
-            );
+            ::tracing::warn!("Failed to persist m.device_list_update EDU for {} from {}: {}", user_id, origin, e);
             increment_counter(state, "federation_inbound_device_list_update_error_total");
-            EduProcessResult {
-                errored: 1,
-                ..Default::default()
-            }
+            EduProcessResult { errored: 1, ..Default::default() }
         }
     }
 }
@@ -322,12 +288,7 @@ impl EduDispatcher {
     ///
     /// Returns `None` if no handler matches the EDU type (i.e. the EDU type
     /// is unknown or unsupported). Returns `Some(result)` otherwise.
-    pub async fn dispatch(
-        state: &AppState,
-        origin: &str,
-        edu: &Value,
-        remaining: usize,
-    ) -> Option<EduProcessResult> {
+    pub async fn dispatch(state: &AppState, origin: &str, edu: &Value, remaining: usize) -> Option<EduProcessResult> {
         let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
         let edu_type = EduType::from_str(edu_type_str).ok()?;
 

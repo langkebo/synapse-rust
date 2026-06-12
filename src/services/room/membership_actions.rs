@@ -28,19 +28,15 @@ impl RoomService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let state_events_res = self
-            .event_storage
-            .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await;
-        
+        let state_events_res = self.event_storage.get_state_events_by_type(room_id, "m.room.join_rules").await;
+
         let state_events = match state_events_res {
             Ok(events) => events,
             Err(e) => return Err(ApiError::internal_with_log("Failed to load room join rules", &e)),
         };
 
-        let effective_join_rule = if let Some(event) = state_events
-            .into_iter()
-            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        let effective_join_rule = if let Some(event) =
+            state_events.into_iter().find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
             event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
         } else {
@@ -90,22 +86,21 @@ impl RoomService {
 
         // Persist the m.room.member state event so /sync delivers the membership
         // change and the client knows it has actually joined.
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "join",
-                        "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
-                    }),
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: json!({
+                    "membership": "join",
+                    "displayname": user_id.trim_start_matches('@').split(':').next().unwrap_or(user_id),
+                }),
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
 
@@ -125,19 +120,18 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to update member count", &e))?;
 
         // Persist the m.room.member leave event for /sync.
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content: json!({ "membership": "leave" }),
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: json!({ "membership": "leave" }),
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
 

@@ -1,4 +1,3 @@
-use synapse_common::error::ApiError;
 #[cfg(feature = "voip-tracking")]
 use crate::routes::response_helpers::empty_json;
 #[cfg(feature = "voip-tracking")]
@@ -8,6 +7,7 @@ use crate::routes::{AppState, AuthenticatedUser};
 use axum::extract::Path;
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnServerResponse {
@@ -166,14 +166,21 @@ pub async fn call_invite(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session =
-        state.services.extensions.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
+    let _session = state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_invite(&room_id, &auth_user.user_id, content.clone())
+        .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -220,14 +227,21 @@ pub async fn call_answer(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session =
-        state.services.extensions.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
+    let _session = state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_answer(&room_id, &auth_user.user_id, content.clone())
+        .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),

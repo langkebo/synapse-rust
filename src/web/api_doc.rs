@@ -503,9 +503,7 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
 
     let openapi = ApiDoc::openapi();
 
-    axum::Router::new()
-        .merge(SwaggerUi::new("/_swagger").url("/_api-doc/openapi.json", openapi))
-        .with_state(_state)
+    axum::Router::new().merge(SwaggerUi::new("/_swagger").url("/_api-doc/openapi.json", openapi)).with_state(_state)
 }
 
 /// Stub for when `openapi-docs` is not enabled.

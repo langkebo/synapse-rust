@@ -367,8 +367,7 @@ async fn test_get_relations_filtered_by_type() {
     };
     service.send_reference(reference_req).await.unwrap();
 
-    let response =
-        service.get_relations(&room_id, &relates_to, Some("m.annotation"), None, None, None).await.unwrap();
+    let response = service.get_relations(&room_id, &relates_to, Some("m.annotation"), None, None, None).await.unwrap();
 
     assert_eq!(response.chunk.len(), 1);
     assert_eq!(response.total, Some(1));
@@ -720,8 +719,7 @@ async fn test_get_relations_backward_direction() {
         service.send_annotation(request).await.unwrap();
     }
 
-    let response =
-        service.get_relations(&room_id, &relates_to, None, None, None, Some("b".to_string())).await.unwrap();
+    let response = service.get_relations(&room_id, &relates_to, None, None, None, Some("b".to_string())).await.unwrap();
 
     assert_eq!(response.chunk.len(), 3);
 }

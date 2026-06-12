@@ -12,12 +12,12 @@ pub(crate) use members::*;
 pub(crate) use receipts::*;
 pub(crate) use state::*;
 
-use synapse_common::{parse_stream_token, ApiError};
-use synapse_common::map_internal;
-use synapse_storage::event::EventStorage;
-use synapse_storage::event::RoomEvent;
 use crate::routes::{ensure_room_member, ensure_room_member_strict, AppState, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
+use synapse_common::map_internal;
+use synapse_common::{parse_stream_token, ApiError};
+use synapse_storage::event::EventStorage;
+use synapse_storage::event::RoomEvent;
 
 fn parse_room_messages_from_token(params: &serde_json::Value) -> i64 {
     params

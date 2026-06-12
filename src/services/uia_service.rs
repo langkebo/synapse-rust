@@ -594,9 +594,7 @@ mod tests {
             user_id: "@test:server".into(),
             completed: vec![],
             created_ts: 0,
-            flows: vec![
-                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
-            ],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] }],
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let svc = UiaService::new(cache, 300);
@@ -610,9 +608,7 @@ mod tests {
             user_id: "@test:server".into(),
             completed: vec!["m.login.password".into()],
             created_ts: 0,
-            flows: vec![
-                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
-            ],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] }],
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let svc = UiaService::new(cache, 300);
@@ -662,9 +658,7 @@ mod tests {
             user_id: "@test:server".into(),
             completed: vec!["m.login.password".into()],
             created_ts: 1000,
-            flows: vec![
-                UiaFlow { stages: vec!["m.login.password".into()] },
-            ],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into()] }],
         };
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let svc = UiaService::new(cache, 300);
@@ -704,9 +698,7 @@ mod tests {
             user_id: "@user:matrix.org".into(),
             completed: vec!["m.login.password".into()],
             created_ts: 1700000000000,
-            flows: vec![
-                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
-            ],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] }],
         };
         let json = serde_json::to_string(&session).unwrap();
         let decoded: UiaSession = serde_json::from_str(&json).unwrap();

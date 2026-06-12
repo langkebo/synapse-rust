@@ -74,8 +74,12 @@ pub async fn update_feature_flag(
     Json(body): Json<UpdateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
-    let flag =
-        state.services.admin.feature_flag_service.update_flag(&admin_user.user_id, &request_id, &flag_key, body).await?;
+    let flag = state
+        .services
+        .admin
+        .feature_flag_service
+        .update_flag(&admin_user.user_id, &request_id, &flag_key, body)
+        .await?;
     Ok(Json(flag))
 }
 

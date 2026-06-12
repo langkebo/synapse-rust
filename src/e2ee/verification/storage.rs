@@ -65,10 +65,12 @@ impl VerificationStorage {
         )
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get verification request: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get verification request: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        if let Some(r) = row
-        {
+        if let Some(r) = row {
             Ok(Some(VerificationRequest {
                 transaction_id: r.transaction_id,
                 from_user: r.from_user,
@@ -88,17 +90,18 @@ impl VerificationStorage {
     /// Update verification state
     pub async fn update_state(&self, transaction_id: &str, state: VerificationState) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!("UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3",
+        sqlx::query!(
+            "UPDATE verification_requests SET state = $1, updated_ts = $2 WHERE transaction_id = $3",
             serialize_state(&state),
             now,
             transaction_id,
         )
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to update verification state: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update verification state: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         Ok(())
     }
@@ -186,18 +189,16 @@ impl VerificationStorage {
 
         Ok(rows
             .into_iter()
-            .map(|r| {
-                VerificationRequest {
-                    transaction_id: r.transaction_id,
-                    from_user: r.from_user,
-                    from_device: r.from_device,
-                    to_user: r.to_user,
-                    to_device: r.to_device,
-                    method: parse_method(&r.method),
-                    state: parse_state(&r.state),
-                    created_ts: r.created_ts,
-                    updated_ts: r.updated_ts,
-                }
+            .map(|r| VerificationRequest {
+                transaction_id: r.transaction_id,
+                from_user: r.from_user,
+                from_device: r.from_device,
+                to_user: r.to_user,
+                to_device: r.to_device,
+                method: parse_method(&r.method),
+                state: parse_state(&r.state),
+                created_ts: r.created_ts,
+                updated_ts: r.updated_ts,
             })
             .collect())
     }
@@ -222,10 +223,12 @@ impl VerificationStorage {
         )
         .fetch_optional(&*self.pool)
         .await
-        .map_err(|e| { tracing::error!("Failed to get SAS state: {e}"); ApiError::database("A database error occurred".to_string()) })?;
+        .map_err(|e| {
+            tracing::error!("Failed to get SAS state: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
-        if let Some(r) = row
-        {
+        if let Some(r) = row {
             Ok(Some(SasState {
                 tx_id: r.tx_id,
                 from_device: r.from_device,
@@ -244,9 +247,7 @@ impl VerificationStorage {
     }
 
     pub async fn delete_request(&self, transaction_id: &str) -> Result<(), ApiError> {
-        sqlx::query!("DELETE FROM verification_requests WHERE transaction_id = $1",
-            transaction_id,
-        )
+        sqlx::query!("DELETE FROM verification_requests WHERE transaction_id = $1", transaction_id,)
             .execute(&*self.pool)
             .await
             .map_err(|e| {

@@ -1,5 +1,3 @@
-use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use synapse_common::ApiError;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -8,6 +6,8 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
+use synapse_common::ApiError;
 
 pub fn create_report_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -147,7 +147,9 @@ pub async fn get_room_reports(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -213,7 +215,9 @@ pub async fn get_room_report(
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

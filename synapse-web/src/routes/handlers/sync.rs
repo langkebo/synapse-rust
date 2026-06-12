@@ -1,5 +1,3 @@
-use synapse_common::ApiError;
-use synapse_services::sync_service::SyncServiceRequest;
 use crate::routes::{extract_token_from_headers, AppState};
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -7,6 +5,8 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::Value;
+use synapse_common::ApiError;
+use synapse_services::sync_service::SyncServiceRequest;
 
 struct SyncParams<'a> {
     state: AppState,
@@ -87,7 +87,18 @@ pub(crate) async fn sync(
         }
     }
 
-    execute_sync(SyncParams { state, user_id, device_id, timeout, is_full_state, request_id, set_presence, filter, since }).await
+    execute_sync(SyncParams {
+        state,
+        user_id,
+        device_id,
+        timeout,
+        is_full_state,
+        request_id,
+        set_presence,
+        filter,
+        since,
+    })
+    .await
 }
 
 async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {

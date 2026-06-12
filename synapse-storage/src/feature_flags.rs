@@ -1,8 +1,8 @@
-use synapse_cache::{CacheManager, InvalidationType};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_cache::{CacheManager, InvalidationType};
 
 const FEATURE_FLAG_CACHE_TTL_SECS: u64 = 60;
 const FEATURE_FLAG_LIST_CACHE_TTL_SECS: u64 = 30;

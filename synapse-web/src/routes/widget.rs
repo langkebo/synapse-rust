@@ -1,8 +1,3 @@
-use synapse_common::error::ApiError;
-use synapse_services::widget_service::{
-    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
-    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
-};
 use crate::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -11,6 +6,11 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use synapse_common::error::ApiError;
+use synapse_services::widget_service::{
+    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
+    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateWidgetBody {
@@ -131,7 +131,9 @@ async fn create_widget(
 ) -> Result<Json<WidgetResponse>, ApiError> {
     if let Some(room_id) = body.room_id.as_deref() {
         let room_exists = state
-            .services.rooms.room_storage
+            .services
+            .rooms
+            .room_storage
             .room_exists(room_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to validate room", &e))?;
@@ -362,13 +364,15 @@ async fn ensure_room_widget_manage_access(
     ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage room widgets")
         .await?;
 
-    let is_moderator = state.services.core.auth_service.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
+    let is_moderator =
+        state.services.core.auth_service.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
 
     if is_moderator {
         return Ok(());
     }
 
-    let is_creator = state.services.rooms.room_service.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
+    let is_creator =
+        state.services.rooms.room_service.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
 
     if is_creator {
         return Ok(());
@@ -383,8 +387,13 @@ async fn get_widget_with_access(
     widget_id: &str,
     required_permission: &str,
 ) -> Result<synapse_storage::widget::Widget, ApiError> {
-    let widget =
-        state.services.extensions.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.user_id == auth_user.user_id {
         return Ok(widget);
@@ -397,8 +406,12 @@ async fn get_widget_with_access(
         }
     }
 
-    let has_direct_permission =
-        state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, required_permission).await?;
+    let has_direct_permission = state
+        .services
+        .extensions
+        .widget_service
+        .check_permission(widget_id, &auth_user.user_id, required_permission)
+        .await?;
     let has_wildcard_permission =
         state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, "*").await?;
     let has_write_permission = required_permission == "read"
@@ -442,8 +455,13 @@ async fn get_room_widget_capabilities(
     )
     .await?;
 
-    let widget =
-        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
@@ -510,8 +528,13 @@ async fn send_room_widget_message(
     )
     .await?;
 
-    let widget =
-        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));

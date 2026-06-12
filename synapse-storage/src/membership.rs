@@ -1,7 +1,7 @@
-use synapse_common::crypto::generate_event_id;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_common::crypto::generate_event_id;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RoomMember {

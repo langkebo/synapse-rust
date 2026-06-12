@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::event_report::*;
-use std::sync::Arc;
 use tracing::{info, instrument};
 
 pub struct EventReportService {

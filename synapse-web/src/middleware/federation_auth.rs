@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::routes::AppState;
 use crate::utils::encoding::decode_base64_32;
 use axum::extract::State;
@@ -10,6 +9,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use synapse_common::ApiError;
 use tokio::sync::Semaphore;
 
 #[derive(Clone, Debug)]
@@ -557,11 +557,11 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_cache::{CacheConfig, CacheManager};
-    use synapse_services::ServiceContainer;
     use crate::routes::AppState;
     use ed25519_dalek::Signer;
     use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_services::ServiceContainer;
 
     #[test]
     fn test_extract_verify_key_from_server_key_response() {

@@ -46,6 +46,27 @@ pub fn decode_generation_cursor(cursor: Option<&str>) -> Option<GenerationCursor
     Some(GenerationCursor { created_ts, id })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageCursor {
+    pub created_ts: i64,
+    pub id: i64,
+}
+
+pub fn encode_message_cursor(cursor: &MessageCursor) -> String {
+    format!("{}|{}", cursor.created_ts, cursor.id)
+}
+
+pub fn decode_message_cursor(cursor: Option<&str>) -> Option<MessageCursor> {
+    let cursor = cursor?;
+    let mut parts = cursor.split('|');
+    let created_ts = parts.next()?.parse::<i64>().ok()?;
+    let id = parts.next()?.parse::<i64>().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(MessageCursor { created_ts, id })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OpenClawConnection {
     pub id: i64,
@@ -522,39 +543,52 @@ impl OpenClawStorage {
         &self,
         conversation_id: i64,
         limit: i64,
-        before: Option<i64>,
-    ) -> Result<Vec<AiMessage>, sqlx::Error> {
-        match before {
-            Some(before_id) => {
+        from: Option<MessageCursor>,
+    ) -> Result<(Vec<AiMessage>, Option<String>), sqlx::Error> {
+        let messages = match from {
+            Some(cursor) => {
                 sqlx::query_as::<_, AiMessage>(
                     r#"
-                    SELECT id, conversation_id, role, content, token_count, tool_calls, tool_call_id, metadata, created_ts FROM ai_messages
-                    WHERE conversation_id = $1 AND id < $2
-                    ORDER BY created_ts DESC
-                    LIMIT $3
+                    SELECT id, conversation_id, role, content, token_count, tool_calls, tool_call_id, metadata, created_ts
+                    FROM ai_messages
+                    WHERE conversation_id = $1 AND (created_ts, id) < ($2, $3)
+                    ORDER BY created_ts DESC, id DESC
+                    LIMIT $4
                     "#,
                 )
                 .bind(conversation_id)
-                .bind(before_id)
-                .bind(limit)
+                .bind(cursor.created_ts)
+                .bind(cursor.id)
+                .bind(limit + 1)
                 .fetch_all(&*self.db)
-                .await
+                .await?
             }
             None => {
                 sqlx::query_as::<_, AiMessage>(
                     r#"
-                    SELECT id, conversation_id, role, content, token_count, tool_calls, tool_call_id, metadata, created_ts FROM ai_messages
+                    SELECT id, conversation_id, role, content, token_count, tool_calls, tool_call_id, metadata, created_ts
+                    FROM ai_messages
                     WHERE conversation_id = $1
-                    ORDER BY created_ts DESC
+                    ORDER BY created_ts DESC, id DESC
                     LIMIT $2
                     "#,
                 )
                 .bind(conversation_id)
-                .bind(limit)
+                .bind(limit + 1)
                 .fetch_all(&*self.db)
-                .await
+                .await?
             }
-        }
+        };
+
+        let next_batch = if messages.len() > limit as usize {
+            messages.get(limit as usize).map(|message| {
+                encode_message_cursor(&MessageCursor { created_ts: message.created_ts, id: message.id })
+            })
+        } else {
+            None
+        };
+
+        Ok((messages.into_iter().take(limit as usize).collect(), next_batch))
     }
 
     pub async fn get_message(&self, id: i64) -> Result<Option<AiMessage>, sqlx::Error> {
@@ -860,8 +894,8 @@ impl OpenClawStorage {
 #[cfg(test)]
 mod cursor_tests {
     use super::{
-        decode_conversation_cursor, decode_generation_cursor, encode_conversation_cursor, encode_generation_cursor,
-        ConversationCursor, GenerationCursor,
+        decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, encode_conversation_cursor,
+        encode_generation_cursor, encode_message_cursor, ConversationCursor, GenerationCursor, MessageCursor,
     };
 
     #[test]
@@ -879,9 +913,17 @@ mod cursor_tests {
     }
 
     #[test]
+    fn message_cursor_round_trip() {
+        let cursor = MessageCursor { created_ts: 1_746_700_000_000, id: 42 };
+        let encoded = encode_message_cursor(&cursor);
+        assert_eq!(decode_message_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    #[test]
     fn openclaw_cursor_rejects_invalid_values() {
         assert_eq!(decode_conversation_cursor(Some("bad")), None);
         assert_eq!(decode_generation_cursor(Some("bad")), None);
+        assert_eq!(decode_message_cursor(Some("bad")), None);
         assert_eq!(decode_generation_cursor(Some("123|")), None);
     }
 }

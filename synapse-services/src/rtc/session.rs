@@ -1,11 +1,11 @@
 use super::metrics::RtcMetrics;
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::error::ApiError;
 use synapse_storage::matrixrtc::{
     CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
     SessionWithMemberships,
 };
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct RtcSessionService {

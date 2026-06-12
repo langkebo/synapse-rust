@@ -1,8 +1,8 @@
 //! Space membership operations: invite, join, leave, member listing.
 
+use serde_json::json;
 use synapse_common::ApiError;
 use synapse_storage::space::*;
-use serde_json::json;
 use tracing::{info, instrument, warn};
 
 use super::SpaceService;

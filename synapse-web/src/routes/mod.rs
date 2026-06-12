@@ -92,7 +92,6 @@ pub mod burn_after_read;
 #[cfg(feature = "external-services")]
 pub mod external_service;
 
-pub use synapse_common::ApiError;
 pub(crate) use account_compat::{
     add_threepid, change_password_uia, deactivate_account, delete_threepid, get_avatar_url, get_displayname,
     get_profile, get_threepids, request_3pid_add_email_verification, request_password_email_verification,
@@ -178,6 +177,7 @@ pub use saml::create_saml_router;
 pub use sliding_sync::create_sliding_sync_router;
 pub use space::create_space_router;
 pub use state::AppState;
+pub use synapse_common::ApiError;
 pub use sync::create_sync_router;
 pub use tags::create_tags_router;
 pub use telemetry::create_telemetry_router;

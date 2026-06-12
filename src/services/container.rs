@@ -1,13 +1,13 @@
 use crate::auth::*;
 use crate::cache::*;
 use crate::common::config::Config;
-use synapse_common::metrics::MetricsCollector;
-use synapse_common::server_metrics::ServerMetrics;
 #[cfg(any(test, feature = "test-utils"))]
 use crate::common::config::{
     AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig, RedisConfig, SearchConfig,
     SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
+use synapse_common::metrics::MetricsCollector;
+use synapse_common::server_metrics::ServerMetrics;
 
 const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 #[cfg(any(test, feature = "test-utils"))]
@@ -28,7 +28,6 @@ use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, Key
 #[cfg(feature = "burn-after-read")]
 use crate::services::burn_after_read_service::BurnAfterReadService;
 use crate::storage::email_verification::EmailVerificationStorage;
-pub use crate::storage::PresenceStorage;
 use crate::storage::*;
 use std::sync::Arc;
 use std::{env, path::Path};
@@ -328,6 +327,7 @@ fn assemble_room_and_sync(
     metrics: &Arc<MetricsCollector>,
 ) -> RoomSyncServices {
     let server_name_for_storage = config.server.get_server_name().to_string();
+    let canonical_user_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
     let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
     let room_storage = RoomStorage::new(pool);
     let event_storage = EventStorage::new(pool, server_name_for_storage);
@@ -350,7 +350,7 @@ fn assemble_room_and_sync(
             room_storage: room_storage.clone(),
             member_storage: member_storage.clone(),
             event_storage: event_storage.clone(),
-            user_storage: UserStorage::new(pool, cache.clone()),
+            user_storage: UserStorage::new(pool, canonical_user_cache),
             auth_service: auth_service.clone(),
             room_summary_service: room_summary_service.clone(),
             validator: auth_service.validator.clone(),
@@ -358,6 +358,7 @@ fn assemble_room_and_sync(
             task_queue: task_queue.clone(),
             relations_storage: relations_storage.clone(),
             event_broadcaster: None,
+            app_service_manager: None,
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
@@ -406,9 +407,8 @@ fn assemble_room_and_sync(
 
     let thread_storage = crate::storage::thread::ThreadStorage::new(pool);
     let canonical_thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
-    let thread_service = Arc::new(crate::services::thread_service::ThreadService::new(Arc::new(
-        canonical_thread_storage,
-    )));
+    let thread_service =
+        Arc::new(crate::services::thread_service::ThreadService::new(Arc::new(canonical_thread_storage)));
 
     RoomSyncServices {
         room_storage,
@@ -532,10 +532,11 @@ fn assemble_admin_support(
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
 ) -> AdminServices {
+    let canonical_user_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
     let admin_registration_service = crate::services::admin_registration_service::AdminRegistrationService::new(
         auth_service.clone(),
         config.admin_registration.clone(),
-        UserStorage::new(pool, cache.clone()),
+        UserStorage::new(pool, canonical_user_cache.clone()),
         cache.clone(),
         metrics.clone(),
     );
@@ -594,9 +595,8 @@ fn assemble_admin_support(
 
     let captcha_storage = crate::storage::captcha::CaptchaStorage::new(pool);
     let canonical_captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service = Arc::new(crate::services::captcha_service::CaptchaService::new(Arc::new(
-        canonical_captcha_storage,
-    )));
+    let captcha_service =
+        Arc::new(crate::services::captcha_service::CaptchaService::new(Arc::new(canonical_captcha_storage)));
 
     let federation_blacklist_storage = crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
     let federation_blacklist_service =
@@ -610,14 +610,11 @@ fn assemble_admin_support(
     ));
     let admin_media_service = Arc::new(crate::services::admin_media_service::AdminMediaService::new(
         pool.clone(),
-        UserStorage::new(pool, cache.clone()),
+        UserStorage::new(pool, canonical_user_cache),
     ));
-    let admin_security_service = Arc::new(crate::services::admin_security_service::AdminSecurityService::new(
-        pool.clone(),
-        cache.clone(),
-    ));
-    let admin_server_service =
-        Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
+    let admin_security_service =
+        Arc::new(crate::services::admin_security_service::AdminSecurityService::new(pool.clone(), cache.clone()));
+    let admin_server_service = Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
     let admin_token_service = Arc::new(crate::services::admin_token_service::AdminTokenService::new(
         pool.clone(),
         AccessTokenStorage::new(pool),
@@ -653,7 +650,8 @@ fn assemble_admin_support(
     let app_service_storage = ApplicationServiceStorage::new(pool);
     let app_service_manager = Arc::new(crate::services::application_service::ApplicationServiceManager::new(
         Arc::new(app_service_storage.clone()),
-        config.server.name.clone(),
+        Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned())),
+        config.server.get_server_name().to_owned(),
     ));
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
@@ -728,6 +726,7 @@ impl ServiceContainer {
 
         let ui_auth_session_timeout = config.security.ui_auth_session_timeout;
         let broadcaster_server_name = config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+        let canonical_user_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
 
         // Shared infrastructure — metrics and server_metrics
         let metrics = Arc::new(MetricsCollector::new());
@@ -745,9 +744,9 @@ impl ServiceContainer {
         );
 
         // Core storage
-        let user_storage = UserStorage::new(pool, cache.clone());
+        let user_storage = UserStorage::new(pool, canonical_user_cache.clone());
         let threepid_storage = ThreepidStorage::new(pool);
-        let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let presence_storage = PresenceStorage::new(pool.clone(), canonical_user_cache);
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
@@ -784,10 +783,12 @@ impl ServiceContainer {
         let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_origin = config.server.get_server_name().to_string();
         let broadcaster_member_storage = RoomMemberStorage::new(pool, &broadcaster_origin);
-        let event_broadcaster = Arc::new(crate::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name.clone())
-            .with_client(broadcaster_federation_client)
-            .with_pool(pool.as_ref().clone())
-            .with_membership_storage(Arc::new(broadcaster_member_storage)));
+        let event_broadcaster = Arc::new(
+            crate::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name.clone())
+                .with_client(broadcaster_federation_client)
+                .with_pool(pool.as_ref().clone())
+                .with_membership_storage(Arc::new(broadcaster_member_storage)),
+        );
         event_broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
 
         // Room & Sync — domain assembly
@@ -807,9 +808,7 @@ impl ServiceContainer {
         // Media service
         let media_service = crate::services::media_service::MediaService::with_pool(
             media_path.as_str(),
-        task_queue
-            .as_ref()
-            .map(|queue| Arc::new(queue.as_ref().to_synapse_redis_task_queue())),
+            task_queue.as_ref().map(|queue| Arc::new(queue.as_ref().to_synapse_redis_task_queue())),
             &config.server.name,
             Some(pool.clone()),
         );
@@ -828,6 +827,7 @@ impl ServiceContainer {
 
         // Admin & support services — domain assembly
         let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service);
+        rooms.room_service.set_app_service_manager(admin.app_service_manager.clone()).await;
         let media_domain_service = Arc::new(crate::services::media::MediaDomainService::new(
             media_service.clone(),
             admin.media_quota_service.clone(),
@@ -857,7 +857,6 @@ impl ServiceContainer {
         let friend_room_service = Arc::new(crate::services::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
-            rooms.event_storage.clone(),
             user_storage.clone(),
             presence_storage.clone(),
             cache.clone(),
@@ -939,7 +938,8 @@ impl ServiceContainer {
         } else {
             None
         };
-        let oidc_mapping_service = Arc::new(crate::services::oidc_mapping_service::OidcMappingService::new(pool.clone()));
+        let oidc_mapping_service =
+            Arc::new(crate::services::oidc_mapping_service::OidcMappingService::new(pool.clone()));
 
         #[cfg(feature = "builtin-oidc")]
         let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
@@ -1025,10 +1025,8 @@ impl ServiceContainer {
         let device_storage = DeviceStorage::new(pool);
         let token_storage = AccessTokenStorage::new(pool);
         let key_rotation_storage = KeyRotationStorage::new(pool.clone());
-        let uia_service = Arc::new(crate::services::uia_service::UiaService::new(
-            cache.clone(),
-            ui_auth_session_timeout,
-        ));
+        let uia_service =
+            Arc::new(crate::services::uia_service::UiaService::new(cache.clone(), ui_auth_session_timeout));
         let event_notifier = crate::services::event_notifier::EventNotifier::new();
         let server_name = config.server.name.clone();
 

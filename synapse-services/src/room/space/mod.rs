@@ -7,11 +7,11 @@
 pub mod children;
 pub mod membership;
 
+use serde_json::json;
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::space::*;
-use serde_json::json;
-use std::sync::Arc;
 use tracing::{error, info, instrument, warn};
 
 pub struct SpaceService {

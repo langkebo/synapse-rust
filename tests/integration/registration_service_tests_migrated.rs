@@ -124,10 +124,11 @@ async fn test_register_user_success() {
         ui_auth_session_timeout: 900,
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
     let registration_service = RegistrationService::new(
-        UserStorage::new(&pool, cache.clone()),
+        UserStorage::new(&pool, canonical_cache),
         auth_service,
         metrics,
         "localhost",
@@ -166,10 +167,11 @@ async fn test_login_success() {
         ui_auth_session_timeout: 900,
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
     let registration_service = RegistrationService::new(
-        UserStorage::new(&pool, cache.clone()),
+        UserStorage::new(&pool, canonical_cache),
         auth_service,
         metrics,
         "localhost",
@@ -193,11 +195,12 @@ async fn test_get_profile_success() {
     setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
     let id = unique_id();
     let user_id = format!("@alice_{}:localhost", id);
     let username = format!("alice_{}", id);
 
-    let user_storage = UserStorage::new(&pool, cache.clone());
+    let user_storage = UserStorage::new(&pool, canonical_cache);
     user_storage.create_user(&user_id, &username, None, false).await.unwrap();
     user_storage.update_displayname(&user_id, Some("Alice")).await.unwrap();
 
@@ -219,8 +222,7 @@ async fn test_get_profile_success() {
     };
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, cache.clone(), metrics.clone(), &security, "localhost");
-    let registration_service =
-        RegistrationService::new(user_storage, auth_service, metrics, "localhost", true, None);
+    let registration_service = RegistrationService::new(user_storage, auth_service, metrics, "localhost", true, None);
 
     let result = registration_service.get_profile(&user_id).await;
     assert!(result.is_ok());

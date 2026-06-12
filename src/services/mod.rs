@@ -1,10 +1,7 @@
-#![allow(ambiguous_glob_reexports)]
-
 pub mod container;
 pub use crate::auth::*;
 pub use crate::cache::*;
 pub use crate::common::*;
-pub use crate::storage::PresenceStorage;
 pub use container::ServiceContainer;
 
 // =============================================================================
@@ -14,11 +11,11 @@ pub mod account_data_service;
 pub mod admin_audit_service;
 pub mod admin_federation_service;
 pub mod admin_media_service;
+pub mod admin_registration_service;
 pub mod admin_security_service;
 pub mod admin_server_service;
 pub mod admin_token_service;
 pub mod admin_user_service;
-pub mod admin_registration_service;
 pub mod application_service;
 pub mod auth;
 pub mod background_update_service;
@@ -41,8 +38,8 @@ pub mod media_service;
 // Redundant MessageQueue (Phase P0-2). Replaced by common::task_queue::RedisTaskQueue.
 // pub mod message_queue;
 pub mod module_service;
-pub mod oidc_service;
 pub mod oidc_mapping_service;
+pub mod oidc_service;
 pub mod push;
 pub use push::service as push_notification_service;
 pub mod refresh_token_service;
@@ -66,19 +63,18 @@ pub mod uia_service;
 pub use admin_audit_service::*;
 pub use admin_federation_service::*;
 pub use admin_media_service::*;
+pub use admin_registration_service::*;
 pub use admin_security_service::*;
 pub use admin_server_service::*;
 pub use admin_token_service::*;
 pub use admin_user_service::*;
-pub use admin_registration_service::*;
 pub use application_service::*;
-pub use database_initializer::*;
 pub use dehydrated_device_service::*;
 pub use directory_service::*;
 pub use feature_flag_service::*;
 pub use media_service::*;
-pub use oidc_service::OidcService;
 pub use oidc_mapping_service::*;
+pub use oidc_service::OidcService;
 pub use push::service::*;
 pub use registration_service::*;
 pub use room::service::*;
@@ -115,8 +111,6 @@ pub mod openclaw_service;
 
 #[cfg(feature = "friends")]
 pub mod friend_room_service;
-#[cfg(feature = "friends")]
-pub use friend_room_service::*;
 
 #[cfg(feature = "voice-extended")]
 pub mod voice_service;

@@ -19,10 +19,8 @@ mod tests {
 
     #[test]
     fn root_relations_service_reexport_keeps_relation_target_shape() {
-        let target = RelationTarget {
-            event_id: "$target:example.com".to_string(),
-            rel_type: "m.reference".to_string(),
-        };
+        let target =
+            RelationTarget { event_id: "$target:example.com".to_string(), rel_type: "m.reference".to_string() };
 
         assert_eq!(target.event_id, "$target:example.com");
         assert_eq!(target.rel_type, "m.reference");

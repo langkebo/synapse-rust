@@ -1,10 +1,10 @@
-use synapse_common::*;
 use crate::*;
-use synapse_storage::PresenceStorage;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use synapse_common::*;
+use synapse_storage::PresenceStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncToken {

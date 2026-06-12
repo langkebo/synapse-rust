@@ -510,10 +510,8 @@ mod tests {
 
     #[test]
     fn pending_cursor_round_trip() {
-        let cursor = PendingFederationCursor {
-            updated_ts: 1_700_000_000_000,
-            server_name: "matrix.example.com".to_string(),
-        };
+        let cursor =
+            PendingFederationCursor { updated_ts: 1_700_000_000_000, server_name: "matrix.example.com".to_string() };
         let encoded = encode_pending_federation_cursor(&cursor);
         assert_eq!(decode_pending_federation_cursor(Some(&encoded)), Some(cursor));
     }

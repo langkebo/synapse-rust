@@ -111,13 +111,11 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 
     if state.services.config.federation.admission_mode {
         let server_status =
-            sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1",
-                origin_server
-            )
-            .fetch_optional(&*state.services.account.user_storage.pool)
-            .await
-            .ok()
-            .flatten();
+            sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1", origin_server)
+                .fetch_optional(&*state.services.account.user_storage.pool)
+                .await
+                .ok()
+                .flatten();
 
         match server_status {
             Some(status) if status != "active" => {

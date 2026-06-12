@@ -15,14 +15,14 @@
 //!
 //! 两者不应同时启用。启动时会检测冲突并发出警告。
 
-use synapse_common::config::OidcConfig;
-use synapse_common::error::ApiError;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::config::OidcConfig;
+use synapse_common::error::ApiError;
 use tokio::sync::RwLock;
 use tracing::debug;
 
@@ -130,10 +130,7 @@ impl OidcService {
 
         let discovery_url = format!("{}/.well-known/openid-configuration", self.config.issuer);
 
-        debug!(
-            discovery_url_configured = !discovery_url.is_empty(),
-            "Fetching OIDC discovery document"
-        );
+        debug!(discovery_url_configured = !discovery_url.is_empty(), "Fetching OIDC discovery document");
 
         let response = self
             .http_client

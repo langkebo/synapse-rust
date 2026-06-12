@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 use tracing::info;
 
 /// `PushDevice` 结构体映射数据库 push_devices 表。
@@ -251,19 +251,18 @@ impl PushNotificationStorage {
     }
 
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<PushDevice>, ApiError> {
-        let rows =
-            sqlx::query_as::<_, PushDevice>(
-                r"
+        let rows = sqlx::query_as::<_, PushDevice>(
+            r"
                 SELECT id, user_id, device_id, push_token, push_type, app_id, platform,
                     platform_version, app_version, locale, timezone, is_enabled,
                     created_ts, updated_ts, last_used_at, last_error, error_count, metadata
                 FROM push_device WHERE user_id = $1 AND is_enabled = true
                 ",
-            )
-                .bind(user_id)
-                .fetch_all(&*self.pool)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to get user devices", &e))?;
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get user devices", &e))?;
 
         Ok(rows)
     }
@@ -285,12 +284,12 @@ impl PushNotificationStorage {
         let now = chrono::Utc::now().timestamp_millis();
 
         sqlx::query("UPDATE push_device SET last_used_at = $1, updated_ts = $1 WHERE user_id = $2 AND device_id = $3")
-        .bind(now)
-        .bind(user_id)
-        .bind(device_id)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update device last used", &e))?;
+            .bind(now)
+            .bind(user_id)
+            .bind(device_id)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to update device last used", &e))?;
 
         Ok(())
     }

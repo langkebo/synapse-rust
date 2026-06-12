@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -8,6 +7,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::ApiError;
 
 fn decode_media_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
@@ -51,14 +51,8 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media/{media_id}", delete(delete_media))
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
         .route("/_synapse/admin/v1/media/quarantine", get(get_quarantine_changes))
-        .route(
-            "/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}",
-            post(quarantine_media),
-        )
-        .route(
-            "/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}",
-            post(unquarantine_media),
-        )
+        .route("/_synapse/admin/v1/media/quarantine/{server_name}/{media_id}", post(quarantine_media))
+        .route("/_synapse/admin/v1/media/unquarantine/{server_name}/{media_id}", post(unquarantine_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
 }
@@ -295,12 +289,8 @@ pub async fn quarantine_media(
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let changed_by = _admin.user_id.clone();
-    let stream_id = state
-        .services
-        .extensions
-        .media_domain_service
-        .quarantine_media(&server_name, &media_id, &changed_by)
-        .await?;
+    let stream_id =
+        state.services.extensions.media_domain_service.quarantine_media(&server_name, &media_id, &changed_by).await?;
 
     Ok(Json(json!({
         "stream_id": stream_id,
@@ -317,12 +307,8 @@ pub async fn unquarantine_media(
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     let changed_by = _admin.user_id.clone();
-    let stream_id = state
-        .services
-        .extensions
-        .media_domain_service
-        .unquarantine_media(&server_name, &media_id, &changed_by)
-        .await?;
+    let stream_id =
+        state.services.extensions.media_domain_service.unquarantine_media(&server_name, &media_id, &changed_by).await?;
 
     Ok(Json(json!({
         "stream_id": stream_id,
@@ -341,12 +327,7 @@ pub async fn get_quarantine_changes(
     let since = params.since.unwrap_or(0);
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
-    let changes = state
-        .services
-        .extensions
-        .media_domain_service
-        .get_quarantined_media_changes(since, limit)
-        .await?;
+    let changes = state.services.extensions.media_domain_service.get_quarantined_media_changes(since, limit).await?;
 
     let next_batch = changes.last().map(|c| c.stream_id);
 

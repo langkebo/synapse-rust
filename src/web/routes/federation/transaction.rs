@@ -91,8 +91,7 @@ pub(super) async fn send_transaction(
                     if edu_type_str == "m.presence" && !process_inbound_presence_edus {
                         continue;
                     }
-                    if edu_type_str == "m.presence"
-                        && get_presence_backoff_remaining_ms(&state, origin).await.is_some()
+                    if edu_type_str == "m.presence" && get_presence_backoff_remaining_ms(&state, origin).await.is_some()
                     {
                         continue;
                     }
@@ -297,7 +296,8 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) = state.services.core.auth_service.verify_state_event_write(room_id, user_id, event_type).await
+            if let Err(error) =
+                state.services.core.auth_service.verify_state_event_write(room_id, user_id, event_type).await
             {
                 super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
@@ -307,6 +307,8 @@ pub(super) async fn send_transaction(
                 continue;
             }
         }
+
+        let content_for_as = content.clone();
 
         let params = crate::storage::event::CreateEventParams {
             event_id: event_id.clone(),
@@ -320,6 +322,12 @@ pub(super) async fn send_transaction(
 
         match state.services.rooms.event_storage.create_event(params, None).await {
             Ok(_) => {
+                state
+                    .services
+                    .rooms
+                    .room_service
+                    .dispatch_appservice_event(&event_id, room_id, event_type, user_id, &content_for_as, state_key)
+                    .await;
                 super::increment_counter(&state, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({
                     "event_id": event_id,

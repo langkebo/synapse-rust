@@ -1,4 +1,3 @@
-use synapse_common::*;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
 use axum::{
@@ -9,6 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
+use synapse_common::*;
 
 fn create_verification_compat_router() -> Router<AppState> {
     Router::new()
@@ -108,7 +108,9 @@ async fn verification_start(
         .ok_or_else(|| ApiError::bad_request("device_id is required for E2EE verification".to_string()))?;
 
     let sas_data = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .start_sas_verification(
             &auth_user.user_id,
             &device_id,
@@ -140,7 +142,9 @@ async fn verification_accept(
     Json(body): Json<VerificationAcceptBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -148,7 +152,9 @@ async fn verification_accept(
     ensure_verification_participant(&request, &auth_user, "Cannot accept another user's verification request")?;
 
     let sas_data = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .accept_sas(&body.transaction_id, &body.key_agreement_protocol, &body.hash)
         .await?;
 
@@ -174,7 +180,9 @@ async fn verification_key_agreement(
     Json(body): Json<KeyAgreementBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -230,7 +238,9 @@ async fn verification_mac(
     Json(body): Json<VerificationMacBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -263,7 +273,9 @@ async fn verification_done(
         body.get("mac").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("Missing mac".to_string()))?;
 
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
@@ -294,14 +306,21 @@ async fn verification_cancel(
     Json(body): Json<VerificationCancelBody>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(&body.transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;
 
     ensure_verification_participant(&request, &auth_user, "Cannot cancel another user's verification request")?;
 
-    state.services.e2ee.verification_service.cancel_verification(&body.transaction_id, &body.code, &body.reason).await?;
+    state
+        .services
+        .e2ee
+        .verification_service
+        .cancel_verification(&body.transaction_id, &body.code, &body.reason)
+        .await?;
 
     Ok(Json(json!({
         "transaction_id": body.transaction_id,
@@ -450,7 +469,9 @@ async fn compat_verification_request(
         .to_string();
 
     let sas_data = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .start_sas_verification(&auth_user.user_id, &from_device, &to_user, to_device.clone())
         .await?;
 
@@ -475,7 +496,9 @@ async fn compat_verification_status(
     Path(transaction_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let request = state
-        .services.e2ee.verification_service
+        .services
+        .e2ee
+        .verification_service
         .get_request(&transaction_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Verification request not found".to_string()))?;

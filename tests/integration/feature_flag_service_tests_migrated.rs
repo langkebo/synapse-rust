@@ -74,7 +74,6 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     .execute(pool.as_ref())
     .await
     .expect("Failed to create audit_events table");
-
 }
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> FeatureFlagService {
@@ -499,9 +498,7 @@ async fn test_create_flag_expired_expiration() {
     let result = service.create_flag("@admin:test", "req-1", request).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(
-        err.is_bad_request() && err.message().contains("expires_at must be greater than current timestamp")
-    );
+    assert!(err.is_bad_request() && err.message().contains("expires_at must be greater than current timestamp"));
 }
 
 #[tokio::test]

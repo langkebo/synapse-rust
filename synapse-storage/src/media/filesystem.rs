@@ -1,8 +1,8 @@
 use super::backend::MediaStorageBackend;
 use super::models::*;
-use synapse_common::error::ApiError;
 use async_trait::async_trait;
 use std::path::PathBuf;
+use synapse_common::error::ApiError;
 use tokio::fs;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;

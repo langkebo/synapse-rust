@@ -2,8 +2,8 @@ pub mod auth;
 pub mod json;
 mod pagination;
 
-use synapse_common::ApiError;
 use serde::{Deserialize, Serialize};
+use synapse_common::ApiError;
 
 // ============== RoomId ==============
 

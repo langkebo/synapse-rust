@@ -338,8 +338,8 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
     for row in rows {
         let target_user_id = row.user_id;
         let presence_str = row.presence.unwrap_or_else(|| "offline".to_string());
-        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
-            .unwrap_or(crate::common::PresenceState::Offline);
+        let presence_state =
+            crate::common::PresenceState::from_str_opt(&presence_str).unwrap_or(crate::common::PresenceState::Offline);
 
         if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
@@ -376,14 +376,18 @@ async fn build_room_hierarchy_response(
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
     let room_opt = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
     if let Some(space) = state.services.rooms.space_service.get_space_by_room(room_id).await? {
         let response = state
-            .services.rooms.space_service
+            .services
+            .rooms
+            .space_service
             .get_space_hierarchy_v1(
                 &space.space_id,
                 max_depth.max(1),
@@ -406,7 +410,9 @@ async fn build_room_hierarchy_response(
 
             if !has_space_self || rooms <= 1 {
                 let state_events = state
-                    .services.rooms.event_storage
+                    .services
+                    .rooms
+                    .event_storage
                     .get_state_events(room_id)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
@@ -441,7 +447,9 @@ async fn build_room_hierarchy_response(
 
                 let child_rooms_map = if !child_room_ids.is_empty() {
                     let rooms_batch = state
-                        .services.rooms.room_storage
+                        .services
+                        .rooms
+                        .room_storage
                         .get_rooms_batch(&child_room_ids)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
@@ -450,8 +458,13 @@ async fn build_room_hierarchy_response(
                         map.insert(room.room_id.clone(), room);
                     }
 
-                    let state_batch =
-                        state.services.rooms.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
+                    let state_batch = state
+                        .services
+                        .rooms
+                        .event_storage
+                        .get_state_events_batch(&child_room_ids)
+                        .await
+                        .unwrap_or_default();
 
                     let mut child_rooms = Vec::new();
                     for rid in &child_room_ids {
@@ -536,7 +549,9 @@ async fn build_room_hierarchy_response(
     let world_readable = room.history_visibility == "world_readable";
 
     let state_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
@@ -578,7 +593,9 @@ async fn build_room_hierarchy_response(
 
     let child_rooms = if !child_room_ids.is_empty() {
         let rooms_batch = state
-            .services.rooms.room_storage
+            .services
+            .rooms
+            .room_storage
             .get_rooms_batch(&child_room_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
@@ -714,17 +731,9 @@ async fn timestamp_to_event(
 
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let direction = if dir == "b" {
-        TimestampDirection::Backward
-    } else {
-        TimestampDirection::Forward
-    };
+    let direction = if dir == "b" { TimestampDirection::Backward } else { TimestampDirection::Forward };
 
-    let event = state
-        .services
-        .search_service
-        .find_event_by_timestamp(&room_id, ts, direction)
-        .await?;
+    let event = state.services.search_service.find_event_by_timestamp(&room_id, ts, direction).await?;
 
     match event {
         Some(event) => Ok(Json(json!({
@@ -752,7 +761,9 @@ async fn get_event_context(
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
     let target_event = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_event(&event_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
@@ -764,11 +775,8 @@ async fn get_event_context(
 
     let target_ts = target_event.origin_server_ts;
 
-    let context_window = state
-        .services
-        .search_service
-        .get_event_context_window(&room_id, target_ts, limit as i64)
-        .await?;
+    let context_window =
+        state.services.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
 
     let events_before_list: Vec<Value> = context_window
         .events_before
@@ -1069,8 +1077,8 @@ async fn search_recipients(
     for row in users {
         let target_user_id = row.user_id;
         let presence_str = row.presence.unwrap_or_else(|| "offline".to_string());
-        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
-            .unwrap_or(crate::common::PresenceState::Offline);
+        let presence_state =
+            crate::common::PresenceState::from_str_opt(&presence_str).unwrap_or(crate::common::PresenceState::Offline);
         let online = presence_state == crate::common::PresenceState::Online;
         if !visibility.get(&target_user_id).copied().unwrap_or(true) {
             continue;
@@ -1115,11 +1123,7 @@ async fn search_rooms(
         return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
-    let rooms = state
-        .services
-        .search_service
-        .search_rooms_for_user(&auth_user.user_id, search_term, limit)
-        .await?;
+    let rooms = state.services.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
 
     let results: Vec<Value> = rooms
         .iter()

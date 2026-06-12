@@ -1,11 +1,11 @@
 use super::gateway::PushGateway;
 use super::providers::{
-    send_with_retry, ApnsProvider, FcmProvider, NotificationCounts,
-    NotificationPayload as ProviderPayload, PushResult, WebPushProvider,
+    send_with_retry, ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushResult,
+    WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
 use crate::common::error::ApiError;
-pub use crate::storage::push_notification::*;
+use crate::storage::push_notification::*;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use std::time::Instant;
@@ -203,7 +203,7 @@ impl PushNotificationService {
     }
 
     pub async fn process_pending_notifications(&self, batch_size: i32) -> Result<u64, ApiError> {
-        let notifications = self.storage.get_pending_notifications(batch_size as i64).await?;
+        let notifications = self.storage.get_pending_notifications(batch_size).await?;
         let mut processed = 0u64;
 
         for notification in notifications {

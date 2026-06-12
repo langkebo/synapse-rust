@@ -204,7 +204,12 @@ pub(crate) async fn change_password_uia(
     if auth_type.is_empty() {
         let user_id =
             auth_user.user_id.as_deref().ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
-        let session = state.services.extensions.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
+        let session = state
+            .services
+            .extensions
+            .uia_service
+            .create_session(user_id, UiaService::get_password_change_flows())
+            .await;
         return Ok((
             StatusCode::UNAUTHORIZED,
             Json(state.services.extensions.uia_service.build_uia_response(
@@ -275,7 +280,9 @@ pub(crate) async fn change_password_uia(
                 sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
             let verification_token = state
-                .services.admin.email_verification_storage
+                .services
+                .admin
+                .email_verification_storage
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
@@ -317,8 +324,12 @@ pub(crate) async fn change_password_uia(
                 .user_id
                 .as_deref()
                 .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
-            let session =
-                state.services.extensions.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
+            let session = state
+                .services
+                .extensions
+                .uia_service
+                .create_session(user_id, UiaService::get_password_change_flows())
+                .await;
             Ok((
                 StatusCode::UNAUTHORIZED,
                 Json(state.services.extensions.uia_service.build_uia_response(
@@ -406,14 +417,18 @@ pub(crate) async fn deactivate_account(
 ) -> Result<axum::response::Response, ApiError> {
     let flows = UiaService::get_deactivate_account_flows();
     let auth = body.get("auth");
-    if let Err(uia_response) =
-        state.services.extensions.uia_service.require_uia(
+    if let Err(uia_response) = state
+        .services
+        .extensions
+        .uia_service
+        .require_uia(
             auth,
             &auth_user.user_id,
             flows,
             &state.services.core.auth_service,
             &state.services.account.threepid_storage,
-        ).await
+        )
+        .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }
@@ -484,7 +499,9 @@ pub(crate) async fn add_threepid(
     // 原子消费已校验会话：DELETE ... RETURNING 在单条 SQL 中完成"取出 + 删除",
     // 任何后续校验失败时 token 都已物理销毁，不能被重放。
     let verification_token = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .claim_used_token(sid_int)
         .await
         .map_err(|e| {
@@ -545,20 +562,23 @@ pub(crate) async fn add_threepid(
     let medium = "email";
     let address = verification_token.email.as_str();
 
-    let rows_affected =
-        state.services.account.threepid_storage.add_verified_threepid(user_id, medium, address, now, now).await.map_err(
-            |e| {
-                tracing::error!(
-                    request_id = %request_id,
-                    user_id = %user_id,
-                    medium = %medium,
-                    address = %address,
-                    error = %e,
-                    "Failed to add threepid"
-                );
-                ApiError::database("A database error occurred".to_string())
-            },
-        )?;
+    let rows_affected = state
+        .services
+        .account
+        .threepid_storage
+        .add_verified_threepid(user_id, medium, address, now, now)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                request_id = %request_id,
+                user_id = %user_id,
+                medium = %medium,
+                address = %address,
+                error = %e,
+                "Failed to add threepid"
+            );
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
     if rows_affected == 0 {
         ::tracing::warn!(
@@ -633,10 +653,12 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
-        tracing::error!("Failed to delete threepid: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(
+        |e| {
+            tracing::error!("Failed to delete threepid: {e}");
+            ApiError::database("A database error occurred".to_string())
+        },
+    )?;
 
     Ok(Json(json!({})))
 }
@@ -648,10 +670,12 @@ pub(crate) async fn unbind_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
-        tracing::error!("Failed to unbind threepid: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(
+        |e| {
+            tracing::error!("Failed to unbind threepid: {e}");
+            ApiError::database("A database error occurred".to_string())
+        },
+    )?;
 
     Ok(Json(json!({})))
 }

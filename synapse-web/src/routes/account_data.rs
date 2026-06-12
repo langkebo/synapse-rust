@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -7,6 +6,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::ApiError;
 
 fn create_account_data_compat_router() -> Router<AppState> {
     Router::new()

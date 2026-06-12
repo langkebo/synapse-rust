@@ -267,7 +267,8 @@ pub async fn get_pending_commands(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
-    let commands: Vec<WorkerCommand> = state.services.admin.worker_manager.get_pending_commands(&worker_id, limit).await?;
+    let commands: Vec<WorkerCommand> =
+        state.services.admin.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
@@ -378,7 +379,8 @@ pub async fn get_replication_position(
     Path(worker_id): Path<String>,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let position_opt: Option<i64> = state.services.admin.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
+    let position_opt: Option<i64> =
+        state.services.admin.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
     let position = position_opt.unwrap_or(0);
 
     Ok(Json(serde_json::json!({

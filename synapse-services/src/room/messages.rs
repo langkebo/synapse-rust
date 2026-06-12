@@ -140,21 +140,20 @@ impl RoomService {
             }
         };
 
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: event_id.clone(),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: event_type.to_string(),
-                    content: content.clone(),
-                    state_key: None,
-                    origin_server_ts: now,
-                },
-                None,
-            )
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
+        self.create_event(
+            CreateEventParams {
+                event_id: event_id.clone(),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: event_type.to_string(),
+                content: content.clone(),
+                state_key: None,
+                origin_server_ts: now,
+            },
+            None,
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
 
         if let Some(relates_to) = content.get("m.relates_to").or_else(|| content.get("relates_to")) {
             if let (Some(rel_type), Some(target_event_id)) = (

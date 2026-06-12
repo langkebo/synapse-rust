@@ -1,13 +1,13 @@
-use synapse_common::{ApiError, MAX_MESSAGE_LENGTH};
-use crate::utils::auth::resolve_request_id;
 use crate::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::routes::{validate_presence_status, validate_user_id, AppState, AuthenticatedUser};
+use crate::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
 use std::collections::HashSet;
+use synapse_common::{ApiError, MAX_MESSAGE_LENGTH};
 
 /// Matrix 规范中，`currently_active` 为 true 时表示用户"最近活跃"。
 /// 这里使用 5 分钟作为阈值（与上游 python-synapse 行为对齐）。
@@ -47,7 +47,9 @@ async fn ensure_presence_access_or_shared_room(
     }
 
     let shared = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .share_common_room(&auth_user.user_id, target_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check shared rooms", &e))?;

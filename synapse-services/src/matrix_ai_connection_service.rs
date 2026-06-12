@@ -1,9 +1,9 @@
-use synapse_common::error::ApiError;
 use crate::mcp_proxy::McpProxyService;
-use synapse_storage::ai_connection::{AiConnection, AiConnectionStorage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_storage::ai_connection::{AiConnection, AiConnectionStorage};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

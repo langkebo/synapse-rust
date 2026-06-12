@@ -1,6 +1,5 @@
 use super::AppState;
 use super::OptionalAuthenticatedUser;
-use synapse_common::ApiError;
 use crate::AuthenticatedUser;
 use axum::{
     body::Bytes,
@@ -12,6 +11,7 @@ use axum::{
 };
 use chrono;
 use serde_json::{json, Value};
+use synapse_common::ApiError;
 
 fn create_media_config_router() -> Router<AppState> {
     Router::new().route("/config", get(media_config))
@@ -243,7 +243,14 @@ async fn upload_media_common(
         return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
-    Ok(Json(state.services.extensions.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?))
+    Ok(Json(
+        state
+            .services
+            .extensions
+            .media_domain_service
+            .upload_media(user_id, &content_bytes, content_type, filename)
+            .await?,
+    ))
 }
 
 async fn upload_media_with_id_common(
@@ -476,13 +483,14 @@ async fn download_media_signed(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params
-        .get("expires")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(
+        &server_name,
+        &media_id,
+        signature,
+        expires,
+    ) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
@@ -502,13 +510,14 @@ async fn download_media_signed_with_filename(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params
-        .get("expires")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(
+        &server_name,
+        &media_id,
+        signature,
+        expires,
+    ) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
@@ -638,7 +647,12 @@ async fn delete_media(
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    state.services.extensions.media_domain_service.delete_media_for_user(&server_name, &media_id, &auth_user.user_id).await?;
+    state
+        .services
+        .extensions
+        .media_domain_service
+        .delete_media_for_user(&server_name, &media_id, &auth_user.user_id)
+        .await?;
 
     Ok(Json(json!({
         "deleted": true,
@@ -730,7 +744,8 @@ async fn chunked_upload_complete(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let response = state.services.extensions.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
+    let response =
+        state.services.extensions.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "content_uri": response.content_uri,

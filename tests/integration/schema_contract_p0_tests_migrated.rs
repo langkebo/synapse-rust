@@ -82,8 +82,7 @@ async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
         .await
         .expect("Failed to query table existence");
     assert!(
-        regclass.as_deref() == Some(table_name)
-            || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
+        regclass.as_deref() == Some(table_name) || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
         "Expected table '{table_name}' to exist, got: {regclass:?}"
     );
 }
@@ -371,10 +370,7 @@ async fn test_schema_contract_account_data_shape() {
         has_unique_constraint_on(&pool, "account_data", &["user_id", "data_type"]).await,
         "Expected account_data UNIQUE(user_id,data_type)"
     );
-    assert!(
-        has_index_named(&pool, "idx_account_data_user").await,
-        "Expected account_data index idx_account_data_user"
-    );
+    assert!(has_index_named(&pool, "idx_account_data_user").await, "Expected account_data index idx_account_data_user");
 
     assert_column(&pool, "room_account_data", "user_id", &["text", "character varying"], false, None, None).await;
     assert_column(&pool, "room_account_data", "room_id", &["text", "character varying"], false, None, None).await;
@@ -419,14 +415,13 @@ async fn test_schema_contract_account_data_query_and_write_read_closure() {
     .await
     .expect("Failed to insert account_data fixture");
 
-    let inserted_row = sqlx::query(
-        "SELECT content, created_ts, updated_ts FROM account_data WHERE user_id = $1 AND data_type = $2",
-    )
-    .bind(&user_id)
-    .bind(&data_type)
-    .fetch_one(&*pool)
-    .await
-    .expect("Failed to query inserted account_data");
+    let inserted_row =
+        sqlx::query("SELECT content, created_ts, updated_ts FROM account_data WHERE user_id = $1 AND data_type = $2")
+            .bind(&user_id)
+            .bind(&data_type)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to query inserted account_data");
 
     assert_eq!(inserted_row.get::<Option<serde_json::Value>, _>("content"), Some(original_content.clone()));
     assert_eq!(inserted_row.get::<i64, _>("created_ts"), created_ts);
@@ -449,14 +444,13 @@ async fn test_schema_contract_account_data_query_and_write_read_closure() {
     .await
     .expect("Failed to upsert account_data fixture");
 
-    let updated_row = sqlx::query(
-        "SELECT content, created_ts, updated_ts FROM account_data WHERE user_id = $1 AND data_type = $2",
-    )
-    .bind(&user_id)
-    .bind(&data_type)
-    .fetch_one(&*pool)
-    .await
-    .expect("Failed to query updated account_data");
+    let updated_row =
+        sqlx::query("SELECT content, created_ts, updated_ts FROM account_data WHERE user_id = $1 AND data_type = $2")
+            .bind(&user_id)
+            .bind(&data_type)
+            .fetch_one(&*pool)
+            .await
+            .expect("Failed to query updated account_data");
 
     assert_eq!(updated_row.get::<Option<serde_json::Value>, _>("content"), Some(updated_content));
     assert_eq!(updated_row.get::<i64, _>("created_ts"), created_ts);
@@ -698,8 +692,7 @@ async fn test_schema_contract_push_rules_query_and_write_read_closure() {
 async fn test_schema_contract_room_retention_policies_shape() {
     let pool = crate::require_test_pool().await;
 
-    assert_column(&pool, "room_retention_policies", "room_id", &["text", "character varying"], false, None, None)
-        .await;
+    assert_column(&pool, "room_retention_policies", "room_id", &["text", "character varying"], false, None, None).await;
     assert_column(&pool, "room_retention_policies", "min_lifetime", &["bigint"], false, Some("0"), None).await;
     assert_column(&pool, "room_retention_policies", "max_lifetime", &["bigint"], true, None, None).await;
     assert_column(&pool, "room_retention_policies", "is_expire_on_clients", &["boolean"], false, Some("false"), None)
@@ -719,16 +712,8 @@ async fn test_schema_contract_room_retention_policies_shape() {
 async fn test_schema_contract_device_verification_request_shape() {
     let pool = crate::require_test_pool().await;
 
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "user_id",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
+    assert_column(&pool, "device_verification_request", "user_id", &["text", "character varying"], false, None, None)
+        .await;
     assert_column(
         &pool,
         "device_verification_request",
@@ -739,16 +724,8 @@ async fn test_schema_contract_device_verification_request_shape() {
         None,
     )
     .await;
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "status",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
+    assert_column(&pool, "device_verification_request", "status", &["text", "character varying"], false, None, None)
+        .await;
     assert_column(
         &pool,
         "device_verification_request",
@@ -759,26 +736,8 @@ async fn test_schema_contract_device_verification_request_shape() {
         None,
     )
     .await;
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "expires_at",
-        &["bigint"],
-        false,
-        None,
-        None,
-    )
-    .await;
-    assert_column(
-        &pool,
-        "device_verification_request",
-        "completed_at",
-        &["bigint"],
-        true,
-        None,
-        None,
-    )
-    .await;
+    assert_column(&pool, "device_verification_request", "expires_at", &["bigint"], false, None, None).await;
+    assert_column(&pool, "device_verification_request", "completed_at", &["bigint"], true, None, None).await;
 
     assert!(
         sqlx::query_scalar::<_, bool>(
@@ -938,8 +897,7 @@ async fn test_schema_contract_room_summary_query_and_relation_closure() {
     assert_eq!(after_update.joined_member_count, 2);
     assert_eq!(after_update.invited_member_count, 0);
 
-    let visible_to_hero =
-        storage.get_summaries_for_user(&hero).await.expect("Failed to query room summaries for hero");
+    let visible_to_hero = storage.get_summaries_for_user(&hero).await.expect("Failed to query room summaries for hero");
     assert_eq!(visible_to_hero.len(), 1);
     assert_eq!(visible_to_hero[0].room_id, room_id);
 
@@ -958,10 +916,8 @@ async fn test_schema_contract_room_summary_state_and_stats_shape() {
 
     assert_column(&pool, "room_summary_state", "id", &["bigint"], false, Some("nextval("), None).await;
     assert_column(&pool, "room_summary_state", "room_id", &["text", "character varying"], false, None, None).await;
-    assert_column(&pool, "room_summary_state", "event_type", &["text", "character varying"], false, None, None)
-        .await;
-    assert_column(&pool, "room_summary_state", "state_key", &["text", "character varying"], false, None, None)
-        .await;
+    assert_column(&pool, "room_summary_state", "event_type", &["text", "character varying"], false, None, None).await;
+    assert_column(&pool, "room_summary_state", "state_key", &["text", "character varying"], false, None, None).await;
     assert_column(&pool, "room_summary_state", "event_id", &["text", "character varying"], true, None, None).await;
     assert_column(&pool, "room_summary_state", "content", &["jsonb"], false, Some("'{}'::jsonb"), None).await;
     assert_column(&pool, "room_summary_state", "updated_ts", &["bigint"], false, None, None).await;
@@ -1024,13 +980,7 @@ async fn test_schema_contract_room_summary_state_and_stats_query_and_write_read_
     assert_eq!(updated_state.content, serde_json::json!({ "name": "Schema Summary Updated" }));
 
     let topic_state = storage
-        .set_state(
-            &room_id,
-            "m.room.topic",
-            "",
-            Some("$summary-topic"),
-            serde_json::json!({ "topic": "Schema Topic" }),
-        )
+        .set_state(&room_id, "m.room.topic", "", Some("$summary-topic"), serde_json::json!({ "topic": "Schema Topic" }))
         .await
         .expect("Failed to insert second room summary state");
     assert_eq!(topic_state.event_type, "m.room.topic");
@@ -1083,36 +1033,12 @@ async fn test_schema_contract_room_summary_queue_and_children_shape() {
     assert_column(&pool, "room_summary_update_queue", "id", &["bigint"], false, Some("nextval("), None).await;
     assert_column(&pool, "room_summary_update_queue", "room_id", &["text", "character varying"], false, None, None)
         .await;
-    assert_column(
-        &pool,
-        "room_summary_update_queue",
-        "event_id",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
-    assert_column(
-        &pool,
-        "room_summary_update_queue",
-        "event_type",
-        &["text", "character varying"],
-        false,
-        None,
-        None,
-    )
-    .await;
-    assert_column(
-        &pool,
-        "room_summary_update_queue",
-        "state_key",
-        &["text", "character varying"],
-        true,
-        None,
-        None,
-    )
-    .await;
+    assert_column(&pool, "room_summary_update_queue", "event_id", &["text", "character varying"], false, None, None)
+        .await;
+    assert_column(&pool, "room_summary_update_queue", "event_type", &["text", "character varying"], false, None, None)
+        .await;
+    assert_column(&pool, "room_summary_update_queue", "state_key", &["text", "character varying"], true, None, None)
+        .await;
     assert_column(&pool, "room_summary_update_queue", "priority", &["integer"], false, Some("0"), None).await;
     assert_column(
         &pool,
@@ -1182,8 +1108,7 @@ async fn test_schema_contract_room_summary_queue_and_children_query_and_write_re
         .await
         .expect("Failed to queue low priority room summary update");
 
-    let pending_updates =
-        storage.get_pending_updates(10).await.expect("Failed to query pending room summary updates");
+    let pending_updates = storage.get_pending_updates(10).await.expect("Failed to query pending room summary updates");
     assert!(pending_updates.len() >= 2, "Expected at least two pending room summary updates");
     assert_eq!(pending_updates[0].event_id, "$summary-high");
     assert_eq!(pending_updates[0].priority, 9);
@@ -1205,11 +1130,7 @@ async fn test_schema_contract_room_summary_queue_and_children_query_and_write_re
             .fetch_one(&*pool)
             .await
             .expect("Failed to fetch processed room summary update");
-    assert_eq!(
-        processed_row.get::<String, _>("status"),
-        "processed",
-        "Expected processed room summary update status"
-    );
+    assert_eq!(processed_row.get::<String, _>("status"), "processed", "Expected processed room summary update status");
     assert!(
         processed_row.get::<Option<i64>, _>("processed_ts").is_some(),
         "Expected processed_ts to be set after mark_update_processed"
@@ -1263,10 +1184,7 @@ async fn test_schema_contract_room_summary_queue_and_children_query_and_write_re
     .expect("Failed to fetch space_children row");
     assert_eq!(child_row.get::<String, _>("sender"), creator);
     assert!(!child_row.get::<bool, _>("is_suggested"));
-    assert_eq!(
-        child_row.get::<serde_json::Value, _>("via_servers"),
-        serde_json::json!(["localhost", "matrix.org"])
-    );
+    assert_eq!(child_row.get::<serde_json::Value, _>("via_servers"), serde_json::json!(["localhost", "matrix.org"]));
     assert!(child_row.get::<i64, _>("added_ts") > 0);
 
     let child_count: i64 =
@@ -1297,18 +1215,9 @@ async fn test_schema_contract_search_index_shape() {
         has_unique_constraint_on(&pool, "search_index", &["event_id"]).await,
         "Expected search_index UNIQUE(event_id)"
     );
-    assert!(
-        has_index_named(&pool, "idx_search_index_room").await,
-        "Expected search_index index idx_search_index_room"
-    );
-    assert!(
-        has_index_named(&pool, "idx_search_index_user").await,
-        "Expected search_index index idx_search_index_user"
-    );
-    assert!(
-        has_index_named(&pool, "idx_search_index_type").await,
-        "Expected search_index index idx_search_index_type"
-    );
+    assert!(has_index_named(&pool, "idx_search_index_room").await, "Expected search_index index idx_search_index_room");
+    assert!(has_index_named(&pool, "idx_search_index_user").await, "Expected search_index index idx_search_index_user");
+    assert!(has_index_named(&pool, "idx_search_index_type").await, "Expected search_index index idx_search_index_type");
 }
 
 #[tokio::test]
@@ -1749,8 +1658,7 @@ async fn test_schema_contract_space_children_and_hierarchy_query_and_write_read_
     assert_eq!(root_children[0].room_id, child_space.room_id);
     assert_eq!(root_children[0].via_servers, vec!["localhost".to_string()]);
 
-    let nested_children =
-        storage.get_child_spaces(&leaf_room_id).await.expect("Failed to query nested child spaces");
+    let nested_children = storage.get_child_spaces(&leaf_room_id).await.expect("Failed to query nested child spaces");
     assert_eq!(nested_children.len(), 1);
     assert_eq!(nested_children[0].room_id, leaf_room_id);
     assert_eq!(nested_children[0].via_servers, vec!["localhost".to_string(), "example.com".to_string()]);

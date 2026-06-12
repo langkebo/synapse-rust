@@ -195,7 +195,8 @@ pub async fn get_room_summary(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let summary: Option<RoomSummaryResponse> = state.services.rooms.room_service.room_summary_service().get_summary(&room_id).await?;
+    let summary: Option<RoomSummaryResponse> =
+        state.services.rooms.room_service.room_summary_service().get_summary(&room_id).await?;
 
     Ok(Json(require_found(summary, "Room summary not found")?))
 }
@@ -225,7 +226,8 @@ pub async fn create_room_summary(
 
     let request: CreateRoomSummaryRequest = create_summary_request_for_room(room_id, body)?;
 
-    let summary: RoomSummaryResponse = state.services.rooms.room_service.room_summary_service().create_summary(request).await?;
+    let summary: RoomSummaryResponse =
+        state.services.rooms.room_service.room_summary_service().create_summary(request).await?;
 
     Ok(created_json(summary))
 }
@@ -235,7 +237,8 @@ pub async fn create_internal_room_summary(
     _admin: AdminUser,
     Json(body): Json<CreateRoomSummaryRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let summary: RoomSummaryResponse = state.services.rooms.room_service.room_summary_service().create_summary(body).await?;
+    let summary: RoomSummaryResponse =
+        state.services.rooms.room_service.room_summary_service().create_summary(body).await?;
 
     Ok(created_json(summary))
 }
@@ -250,7 +253,8 @@ pub async fn update_room_summary(
 
     let request: UpdateRoomSummaryRequest = body.into_request();
 
-    let summary: RoomSummaryResponse = state.services.rooms.room_service.room_summary_service().update_summary(&room_id, request).await?;
+    let summary: RoomSummaryResponse =
+        state.services.rooms.room_service.room_summary_service().update_summary(&room_id, request).await?;
 
     Ok(Json(summary))
 }
@@ -274,7 +278,8 @@ pub async fn sync_room_summary(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
-    let summary: RoomSummaryResponse = state.services.rooms.room_service.room_summary_service().sync_from_room(&room_id).await?;
+    let summary: RoomSummaryResponse =
+        state.services.rooms.room_service.room_summary_service().sync_from_room(&room_id).await?;
 
     Ok(Json(summary))
 }
@@ -286,7 +291,8 @@ pub async fn get_members(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let members: Vec<RoomSummaryMember> = state.services.rooms.room_service.room_summary_service().get_members(&room_id).await?;
+    let members: Vec<RoomSummaryMember> =
+        state.services.rooms.room_service.room_summary_service().get_members(&room_id).await?;
 
     Ok(json_vec_from::<_, MemberResponse>(members))
 }
@@ -301,7 +307,8 @@ pub async fn add_member(
 
     let request: CreateSummaryMemberRequest = create_summary_member_request_for_room(room_id, body);
 
-    let member: RoomSummaryMember = state.services.rooms.room_service.room_summary_service().add_member(request).await?;
+    let member: RoomSummaryMember =
+        state.services.rooms.room_service.room_summary_service().add_member(request).await?;
 
     Ok(created_json_from::<_, MemberResponse>(member))
 }
@@ -316,7 +323,8 @@ pub async fn update_member(
 
     let request: UpdateSummaryMemberRequest = body.into_request();
 
-    let member: RoomSummaryMember = state.services.rooms.room_service.room_summary_service().update_member(&room_id, &user_id, request).await?;
+    let member: RoomSummaryMember =
+        state.services.rooms.room_service.room_summary_service().update_member(&room_id, &user_id, request).await?;
 
     Ok(json_from::<_, MemberResponse>(member))
 }
@@ -340,7 +348,8 @@ pub async fn get_state(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let ss: Option<RoomSummaryState> = state.services.rooms.room_service.room_summary_service().get_state(&room_id, &event_type, &state_key).await?;
+    let ss: Option<RoomSummaryState> =
+        state.services.rooms.room_service.room_summary_service().get_state(&room_id, &event_type, &state_key).await?;
 
     Ok(room_summary_state_json(&require_found(ss, "State not found")?))
 }
@@ -354,7 +363,9 @@ pub async fn update_state(
     ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let ss: RoomSummaryState = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_summary_service()
         .update_state(&room_id, &event_type, &state_key, body.event_id.as_deref(), body.content)
         .await?;
@@ -369,7 +380,8 @@ pub async fn get_all_state(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let states: Vec<RoomSummaryState> = state.services.rooms.room_service.room_summary_service().get_all_state(&room_id).await?;
+    let states: Vec<RoomSummaryState> =
+        state.services.rooms.room_service.room_summary_service().get_all_state(&room_id).await?;
 
     let response: Vec<serde_json::Value> = states
         .into_iter()
@@ -393,7 +405,8 @@ pub async fn get_stats(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let stats: Option<RoomSummaryStats> = state.services.rooms.room_service.room_summary_service().get_stats(&room_id).await?;
+    let stats: Option<RoomSummaryStats> =
+        state.services.rooms.room_service.room_summary_service().get_stats(&room_id).await?;
 
     let stats: RoomSummaryStats = match stats {
         Some(s) => s,
@@ -410,7 +423,8 @@ pub async fn recalculate_stats(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
-    let stats: RoomSummaryStats = state.services.rooms.room_service.room_summary_service().recalculate_stats(&room_id).await?;
+    let stats: RoomSummaryStats =
+        state.services.rooms.room_service.room_summary_service().recalculate_stats(&room_id).await?;
 
     Ok(Json(StatsResponse::from(stats)))
 }
@@ -421,7 +435,8 @@ pub async fn process_updates(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
-    let processed_val: usize = state.services.rooms.room_service.room_summary_service().process_pending_updates(limit).await?;
+    let processed_val: usize =
+        state.services.rooms.room_service.room_summary_service().process_pending_updates(limit).await?;
     let processed = processed_val as i64;
 
     Ok(Json(serde_json::json!({
@@ -436,7 +451,8 @@ pub async fn recalculate_heroes(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
-    let hero_ids: Vec<String> = state.services.rooms.room_service.room_summary_service().recalculate_heroes(&room_id).await?;
+    let hero_ids: Vec<String> =
+        state.services.rooms.room_service.room_summary_service().recalculate_heroes(&room_id).await?;
 
     Ok(Json(serde_json::json!({
         "heroes": hero_ids,
@@ -543,7 +559,9 @@ pub async fn batch_get_room_summaries(
     Json(body): Json<RoomSummaryBatchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let responses: Vec<RoomSummaryResponse> = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await

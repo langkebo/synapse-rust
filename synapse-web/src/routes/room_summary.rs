@@ -7,14 +7,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
+use crate::routes::AppState;
+use crate::routes::{ensure_room_member_strict, AdminUser, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_storage::room_summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
     RoomSummaryStats, UpdateSummaryMemberRequest,
 };
-use crate::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
-use crate::routes::AppState;
-use crate::routes::{ensure_room_member_strict, AdminUser, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {
@@ -316,7 +316,8 @@ pub async fn update_member(
 
     let request = body.into_request();
 
-    let member = state.services.rooms.room_service.room_summary_service().update_member(&room_id, &user_id, request).await?;
+    let member =
+        state.services.rooms.room_service.room_summary_service().update_member(&room_id, &user_id, request).await?;
 
     Ok(json_from::<_, MemberResponse>(member))
 }
@@ -340,7 +341,8 @@ pub async fn get_state(
 ) -> Result<impl IntoResponse, ApiError> {
     ensure_room_summary_read_access(&state, &auth_user, &room_id).await?;
 
-    let state = state.services.rooms.room_service.room_summary_service().get_state(&room_id, &event_type, &state_key).await?;
+    let state =
+        state.services.rooms.room_service.room_summary_service().get_state(&room_id, &event_type, &state_key).await?;
 
     Ok(room_summary_state_json(&require_found(state, "State not found")?))
 }
@@ -354,7 +356,9 @@ pub async fn update_state(
     ensure_room_summary_manage_access(&state, &auth_user, &room_id).await?;
 
     let state = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_summary_service()
         .update_state(&room_id, &event_type, &state_key, body.event_id.as_deref(), body.content)
         .await?;
@@ -542,7 +546,9 @@ pub async fn batch_get_room_summaries(
     Json(body): Json<RoomSummaryBatchRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let responses = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_summary_service()
         .get_summaries_by_ids(&body.rooms)
         .await

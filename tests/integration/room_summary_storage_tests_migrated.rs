@@ -108,16 +108,17 @@ async fn seed_users_and_room(pool: &sqlx::PgPool, suffix: u128) -> (String, Stri
     let hero = format!("@summaryhero{suffix}:localhost");
     let room_id = format!("!summaryroom{suffix}:localhost");
 
-    for (user_id, username) in
-        [(&creator, format!("summarycreator{suffix}")), (&hero, format!("summaryhero{suffix}"))]
+    for (user_id, username) in [(&creator, format!("summarycreator{suffix}")), (&hero, format!("summaryhero{suffix}"))]
     {
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(user_id)
-            .bind(username)
-            .bind(0_i64)
-            .execute(pool)
-            .await
-            .expect("Failed to seed user");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(0_i64)
+        .execute(pool)
+        .await
+        .expect("Failed to seed user");
     }
 
     sqlx::query(

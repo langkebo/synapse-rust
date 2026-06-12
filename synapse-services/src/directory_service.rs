@@ -27,9 +27,9 @@
 //! }
 //! ```
 
-use synapse_common::ApiResult;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::ApiResult;
 use tokio::sync::RwLock;
 
 /// 公共目录中的房间信息

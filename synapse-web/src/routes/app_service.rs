@@ -7,13 +7,13 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
+use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_common::ApiError;
 use synapse_storage::application_service::{
     ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
     UpdateApplicationServiceRequest,
 };
-use crate::routes::response_helpers::{created_json_from, empty_json, json_from, json_vec_from, require_found};
-use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterAppServiceBody {
@@ -266,7 +266,8 @@ pub async fn set_app_service_state(
     _admin: AdminUser,
     Json(body): Json<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state_entry = state.services.admin.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
+    let state_entry =
+        state.services.admin.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
 
     Ok(app_service_state_json(&state_entry))
 }
@@ -298,7 +299,9 @@ pub async fn register_virtual_user(
     Json(body): Json<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let user = state
-        .services.admin.app_service_manager
+        .services
+        .admin
+        .app_service_manager
         .register_virtual_user(&as_id, &body.user_id, body.displayname.as_deref(), body.avatar_url.as_deref())
         .await?;
 
@@ -344,7 +347,9 @@ pub async fn push_event(
     Json(body): Json<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let event = state
-        .services.admin.app_service_manager
+        .services
+        .admin
+        .app_service_manager
         .push_event(&as_id, &body.room_id, &body.event_type, &body.sender, body.content, body.state_key.as_deref())
         .await?;
 

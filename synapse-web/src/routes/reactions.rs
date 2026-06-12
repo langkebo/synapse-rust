@@ -5,8 +5,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use synapse_common::error::ApiError;
 use crate::routes::{AppState, AuthenticatedUser};
+use synapse_common::error::ApiError;
 
 fn create_reactions_compat_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/send/m.reaction/{txn_id}", put(add_reaction))
@@ -78,7 +78,9 @@ async fn add_reaction(
 
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
     let relation = state
-        .services.rooms.relations_service
+        .services
+        .rooms
+        .relations_service
         .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.event_id.clone(),

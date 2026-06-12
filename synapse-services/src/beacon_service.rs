@@ -1,9 +1,9 @@
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_storage::beacon::{
     BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
     CreateBeaconLocationParams,
 };
-use std::sync::Arc;
 
 const BEACON_QUOTA_WINDOW_MS: i64 = 60_000;
 const BEACON_MAX_PER_SENDER_PER_ROOM_WINDOW: i64 = 10;

@@ -9,10 +9,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
-use synapse_common::ApiError;
 use crate::middleware::replication_http_auth_middleware;
 use crate::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
 use crate::routes::{AdminUser, AppState};
+use synapse_common::ApiError;
 use synapse_services::worker::types::*;
 
 #[derive(Debug, Deserialize)]

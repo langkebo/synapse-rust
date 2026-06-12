@@ -1,6 +1,6 @@
-use synapse_common::error::ApiError;
 use crate::worker::protocol::ReplicationCommand;
 use serde::{Deserialize, Serialize};
+use synapse_common::error::ApiError;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{debug, info, warn};
 
@@ -245,16 +245,13 @@ impl synapse_common::traits::EventBroadcaster for WorkerBus {
         let encoded = serde_json::to_vec(&message)
             .map_err(|e| synapse_common::traits::BroadcastError::EncodingFailed(e.to_string()))?;
 
-        self.publish(&message.channel, &encoded).await.map_err(|e| {
-            synapse_common::traits::BroadcastError::Transport(e.to_string())
-        })
+        self.publish(&message.channel, &encoded)
+            .await
+            .map_err(|e| synapse_common::traits::BroadcastError::Transport(e.to_string()))
     }
 
     fn broadcast_subscriber_count(&self) -> usize {
-        self.subscribers
-            .try_read()
-            .map(|s| s.len())
-            .unwrap_or(0)
+        self.subscribers.try_read().map(|s| s.len()).unwrap_or(0)
     }
 }
 

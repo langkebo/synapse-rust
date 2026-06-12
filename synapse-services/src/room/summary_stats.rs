@@ -4,18 +4,15 @@
 
 use crate::common::{ApiError, ApiResult};
 use crate::storage::room_summary::*;
-use tracing::{warn, instrument};
+use tracing::{instrument, warn};
 
 use super::summary::RoomSummaryService;
 
 impl RoomSummaryService {
     #[instrument(skip(self))]
     pub async fn get_stats(&self, room_id: &str) -> Result<Option<RoomSummaryStats>, ApiError> {
-        let stats_res = self
-            .storage
-            .get_stats(room_id)
-            .await;
-        
+        let stats_res = self.storage.get_stats(room_id).await;
+
         match stats_res {
             Ok(s) => Ok(s),
             Err(e) => Err(ApiError::internal_with_log("Failed to get stats", &e)),
@@ -24,11 +21,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn recalculate_stats(&self, room_id: &str) -> Result<RoomSummaryStats, ApiError> {
-        let events_res = self
-            .event_storage
-            .get_room_events(room_id, i64::MAX)
-            .await;
-        
+        let events_res = self.event_storage.get_room_events(room_id, i64::MAX).await;
+
         let events = match events_res {
             Ok(e) => e,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get events", &e)),
@@ -48,11 +42,9 @@ impl RoomSummaryService {
             })
             .count() as i64;
 
-        let stats_res = self
-            .storage
-            .update_stats(room_id, total_events, total_state_events, total_messages, total_media, 0)
-            .await;
-        
+        let stats_res =
+            self.storage.update_stats(room_id, total_events, total_state_events, total_messages, total_media, 0).await;
+
         match stats_res {
             Ok(s) => Ok(s),
             Err(e) => Err(ApiError::internal_with_log("Failed to update stats", &e)),
@@ -69,10 +61,8 @@ impl RoomSummaryService {
     ) -> Result<(), ApiError> {
         let priority = if event_type.starts_with("m.room.") { 10 } else { 0 };
 
-        let result = self.storage
-            .queue_update(room_id, event_id, event_type, state_key, priority)
-            .await;
-        
+        let result = self.storage.queue_update(room_id, event_id, event_type, state_key, priority).await;
+
         match result {
             Ok(_) => Ok(()),
             Err(e) => Err(ApiError::internal_with_log("Failed to queue update", &e)),
@@ -80,11 +70,8 @@ impl RoomSummaryService {
     }
 
     pub async fn process_pending_updates(&self, limit: i64) -> ApiResult<usize> {
-        let updates_res = self
-            .storage
-            .get_pending_updates(limit)
-            .await;
-        
+        let updates_res = self.storage.get_pending_updates(limit).await;
+
         let updates = match updates_res {
             Ok(u) => u,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get pending updates", &e)),
@@ -113,11 +100,8 @@ impl RoomSummaryService {
     }
 
     async fn process_update(&self, update: &RoomSummaryUpdateQueueItem) -> Result<(), ApiError> {
-        let event_res = self
-            .event_storage
-            .get_event(&update.event_id)
-            .await;
-        
+        let event_res = self.event_storage.get_event(&update.event_id).await;
+
         let event = match event_res {
             Ok(Some(e)) => e,
             Ok(None) => return Err(ApiError::not_found("Event not found")),
@@ -141,9 +125,7 @@ impl RoomSummaryService {
                 ..Default::default()
             };
 
-            let update_res = self.storage
-                .update_summary(&update.room_id, request)
-                .await;
+            let update_res = self.storage.update_summary(&update.room_id, request).await;
             if let Err(e) = update_res {
                 return Err(ApiError::internal_with_log("Failed to update summary", &e));
             }
@@ -154,10 +136,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn increment_unread(&self, room_id: &str, highlight: bool) -> Result<(), ApiError> {
-        let result = self.storage
-            .increment_unread_notifications(room_id, highlight)
-            .await;
-        
+        let result = self.storage.increment_unread_notifications(room_id, highlight).await;
+
         match result {
             Ok(_) => Ok(()),
             Err(e) => Err(ApiError::internal_with_log("Failed to increment unread", &e)),
@@ -166,10 +146,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn clear_unread(&self, room_id: &str) -> Result<(), ApiError> {
-        let result = self.storage
-            .clear_unread_notifications(room_id)
-            .await;
-        
+        let result = self.storage.clear_unread_notifications(room_id).await;
+
         match result {
             Ok(_) => Ok(()),
             Err(e) => Err(ApiError::internal_with_log("Failed to clear unread", &e)),
@@ -178,11 +156,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn recalculate_heroes(&self, room_id: &str) -> Result<Vec<String>, ApiError> {
-        let members_res = self
-            .storage
-            .get_hero_candidates(room_id, 5)
-            .await;
-        
+        let members_res = self.storage.get_hero_candidates(room_id, 5).await;
+
         let members = match members_res {
             Ok(m) => m,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes", &e)),
@@ -190,9 +165,7 @@ impl RoomSummaryService {
 
         let hero_ids: Vec<String> = members.iter().map(|m| m.user_id.clone()).collect();
 
-        let set_hero_res = self.storage
-            .set_hero_members(room_id, &hero_ids)
-            .await;
+        let set_hero_res = self.storage.set_hero_members(room_id, &hero_ids).await;
         if let Err(e) = set_hero_res {
             return Err(ApiError::internal_with_log("Failed to update hero flags", &e));
         }
@@ -204,9 +177,7 @@ impl RoomSummaryService {
 
         let request = UpdateRoomSummaryRequest { hero_users: Some(hero_users), ..Default::default() };
 
-        let update_res = self.storage
-            .update_summary(room_id, request)
-            .await;
+        let update_res = self.storage.update_summary(room_id, request).await;
         if let Err(e) = update_res {
             return Err(ApiError::internal_with_log("Failed to update heroes", &e));
         }

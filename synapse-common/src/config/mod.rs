@@ -2,8 +2,8 @@ use serde::Deserialize;
 #[cfg(test)]
 use std::path::PathBuf;
 
-mod manager;
 mod loader;
+mod manager;
 mod validation;
 
 pub use manager::ConfigManager;
@@ -54,7 +54,9 @@ pub use security::{AdminRegistrationConfig, CorsConfig, SecurityConfig};
 pub use server::ServerConfig;
 pub use smtp::{SmtpConfig, SmtpRateLimitConfig};
 pub use translate::TranslateConfig;
-pub use voip::{ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig};
+pub use voip::{
+    ApnsConfig, FcmConfig, LivekitConfig, PushConfig, UrlBlacklistRule, UrlPreviewConfig, VoipConfig, WebPushConfig,
+};
 pub use worker::{InstanceLocationConfig, ReplicationConfig, ReplicationHttpConfig, StreamWriters, WorkerConfig};
 
 // Re-export helper functions used in tests and serde defaults

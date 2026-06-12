@@ -23,11 +23,11 @@
 
 use crate::megolm::models::{MegolmSession, PickleFormat, RoomKeyDistributionData};
 use crate::megolm::storage::MegolmSessionStorage;
+use std::sync::Arc;
+use std::time::Instant;
 use synapse_cache::CacheManager;
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::ApiError;
-use std::sync::Arc;
-use std::time::Instant;
 use vodozemac::megolm::{
     GroupSession, GroupSessionPickle, InboundGroupSession, InboundGroupSessionPickle, SessionConfig,
 };
@@ -74,8 +74,7 @@ fn pickle_to_string(pickle: &GroupSessionPickle) -> String {
 fn pickle_from_string(s: &str) -> Result<GroupSessionPickle, ApiError> {
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, s)
         .map_err(|_| ApiError::decryption_error("Invalid pickle base64".to_string()))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|_| ApiError::decryption_error("Invalid group session pickle".to_string()))
+    serde_json::from_slice(&bytes).map_err(|_| ApiError::decryption_error("Invalid group session pickle".to_string()))
 }
 
 /// Serialise an `InboundGroupSessionPickle` to a base64-encoded string.
@@ -172,8 +171,9 @@ impl MegolmVodozemacService {
 
         // 解码 session_key 为 32 字节原始对称密钥
         // vodozemac 使用 URL-safe base64 (无 padding)
-        let raw_session_key = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &session_key_b64)
-            .map_err(|_| ApiError::encryption_error("Invalid vodozemac session_key base64".to_string()))?;
+        let raw_session_key =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &session_key_b64)
+                .map_err(|_| ApiError::encryption_error("Invalid vodozemac session_key base64".to_string()))?;
 
         // Phase 2: 双写 legacy 加密格式（仅当 E2EE_DUAL_WRITE=true 且 encryption_key 已设置）
         let (legacy_session_key, pickle_format) = match self.dual_write_legacy_session_key(&raw_session_key) {
@@ -309,11 +309,7 @@ impl MegolmVodozemacService {
     /// Uses vodozemac's `GroupSession::encrypt()` which handles the
     /// ratchet advancement internally. The message index is bumped
     /// atomically in the database.
-    pub async fn encrypt_many(
-        &self,
-        session_id: &str,
-        plaintexts: &[&[u8]],
-    ) -> Result<Vec<Vec<u8>>, ApiError> {
+    pub async fn encrypt_many(&self, session_id: &str, plaintexts: &[&[u8]]) -> Result<Vec<Vec<u8>>, ApiError> {
         if plaintexts.is_empty() {
             return Ok(Vec::new());
         }
@@ -329,27 +325,23 @@ impl MegolmVodozemacService {
         // Persist the updated pickle and counter atomically.
         let now_ms = chrono::Utc::now().timestamp_millis();
         let new_pickle_str = pickle_to_string(&outbound.pickle());
-        let new_index = self
-            .storage
-            .increment_message_index(session_id, plaintexts.len() as i64, now_ms)
-            .await?
-            .ok_or_else(|| {
-                ::tracing::error!(
-                    target: "security_audit",
-                    event = "vodozemac_megolm_encrypt_many_session_vanished",
-                    session_id = %session_id,
-                    messages = plaintexts.len(),
-                );
-                ApiError::not_found("megolm session not found")
-            })?;
+        let new_index =
+            self.storage.increment_message_index(session_id, plaintexts.len() as i64, now_ms).await?.ok_or_else(
+                || {
+                    ::tracing::error!(
+                        target: "security_audit",
+                        event = "vodozemac_megolm_encrypt_many_session_vanished",
+                        session_id = %session_id,
+                        messages = plaintexts.len(),
+                    );
+                    ApiError::not_found("megolm session not found")
+                },
+            )?;
 
         // Phase 2: 把最新 vodozemac pickle 持久化到 `vodozemac_pickle` 列
         // 失败仅记日志：cache 中已有更新副本，不阻塞本次 encrypt 返回
         let persist_start = Instant::now();
-        let persist_result = self
-            .storage
-            .update_vodozemac_pickle(session_id, &new_pickle_str, now_ms)
-            .await;
+        let persist_result = self.storage.update_vodozemac_pickle(session_id, &new_pickle_str, now_ms).await;
         let persist_duration_ms = persist_start.elapsed().as_secs_f64() * 1000.0;
         match &persist_result {
             Ok(_) => {
@@ -410,11 +402,7 @@ impl MegolmVodozemacService {
 
         // Phase 2: 持久化新 pickle 到 vodozemac_pickle 列（best-effort）
         let now_ms = chrono::Utc::now().timestamp_millis();
-        if let Err(e) = self
-            .storage
-            .update_vodozemac_pickle(session_id, &new_pickle_str, now_ms)
-            .await
-        {
+        if let Err(e) = self.storage.update_vodozemac_pickle(session_id, &new_pickle_str, now_ms).await {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "vodozemac_megolm_inbound_pickle_persist_failed",
@@ -460,8 +448,7 @@ impl MegolmVodozemacService {
         let session_key_b64 = outbound.session_key().to_base64();
 
         let created_ts = chrono::Utc::now().timestamp_millis();
-        let expires_at = session
-            .expires_at.map_or_else(|| created_ts + 7 * 24 * 3600 * 1000, |t| t.timestamp_millis());
+        let expires_at = session.expires_at.map_or_else(|| created_ts + 7 * 24 * 3600 * 1000, |t| t.timestamp_millis());
 
         let db_start = Instant::now();
         let db_result = self
@@ -521,11 +508,7 @@ impl MegolmVodozemacService {
     }
 
     /// Recipient-side read of a previously-shared session key.
-    pub async fn get_session_key_for_user(
-        &self,
-        user_id: &str,
-        session_id: &str,
-    ) -> Result<Option<String>, ApiError> {
+    pub async fn get_session_key_for_user(&self, user_id: &str, session_id: &str) -> Result<Option<String>, ApiError> {
         let start = Instant::now();
         let cache_key = format!("megolm_session_key:{user_id}:{session_id}");
 
@@ -587,10 +570,7 @@ impl MegolmVodozemacService {
     }
 
     /// Get the room key distribution data for sharing.
-    pub async fn get_room_key_distribution(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomKeyDistributionData>, ApiError> {
+    pub async fn get_room_key_distribution(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
         let sessions = self.get_room_sessions(room_id).await?;
 
         if let Some(session) = sessions.first() {

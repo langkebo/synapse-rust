@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::services::event_report_service::EventReport;
+use crate::storage::event_report::EventReport;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -64,15 +64,13 @@ pub async fn get_all_reports(
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
     if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string()));
+        return Err(ApiError::bad_request(
+            "Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string(),
+        ));
     }
 
-    let reports = state
-        .services
-        .admin
-        .event_report_service
-        .get_all_reports(limit, since_score, since_ts, since_id)
-        .await?;
+    let reports =
+        state.services.admin.event_report_service.get_all_reports(limit, since_score, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -111,7 +109,9 @@ pub async fn get_room_reports(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -129,15 +129,13 @@ pub async fn get_room_reports(
     let since_id = params.get("since_id").and_then(|v| v.parse::<i64>().ok());
 
     if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string()));
+        return Err(ApiError::bad_request(
+            "Legacy offset pagination is no longer supported; use since_ts/since_id cursors".to_string(),
+        ));
     }
 
-    let reports = state
-        .services
-        .admin
-        .event_report_service
-        .get_reports_by_room(&room_id, limit, since_ts, since_id)
-        .await?;
+    let reports =
+        state.services.admin.event_report_service.get_reports_by_room(&room_id, limit, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -150,7 +148,9 @@ pub async fn get_room_report(
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

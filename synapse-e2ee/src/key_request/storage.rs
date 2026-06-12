@@ -1,6 +1,6 @@
 use super::models::KeyRequestInfo;
-use synapse_common::ApiError;
 use sqlx::PgPool;
+use synapse_common::ApiError;
 
 #[derive(Clone)]
 pub struct KeyRequestStorage {

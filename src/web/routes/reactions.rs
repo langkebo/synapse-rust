@@ -78,7 +78,9 @@ async fn add_reaction(
 
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
     let relation = state
-        .services.rooms.relations_service
+        .services
+        .rooms
+        .relations_service
         .send_annotation(crate::services::relations_service::SendAnnotationRequest {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.event_id.clone(),

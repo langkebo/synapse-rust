@@ -1,5 +1,4 @@
 use super::audit::{record_audit_event, resolve_request_id};
-use synapse_common::ApiError;
 use crate::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -10,6 +9,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sqlx::Row;
+use synapse_common::ApiError;
 
 pub fn create_security_router(_state: AppState) -> Router<AppState> {
     Router::new()

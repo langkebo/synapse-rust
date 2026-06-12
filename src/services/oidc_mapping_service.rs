@@ -15,18 +15,19 @@ impl OidcMappingService {
 
     #[instrument(skip(self))]
     pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, ApiError> {
-        sqlx::query_scalar!(
-            "SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2",
-            issuer,
-            subject
-        )
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))
+        sqlx::query_scalar!("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2", issuer, subject)
+            .fetch_optional(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))
     }
 
     #[instrument(skip(self))]
-    pub async fn record_authentication(&self, issuer: &str, subject: &str, authenticated_ts: i64) -> Result<(), ApiError> {
+    pub async fn record_authentication(
+        &self,
+        issuer: &str,
+        subject: &str,
+        authenticated_ts: i64,
+    ) -> Result<(), ApiError> {
         sqlx::query!(
             "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, authentication_count = authentication_count + 1 WHERE issuer = $2 AND subject = $3",
             authenticated_ts,

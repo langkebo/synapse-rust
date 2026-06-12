@@ -1,4 +1,3 @@
-use synapse_common::*;
 use crate::routes::AppState;
 use axum::{
     extract::{Json, Query, State},
@@ -9,6 +8,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::*;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Instant};
 
@@ -41,7 +41,9 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
 
 async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
@@ -55,7 +57,9 @@ async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, ori
 
 async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
     let joined_members = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_room_members(room_id, "join")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
@@ -69,7 +73,9 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
 
 async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
     let joined_room_ids = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_user_rooms(user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load user rooms", &e))?;
@@ -84,7 +90,9 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 
     for room_id in joined_room_ids {
         let joined_members = state
-            .services.rooms.member_storage
+            .services
+            .rooms
+            .member_storage
             .get_room_members(&room_id, "join")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;

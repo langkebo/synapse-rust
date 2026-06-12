@@ -1,7 +1,7 @@
+use base64::Engine;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use base64::Engine;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct OAuthClient {
@@ -111,15 +111,12 @@ impl OAuthClientStorage {
         let client_secret = Self::generate_client_secret();
         let now_ts = Utc::now().timestamp_millis();
 
-        let redirect_uris_json = serde_json::Value::Array(
-            redirect_uris.into_iter().map(serde_json::Value::String).collect(),
-        );
-        let grant_types_json = serde_json::Value::Array(
-            grant_types.into_iter().map(serde_json::Value::String).collect(),
-        );
-        let response_types_json = serde_json::Value::Array(
-            response_types.into_iter().map(serde_json::Value::String).collect(),
-        );
+        let redirect_uris_json =
+            serde_json::Value::Array(redirect_uris.into_iter().map(serde_json::Value::String).collect());
+        let grant_types_json =
+            serde_json::Value::Array(grant_types.into_iter().map(serde_json::Value::String).collect());
+        let response_types_json =
+            serde_json::Value::Array(response_types.into_iter().map(serde_json::Value::String).collect());
 
         let client = OAuthClient {
             client_id: client_id.clone(),
@@ -252,9 +249,7 @@ mod tests {
         // Secrets should be different (extremely unlikely to collide)
         assert_ne!(secret1, secret2);
         // Should be valid base64url
-        assert!(base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .decode(&secret1)
-            .is_ok());
+        assert!(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&secret1).is_ok());
     }
 
     // DB-dependent tests marked with #[ignore]

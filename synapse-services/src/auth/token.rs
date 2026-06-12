@@ -2,10 +2,10 @@ use super::AuthService;
 use super::ADMIN_CACHE_TTL_SECS;
 use super::TOKEN_CACHE_TTL_SECS;
 use super::USER_ACTIVE_CACHE_TTL_SECS;
-use synapse_common::*;
-use synapse_storage::refresh_token::CreateRefreshTokenRequest;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use synapse_common::*;
+use synapse_storage::refresh_token::CreateRefreshTokenRequest;
 
 impl AuthService {
     pub async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {

@@ -9,7 +9,6 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-
     sqlx::query(
         r#"
         CREATE TABLE users (
@@ -113,36 +112,36 @@ async fn test_create_and_get_token() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = make_request(suffix, &user_id, future_ts);
-        let token = storage.create_token(request).await.unwrap();
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = make_request(suffix, &user_id, future_ts);
+    let token = storage.create_token(request).await.unwrap();
 
-        assert!(token.id > 0);
-        assert_eq!(token.token, format!("openid_token_{suffix}"));
-        assert_eq!(token.user_id, user_id);
-        assert_eq!(token.device_id, Some(format!("device_{suffix}")));
-        assert!(token.is_valid);
-        assert!(token.created_ts > 0);
-        assert_eq!(token.expires_at, future_ts);
+    assert!(token.id > 0);
+    assert_eq!(token.token, format!("openid_token_{suffix}"));
+    assert_eq!(token.user_id, user_id);
+    assert_eq!(token.device_id, Some(format!("device_{suffix}")));
+    assert!(token.is_valid);
+    assert!(token.created_ts > 0);
+    assert_eq!(token.expires_at, future_ts);
 
-        let fetched = storage.get_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(fetched.is_some());
-        let fetched = fetched.unwrap();
-        assert_eq!(fetched.id, token.id);
-        assert_eq!(fetched.token, token.token);
-        assert_eq!(fetched.user_id, token.user_id);
+    let fetched = storage.get_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(fetched.is_some());
+    let fetched = fetched.unwrap();
+    assert_eq!(fetched.id, token.id);
+    assert_eq!(fetched.token, token.token);
+    assert_eq!(fetched.user_id, token.user_id);
 }
 
 #[tokio::test]
@@ -150,27 +149,27 @@ async fn test_create_token_with_optional_device_id() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = CreateOpenIdTokenRequest {
-            token: format!("openid_token_{suffix}"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: future_ts,
-        };
-        let token = storage.create_token(request).await.unwrap();
-        assert!(token.device_id.is_none());
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = CreateOpenIdTokenRequest {
+        token: format!("openid_token_{suffix}"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: future_ts,
+    };
+    let token = storage.create_token(request).await.unwrap();
+    assert!(token.device_id.is_none());
 }
 
 #[tokio::test]
@@ -178,9 +177,9 @@ async fn test_get_token_returns_none_for_missing() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let result = storage.get_token("nonexistent_token").await.unwrap();
-        assert!(result.is_none());
+    let storage = OpenIdTokenStorage::new(&pool);
+    let result = storage.get_token("nonexistent_token").await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
@@ -188,26 +187,26 @@ async fn test_get_token_excludes_invalid() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = make_request(suffix, &user_id, future_ts);
-        storage.create_token(request).await.unwrap();
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = make_request(suffix, &user_id, future_ts);
+    storage.create_token(request).await.unwrap();
 
-        storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
+    storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
 
-        let result = storage.get_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(result.is_none());
+    let result = storage.get_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(result.is_none());
 }
 
 #[tokio::test]
@@ -215,28 +214,28 @@ async fn test_validate_token_success() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = make_request(suffix, &user_id, future_ts);
-        storage.create_token(request).await.unwrap();
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = make_request(suffix, &user_id, future_ts);
+    storage.create_token(request).await.unwrap();
 
-        let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(validated.is_some());
-        let validated = validated.unwrap();
-        assert_eq!(validated.token, format!("openid_token_{suffix}"));
-        assert_eq!(validated.user_id, user_id);
-        assert!(validated.is_valid);
+    let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(validated.is_some());
+    let validated = validated.unwrap();
+    assert_eq!(validated.token, format!("openid_token_{suffix}"));
+    assert_eq!(validated.user_id, user_id);
+    assert!(validated.is_valid);
 }
 
 #[tokio::test]
@@ -244,24 +243,24 @@ async fn test_validate_token_returns_none_for_expired() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-        let request = make_request(suffix, &user_id, past_ts);
-        storage.create_token(request).await.unwrap();
+    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let request = make_request(suffix, &user_id, past_ts);
+    storage.create_token(request).await.unwrap();
 
-        let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(validated.is_none());
+    let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(validated.is_none());
 }
 
 #[tokio::test]
@@ -269,26 +268,26 @@ async fn test_validate_token_returns_none_for_revoked() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = make_request(suffix, &user_id, future_ts);
-        storage.create_token(request).await.unwrap();
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = make_request(suffix, &user_id, future_ts);
+    storage.create_token(request).await.unwrap();
 
-        storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
+    storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
 
-        let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(validated.is_none());
+    let validated = storage.validate_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(validated.is_none());
 }
 
 #[tokio::test]
@@ -296,29 +295,29 @@ async fn test_revoke_token_success() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
-        let request = make_request(suffix, &user_id, future_ts);
-        let token = storage.create_token(request).await.unwrap();
-        assert!(token.is_valid);
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let request = make_request(suffix, &user_id, future_ts);
+    let token = storage.create_token(request).await.unwrap();
+    assert!(token.is_valid);
 
-        let revoked = storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
-        assert!(revoked);
+    let revoked = storage.revoke_token(&format!("openid_token_{suffix}")).await.unwrap();
+    assert!(revoked);
 
-        let all_tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
-        let revoked_token = all_tokens.iter().find(|t| t.id == token.id).unwrap();
-        assert!(!revoked_token.is_valid);
+    let all_tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
+    let revoked_token = all_tokens.iter().find(|t| t.id == token.id).unwrap();
+    assert!(!revoked_token.is_valid);
 }
 
 #[tokio::test]
@@ -326,9 +325,9 @@ async fn test_revoke_token_returns_false_for_missing() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let result = storage.revoke_token("nonexistent_token").await.unwrap();
-        assert!(!result);
+    let storage = OpenIdTokenStorage::new(&pool);
+    let result = storage.revoke_token("nonexistent_token").await.unwrap();
+    assert!(!result);
 }
 
 #[tokio::test]
@@ -336,35 +335,35 @@ async fn test_revoke_user_tokens() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        for i in 0..3 {
-            let req = CreateOpenIdTokenRequest {
-                token: format!("openid_token_{suffix}_{i}"),
-                user_id: user_id.clone(),
-                device_id: Some(format!("device_{suffix}_{i}")),
-                expires_at: future_ts,
-            };
-            storage.create_token(req).await.unwrap();
-        }
+    for i in 0..3 {
+        let req = CreateOpenIdTokenRequest {
+            token: format!("openid_token_{suffix}_{i}"),
+            user_id: user_id.clone(),
+            device_id: Some(format!("device_{suffix}_{i}")),
+            expires_at: future_ts,
+        };
+        storage.create_token(req).await.unwrap();
+    }
 
-        let count = storage.revoke_user_tokens(&user_id).await.unwrap();
-        assert_eq!(count, 3);
+    let count = storage.revoke_user_tokens(&user_id).await.unwrap();
+    assert_eq!(count, 3);
 
-        let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
-        assert!(tokens.iter().all(|t| !t.is_valid));
+    let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
+    assert!(tokens.iter().all(|t| !t.is_valid));
 }
 
 #[tokio::test]
@@ -372,39 +371,39 @@ async fn test_revoke_user_tokens_skips_already_revoked() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        let req1 = CreateOpenIdTokenRequest {
-            token: format!("openid_token_{suffix}_0"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: future_ts,
-        };
-        storage.create_token(req1).await.unwrap();
+    let req1 = CreateOpenIdTokenRequest {
+        token: format!("openid_token_{suffix}_0"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: future_ts,
+    };
+    storage.create_token(req1).await.unwrap();
 
-        let req2 = CreateOpenIdTokenRequest {
-            token: format!("openid_token_{suffix}_1"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: future_ts,
-        };
-        storage.create_token(req2).await.unwrap();
-        storage.revoke_token(&format!("openid_token_{suffix}_1")).await.unwrap();
+    let req2 = CreateOpenIdTokenRequest {
+        token: format!("openid_token_{suffix}_1"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: future_ts,
+    };
+    storage.create_token(req2).await.unwrap();
+    storage.revoke_token(&format!("openid_token_{suffix}_1")).await.unwrap();
 
-        let count = storage.revoke_user_tokens(&user_id).await.unwrap();
-        assert_eq!(count, 1);
+    let count = storage.revoke_user_tokens(&user_id).await.unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]
@@ -412,43 +411,43 @@ async fn test_cleanup_expired_tokens() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let past_ts = chrono::Utc::now().timestamp_millis() - 3_600_000;
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        let expired_req = CreateOpenIdTokenRequest {
-            token: format!("expired_{suffix}"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: past_ts,
-        };
-        storage.create_token(expired_req).await.unwrap();
+    let expired_req = CreateOpenIdTokenRequest {
+        token: format!("expired_{suffix}"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: past_ts,
+    };
+    storage.create_token(expired_req).await.unwrap();
 
-        let active_req = CreateOpenIdTokenRequest {
-            token: format!("active_{suffix}"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: future_ts,
-        };
-        storage.create_token(active_req).await.unwrap();
+    let active_req = CreateOpenIdTokenRequest {
+        token: format!("active_{suffix}"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: future_ts,
+    };
+    storage.create_token(active_req).await.unwrap();
 
-        let deleted = storage.cleanup_expired_tokens().await.unwrap();
-        assert_eq!(deleted, 1);
+    let deleted = storage.cleanup_expired_tokens().await.unwrap();
+    assert_eq!(deleted, 1);
 
-        let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
-        assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].token, format!("active_{suffix}"));
+    let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].token, format!("active_{suffix}"));
 }
 
 #[tokio::test]
@@ -456,35 +455,35 @@ async fn test_cleanup_also_removes_revoked_tokens() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        let req = CreateOpenIdTokenRequest {
-            token: format!("revoked_{suffix}"),
-            user_id: user_id.clone(),
-            device_id: None,
-            expires_at: future_ts,
-        };
-        storage.create_token(req).await.unwrap();
+    let req = CreateOpenIdTokenRequest {
+        token: format!("revoked_{suffix}"),
+        user_id: user_id.clone(),
+        device_id: None,
+        expires_at: future_ts,
+    };
+    storage.create_token(req).await.unwrap();
 
-        storage.revoke_token(&format!("revoked_{suffix}")).await.unwrap();
+    storage.revoke_token(&format!("revoked_{suffix}")).await.unwrap();
 
-        let deleted = storage.cleanup_expired_tokens().await.unwrap();
-        assert_eq!(deleted, 1);
+    let deleted = storage.cleanup_expired_tokens().await.unwrap();
+    assert_eq!(deleted, 1);
 
-        let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
-        assert!(tokens.is_empty());
+    let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
+    assert!(tokens.is_empty());
 }
 
 #[tokio::test]
@@ -492,33 +491,33 @@ async fn test_get_tokens_by_user() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let suffix = unique_id();
-        let user_id = format!("@oid_user_{suffix}:localhost");
+    let storage = OpenIdTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@oid_user_{suffix}:localhost");
 
-        sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
-            .bind(&user_id)
-            .bind(format!("oiduser{suffix}"))
-            .bind(chrono::Utc::now().timestamp_millis())
-            .execute(pool.as_ref())
-            .await
-            .unwrap();
+    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+        .bind(&user_id)
+        .bind(format!("oiduser{suffix}"))
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-        let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
+    let future_ts = chrono::Utc::now().timestamp_millis() + 3_600_000;
 
-        for i in 0..3 {
-            let req = CreateOpenIdTokenRequest {
-                token: format!("openid_token_{suffix}_{i}"),
-                user_id: user_id.clone(),
-                device_id: Some(format!("device_{suffix}_{i}")),
-                expires_at: future_ts,
-            };
-            storage.create_token(req).await.unwrap();
-        }
+    for i in 0..3 {
+        let req = CreateOpenIdTokenRequest {
+            token: format!("openid_token_{suffix}_{i}"),
+            user_id: user_id.clone(),
+            device_id: Some(format!("device_{suffix}_{i}")),
+            expires_at: future_ts,
+        };
+        storage.create_token(req).await.unwrap();
+    }
 
-        let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
-        assert_eq!(tokens.len(), 3);
-        assert!(tokens.iter().all(|t| t.user_id == user_id));
+    let tokens = storage.get_tokens_by_user(&user_id).await.unwrap();
+    assert_eq!(tokens.len(), 3);
+    assert!(tokens.iter().all(|t| t.user_id == user_id));
 }
 
 #[tokio::test]
@@ -526,7 +525,7 @@ async fn test_get_tokens_by_user_empty() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
 
-        let storage = OpenIdTokenStorage::new(&pool);
-        let tokens = storage.get_tokens_by_user("@nonexistent:localhost").await.unwrap();
-        assert!(tokens.is_empty());
+    let storage = OpenIdTokenStorage::new(&pool);
+    let tokens = storage.get_tokens_by_user("@nonexistent:localhost").await.unwrap();
+    assert!(tokens.is_empty());
 }

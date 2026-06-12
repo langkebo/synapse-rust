@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::routes::{
     account_compat::can_view_profile_for_requester_batch, validate_user_id, AppState, AuthenticatedUser,
 };
@@ -12,6 +11,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_common::ApiError;
 
 const DEFAULT_FRIEND_LIST_LIMIT: usize = 20;
 
@@ -629,7 +629,12 @@ async fn update_friend_note(
         return Err(ApiError::bad_request("Note exceeds maximum length of 1000 characters".to_string()));
     }
 
-    state.services.extensions.friend_room_service.update_friend_note(&auth_user.user_id, &friend_id, &body.note).await?;
+    state
+        .services
+        .extensions
+        .friend_room_service
+        .update_friend_note(&auth_user.user_id, &friend_id, &body.note)
+        .await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
@@ -651,7 +656,12 @@ async fn update_friend_status(
         return Err(ApiError::bad_request(format!("Invalid status. Valid values: {}", valid_statuses.join(", "))));
     }
 
-    state.services.extensions.friend_room_service.update_friend_status(&auth_user.user_id, &friend_id, &body.status).await?;
+    state
+        .services
+        .extensions
+        .friend_room_service
+        .update_friend_status(&auth_user.user_id, &friend_id, &body.status)
+        .await?;
 
     Ok(Json(json!({
         "user_id": friend_id,
@@ -736,7 +746,8 @@ async fn get_friend_status(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    let status = state.services.extensions.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
+    let status =
+        state.services.extensions.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(status))
 }
@@ -748,7 +759,8 @@ async fn check_friendship(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    let is_friend = state.services.extensions.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
+    let is_friend =
+        state.services.extensions.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({
         "user_id": target_id,
@@ -807,7 +819,8 @@ async fn create_friend_group(
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    let group = state.services.extensions.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
+    let group =
+        state.services.extensions.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
 
     Ok(Json(group))
 }
@@ -836,7 +849,12 @@ async fn rename_friend_group(
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    state.services.extensions.friend_room_service.rename_friend_group(&auth_user.user_id, &group_id, &body.name).await?;
+    state
+        .services
+        .extensions
+        .friend_room_service
+        .rename_friend_group(&auth_user.user_id, &group_id, &body.name)
+        .await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -868,7 +886,12 @@ async fn remove_friend_from_group(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state.services.extensions.friend_room_service.remove_friend_from_group(&auth_user.user_id, &group_id, &user_id).await?;
+    state
+        .services
+        .extensions
+        .friend_room_service
+        .remove_friend_from_group(&auth_user.user_id, &group_id, &user_id)
+        .await?;
 
     Ok(Json(json!({
         "group_id": group_id,
@@ -882,7 +905,8 @@ async fn get_friends_in_group(
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let friends = state.services.extensions.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
+    let friends =
+        state.services.extensions.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "friends": friends
@@ -896,7 +920,8 @@ async fn get_groups_for_user(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let groups = state.services.extensions.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
+    let groups =
+        state.services.extensions.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -909,7 +934,8 @@ async fn get_friend_dm(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let room_id = state.services.extensions.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
+    let room_id =
+        state.services.extensions.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,

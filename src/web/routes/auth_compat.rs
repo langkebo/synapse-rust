@@ -2,8 +2,8 @@ use crate::common::ApiError;
 use crate::services::auth::GuestAuthExt;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
-use crate::web::utils::auth::resolve_request_id;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
@@ -175,7 +175,9 @@ pub(crate) async fn request_email_verification_with_submit_path(
     });
 
     let token_id = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
@@ -240,7 +242,9 @@ pub(crate) async fn submit_email_token(
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
     let verification_token = state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
@@ -254,7 +258,7 @@ pub(crate) async fn submit_email_token(
         return Err(ApiError::bad_request("Verification token has already been used".to_string()));
     }
 
-    if verification_token.expires_at < chrono::Utc::now().timestamp_millis() {
+    if verification_token.expires_at < Some(chrono::Utc::now().timestamp_millis()) {
         return Err(ApiError::bad_request("Verification token has expired".to_string()));
     }
 
@@ -267,7 +271,9 @@ pub(crate) async fn submit_email_token(
     }
 
     state
-        .services.admin.email_verification_storage
+        .services
+        .admin
+        .email_verification_storage
         .mark_token_used(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;

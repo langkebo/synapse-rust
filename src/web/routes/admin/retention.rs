@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::retention_service::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
+use crate::storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -96,7 +96,9 @@ pub async fn get_room_retention_policy(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let room_exists = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -131,7 +133,9 @@ pub async fn set_room_retention_policy(
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -168,7 +172,9 @@ pub async fn run_retention(
     match body.room_id {
         Some(room_id) => {
             if !state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .room_exists(&room_id)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Database error", &e))?

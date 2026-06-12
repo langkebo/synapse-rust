@@ -1,7 +1,7 @@
-use crate::common::{ApiError, MAX_MESSAGE_LENGTH, PresenceState};
-use crate::web::utils::auth::resolve_request_id;
+use crate::common::{ApiError, PresenceState, MAX_MESSAGE_LENGTH};
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{validate_user_id, AppState, AuthenticatedUser};
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
     http::HeaderMap,
@@ -35,7 +35,9 @@ async fn ensure_presence_access_or_shared_room(
     }
 
     let shared = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .share_common_room(&auth_user.user_id, target_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check shared rooms", &e))?;
@@ -116,11 +118,12 @@ pub(crate) async fn set_presence(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Presence required".to_string()))?;
 
-    let presence_state = PresenceState::from_str_opt(presence_str)
-        .ok_or_else(|| ApiError::invalid_input(format!(
+    let presence_state = PresenceState::from_str_opt(presence_str).ok_or_else(|| {
+        ApiError::invalid_input(format!(
             "Invalid presence status. Must be one of: {}",
             PresenceState::valid_strs().join(", ")
-        )))?;
+        ))
+    })?;
 
     let status_msg = body.get("status_msg").and_then(|v| v.as_str());
 
@@ -136,7 +139,7 @@ pub(crate) async fn set_presence(
         .services
         .account
         .presence_storage
-        .set_presence(&user_id, presence_state, status_msg)
+        .set_presence(&user_id, presence_state.as_str(), status_msg)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set presence", &e))?;
 

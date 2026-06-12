@@ -1,8 +1,8 @@
-use synapse_cache::{CacheKeyBuilder, CacheManager, CacheTtl};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_cache::{CacheKeyBuilder, CacheManager, CacheTtl};
 use tracing;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

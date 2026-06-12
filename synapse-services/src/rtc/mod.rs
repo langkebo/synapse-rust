@@ -39,8 +39,6 @@ pub use infra::TurnCredentials;
 pub use infra::VoipSettings;
 
 #[cfg(feature = "voip-tracking")]
-pub use synapse_common::config::LivekitConfig;
-#[cfg(feature = "voip-tracking")]
 pub use call::CallOrchestrationService;
 #[cfg(feature = "voip-tracking")]
 pub use call::{
@@ -58,6 +56,8 @@ pub use sfu::{
     CreateRoomRequest, CreateRoomResponse, JoinRoomRequest, JoinRoomResponse, LivekitCodec, LivekitError,
     LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
 };
+#[cfg(feature = "voip-tracking")]
+pub use synapse_common::config::LivekitConfig;
 
 // Backward-compatible re-exports (old names → new types)
 pub use infra::RtcInfraService as VoipService;

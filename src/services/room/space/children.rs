@@ -274,21 +274,15 @@ impl SpaceService {
             }
         }
 
-        let children_res = self
-            .space_storage
-            .get_space_children(space_id)
-            .await;
-        
+        let children_res = self.space_storage.get_space_children(space_id).await;
+
         let children = match children_res {
             Ok(c) => c,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get space children", &e)),
         };
 
-        let members_res = self
-            .space_storage
-            .get_space_members(space_id)
-            .await;
-        
+        let members_res = self.space_storage.get_space_members(space_id).await;
+
         let members = match members_res {
             Ok(m) => m,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get space members", &e)),

@@ -1,12 +1,12 @@
 use super::models::*;
 use super::storage::CrossSigningStorage;
-use synapse_common::traits::DehydratedDeviceProvider;
 use crate::device_keys::DeviceKeyStorage;
 use crate::signed_json::verify_signed_json;
-use synapse_common::ApiError;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use synapse_common::traits::DehydratedDeviceProvider;
+use synapse_common::ApiError;
 
 #[derive(Clone)]
 pub struct CrossSigningService {

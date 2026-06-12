@@ -267,10 +267,8 @@ mod tests {
 
     #[test]
     fn test_key_verification_complete() {
-        let complete = KeyVerificationComplete {
-            transaction_id: "tx_comp".to_string(),
-            from_device: "DEVICE1".to_string(),
-        };
+        let complete =
+            KeyVerificationComplete { transaction_id: "tx_comp".to_string(), from_device: "DEVICE1".to_string() };
         assert_eq!(complete.transaction_id, "tx_comp");
     }
 

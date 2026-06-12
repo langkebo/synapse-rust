@@ -1,8 +1,8 @@
-use synapse_common::error::ApiError;
-use synapse_storage::relations::{EventRelation, RelationQueryParams, RelationsStorage};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_storage::relations::{EventRelation, RelationQueryParams, RelationsStorage};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

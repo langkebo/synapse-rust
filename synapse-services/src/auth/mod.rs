@@ -7,14 +7,14 @@ mod session;
 mod tests;
 mod token;
 
+use rand::RngCore;
+use std::sync::Arc;
 use synapse_cache::*;
 use synapse_common::config::SecurityConfig;
 use synapse_common::metrics::MetricsCollector;
 use synapse_common::validation::Validator;
 use synapse_storage::refresh_token::RefreshTokenStorage;
 use synapse_storage::*;
-use rand::RngCore;
-use std::sync::Arc;
 
 // Re-export shared claims types from synapse-common for backward compatibility.
 pub use synapse_common::claims::{Claims, ClaimsBuilder};

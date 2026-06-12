@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
-use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::routes::{AppState, AuthenticatedUser};
 use axum::{extract::State, routing::post, Json, Router};
+use synapse_common::ApiError;
+use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 
 /// Sliding Sync endpoint
 /// Matrix MSC3575: https://github.com/matrix-org/matrix-spec-proposals/pull/3575
@@ -99,11 +99,11 @@ fn resolve_sliding_sync_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::resolve_sliding_sync_rate_limit;
-    use synapse_cache::CacheConfig;
-    use synapse_common::rate_limit_config::RateLimitConfigFile;
     use crate::routes::state::SyncRateLimitOverride;
     use crate::routes::AppState;
     use std::sync::Arc;
+    use synapse_cache::CacheConfig;
+    use synapse_common::rate_limit_config::RateLimitConfigFile;
 
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_prefers_file_config_when_enabled() {
@@ -122,10 +122,8 @@ mod tests {
         file_config.sync.initial.burst_size = 22;
         file_config.sync.incremental.per_second = 33;
         file_config.sync.incremental.burst_size = 44;
-        let sync_override = SyncRateLimitOverride {
-            fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync,
-        };
+        let sync_override =
+            SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
@@ -146,10 +144,8 @@ mod tests {
         file_config.sync.enabled = false;
         file_config.sync.initial.per_second = 99;
         file_config.sync.initial.burst_size = 99;
-        let sync_override = SyncRateLimitOverride {
-            fail_open_on_error: file_config.fail_open_on_error,
-            sync: file_config.sync,
-        };
+        let sync_override =
+            SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));
         assert_eq!(resolve_sliding_sync_rate_limit(&state, None, false), (6, 60));

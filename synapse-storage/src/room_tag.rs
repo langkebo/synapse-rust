@@ -14,6 +14,15 @@ pub struct RoomTag {
 pub struct RoomTagStorage;
 
 impl RoomTagStorage {
+    pub async fn get_all_tags(pool: &sqlx::PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
+        sqlx::query_as::<_, RoomTag>(
+            "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 ORDER BY room_id, tag"
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await
+    }
+
     pub async fn get_tags(pool: &sqlx::PgPool, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
         sqlx::query_as::<_, RoomTag>(
             "SELECT id, user_id, room_id, tag, order_value, created_ts FROM room_tags WHERE user_id = $1 AND room_id = $2 ORDER BY tag"

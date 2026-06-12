@@ -95,10 +95,8 @@ impl EventNotifier {
             return;
         }
 
-        let notifiers: Vec<Arc<Notify>> = room_ids
-            .iter()
-            .map(|room_id| self.get_or_create_room_notify(room_id))
-            .collect();
+        let notifiers: Vec<Arc<Notify>> =
+            room_ids.iter().map(|room_id| self.get_or_create_room_notify(room_id)).collect();
 
         let futures: Vec<_> = notifiers.iter().map(|n| Box::pin(n.notified())).collect();
 
@@ -169,19 +167,11 @@ impl EventNotifier {
     }
 
     fn get_or_create_room_notify(&self, room_id: &str) -> Arc<Notify> {
-        self.room_notifiers
-            .entry(room_id.to_string())
-            .or_insert_with(|| Arc::new(Notify::new()))
-            .value()
-            .clone()
+        self.room_notifiers.entry(room_id.to_string()).or_insert_with(|| Arc::new(Notify::new())).value().clone()
     }
 
     fn get_or_create_user_notify(&self, user_id: &str) -> Arc<Notify> {
-        self.user_notifiers
-            .entry(user_id.to_string())
-            .or_insert_with(|| Arc::new(Notify::new()))
-            .value()
-            .clone()
+        self.user_notifiers.entry(user_id.to_string()).or_insert_with(|| Arc::new(Notify::new())).value().clone()
     }
 
     fn publish_redis(&self, kind: EventNotifyKind, key: &str) {

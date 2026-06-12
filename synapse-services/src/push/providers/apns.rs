@@ -185,7 +185,12 @@ impl PushProvider for ApnsProvider {
 
         match self.send_request(token, &apns_payload).await {
             Ok(_) => {
-                debug!(title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "APNS push successful");
+                debug!(
+                    title_present = !payload.title.is_empty(),
+                    room_id = payload.room_id,
+                    event_id = payload.event_id,
+                    "APNS push successful"
+                );
                 PushResult::success()
             }
             Err(e) => {

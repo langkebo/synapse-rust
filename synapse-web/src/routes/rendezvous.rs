@@ -1,5 +1,3 @@
-use synapse_common::ApiError;
-use synapse_storage::rendezvous::*;
 use crate::routes::{AppState, OptionalAuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
 use axum::{
@@ -9,6 +7,8 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use synapse_common::ApiError;
+use synapse_storage::rendezvous::*;
 
 const RENDEZVOUS_KEY_HEADER: &str = "x-matrix-rendezvous-key";
 
@@ -74,14 +74,17 @@ async fn create_session(
         CreateRendezvousSessionParams { intent: intent_enum, transport: transport_enum, transport_data, expires_in_ms };
 
     let session: RendezvousSession = state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .create_session(params)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
 
     ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
-    let rendezvous_url: String = format!("matrix://rendezvous/{}/{}", &state.services.core.server_name, session.session_id);
+    let rendezvous_url: String =
+        format!("matrix://rendezvous/{}/{}", &state.services.core.server_name, session.session_id);
 
     Ok(Json(json!({
         "url": rendezvous_url,
@@ -96,7 +99,9 @@ fn extract_rendezvous_key(headers: &HeaderMap) -> Option<&str> {
 
 async fn load_rendezvous_session(state: &AppState, session_id: &str) -> Result<RendezvousSession, ApiError> {
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .get_session(session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get session", &e))?
@@ -151,7 +156,8 @@ async fn get_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let session = ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read").await?;
+    let session =
+        ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read").await?;
 
     Ok(Json(json!({
         "session_id": session.session_id,
@@ -180,7 +186,9 @@ async fn update_session(
         .ok_or_else(|| ApiError::bad_request("status required".to_string()))?;
 
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .update_session_status(&session_id, status)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
@@ -190,7 +198,9 @@ async fn update_session(
         let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
         let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
         state
-            .services.admin.rendezvous_storage
+            .services
+            .admin
+            .rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to bind user", &e))?;
@@ -238,7 +248,9 @@ async fn delete_session(
     ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "delete").await?;
 
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .delete_session(&session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;

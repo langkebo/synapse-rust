@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::key_rotation::KeyRotationManager;
 use crate::signing::canonical_federation_request_bytes;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
@@ -9,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::ApiError;
 use tokio::sync::RwLock;
 
 const MAX_RETRIES: u32 = 3;

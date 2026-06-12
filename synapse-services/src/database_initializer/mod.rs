@@ -2,9 +2,9 @@ pub mod models;
 pub mod tables;
 pub use models::*;
 
-use synapse_storage::SchemaValidator;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_storage::SchemaValidator;
 use tracing::{debug, error, info, warn};
 
 const DEFAULT_CACHE_TTL_SECONDS: i64 = 3600;
@@ -526,12 +526,7 @@ impl DatabaseInitService {
             }
         }
 
-        info!(
-            success_count,
-            skip_count,
-            error_count,
-            "迁移完成"
-        );
+        info!(success_count, skip_count, error_count, "迁移完成");
         Ok(format!("数据库迁移执行完成 (成功: {success_count}, 跳过: {skip_count}, 错误: {error_count})"))
     }
 

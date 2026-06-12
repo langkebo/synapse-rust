@@ -2,9 +2,9 @@
 // E2EE Phase 1: Database operations for device trust and verification
 
 use crate::device_trust::models::*;
-use synapse_common::ApiError;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct DeviceTrustStorage {
     pool: Arc<PgPool>,

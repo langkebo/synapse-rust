@@ -1,7 +1,5 @@
 //! 版本相关处理器
 
-use synapse_common::config::Config;
-use synapse_common::room_versions::client_room_versions_capability;
 use crate::routes::extractors::auth::OptionalAuthenticatedUser;
 use crate::routes::AppState;
 use axum::{
@@ -14,6 +12,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use synapse_common::config::Config;
+use synapse_common::room_versions::client_room_versions_capability;
 use url::Url;
 
 /// Empty query params marker used as the last handler parameter so that
@@ -282,12 +282,12 @@ mod tests {
         build_capabilities_response, build_client_versions, build_well_known_client, client_versions_headers,
         derive_well_known_server, get_client_versions, ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
     };
-    use synapse_cache::{CacheConfig, CacheManager};
-    use synapse_common::config::Config;
-    use synapse_services::ServiceContainer;
     use crate::routes::AppState;
     use axum::http::header::{CACHE_CONTROL, VARY};
     use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_common::config::Config;
+    use synapse_services::ServiceContainer;
 
     async fn make_test_state() -> AppState {
         let mut config = Config::default();

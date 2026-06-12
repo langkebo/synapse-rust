@@ -253,10 +253,8 @@ mod tests {
 
     #[test]
     fn test_resolution_result_serialization() {
-        let result = ResolutionResult {
-            accepted_events: vec!["$e1".to_string()],
-            rejected_events: vec!["$e2".to_string()],
-        };
+        let result =
+            ResolutionResult { accepted_events: vec!["$e1".to_string()], rejected_events: vec!["$e2".to_string()] };
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("accepted_events"));
         assert!(json.contains("rejected_events"));

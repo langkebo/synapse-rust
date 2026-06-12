@@ -1,12 +1,12 @@
 use crate::verification::models::*;
 use crate::verification::storage::VerificationStorage;
-use synapse_common::ApiError;
 use base64::Engine;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
 use std::sync::Arc;
+use synapse_common::ApiError;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 type HmacSha256 = Hmac<Sha256>;

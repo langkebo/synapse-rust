@@ -1,7 +1,8 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::services::{decode_user_cursor, encode_user_cursor, AdminUserCursor, AdminUserRecord};
+use crate::services::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
+use crate::storage::User as AdminUserRecord;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -136,7 +137,9 @@ async fn evict_user(
     let user = resolve_user(&state, &user_id).await?;
 
     let joined_rooms = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_rooms(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -210,7 +213,9 @@ pub async fn get_users(
     let cursor = decode_user_cursor(params.get("since").map(String::as_str));
 
     if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use since cursor".to_string()));
+        return Err(ApiError::bad_request(
+            "Legacy offset pagination is no longer supported; use since cursor".to_string(),
+        ));
     }
 
     let users = state
@@ -250,12 +255,9 @@ pub async fn get_users(
         .collect();
 
     let next_batch = if users.len() as i64 == limit {
-        users.last().map(|u| {
-            encode_user_cursor(&AdminUserCursor {
-                created_ts: u.created_ts,
-                user_id: u.user_id.clone(),
-            })
-        })
+        users
+            .last()
+            .map(|u| encode_user_cursor(&AdminUserCursor { created_ts: u.created_ts, user_id: u.user_id.clone() }))
     } else {
         None
     };
@@ -513,27 +515,22 @@ pub async fn get_user_rooms_admin(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100)
-        .clamp(1, 500);
+    let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
     let from = params.get("from").map(|s| s.as_str());
 
-    let room_ids = state
-        .services.rooms.room_storage
-        .get_user_rooms_paginated(&user.user_id, limit, from)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let room_ids = crate::storage::RoomStorage::get_user_rooms_paginated(
+        &state.services.rooms.room_storage,
+        &user.user_id,
+        limit,
+        from,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error: {e}");
+        ApiError::database("A database error occurred".to_string())
+    })?;
 
-    let next_batch = if room_ids.len() as i64 == limit {
-        room_ids.last().cloned()
-    } else {
-        None
-    };
+    let next_batch = if room_ids.len() as i64 == limit { room_ids.last().cloned() } else { None };
 
     Ok(Json(json!({
         "joined_rooms": room_ids,
@@ -696,7 +693,9 @@ pub async fn get_users_v2(
     let cursor = decode_user_cursor(params.get("from").map(String::as_str));
 
     if params.contains_key("offset") && params.get("offset").and_then(|v| v.parse::<i64>().ok()).unwrap_or(0) > 0 {
-        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor".to_string()));
+        return Err(ApiError::bad_request(
+            "Legacy offset pagination is no longer supported; use from cursor".to_string(),
+        ));
     }
 
     let page = state
@@ -737,13 +736,7 @@ pub async fn get_user_v2(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .admin
-        .admin_user_service
-        .get_user_v2(&user_id)
-        .await
-        ?;
+    let user = state.services.admin.admin_user_service.get_user_v2(&user_id).await?;
 
     match user {
         Some(details) => {
@@ -802,20 +795,14 @@ pub async fn create_or_update_user_v2(
             body.user_type.as_deref(),
             body.password.as_deref(),
         )
-        .await
-        ?;
+        .await?;
 
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = state
-        .services
-        .admin
-        .admin_user_service
-        .get_user_stats()
-        .await?;
+    let stats = state.services.admin.admin_user_service.get_user_stats().await?;
 
     Ok(Json(json!({
         "total_users": stats.total_users,
@@ -834,12 +821,7 @@ pub async fn get_single_user_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = state
-        .services
-        .admin
-        .admin_user_service
-        .get_single_user_stats(&user_id)
-        .await?;
+    let stats = state.services.admin.admin_user_service.get_single_user_stats(&user_id).await?;
 
     Ok(Json(json!({
         "user_id": stats.user.user_id,
@@ -893,12 +875,7 @@ pub async fn batch_create_users(
             )
         })
         .collect();
-    let result = state
-        .services
-        .admin
-        .admin_user_service
-        .batch_create_users(&users)
-        .await?;
+    let result = state.services.admin.admin_user_service.batch_create_users(&users).await?;
 
     Ok(Json(json!({
         "created": result.succeeded,
@@ -924,12 +901,7 @@ pub async fn batch_deactivate_users(
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
     }
 
-    let result = state
-        .services
-        .admin
-        .admin_user_service
-        .batch_deactivate_users(&body.users)
-        .await?;
+    let result = state.services.admin.admin_user_service.batch_deactivate_users(&body.users).await?;
 
     Ok(Json(json!({
         "deactivated": result.succeeded,
@@ -1016,7 +988,9 @@ pub async fn get_account_details(
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     let room_count: i64 = state
-        .services.rooms.member_storage
+        .services
+        .rooms
+        .member_storage
         .get_joined_room_count(canonical_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -1059,12 +1033,7 @@ pub async fn update_account(
         .services
         .admin
         .admin_user_service
-        .update_account(
-            canonical_user_id,
-            body.displayname.as_deref(),
-            body.avatar_url.as_deref(),
-            body.admin,
-        )
+        .update_account(canonical_user_id, body.displayname.as_deref(), body.avatar_url.as_deref(), body.admin)
         .await?;
 
     if let Some(admin_status) = body.admin {

@@ -1,7 +1,3 @@
-use synapse_common::config::SamlConfig;
-use synapse_common::error::ApiError;
-use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
-use synapse_storage::saml::*;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
 use regex::Regex;
@@ -9,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use synapse_common::config::SamlConfig;
+use synapse_common::error::ApiError;
+use synapse_common::xml_parser::{parse_saml_metadata, parse_saml_response};
+use synapse_storage::saml::*;
 use tracing::info;
 
 const SAML_REQUEST_TTL_SECONDS: u64 = 600;

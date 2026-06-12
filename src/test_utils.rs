@@ -1,4 +1,4 @@
-use crate::services::{DatabaseInitMode, DatabaseInitService};
+use crate::services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;

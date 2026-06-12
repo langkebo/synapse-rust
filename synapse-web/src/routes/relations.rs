@@ -4,7 +4,6 @@
 //! Implements Matrix Relations and Aggregations API
 //! Spec: https://spec.matrix.org/v1.8/client-server-api/#relationship-types
 
-use synapse_common::error::ApiError;
 use crate::routes::room_access::ensure_room_member;
 use crate::routes::validators::{
     validate_event_id as shared_validate_event_id, validate_room_id as shared_validate_room_id,
@@ -17,6 +16,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use synapse_common::error::ApiError;
 
 fn create_relations_core_router() -> Router<AppState> {
     Router::new()
@@ -132,7 +132,9 @@ async fn get_relations_by_event(
     tracing::debug!("Getting all relations for event {} in room {}", event_id, room_id,);
 
     let response = state
-        .services.rooms.relations_service
+        .services
+        .rooms
+        .relations_service
         .get_relations(&room_id, &event_id, None, Some(limit), query.from, direction)
         .await?;
 
@@ -175,7 +177,9 @@ async fn get_relations(
     tracing::debug!("Getting relations for event {} in room {} with rel_type {}", event_id, room_id, rel_type);
 
     let response = state
-        .services.rooms.relations_service
+        .services
+        .rooms
+        .relations_service
         .get_relations(&room_id, &event_id, Some(&rel_type), Some(limit), query.from, direction)
         .await?;
 
@@ -223,7 +227,9 @@ async fn send_relation(
             let key = body.get("key").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
             state
-                .services.rooms.relations_service
+                .services
+                .rooms
+                .relations_service
                 .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -238,7 +244,9 @@ async fn send_relation(
             let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
             state
-                .services.rooms.relations_service
+                .services
+                .rooms
+                .relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -254,7 +262,9 @@ async fn send_relation(
             let content = body.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
             state
-                .services.rooms.relations_service
+                .services
+                .rooms
+                .relations_service
                 .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
@@ -274,7 +284,9 @@ async fn send_relation(
                 .unwrap_or(Value::Object(serde_json::Map::new()));
 
             state
-                .services.rooms.relations_service
+                .services
+                .rooms
+                .relations_service
                 .send_replacement(synapse_services::relations_service::SendReplacementRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),

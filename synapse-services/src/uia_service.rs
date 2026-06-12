@@ -1,10 +1,10 @@
-use synapse_cache::CacheManager;
-use synapse_common::ApiError;
-use synapse_storage::ThreepidStorage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::ApiError;
+use synapse_storage::ThreepidStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaSession {
@@ -363,9 +363,7 @@ impl UiaService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
 
-        let has_verified_email = user_threepids
-            .iter()
-            .any(|t| t.medium == "email" && t.is_verified);
+        let has_verified_email = user_threepids.iter().any(|t| t.medium == "email" && t.is_verified);
 
         if !has_verified_email {
             return Err(ApiError::forbidden(
@@ -398,9 +396,9 @@ impl UiaService {
     ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
-        let creds_array = threepid_creds.and_then(|v| v.as_array()).ok_or_else(|| {
-            ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string())
-        })?;
+        let creds_array = threepid_creds
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string()))?;
 
         for cred in creds_array {
             let sid = cred
@@ -422,9 +420,7 @@ impl UiaService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
 
-        let has_verified_msisdn = user_threepids
-            .iter()
-            .any(|t| t.medium == "msisdn" && t.is_verified);
+        let has_verified_msisdn = user_threepids.iter().any(|t| t.medium == "msisdn" && t.is_verified);
 
         if !has_verified_msisdn {
             return Err(ApiError::forbidden(
@@ -585,9 +581,7 @@ mod tests {
             user_id: "@user:server".to_string(),
             completed: vec!["m.login.password".to_string()],
             created_ts: 0,
-            flows: vec![UiaFlow {
-                stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()],
-            }],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }],
         };
 
         assert!(!service.is_session_complete(&session));
@@ -603,9 +597,7 @@ mod tests {
             user_id: "@user:server".to_string(),
             completed: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()],
             created_ts: 0,
-            flows: vec![UiaFlow {
-                stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()],
-            }],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".to_string(), "m.login.email.identity".to_string()] }],
         };
 
         assert!(service.is_session_complete(&session));

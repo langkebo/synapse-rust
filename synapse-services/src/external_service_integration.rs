@@ -1,5 +1,3 @@
-use synapse_common::ApiError;
-use synapse_storage::application_service::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
 use reqwest::Client;
@@ -7,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use synapse_common::ApiError;
+use synapse_storage::application_service::*;
 use tracing::{debug, info, instrument, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

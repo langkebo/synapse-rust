@@ -129,14 +129,8 @@ mod tests {
 
     #[test]
     fn test_olm_message_type() {
-        assert_eq!(
-            serde_json::to_string(&OlmMessageType::PreKey).unwrap(),
-            r#""PreKey""#
-        );
-        assert_eq!(
-            serde_json::to_string(&OlmMessageType::Message).unwrap(),
-            r#""Message""#
-        );
+        assert_eq!(serde_json::to_string(&OlmMessageType::PreKey).unwrap(), r#""PreKey""#);
+        assert_eq!(serde_json::to_string(&OlmMessageType::Message).unwrap(), r#""Message""#);
     }
 
     #[test]
@@ -239,10 +233,7 @@ mod tests {
 
     #[test]
     fn test_olm_message_info() {
-        let info = OlmMessageInfo {
-            message_type: OlmMessageType::PreKey,
-            ciphertext: "encrypted_text".to_string(),
-        };
+        let info = OlmMessageInfo { message_type: OlmMessageType::PreKey, ciphertext: "encrypted_text".to_string() };
         assert_eq!(info.message_type, OlmMessageType::PreKey);
         assert_eq!(info.ciphertext, "encrypted_text");
     }
@@ -259,19 +250,13 @@ mod tests {
 
     #[test]
     fn test_olm_decrypted_message() {
-        let msg = OlmDecryptedMessage {
-            plaintext: "hello".to_string(),
-            session_id: "s1".to_string(),
-        };
+        let msg = OlmDecryptedMessage { plaintext: "hello".to_string(), session_id: "s1".to_string() };
         assert_eq!(msg.plaintext, "hello");
     }
 
     #[test]
     fn test_one_time_key() {
-        let key = OneTimeKey {
-            key_id: "signed_curve25519:AAAAAA".to_string(),
-            public_key: "base64key".to_string(),
-        };
+        let key = OneTimeKey { key_id: "signed_curve25519:AAAAAA".to_string(), public_key: "base64key".to_string() };
         assert_eq!(key.key_id, "signed_curve25519:AAAAAA");
     }
 

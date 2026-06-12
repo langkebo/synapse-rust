@@ -1,15 +1,15 @@
 use super::models::*;
 use super::storage::DeviceKeyStorage;
-use synapse_cache::CacheManager;
 use crate::cross_signing::storage::CrossSigningStorage;
 use crate::crypto::CryptoError;
 use crate::signed_json::verify_device_keys_signature;
 use crate::signed_json::verify_one_time_key_signature;
-use synapse_common::ApiError;
-use synapse_storage::DehydratedDeviceStorage;
 use chrono::Utc;
 use serde_json::Value;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::ApiError;
+use synapse_storage::DehydratedDeviceStorage;
 
 #[derive(Clone)]
 pub struct DeviceKeyService {

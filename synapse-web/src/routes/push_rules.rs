@@ -1,8 +1,8 @@
-use synapse_common::ApiError;
 use crate::routes::extractors::AuthenticatedUser;
 use crate::routes::AppState;
 use axum::{extract::State, Json};
 use serde_json::Value;
+use synapse_common::ApiError;
 
 // Re-export from the extracted push_rules module in synapse-services
 pub use synapse_services::sync_service::push_rules::{

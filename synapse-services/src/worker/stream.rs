@@ -1,9 +1,9 @@
-use synapse_common::error::ApiError;
 use crate::worker::bus::WorkerBus;
 use crate::worker::protocol::{ReplicationCommand, ReplicationRow};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 use tokio::sync::RwLock;
 use tracing::{debug, warn};
 

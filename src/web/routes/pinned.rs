@@ -54,12 +54,7 @@ pub async fn pin_event(
         pinned_list.push(body.event_id.clone());
     }
 
-    state
-        .services
-        .rooms
-        .room_service
-        .set_pinned_event_ids(&room_id, &auth_user.user_id, &pinned_list)
-        .await?;
+    state.services.rooms.room_service.set_pinned_event_ids(&room_id, &auth_user.user_id, &pinned_list).await?;
 
     Ok(Json(serde_json::json!({
         "pinned_event": body.event_id
@@ -86,12 +81,7 @@ pub async fn unpin_event(
 
     pinned_list.retain(|e| e != &event_id);
 
-    state
-        .services
-        .rooms
-        .room_service
-        .set_pinned_event_ids(&room_id, &auth_user.user_id, &pinned_list)
-        .await?;
+    state.services.rooms.room_service.set_pinned_event_ids(&room_id, &auth_user.user_id, &pinned_list).await?;
 
     Ok(Json(serde_json::json!({
         "unpinned_event": event_id

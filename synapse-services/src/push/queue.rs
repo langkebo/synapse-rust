@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, info, warn};
 

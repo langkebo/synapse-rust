@@ -41,8 +41,8 @@ impl Ed25519PublicKey {
     }
 
     pub fn verify(&self, message: &[u8], signature: &ed25519_dalek::Signature) -> Result<(), CryptoError> {
-        let verifying_key = VerifyingKey::from_bytes(&self.bytes)
-            .map_err(|_| CryptoError::SignatureVerificationFailed)?;
+        let verifying_key =
+            VerifyingKey::from_bytes(&self.bytes).map_err(|_| CryptoError::SignatureVerificationFailed)?;
         verifying_key.verify(message, signature).map_err(|_| CryptoError::SignatureVerificationFailed)
     }
 }

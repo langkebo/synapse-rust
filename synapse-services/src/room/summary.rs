@@ -6,11 +6,11 @@
 use crate::common::{ApiError, ApiResult};
 use crate::storage::event::EventStorage;
 use crate::storage::membership::RoomMemberStorage;
+use crate::storage::room_summary::*;
 pub use crate::storage::room_summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
-use crate::storage::room_summary::*;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
@@ -31,11 +31,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn get_summary(&self, room_id: &str) -> Result<Option<RoomSummaryResponse>, ApiError> {
-        let summary_res = self
-            .storage
-            .get_summary(room_id)
-            .await;
-        
+        let summary_res = self.storage.get_summary(room_id).await;
+
         let summary = match summary_res {
             Ok(s) => s,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get room summary", &e)),
@@ -51,11 +48,8 @@ impl RoomSummaryService {
 
     #[instrument(skip(self))]
     pub async fn get_summaries_for_user(&self, user_id: &str) -> Result<Vec<RoomSummaryResponse>, ApiError> {
-        let summaries_res = self
-            .storage
-            .get_summaries_for_user(user_id)
-            .await;
-        
+        let summaries_res = self.storage.get_summaries_for_user(user_id).await;
+
         let summaries = match summaries_res {
             Ok(s) => s,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get user room summaries", &e)),
@@ -71,11 +65,8 @@ impl RoomSummaryService {
     }
 
     pub(crate) async fn get_heroes(&self, room_id: &str) -> Result<Vec<RoomSummaryHero>, ApiError> {
-        let members_res = self
-            .storage
-            .get_heroes(room_id, 5)
-            .await;
-        
+        let members_res = self.storage.get_heroes(room_id, 5).await;
+
         let members = match members_res {
             Ok(m) => m,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes", &e)),
@@ -89,27 +80,21 @@ impl RoomSummaryService {
 
         let room_id = request.room_id.clone();
 
-        let summary_exists_res = self
-            .storage
-            .get_summary(&room_id)
-            .await;
-        
+        let summary_exists_res = self.storage.get_summary(&room_id).await;
+
         let exists = match summary_exists_res {
             Ok(s) => s.is_some(),
             Err(e) => return Err(ApiError::internal_with_log("Failed to check room summary", &e)),
         };
 
         if exists {
-            let update_res = self.storage
-                .update_summary(&room_id, Self::create_request_to_update_request(&request))
-                .await;
+            let update_res =
+                self.storage.update_summary(&room_id, Self::create_request_to_update_request(&request)).await;
             if let Err(e) = update_res {
                 return Err(ApiError::internal_with_log("Failed to update room summary", &e));
             }
         } else {
-            let create_res = self.storage
-                .create_summary(request)
-                .await;
+            let create_res = self.storage.create_summary(request).await;
             if let Err(e) = create_res {
                 return Err(ApiError::internal_with_log("Failed to create room summary", &e));
             }
@@ -225,11 +210,8 @@ impl RoomSummaryService {
             return Ok(Vec::new());
         }
 
-        let summaries_res = self
-            .storage
-            .get_summaries_by_ids(room_ids)
-            .await;
-        
+        let summaries_res = self.storage.get_summaries_by_ids(room_ids).await;
+
         let summaries = match summaries_res {
             Ok(s) => s,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get room summaries", &e)),

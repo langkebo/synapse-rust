@@ -3,9 +3,9 @@ use super::{
 };
 use crate::common::ApiError;
 use crate::map_internal;
-use crate::storage::CreateEventParams;
 #[cfg(feature = "beacons")]
 use crate::storage::CreateBeaconInfoParams;
+use crate::storage::CreateEventParams;
 use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -17,10 +17,7 @@ pub(crate) async fn get_room_state(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?;
+    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -28,8 +25,7 @@ pub(crate) async fn get_room_state(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let state_events =
-        state.services.rooms.room_service.get_state_events(&room_id).await?;
+    let state_events = state.services.rooms.room_service.get_state_events(&room_id).await?;
 
     Ok(Json(json!({
         "events": state_events
@@ -43,10 +39,7 @@ pub(crate) async fn get_state_by_type(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?;
+    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -56,12 +49,10 @@ pub(crate) async fn get_state_by_type(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, &final_event_type)
-        .await?;
+    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
-    let event_with_empty_key = events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
+    let event_with_empty_key =
+        events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
 
     if let Some(event) = event_with_empty_key {
         Ok(Json(state_event_content_response(event.get("content").unwrap_or(&json!({})))))
@@ -85,16 +76,14 @@ pub(crate) async fn get_state_event(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, &final_event_type)
-        .await?;
+    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
         .find(|e| {
             e.get("state_key").and_then(|v| v.as_str()) == Some(state_key.as_str())
-                || (e.get("state_key").and_then(|v| v.as_str()).map(|s| s.is_empty()) == Some(true) && state_key.is_empty())
+                || (e.get("state_key").and_then(|v| v.as_str()).map(|s| s.is_empty()) == Some(true)
+                    && state_key.is_empty())
         })
         .ok_or_else(|| ApiError::not_found("State event not found".to_string()))?;
 
@@ -195,7 +184,9 @@ pub(crate) async fn send_state_event(
     };
 
     let state_event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -214,7 +205,9 @@ pub(crate) async fn send_state_event(
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
-            .services.rooms.beacon_service
+            .services
+            .rooms
+            .beacon_service
             .create_beacon(params)
             .await
             .map_err(map_internal!("Failed to index beacon_info"))?;
@@ -304,7 +297,9 @@ pub(crate) async fn put_state_event(
     };
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -323,7 +318,9 @@ pub(crate) async fn put_state_event(
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
-            .services.rooms.beacon_service
+            .services
+            .rooms
+            .beacon_service
             .create_beacon(params)
             .await
             .map_err(map_internal!("Failed to index beacon_info"))?;
@@ -347,10 +344,7 @@ pub(crate) async fn get_state_event_empty_key(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, &final_event_type)
-        .await?;
+    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -369,10 +363,7 @@ pub(crate) async fn get_power_levels(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, "m.room.power_levels")
-        .await?;
+    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let event = events
         .iter()
@@ -399,7 +390,9 @@ pub(crate) async fn put_state_event_empty_key(
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -437,7 +430,9 @@ pub(crate) async fn put_state_event_no_key(
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -468,10 +463,8 @@ pub(crate) async fn get_room_permissions(
     validate_room_id(&room_id)?;
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let power_levels_events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, "m.room.power_levels")
-        .await?;
+    let power_levels_events =
+        state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let pl_content = power_levels_events
         .iter()
@@ -479,10 +472,8 @@ pub(crate) async fn get_room_permissions(
         .and_then(|e| e.get("content").cloned())
         .unwrap_or(json!({}));
 
-    let join_rules_events = state
-        .services.rooms.room_service
-        .get_state_events_by_type(&room_id, "m.room.join_rules")
-        .await?;
+    let join_rules_events =
+        state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
 
     let join_rule = join_rules_events
         .iter()

@@ -234,6 +234,23 @@ impl RendezvousStorage {
         rand::thread_rng().fill_bytes(&mut key_bytes);
         URL_SAFE_NO_PAD.encode(key_bytes)
     }
+
+    pub async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error> {
+        RendezvousMessageStorage::new(self.pool.clone()).store_message(session_id, direction, message).await
+    }
+
+    pub async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
+        RendezvousMessageStorage::new(self.pool.clone()).get_messages(session_id, after_id).await
+    }
 }
 
 #[derive(Clone)]

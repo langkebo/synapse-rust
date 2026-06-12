@@ -1120,6 +1120,108 @@ impl SpaceStorage {
         let result = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
+
+    pub async fn get_space_children_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_added_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<SpaceChild>, sqlx::Error> {
+        if let (Some(ts), Some(id)) = (from_added_ts, from_id) {
+            sqlx::query_as::<_, SpaceChild>(
+                r#"
+                SELECT
+                    id,
+                    space_id,
+                    room_id,
+                    sender,
+                    is_suggested,
+                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS via_servers,
+                    added_ts,
+                    NULL::TEXT AS "order",
+                    NULL::BOOLEAN AS suggested,
+                    NULL::TEXT AS added_by,
+                    NULL::BIGINT AS removed_ts
+                FROM space_children
+                WHERE space_id = $1 AND (added_ts > $2 OR (added_ts = $2 AND id > $3))
+                ORDER BY added_ts ASC, id ASC
+                LIMIT $4
+                "#,
+            )
+            .bind(space_id)
+            .bind(ts)
+            .bind(id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, SpaceChild>(
+                r#"
+                SELECT
+                    id,
+                    space_id,
+                    room_id,
+                    sender,
+                    is_suggested,
+                    COALESCE(ARRAY(SELECT jsonb_array_elements_text(via_servers)), '{}') AS via_servers,
+                    added_ts,
+                    NULL::TEXT AS "order",
+                    NULL::BOOLEAN AS suggested,
+                    NULL::TEXT AS added_by,
+                    NULL::BIGINT AS removed_ts
+                FROM space_children
+                WHERE space_id = $1
+                ORDER BY added_ts ASC, id ASC
+                LIMIT $2
+                "#,
+            )
+            .bind(space_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+    }
+
+    pub async fn get_space_members_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_joined_ts: Option<i64>,
+        from_user_id: Option<&str>,
+    ) -> Result<Vec<SpaceMember>, sqlx::Error> {
+        if let (Some(ts), Some(user_id)) = (from_joined_ts, from_user_id) {
+            sqlx::query_as::<_, SpaceMember>(
+                r#"
+                SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
+                FROM space_members
+                WHERE space_id = $1 AND membership = 'join' AND (joined_ts > $2 OR (joined_ts = $2 AND user_id > $3))
+                ORDER BY joined_ts ASC, user_id ASC
+                LIMIT $4
+                "#,
+            )
+            .bind(space_id)
+            .bind(ts)
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, SpaceMember>(
+                r#"
+                SELECT space_id, user_id, membership, joined_ts, updated_ts, left_ts, inviter
+                FROM space_members
+                WHERE space_id = $1 AND membership = 'join'
+                ORDER BY joined_ts ASC, user_id ASC
+                LIMIT $2
+                "#,
+            )
+            .bind(space_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+    }
 }
 
 #[cfg(test)]

@@ -32,11 +32,11 @@
 //! }
 //! ```
 
-use synapse_cache::CacheManager;
-use synapse_common::ApiResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::ApiResult;
 
 /// 打字用户信息
 ///
@@ -163,11 +163,7 @@ impl TypingService {
             expiry > now
         });
 
-        let result: HashMap<String, u64> = state
-            .users
-            .iter()
-            .map(|u| (u.user_id.clone(), u.timeout_ms))
-            .collect();
+        let result: HashMap<String, u64> = state.users.iter().map(|u| (u.user_id.clone(), u.timeout_ms)).collect();
 
         // 如果清除了过期用户，更新缓存
         if state.users.len() != original_len {

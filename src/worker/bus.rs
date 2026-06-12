@@ -227,12 +227,14 @@ impl Clone for WorkerBus {
 }
 
 pub fn parse_bus_message(data: &[u8]) -> Result<BusMessage, ApiError> {
-    let msg: BusMessage = serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))?;
+    let msg: BusMessage =
+        serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid bus message: {e}")))?;
     Ok(msg)
 }
 
 pub fn parse_replication_command(data: &[u8]) -> Result<ReplicationCommand, ApiError> {
-    let cmd: ReplicationCommand = serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))?;
+    let cmd: ReplicationCommand =
+        serde_json::from_slice(data).map_err(|e| ApiError::bad_request(format!("Invalid replication command: {e}")))?;
     Ok(cmd)
 }
 
@@ -247,16 +249,13 @@ impl crate::common::traits::EventBroadcaster for WorkerBus {
         let encoded = serde_json::to_vec(&message)
             .map_err(|e| crate::common::traits::BroadcastError::EncodingFailed(e.to_string()))?;
 
-        self.publish(&message.channel, &encoded).await.map_err(|e| {
-            crate::common::traits::BroadcastError::Transport(e.to_string())
-        })
+        self.publish(&message.channel, &encoded)
+            .await
+            .map_err(|e| crate::common::traits::BroadcastError::Transport(e.to_string()))
     }
 
     fn broadcast_subscriber_count(&self) -> usize {
-        self.subscribers
-            .try_read()
-            .map(|s| s.len())
-            .unwrap_or(0)
+        self.subscribers.try_read().map(|s| s.len()).unwrap_or(0)
     }
 }
 

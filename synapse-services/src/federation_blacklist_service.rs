@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
-use synapse_storage::federation_blacklist::*;
 use regex::Regex;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_storage::federation_blacklist::*;
 use tracing::info;
 
 #[derive(Debug, Clone)]

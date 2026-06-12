@@ -8,10 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use synapse_common::ApiError;
-use synapse_services::external_service_integration::*;
 use crate::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::utils::auth::resolve_request_id;
+use synapse_common::ApiError;
+use synapse_services::external_service_integration::*;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {
@@ -404,10 +404,7 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             put(update_external_service).delete(unregister_external_service),
         )
         .route("/_synapse/admin/v1/external_services/health", get(get_all_health_status))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::middleware::admin_auth_middleware,
-        ));
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::middleware::admin_auth_middleware));
 
     let admin_v1_routes = Router::new()
         .route("/_matrix/admin/v1/external_services", get(list_external_services).post(register_external_service))
@@ -416,10 +413,7 @@ pub fn create_external_service_router(state: AppState) -> Router<AppState> {
             put(update_external_service).delete(unregister_external_service),
         )
         .route("/_matrix/admin/v1/external_services/health", get(get_all_health_status))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::middleware::admin_auth_middleware,
-        ));
+        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::middleware::admin_auth_middleware));
 
     let client_v1_routes =
         Router::new().route("/_matrix/client/v1/external_services/health", get(client_health_check_all)).route(

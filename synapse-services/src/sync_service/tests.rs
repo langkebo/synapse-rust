@@ -1,9 +1,9 @@
 use super::types::*;
 use super::SyncService;
 use crate::*;
-use synapse_storage::UserRoomMembership;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use synapse_storage::UserRoomMembership;
 
 #[test]
 fn test_sync_token_parse() {

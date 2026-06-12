@@ -37,9 +37,7 @@ pub fn init_logging(
     };
 
     // 2. 创建基础 Registry
-    let subscriber = Registry::default()
-        .with(RequestIdPropagationLayer)
-        .with(env_filter);
+    let subscriber = Registry::default().with(RequestIdPropagationLayer).with(env_filter);
 
     // 3. 添加日志层 (JSON 或 Plain)
     let is_json = config.format.to_lowercase() == "json";

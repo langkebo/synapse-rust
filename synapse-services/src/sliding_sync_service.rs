@@ -1,3 +1,7 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::error::ApiError;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
@@ -8,10 +12,6 @@ use synapse_storage::sliding_sync::{
     SlidingSyncRoom, SlidingSyncStorage,
 };
 use synapse_storage::{EventStorage, RoomEvent, StateEvent};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::collections::HashMap;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SlidingSyncService {

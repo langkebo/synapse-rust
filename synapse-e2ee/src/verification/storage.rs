@@ -3,9 +3,9 @@
 use crate::verification::models::{
     QrState, SasState, VerificationMethod as VMethod, VerificationRequest, VerificationState,
 };
-use synapse_common::ApiError;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 pub struct VerificationStorage {
     pool: Arc<PgPool>,

@@ -45,22 +45,21 @@ impl RoomService {
             .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?
             .to_string();
 
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: tombstone_event_id,
-                    room_id: old_room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: "m.room.tombstone".to_string(),
-                    content: json!({
-                        "body": "This room has been replaced",
-                        "replacement_room": new_room_id.clone(),
-                    }),
-                    state_key: Some("".to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id: tombstone_event_id,
+                room_id: old_room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.tombstone".to_string(),
+                content: json!({
+                    "body": "This room has been replaced",
+                    "replacement_room": new_room_id.clone(),
+                }),
+                state_key: Some("".to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create tombstone event", &e))?;
 

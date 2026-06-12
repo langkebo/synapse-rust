@@ -73,7 +73,9 @@ pub async fn get_captcha_status(
     Query(query): Query<CaptchaIdQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let captcha = state
-        .services.admin.captcha_service
+        .services
+        .admin
+        .captcha_service
         .get_captcha(&query.captcha_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Captcha not found"))?;
