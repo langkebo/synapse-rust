@@ -1,9 +1,9 @@
-use synapse_common::error::ApiError;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 use tracing::{debug, info};
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

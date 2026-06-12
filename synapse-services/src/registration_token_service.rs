@@ -1,6 +1,6 @@
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::registration_token::*;
-use std::sync::Arc;
 use tracing::{info, instrument};
 
 pub struct RegistrationTokenService {

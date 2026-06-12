@@ -128,8 +128,6 @@ pub mod rtc;
 
 // Backward-compatible re-exports from rtc domain
 #[cfg(feature = "voip-tracking")]
-pub use synapse_common::config::LivekitConfig;
-#[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService as CallService;
 #[cfg(feature = "voip-tracking")]
 pub use rtc::CallOrchestrationService;
@@ -150,6 +148,8 @@ pub use rtc::{
     CallState, CreateRoomRequest, CreateRoomResponse, IceCandidate, JoinRoomRequest, JoinRoomResponse, LivekitCodec,
     LivekitError, LivekitParticipant, LivekitRoom, LivekitTrack, RoomParticipant, TrackInfo,
 };
+#[cfg(feature = "voip-tracking")]
+pub use synapse_common::config::LivekitConfig;
 
 #[cfg(feature = "widgets")]
 pub mod widget_service;
@@ -183,8 +183,8 @@ pub use auth::*;
 pub use cache::*;
 #[allow(ambiguous_glob_reexports)]
 pub use common::*;
+#[allow(ambiguous_glob_reexports)]
+pub use federation::*;
 pub use storage::PresenceStorage;
 #[allow(ambiguous_glob_reexports)]
 pub use storage::*;
-#[allow(ambiguous_glob_reexports)]
-pub use federation::*;

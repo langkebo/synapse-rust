@@ -221,12 +221,9 @@ pub struct AdvisoryLockGuard {
 
 impl AdvisoryLockGuard {
     pub async fn try_acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
-        let row = sqlx::query_scalar!(
-            r#"SELECT pg_try_advisory_lock($1) AS "acquired!""#,
-            lock_id
-        )
-        .fetch_one(&**pool)
-        .await?;
+        let row = sqlx::query_scalar!(r#"SELECT pg_try_advisory_lock($1) AS "acquired!""#, lock_id)
+            .fetch_one(&**pool)
+            .await?;
         Ok(Self { pool: pool.clone(), lock_id, acquired: row })
     }
 

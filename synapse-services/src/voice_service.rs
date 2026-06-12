@@ -1,7 +1,7 @@
-use synapse_common::*;
 use crate::media_service::MediaService;
-use synapse_storage::voice::VoiceStorage;
 use serde_json::json;
+use synapse_common::*;
+use synapse_storage::voice::VoiceStorage;
 
 const ALLOWED_AUDIO_TYPES: &[&str] =
     &["audio/ogg", "audio/mp4", "audio/mpeg", "audio/webm", "audio/wav", "audio/aac", "audio/flac"];
@@ -228,7 +228,8 @@ impl VoiceService {
         let content_uri = synapse_common::media_locator::MediaLocator {
             server_name: self.server_name.clone(),
             media_id: media_id.to_string(),
-        }.to_mxc_url();
+        }
+        .to_mxc_url();
 
         Ok(json!({
             "media_id": record.media_id,
@@ -246,7 +247,8 @@ impl VoiceService {
         let content_uri = synapse_common::media_locator::MediaLocator {
             server_name: self.server_name.clone(),
             media_id: record.media_id.clone(),
-        }.to_mxc_url();
+        }
+        .to_mxc_url();
         json!({
             "media_id": record.media_id,
             "user_id": record.user_id,

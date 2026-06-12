@@ -37,26 +37,25 @@ impl RoomService {
         // Persist the m.room.member invite state event so the invitee's /sync
         // delivers the invite under `rooms.invite`. Without this row in
         // `events`, the recipient never sees the invitation.
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: inviter_id.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content: json!({
-                        "membership": "invite",
-                        "displayname": invitee_id
-                            .trim_start_matches('@')
-                            .split(':')
-                            .next()
-                            .unwrap_or(invitee_id),
-                    }),
-                    state_key: Some(invitee_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.to_string(),
+                user_id: inviter_id.to_string(),
+                event_type: "m.room.member".to_string(),
+                content: json!({
+                    "membership": "invite",
+                    "displayname": invitee_id
+                        .trim_start_matches('@')
+                        .split(':')
+                        .next()
+                        .unwrap_or(invitee_id),
+                }),
+                state_key: Some(invitee_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
 
@@ -73,19 +72,15 @@ impl RoomService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
-        let state_events_res = self
-            .event_storage
-            .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await;
-        
+        let state_events_res = self.event_storage.get_state_events_by_type(room_id, "m.room.join_rules").await;
+
         let state_events = match state_events_res {
             Ok(events) => events,
             Err(e) => return Err(ApiError::internal_with_log("Failed to load room join rules", &e)),
         };
 
-        let effective_join_rule = if let Some(event) = state_events
-            .into_iter()
-            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        let effective_join_rule = if let Some(event) =
+            state_events.into_iter().find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
         {
             event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
         } else {
@@ -136,13 +131,7 @@ impl RoomService {
         Ok(())
     }
 
-    pub async fn ban_user(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        banned_by: &str,
-        reason: Option<&str>,
-    ) -> ApiResult<()> {
+    pub async fn ban_user(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)
@@ -174,19 +163,18 @@ impl RoomService {
             "reason": reason.unwrap_or("")
         });
 
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: banned_by.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content,
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.to_string(),
+                user_id: banned_by.to_string(),
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
 
@@ -206,19 +194,18 @@ impl RoomService {
             "membership": "leave"
         });
 
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: unbanned_by.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content,
-                    state_key: Some(user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.to_string(),
+                user_id: unbanned_by.to_string(),
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(user_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
 
@@ -263,19 +250,18 @@ impl RoomService {
             "reason": reason.unwrap_or("")
         });
 
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id,
-                    room_id: room_id.to_string(),
-                    user_id: kicked_by.to_string(),
-                    event_type: "m.room.member".to_string(),
-                    content,
-                    state_key: Some(target_user_id.to_string()),
-                    origin_server_ts: chrono::Utc::now().timestamp_millis(),
-                },
-                None,
-            )
+        self.create_event(
+            CreateEventParams {
+                event_id,
+                room_id: room_id.to_string(),
+                user_id: kicked_by.to_string(),
+                event_type: "m.room.member".to_string(),
+                content,
+                state_key: Some(target_user_id.to_string()),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            },
+            None,
+        )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
 

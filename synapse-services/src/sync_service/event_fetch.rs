@@ -1,9 +1,9 @@
 use super::types::*;
 use super::SyncService;
-use synapse_common::*;
 use crate::map_internal;
 use crate::*;
 use std::collections::HashMap;
+use synapse_common::*;
 
 impl SyncService {
     pub(crate) async fn fetch_events(

@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
-mod manager;
 mod loader;
+mod manager;
 mod validation;
 
 pub use manager::ConfigManager;
@@ -52,8 +52,8 @@ pub use retention::{RetentionConfig, RetentionPolicy, RetentionPurgeJob};
 pub use search::{PostgresFtsConfig, PostgresFtsWeights, SearchConfig};
 pub use security::{
     default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_allowed_headers,
-    default_allowed_methods, default_cors_max_age, default_ui_auth_session_timeout,
-    AdminRegistrationConfig, CorsConfig, SecurityConfig,
+    default_allowed_methods, default_cors_max_age, default_ui_auth_session_timeout, AdminRegistrationConfig,
+    CorsConfig, SecurityConfig,
 };
 pub use server::{default_dehydrated_device_cleanup_interval_secs, ServerConfig};
 pub use smtp::SmtpConfig;

@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
 use serde_json::Value;
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 #[derive(Debug, Clone)]
 pub struct ToDeviceMessage<'a> {

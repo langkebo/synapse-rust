@@ -56,115 +56,115 @@ async fn setup_test_database() -> Arc<sqlx::PgPool> {
 
 #[tokio::test]
 async fn test_cross_signing_storage_round_trip_preserves_millis_timestamps() {
-        let pool = setup_test_database().await;
-        let storage = CrossSigningStorage::new(&pool);
+    let pool = setup_test_database().await;
+    let storage = CrossSigningStorage::new(&pool);
 
-        let key = CrossSigningKey {
-            id: uuid::Uuid::new_v4(),
-            user_id: "@alice:localhost".to_string(),
-            key_type: "master".to_string(),
-            public_key: "master_public_key".to_string(),
-            usage: vec!["master".to_string()],
-            signatures: json!({
+    let key = CrossSigningKey {
+        id: uuid::Uuid::new_v4(),
+        user_id: "@alice:localhost".to_string(),
+        key_type: "master".to_string(),
+        public_key: "master_public_key".to_string(),
+        usage: vec!["master".to_string()],
+        signatures: json!({
+            "@alice:localhost": {
+                "ed25519:MASTER": "sig"
+            }
+        }),
+        key_json: Some(json!({
+            "user_id": "@alice:localhost",
+            "usage": ["master"],
+            "keys": {
+                "ed25519:MASTER": "master_public_key"
+            },
+            "signatures": {
                 "@alice:localhost": {
                     "ed25519:MASTER": "sig"
                 }
-            }),
-            key_json: Some(json!({
-                "user_id": "@alice:localhost",
-                "usage": ["master"],
-                "keys": {
-                    "ed25519:MASTER": "master_public_key"
-                },
-                "signatures": {
-                    "@alice:localhost": {
-                        "ed25519:MASTER": "sig"
-                    }
-                }
-            })),
-            created_ts: Utc::now(),
-            updated_ts: Utc::now(),
-        };
+            }
+        })),
+        created_ts: Utc::now(),
+        updated_ts: Utc::now(),
+    };
 
-        storage.create_cross_signing_key(&key).await.unwrap();
+    storage.create_cross_signing_key(&key).await.unwrap();
 
-        let fetched = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
-        assert_eq!(fetched.public_key, "master_public_key");
-        assert!(fetched.created_ts.timestamp_millis() > 1_700_000_000_000);
-        assert!(fetched.updated_ts.timestamp_millis() > 1_700_000_000_000);
+    let fetched = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
+    assert_eq!(fetched.public_key, "master_public_key");
+    assert!(fetched.created_ts.timestamp_millis() > 1_700_000_000_000);
+    assert!(fetched.updated_ts.timestamp_millis() > 1_700_000_000_000);
 
-        let signature = DeviceSignature {
-            user_id: "@alice:localhost".to_string(),
-            device_id: "ALICEDEVICE".to_string(),
-            signing_key_id: "ed25519:MASTER".to_string(),
-            target_user_id: "@bob:localhost".to_string(),
-            target_device_id: "BOBDEVICE".to_string(),
-            target_key_id: "ed25519:BOBDEVICE".to_string(),
-            signature: "device_sig".to_string(),
-            created_ts: Utc::now(),
-        };
+    let signature = DeviceSignature {
+        user_id: "@alice:localhost".to_string(),
+        device_id: "ALICEDEVICE".to_string(),
+        signing_key_id: "ed25519:MASTER".to_string(),
+        target_user_id: "@bob:localhost".to_string(),
+        target_device_id: "BOBDEVICE".to_string(),
+        target_key_id: "ed25519:BOBDEVICE".to_string(),
+        signature: "device_sig".to_string(),
+        created_ts: Utc::now(),
+    };
 
-        storage.save_device_signature(&signature).await.unwrap();
+    storage.save_device_signature(&signature).await.unwrap();
 
-        let user_signatures = storage.get_user_signatures("@alice:localhost").await.unwrap();
-        assert_eq!(user_signatures.len(), 1);
-        assert_eq!(user_signatures[0].signature, "device_sig");
-        assert!(user_signatures[0].created_ts.timestamp_millis() > 1_700_000_000_000);
+    let user_signatures = storage.get_user_signatures("@alice:localhost").await.unwrap();
+    assert_eq!(user_signatures.len(), 1);
+    assert_eq!(user_signatures[0].signature, "device_sig");
+    assert!(user_signatures[0].created_ts.timestamp_millis() > 1_700_000_000_000);
 
-        let fetched_signature =
-            storage.get_signature("@alice:localhost", "ed25519:MASTER", "ALICEDEVICE").await.unwrap().unwrap();
-        assert_eq!(fetched_signature.signature, "device_sig");
-        assert!(fetched_signature.created_ts.timestamp_millis() > 1_700_000_000_000);
+    let fetched_signature =
+        storage.get_signature("@alice:localhost", "ed25519:MASTER", "ALICEDEVICE").await.unwrap().unwrap();
+    assert_eq!(fetched_signature.signature, "device_sig");
+    assert!(fetched_signature.created_ts.timestamp_millis() > 1_700_000_000_000);
 }
 
 #[tokio::test]
 async fn test_upload_cross_signing_keys_accepts_dynamic_ed25519_key_ids() {
-        let pool = setup_test_database().await;
-        let storage = CrossSigningStorage::new(&pool);
-        let service = CrossSigningService::new(storage.clone());
+    let pool = setup_test_database().await;
+    let storage = CrossSigningStorage::new(&pool);
+    let service = CrossSigningService::new(storage.clone());
 
-        let upload = CrossSigningUpload {
-            master_key: json!({
-                "user_id": "@alice:localhost",
-                "usage": ["master"],
-                "keys": {
-                    "ed25519:alice-master-key": "master_public_key"
-                },
-                "signatures": {}
-            }),
-            self_signing_key: json!({
-                "user_id": "@alice:localhost",
-                "usage": ["self_signing"],
-                "keys": {
-                    "ed25519:alice-self-signing-key": "self_signing_public_key"
-                },
-                "signatures": {
-                    "@alice:localhost": {
-                        "ed25519:alice-master-key": "sig"
-                    }
+    let upload = CrossSigningUpload {
+        master_key: json!({
+            "user_id": "@alice:localhost",
+            "usage": ["master"],
+            "keys": {
+                "ed25519:alice-master-key": "master_public_key"
+            },
+            "signatures": {}
+        }),
+        self_signing_key: json!({
+            "user_id": "@alice:localhost",
+            "usage": ["self_signing"],
+            "keys": {
+                "ed25519:alice-self-signing-key": "self_signing_public_key"
+            },
+            "signatures": {
+                "@alice:localhost": {
+                    "ed25519:alice-master-key": "sig"
                 }
-            }),
-            user_signing_key: json!({
-                "user_id": "@alice:localhost",
-                "usage": ["user_signing"],
-                "keys": {
-                    "ed25519:alice-user-signing-key": "user_signing_public_key"
-                },
-                "signatures": {
-                    "@alice:localhost": {
-                        "ed25519:alice-master-key": "sig"
-                    }
+            }
+        }),
+        user_signing_key: json!({
+            "user_id": "@alice:localhost",
+            "usage": ["user_signing"],
+            "keys": {
+                "ed25519:alice-user-signing-key": "user_signing_public_key"
+            },
+            "signatures": {
+                "@alice:localhost": {
+                    "ed25519:alice-master-key": "sig"
                 }
-            }),
-        };
+            }
+        }),
+    };
 
-        service.upload_cross_signing_keys(upload).await.unwrap();
+    service.upload_cross_signing_keys(upload).await.unwrap();
 
-        let master = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
-        let self_signing = storage.get_cross_signing_key("@alice:localhost", "self_signing").await.unwrap().unwrap();
-        let user_signing = storage.get_cross_signing_key("@alice:localhost", "user_signing").await.unwrap().unwrap();
+    let master = storage.get_cross_signing_key("@alice:localhost", "master").await.unwrap().unwrap();
+    let self_signing = storage.get_cross_signing_key("@alice:localhost", "self_signing").await.unwrap().unwrap();
+    let user_signing = storage.get_cross_signing_key("@alice:localhost", "user_signing").await.unwrap().unwrap();
 
-        assert_eq!(master.public_key, "master_public_key");
-        assert_eq!(self_signing.public_key, "self_signing_public_key");
-        assert_eq!(user_signing.public_key, "user_signing_public_key");
+    assert_eq!(master.public_key, "master_public_key");
+    assert_eq!(self_signing.public_key, "self_signing_public_key");
+    assert_eq!(user_signing.public_key, "user_signing_public_key");
 }

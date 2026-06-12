@@ -173,12 +173,8 @@ mod tests {
 
     #[test]
     fn test_content_scan_result_safe() {
-        let result = ContentScanResult {
-            safe: true,
-            threat_type: None,
-            threat_message: None,
-            scan_timestamp: 1700000000000,
-        };
+        let result =
+            ContentScanResult { safe: true, threat_type: None, threat_message: None, scan_timestamp: 1700000000000 };
         assert!(result.safe);
         assert!(result.threat_type.is_none());
     }
@@ -261,11 +257,7 @@ mod tests {
 
     #[test]
     fn test_webhook_scan_response_safe() {
-        let response = WebhookScanResponse {
-            safe: true,
-            threat_type: None,
-            threat_message: None,
-        };
+        let response = WebhookScanResponse { safe: true, threat_type: None, threat_message: None };
         assert!(response.safe);
     }
 

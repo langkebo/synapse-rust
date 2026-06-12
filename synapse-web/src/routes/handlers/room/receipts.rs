@@ -1,14 +1,14 @@
 use super::{ensure_room_view_access, get_room_event};
-use synapse_common::ApiError;
-use synapse_common::map_internal;
-use synapse_storage::event::EventStorage;
-use synapse_storage::room::{Receipt, RoomStorage};
 use crate::routes::{
     ensure_room_member, is_joined_room_member_or_creator, validate_event_id, validate_receipt_type, validate_room_id,
     AppState, AuthenticatedUser,
 };
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::map_internal;
+use synapse_common::ApiError;
+use synapse_storage::event::EventStorage;
+use synapse_storage::room::{Receipt, RoomStorage};
 
 pub(crate) async fn send_receipt(
     State(state): State<AppState>,
@@ -28,7 +28,9 @@ pub(crate) async fn send_receipt(
     let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 
     state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .add_receipt(&auth_user.user_id, &auth_user.user_id, &room_id, &event_id, &receipt_type, &body)
         .await
         .map_err(map_internal!("Failed to store receipt"))?;
@@ -97,7 +99,9 @@ pub(crate) async fn get_receipts(
     get_room_event(&state.services.rooms.event_storage, &room_id, &event_id).await?;
 
     let receipts = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_receipts(&room_id, &receipt_type, &event_id)
         .await
         .map_err(map_internal!("Failed to get receipts"))?;
@@ -131,7 +135,9 @@ pub(crate) async fn set_read_markers(
     validate_room_id(&room_id)?;
 
     let room = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room(&room_id)
         .await
         .map_err(map_internal!("Failed to get room"))?

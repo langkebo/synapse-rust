@@ -2,8 +2,8 @@ use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_to
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
 use crate::storage::CreateEventParams;
-use crate::web::utils::auth::resolve_request_id;
 use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
+use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
     http::HeaderMap,
@@ -21,10 +21,7 @@ pub(crate) async fn get_single_event(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let event = state
-        .services.rooms.room_service
-        .get_event(&room_id, &event_id)
-        .await?;
+    let event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
     Ok(Json(event))
 }
@@ -42,10 +39,7 @@ pub(crate) async fn get_event_keys(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let event = state
-        .services.rooms.room_service
-        .get_event(&room_id, &event_id)
-        .await?;
+    let event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
     Ok(Json(json!({
         "event_id": event.get("event_id"),
@@ -67,17 +61,16 @@ pub(crate) async fn get_room_thread(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let root_event = state
-        .services.rooms.room_service
-        .get_event(&room_id, &event_id)
-        .await?;
+    let root_event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
     let mut replies_json = Vec::new();
     let mut reply_count = 0;
     let mut participants_json = Vec::new();
 
     if let Some(thread_root) = state
-        .services.rooms.thread_storage
+        .services
+        .rooms
+        .thread_storage
         .get_thread_root_by_event(&room_id, &event_id)
         .await
         .map_err(map_internal!("Failed to get thread root"))?
@@ -85,7 +78,9 @@ pub(crate) async fn get_room_thread(
         let thread_id = thread_root.thread_id.clone().unwrap_or_default();
         if !thread_id.is_empty() {
             let replies = state
-                .services.rooms.thread_storage
+                .services
+                .rooms
+                .thread_storage
                 .get_thread_replies(&room_id, &thread_id, Some(100), None)
                 .await
                 .map_err(map_internal!("Failed to get thread replies"))?;
@@ -93,7 +88,9 @@ pub(crate) async fn get_room_thread(
 
             if reply_count > 0 {
                 participants_json = state
-                    .services.rooms.thread_storage
+                    .services
+                    .rooms
+                    .thread_storage
                     .get_thread_participants(&room_id, &thread_id)
                     .await
                     .map_err(map_internal!("Failed to get participants"))?;
@@ -147,7 +144,9 @@ pub(crate) async fn get_room_notifications(
     let _from = params.get("from").cloned();
 
     let notifications = state
-        .services.admin.push_notification_storage
+        .services
+        .admin
+        .push_notification_storage
         .get_room_notifications(&auth_user.user_id, &room_id, limit)
         .await
         .map_err(map_internal!("Database error"))?;
@@ -183,11 +182,7 @@ pub(crate) async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -201,7 +196,14 @@ pub(crate) async fn get_messages(
         .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    Ok(Json(state.services.rooms.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?))
+    Ok(Json(
+        state
+            .services
+            .rooms
+            .room_service
+            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
+            .await?,
+    ))
 }
 
 pub(crate) async fn send_message(
@@ -229,10 +231,7 @@ pub(crate) async fn send_message(
     state.services.core.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
 
     if event_type == "m.room.encrypted" {
-        let is_encrypted = state
-            .services.rooms.room_service
-            .check_room_has_encryption(&room_id)
-            .await?;
+        let is_encrypted = state.services.rooms.room_service.check_room_has_encryption(&room_id).await?;
 
         if !is_encrypted {
             return Err(ApiError::bad_request(
@@ -257,7 +256,8 @@ pub(crate) async fn send_message(
         }
     }
 
-    let result = state.services.rooms.room_service.send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
+    let result =
+        state.services.rooms.room_service.send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
@@ -273,20 +273,13 @@ pub(crate) async fn get_room_message_queue(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let pending_events = state
-        .services.rooms.room_service
-        .get_pending_events(&room_id, 100)
-        .await?;
+    let pending_events = state.services.rooms.room_service.get_pending_events(&room_id, 100).await?;
 
     let pending_events_json: Vec<serde_json::Value> = pending_events
         .into_iter()
@@ -302,8 +295,7 @@ pub(crate) async fn get_room_message_queue(
         })
         .collect();
 
-    let processing_count =
-        state.services.rooms.room_service.count_events_by_status(&room_id, "processing").await;
+    let processing_count = state.services.rooms.room_service.count_events_by_status(&room_id, "processing").await;
 
     let failed_count = state.services.rooms.room_service.count_events_by_status(&room_id, "failed").await;
 
@@ -330,11 +322,7 @@ pub(crate) async fn get_room_timeline(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -344,7 +332,14 @@ pub(crate) async fn get_room_timeline(
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    Ok(Json(state.services.rooms.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, direction).await?))
+    Ok(Json(
+        state
+            .services
+            .rooms
+            .room_service
+            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
+            .await?,
+    ))
 }
 
 pub(crate) async fn get_room_unread_count(
@@ -355,7 +350,9 @@ pub(crate) async fn get_room_unread_count(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -381,7 +378,9 @@ pub(crate) async fn get_room_encrypted_events(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -392,7 +391,9 @@ pub(crate) async fn get_room_encrypted_events(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let encrypted_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_room_events_by_type(&room_id, "m.room.encrypted", 100)
         .await
         .map_err(map_internal!("Failed to get encrypted events"))?;
@@ -425,7 +426,9 @@ pub(crate) async fn get_room_event_perspective(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -436,7 +439,9 @@ pub(crate) async fn get_room_event_perspective(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_room_events(&room_id, 100)
         .await
         .map_err(map_internal!("Failed to get room events"))?;
@@ -467,7 +472,9 @@ pub(crate) async fn get_room_user_fragments(
     validate_room_id(&room_id)?;
     crate::web::routes::validate_user_id(&user_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -478,7 +485,9 @@ pub(crate) async fn get_room_user_fragments(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_room_events(&room_id, 200)
         .await
         .map_err(map_internal!("Failed to get room events"))?;
@@ -511,7 +520,9 @@ pub(crate) async fn get_room_reduced_events(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -522,7 +533,9 @@ pub(crate) async fn get_room_reduced_events(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_room_events(&room_id, 100)
         .await
         .map_err(map_internal!("Failed to get room events"))?;
@@ -558,7 +571,9 @@ pub(crate) async fn get_room_event_url(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?
@@ -569,7 +584,9 @@ pub(crate) async fn get_room_event_url(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let event = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_event(&event_id)
         .await
         .map_err(map_internal!("Failed to get event"))?
@@ -616,20 +633,13 @@ pub(crate) async fn sign_room_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    if !state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let _event = state
-        .services.rooms.room_service
-        .get_event(&room_id, &event_id)
-        .await?;
+    let _event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
     let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("default");
 
@@ -649,7 +659,9 @@ pub(crate) async fn sign_room_event(
     let created_ts = chrono::Utc::now().timestamp_millis();
 
     state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .save_event_signature(&event_id, &auth_user.user_id, device_id, signature, key_id, &algorithm, created_ts)
         .await?;
 
@@ -673,25 +685,15 @@ pub(crate) async fn verify_room_event(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    if !state
-        .services.rooms.room_service
-        .room_exists(&room_id)
-        .await?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let _event = state
-        .services.rooms.room_service
-        .get_event(&room_id, &event_id)
-        .await?;
+    let _event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
-    let signatures = state
-        .services.rooms.room_service
-        .get_event_signatures(&event_id)
-        .await?;
+    let signatures = state.services.rooms.room_service.get_event_signatures(&event_id).await?;
 
     let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
     let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -751,25 +753,22 @@ pub(crate) async fn translate_room_event(
     let text_to_translate = body.get("text").and_then(|v| v.as_str()).unwrap_or(source_text);
 
     // Call the translation service
-    let translation_result =
-        state
-            .services
-            .extensions
-            .translation_service
-            .translate(text_to_translate, target_lang, source_lang)
-            .await
-            .map_err(
-            |e| {
-                ::tracing::warn!(
-                    request_id = %request_id,
-                    room_id = %room_id,
-                    event_id = %event_id,
-                    error = %e,
-                    "Translation failed"
-                );
-                ApiError::bad_request(format!("Translation failed: {}", e))
-            },
-            )?;
+    let translation_result = state
+        .services
+        .extensions
+        .translation_service
+        .translate(text_to_translate, target_lang, source_lang)
+        .await
+        .map_err(|e| {
+            ::tracing::warn!(
+                request_id = %request_id,
+                room_id = %room_id,
+                event_id = %event_id,
+                error = %e,
+                "Translation failed"
+            );
+            ApiError::bad_request(format!("Translation failed: {}", e))
+        })?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -813,13 +812,8 @@ pub(crate) async fn translate_text(
 
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
 
-    let translation_result = state
-        .services
-        .extensions
-        .translation_service
-        .translate(text, target_lang, source_lang)
-        .await
-        .map_err(|e| {
+    let translation_result =
+        state.services.extensions.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
             ::tracing::warn!(
                 request_id = %request_id,
                 target_lang = %target_lang,
@@ -877,7 +871,9 @@ pub(crate) async fn redact_event(
     validate_event_id(&event_id)?;
 
     let original_event = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_event(&event_id)
         .await
         .map_err(map_internal!("Failed to get event"))?
@@ -897,9 +893,13 @@ pub(crate) async fn redact_event(
     let content = json!({
         "reason": reason
     });
+    let user_id_for_as = auth_user.user_id.clone();
+    let content_for_as = content.clone();
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -914,6 +914,12 @@ pub(crate) async fn redact_event(
         )
         .await
         .map_err(map_internal!("Failed to redact event"))?;
+    state
+        .services
+        .rooms
+        .room_service
+        .dispatch_appservice_event(&new_event_id, &room_id, "m.room.redaction", &user_id_for_as, &content_for_as, None)
+        .await;
 
     state.services.rooms.event_storage.redact_event_content(&event_id).await.map_err(|e| {
         ::tracing::warn!(

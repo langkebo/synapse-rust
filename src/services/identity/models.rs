@@ -176,20 +176,15 @@ mod tests {
 
     #[test]
     fn test_binding_response() {
-        let response = BindingResponse {
-            user_id: "@user:example.com".to_string(),
-            device_id: Some("device_1".to_string()),
-        };
+        let response =
+            BindingResponse { user_id: "@user:example.com".to_string(), device_id: Some("device_1".to_string()) };
         assert_eq!(response.user_id, "@user:example.com");
         assert_eq!(response.device_id.as_deref(), Some("device_1"));
     }
 
     #[test]
     fn test_binding_response_no_device() {
-        let response = BindingResponse {
-            user_id: "@user:example.com".to_string(),
-            device_id: None,
-        };
+        let response = BindingResponse { user_id: "@user:example.com".to_string(), device_id: None };
         assert_eq!(response.user_id, "@user:example.com");
         assert!(response.device_id.is_none());
     }
@@ -245,10 +240,7 @@ mod tests {
 
     #[test]
     fn test_lookup_request() {
-        let request = LookupRequest {
-            medium: "email".to_string(),
-            address: "user@example.com".to_string(),
-        };
+        let request = LookupRequest { medium: "email".to_string(), address: "user@example.com".to_string() };
         assert_eq!(request.medium, "email");
         assert_eq!(request.address, "user@example.com");
     }

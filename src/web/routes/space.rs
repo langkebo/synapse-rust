@@ -31,7 +31,9 @@ pub(super) async fn resolve_space_by_room(
     space_room_id: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
     let space: Option<crate::storage::space::Space> = state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_space_by_room(space_room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get space by room", &e))?;
@@ -44,7 +46,9 @@ pub(super) async fn resolve_space(
     space_identifier: &str,
 ) -> Result<crate::storage::space::Space, ApiError> {
     let space: Option<crate::storage::space::Space> = state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_space(space_identifier)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))?;

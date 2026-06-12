@@ -125,10 +125,5 @@ fn next_test_schema_name() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock before unix epoch")
         .as_nanos();
-    format!(
-        "test_{}_{}_{}",
-        std::process::id(),
-        TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst),
-        timestamp_nanos,
-    )
+    format!("test_{}_{}_{}", std::process::id(), TEST_SCHEMA_COUNTER.fetch_add(1, Ordering::SeqCst), timestamp_nanos,)
 }

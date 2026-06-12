@@ -1,5 +1,5 @@
-pub mod models;
 pub mod groups;
+pub mod models;
 pub use models::*;
 
 use crate::cache::CacheManager;
@@ -7,7 +7,7 @@ use crate::common::{generate_event_id, ApiError, ApiResult};
 use crate::federation::friend::FriendFederationClient;
 use crate::federation::KeyRotationManager;
 use crate::services::RoomService;
-use crate::storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use crate::storage::{CreateEventParams, FriendRoomStorage, PresenceStorage, UserStorage};
 use serde_json::{json, Map, Value};
 
 use std::cmp::Ordering;
@@ -22,7 +22,6 @@ impl FriendRoomService {
     pub fn new(
         friend_storage: FriendRoomStorage,
         room_service: Arc<RoomService>,
-        event_storage: EventStorage,
         user_storage: UserStorage,
         presence_storage: PresenceStorage,
         cache: Arc<CacheManager>,
@@ -33,7 +32,6 @@ impl FriendRoomService {
         Self {
             friend_storage,
             room_service,
-            event_storage,
             user_storage,
             presence_storage,
             cache,
@@ -202,7 +200,12 @@ impl FriendRoomService {
 
     /// 接受好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn accept_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> ApiResult<String> {
+    pub async fn accept_friend_request(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        requester_id: &str,
+    ) -> ApiResult<String> {
         let _pending_request = self
             .friend_storage
             .get_pending_friend_request(requester_id, user_id)
@@ -416,8 +419,12 @@ impl FriendRoomService {
         }
 
         self.update_friend_list(user_id, &friend_room, friend_id, "remove", None).await?;
-        let _ = self.presence_storage.remove_subscription(user_id, friend_id).await;
-        let _ = self.presence_storage.remove_subscription(friend_id, user_id).await;
+        if let Err(e) = self.presence_storage.remove_subscription(user_id, friend_id).await {
+            tracing::warn!(%e, user_id, friend_id, "Failed to remove presence subscription");
+        }
+        if let Err(e) = self.presence_storage.remove_subscription(friend_id, user_id).await {
+            tracing::warn!(%e, friend_id, user_id, "Failed to remove presence subscription");
+        }
 
         Ok(())
     }
@@ -469,10 +476,11 @@ impl FriendRoomService {
 
     #[::tracing::instrument(skip(self))]
     pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
-        let row = sqlx::query!("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'", user_id)
-            .fetch_optional(&*self.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load m.direct account data", &e))?;
+        let row =
+            sqlx::query!("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'", user_id)
+                .fetch_optional(&*self.user_storage.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to load m.direct account data", &e))?;
 
         match row {
             Some(row) => match row.content {
@@ -537,11 +545,7 @@ impl FriendRoomService {
             .map_err(|e| ApiError::database_with_log("Failed to build effective direct map", &e))?;
 
             for row in rows {
-                ensure_room_in_direct_map(
-                    &mut direct_map,
-                    &row.other_user_id,
-                    &row.room_id,
-                );
+                ensure_room_in_direct_map(&mut direct_map, &row.other_user_id, &row.room_id);
             }
         }
 
@@ -837,14 +841,11 @@ impl FriendRoomService {
                 return Err(ApiError::bad_request("Friend list cursor sort order does not match request"));
             }
         }
-        let page_key = request
-            .from
-            .as_ref()
-            .map_or_else(|| format!("offset:{}", request.offset.unwrap_or(0)), |cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)));
-        let cache_key = format!(
-            "friends:list:v3:{}:{}:{}:{}:{}",
-            user_id, room_id, version, request.sort_by, page_key
+        let page_key = request.from.as_ref().map_or_else(
+            || format!("offset:{}", request.offset.unwrap_or(0)),
+            |cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)),
         );
+        let cache_key = format!("friends:list:v3:{}:{}:{}:{}:{}", user_id, room_id, version, request.sort_by, page_key);
 
         if let Ok(Some(mut cached)) = self.cache.get::<FriendListPage>(&cache_key).await {
             cached.cached = true;
@@ -876,17 +877,16 @@ impl FriendRoomService {
         let start_index = if let Some(cursor) = request.from.as_ref() {
             items
                 .iter()
-                .position(|item| Self::compare_friend_entry_to_cursor(item, cursor, &request.sort_by) == Ordering::Greater)
+                .position(|item| {
+                    Self::compare_friend_entry_to_cursor(item, cursor, &request.sort_by) == Ordering::Greater
+                })
                 .unwrap_or(total)
         } else {
             offset
         };
         let paged_items = items.iter().skip(start_index).take(safe_limit).cloned().collect::<Vec<_>>();
-        let next_offset = request
-            .from
-            .is_none()
-            .then_some(start_index + paged_items.len())
-            .filter(|next| *next < total);
+        let next_offset =
+            request.from.is_none().then_some(start_index + paged_items.len()).filter(|next| *next < total);
         let next_batch = if start_index + paged_items.len() < total {
             paged_items
                 .last()
@@ -1016,7 +1016,7 @@ impl FriendRoomService {
         content: serde_json::Value,
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
-        self.event_storage
+        self.room_service
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -1187,9 +1187,10 @@ impl FriendRoomService {
                     .or_else(|| profile.and_then(|value| value.displayname.clone()));
                 let username = profile.map(|value| value.username.clone());
                 let fallback_name = displayname.clone().or(username.clone()).unwrap_or_else(|| user_id.clone());
-                let presence_state = presence_map
-                    .get(&user_id)
-                    .map_or(crate::common::PresenceState::Offline, |snapshot| crate::common::PresenceState::from(snapshot.presence.as_str()));
+                let presence_state =
+                    presence_map.get(&user_id).map_or(crate::common::PresenceState::Offline, |snapshot| {
+                        crate::common::PresenceState::from(snapshot.presence.as_str())
+                    });
                 let last_active_ts = presence_map.get(&user_id).and_then(|snapshot| snapshot.last_active_ts);
 
                 Some(FriendListEntry {
@@ -1288,10 +1289,7 @@ impl FriendRoomService {
     }
 
     fn friend_display_key(item: &FriendListEntry) -> &str {
-        item.display_name
-            .as_deref()
-            .or(item.username.as_deref())
-            .unwrap_or(item.user_id.as_str())
+        item.display_name.as_deref().or(item.username.as_deref()).unwrap_or(item.user_id.as_str())
     }
 
     fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {

@@ -28,8 +28,7 @@ async fn assert_table_exists(pool: &sqlx::PgPool, table_name: &str) {
         .await
         .expect("Failed to query table existence");
     assert!(
-        regclass.as_deref() == Some(table_name)
-            || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
+        regclass.as_deref() == Some(table_name) || regclass.as_deref() == Some(format!("public.{table_name}").as_str()),
         "Expected table '{table_name}' to exist, got: {regclass:?}"
     );
 }
@@ -41,8 +40,7 @@ async fn assert_view_exists(pool: &sqlx::PgPool, view_name: &str) {
         .await
         .expect("Failed to query view existence");
     assert!(
-        regclass.as_deref() == Some(view_name)
-            || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
+        regclass.as_deref() == Some(view_name) || regclass.as_deref() == Some(format!("public.{view_name}").as_str()),
         "Expected view '{view_name}' to exist, got: {regclass:?}"
     );
 }
@@ -251,11 +249,7 @@ async fn test_retention_and_room_summary_schema_smoke_roundtrip() {
 
     // v10: retention_cleanup_queue, retention_cleanup_logs, retention_stats,
     // and deleted_events_index were dropped. Only room_summary_* tables remain.
-    for table_name in [
-        "room_summary_state",
-        "room_summary_stats",
-        "room_summary_update_queue",
-    ] {
+    for table_name in ["room_summary_state", "room_summary_stats", "room_summary_update_queue"] {
         assert_table_exists(&pool, table_name).await;
     }
 
@@ -269,10 +263,8 @@ async fn test_retention_and_room_summary_schema_smoke_roundtrip() {
         .expect("Failed to set room summary state");
     assert_eq!(state.room_id, room_id);
 
-    let summary_stats = summary_storage
-        .update_stats(&room_id, 42, 5, 37, 2, 2048)
-        .await
-        .expect("Failed to update room summary stats");
+    let summary_stats =
+        summary_storage.update_stats(&room_id, 42, 5, 37, 2, 2048).await.expect("Failed to update room summary stats");
     assert_eq!(summary_stats.total_messages, 37);
 
     summary_storage
@@ -280,8 +272,7 @@ async fn test_retention_and_room_summary_schema_smoke_roundtrip() {
         .await
         .expect("Failed to queue room summary update");
 
-    let pending_updates =
-        summary_storage.get_pending_updates(10).await.expect("Failed to load room summary updates");
+    let pending_updates = summary_storage.get_pending_updates(10).await.expect("Failed to load room summary updates");
     assert!(pending_updates.iter().any(|item| item.room_id == room_id));
 
     // room_children was replaced by space_children in v10; skip the
@@ -310,10 +301,7 @@ async fn test_device_trust_schema_smoke_roundtrip() {
         .set_device_trust(&user_id, &device_id, DeviceTrustLevel::Verified, Some("MASTER"))
         .await
         .expect("Failed to set device trust");
-    storage
-        .set_cross_signing_trust(&user_id, &other_user_id, true)
-        .await
-        .expect("Failed to set cross signing trust");
+    storage.set_cross_signing_trust(&user_id, &other_user_id, true).await.expect("Failed to set cross signing trust");
 
     let trust = storage
         .get_device_trust(&user_id, &device_id)
@@ -536,10 +524,7 @@ async fn test_worker_schema_smoke_roundtrip() {
         .expect("Failed to register peer worker");
 
     storage.update_worker_status(&worker_id, "running").await.expect("Failed to update worker status");
-    storage
-        .update_replication_position(&worker_id, "events", 42)
-        .await
-        .expect("Failed to update replication position");
+    storage.update_replication_position(&worker_id, "events", 42).await.expect("Failed to update replication position");
     storage
         .assign_task(AssignTaskRequest {
             task_type: "smoke".to_string(),

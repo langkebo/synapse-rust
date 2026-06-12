@@ -1,17 +1,17 @@
 use crate::cache::{FederationSignatureCache, KeyRotationEvent};
+use crate::common::key_encryption::{decrypt_key, encrypt_key, is_encrypted};
 use crate::common::ApiError;
-use crate::common::key_encryption::{encrypt_key, decrypt_key, is_encrypted};
 use crate::federation::signing::sign_json;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use ed25519_dalek::Verifier;
+use parking_lot::RwLock as ParkingLotRwLock;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use parking_lot::RwLock as ParkingLotRwLock;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration as TokioDuration};
 
@@ -97,11 +97,7 @@ impl KeyRotationManager {
         Self::with_key_path(pool, server_name, None)
     }
 
-    pub fn with_key_path(
-        pool: &Arc<Pool<Postgres>>,
-        server_name: &str,
-        signing_key_path: Option<String>,
-    ) -> Self {
+    pub fn with_key_path(pool: &Arc<Pool<Postgres>>, server_name: &str, signing_key_path: Option<String>) -> Self {
         Self::with_key_path_and_master_key(pool, server_name, signing_key_path, None)
     }
 
@@ -364,9 +360,7 @@ impl KeyRotationManager {
                                 .map_err(|e| ApiError::internal(format!("Failed to decrypt signing key: {e}")))?;
                         }
                         None => {
-                            return Err(ApiError::internal(
-                                "Signing key is encrypted but no master key is configured"
-                            ));
+                            return Err(ApiError::internal("Signing key is encrypted but no master key is configured"));
                         }
                     }
                 } else {
@@ -390,8 +384,7 @@ impl KeyRotationManager {
         }
 
         let key_id = new_key_id();
-        let secret_key =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
+        let secret_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
 
         match self.initialize(&secret_key, &key_id).await {
             Ok(_) => {
@@ -408,11 +401,8 @@ impl KeyRotationManager {
             None => return Ok(()),
         };
 
-        let key_content = format!(
-            "ed25519 {} {}",
-            key.key_id.strip_prefix("ed25519:").unwrap_or(&key.key_id),
-            key.secret_key
-        );
+        let key_content =
+            format!("ed25519 {} {}", key.key_id.strip_prefix("ed25519:").unwrap_or(&key.key_id), key.secret_key);
 
         if let Some(parent) = std::path::Path::new(&path).parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -428,8 +418,7 @@ impl KeyRotationManager {
 
         let created_ts = Utc::now().timestamp_millis();
         let interval_days = self.rotation_config.read().await.rotation_interval_days;
-        let expires_at =
-            (Utc::now() + Duration::days(interval_days)).timestamp_millis();
+        let expires_at = (Utc::now() + Duration::days(interval_days)).timestamp_millis();
 
         let public_key = self.derive_public_key(secret_key)?;
 
@@ -517,10 +506,7 @@ impl KeyRotationManager {
 
         let current = self.current_key.read().await;
         if let Some(key) = current.as_ref() {
-            self.historical_keys
-                .write()
-                .await
-                .insert(key.key_id.clone(), key.clone());
+            self.historical_keys.write().await.insert(key.key_id.clone(), key.clone());
         }
         drop(current);
 
@@ -552,8 +538,7 @@ impl KeyRotationManager {
     }
 
     fn generate_new_key_pair(&self, key_id: &str) -> (String, String) {
-        let secret_key =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
+        let secret_key = base64::engine::general_purpose::STANDARD_NO_PAD.encode(rand::random::<[u8; 32]>());
 
         (key_id.to_string(), secret_key)
     }
@@ -584,9 +569,7 @@ impl KeyRotationManager {
     ) -> Result<bool, ApiError> {
         if let Some(current) = &*self.current_key.read().await {
             if current.key_id == key_id {
-                if let Ok(()) = self
-                    .verify_signature(&current.public_key, signature, content)
-                {
+                if let Ok(()) = self.verify_signature(&current.public_key, signature, content) {
                     return Ok(true);
                 }
             }
@@ -594,9 +577,7 @@ impl KeyRotationManager {
 
         if let Some(historical) = self.historical_keys.read().await.get(key_id) {
             if self.is_within_grace_period(historical).await {
-                if let Ok(()) = self
-                    .verify_signature(&historical.public_key, signature, content)
-                {
+                if let Ok(()) = self.verify_signature(&historical.public_key, signature, content) {
                     return Ok(true);
                 }
             }
@@ -608,17 +589,11 @@ impl KeyRotationManager {
     async fn is_within_grace_period(&self, key: &SigningKey) -> bool {
         let now = Utc::now().timestamp_millis();
         let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
-        let grace_end =
-            key.expires_at + Duration::minutes(grace_minutes).num_milliseconds();
+        let grace_end = key.expires_at + Duration::minutes(grace_minutes).num_milliseconds();
         now <= grace_end
     }
 
-    fn verify_signature(
-        &self,
-        public_key: &str,
-        signature: &str,
-        content: &[u8],
-    ) -> Result<(), ApiError> {
+    fn verify_signature(&self, public_key: &str, signature: &str, content: &[u8]) -> Result<(), ApiError> {
         let pub_key_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(public_key)
             .map_err(|_| ApiError::internal("Invalid public key format"))?
@@ -642,12 +617,7 @@ impl KeyRotationManager {
         Ok(())
     }
 
-    async fn verify_from_database(
-        &self,
-        key_id: &str,
-        signature: &str,
-        content: &[u8],
-    ) -> Result<bool, ApiError> {
+    async fn verify_from_database(&self, key_id: &str, signature: &str, content: &[u8]) -> Result<bool, ApiError> {
         self.ensure_signing_keys_table().await?;
 
         let key_record: Option<FederationKeyRecord> = sqlx::query_as!(
@@ -666,18 +636,13 @@ impl KeyRotationManager {
 
                 if expires_at > 0 {
                     let grace_minutes = self.rotation_config.read().await.grace_period_minutes;
-                    if now
-                        > expires_at
-                            + Duration::minutes(grace_minutes).num_milliseconds()
-                    {
+                    if now > expires_at + Duration::minutes(grace_minutes).num_milliseconds() {
                         return Ok(false);
                     }
                 }
 
                 let public_key = record.public_key;
-                self
-                    .verify_signature(&public_key, signature, content)
-                    .map(|_| true)
+                self.verify_signature(&public_key, signature, content).map(|_| true)
             }
             None => Ok(false),
         }
@@ -723,23 +688,14 @@ impl KeyRotationManager {
             "valid_until_ts": current_key.expires_at
         });
 
-        sign_json(
-            &self.server_name,
-            &key_id_for_sign,
-            &secret_key,
-            &mut response,
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {e}")))?;
+        sign_json(&self.server_name, &key_id_for_sign, &secret_key, &mut response)
+            .map_err(|e| ApiError::internal(format!("Failed to sign server keys: {e}")))?;
 
         Ok(response)
     }
 
     pub async fn notify_key_change(&self, remote_server: &str) -> Result<(), ApiError> {
-        tracing::info!(
-            "Notifying {} about key change for server {}",
-            remote_server,
-            self.server_name
-        );
+        tracing::info!("Notifying {} about key change for server {}", remote_server, self.server_name);
         let server_keys = self.get_server_keys_response().await?;
         tracing::debug!("Key notification payload: {:?}", server_keys);
         Ok(())
@@ -751,10 +707,7 @@ impl KeyRotationManager {
             tracing::debug!("No known federation servers to notify about key change");
             return Ok(());
         }
-        tracing::info!(
-            "Broadcasting key change to {} federation servers",
-            known_servers.len()
-        );
+        tracing::info!("Broadcasting key change to {} federation servers", known_servers.len());
         for server in &known_servers {
             if let Err(e) = self.notify_key_change(server).await {
                 tracing::warn!("Failed to notify {} about key change: {}", server, e);
@@ -779,7 +732,11 @@ impl KeyRotationManager {
     }
 
     /// Revoke a specific key by marking it as expired in the database
-    pub async fn revoke_key(&self, key_id: &str, reason: Option<&str>) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn revoke_key(
+        &self,
+        key_id: &str,
+        reason: Option<&str>,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let now = chrono::Utc::now().timestamp_millis();
 
         // Build the key_json update with revoked metadata
@@ -834,10 +791,7 @@ impl KeyRotationManager {
 
     pub async fn set_rotation_enabled(&self, enabled: bool) {
         *self.rotation_enabled.write().await = enabled;
-        tracing::info!(
-            "Key rotation {}",
-            if enabled { "enabled" } else { "disabled" }
-        );
+        tracing::info!("Key rotation {}", if enabled { "enabled" } else { "disabled" });
     }
 
     pub async fn get_rotation_status(&self) -> serde_json::Value {
@@ -898,17 +852,12 @@ mod tests {
         {
             Ok(pool) => Arc::new(pool),
             Err(error) => {
-                tracing::warn!(
-                    "Skipping key rotation database tests because test database is unavailable: {error}"
-                );
+                tracing::warn!("Skipping key rotation database tests because test database is unavailable: {error}");
                 return None;
             }
         };
 
-        sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE")
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DROP TABLE IF EXISTS federation_signing_keys CASCADE").execute(&*pool).await.ok();
 
         sqlx::query(
             r#"
@@ -939,10 +888,8 @@ mod tests {
         let seed = [seed_byte; 32];
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
-        let secret_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.as_bytes());
-        let public_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes());
+        let secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.as_bytes());
+        let public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes());
         (secret_b64, public_b64)
     }
 
@@ -1153,11 +1100,7 @@ mod tests {
 
         manager.load_or_create_key().await.unwrap();
 
-        let current = manager
-            .get_current_key()
-            .await
-            .unwrap()
-            .expect("current signing key should exist");
+        let current = manager.get_current_key().await.unwrap().expect("current signing key should exist");
 
         assert_eq!(current.server_name, "test.example.com");
         assert_eq!(current.key_id, "ed25519:test");
@@ -1178,9 +1121,7 @@ mod tests {
         };
         let manager = KeyRotationManager::new(&pool, "test.example.com");
 
-        manager
-            .cache_historical_key("example.com", "ed25519:old", "public_key_data".to_string())
-            .await;
+        manager.cache_historical_key("example.com", "ed25519:old", "public_key_data".to_string()).await;
 
         let cache = manager.memory_cache.read().await;
         let key = "federation:historical_key:example.com:ed25519:old".to_string();
@@ -1209,10 +1150,8 @@ mod tests {
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
         let test_verifying_key = test_signing_key.verifying_key();
-        let secret_key_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
-        let public_key_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
 
         {
             let mut current = manager.current_key.write().await;
@@ -1246,17 +1185,13 @@ mod tests {
 
         let test_signing_key = ed25519_dalek::SigningKey::from_bytes(&[42u8; 32]);
         let test_verifying_key = test_signing_key.verifying_key();
-        let secret_key_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
-        let public_key_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
+        let secret_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_signing_key.as_bytes());
+        let public_key_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(test_verifying_key.as_bytes());
 
         let old_signing_key = ed25519_dalek::SigningKey::from_bytes(&[99u8; 32]);
         let old_verifying_key = old_signing_key.verifying_key();
-        let old_secret_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_signing_key.as_bytes());
-        let old_public_b64 =
-            base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_verifying_key.as_bytes());
+        let old_secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_signing_key.as_bytes());
+        let old_public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(old_verifying_key.as_bytes());
 
         {
             let mut current = manager.current_key.write().await;

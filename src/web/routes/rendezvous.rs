@@ -76,7 +76,9 @@ async fn create_session(
         CreateRendezvousSessionParams { intent: intent_enum, transport: transport_enum, transport_data, expires_in_ms };
 
     let session: RendezvousSession = state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .create_session(params)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
@@ -99,7 +101,9 @@ fn extract_rendezvous_key(headers: &HeaderMap) -> Option<&str> {
 
 async fn load_rendezvous_session(state: &AppState, session_id: &str) -> Result<RendezvousSession, ApiError> {
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .get_session(session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get session", &e))?
@@ -154,7 +158,8 @@ async fn get_session(
     Path(session_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let session = ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read").await?;
+    let session =
+        ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read").await?;
 
     Ok(Json(json!({
         "session_id": session.session_id,
@@ -183,7 +188,9 @@ async fn update_session(
         .ok_or_else(|| ApiError::bad_request("status required".to_string()))?;
 
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .update_session_status(&session_id, status)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
@@ -193,14 +200,17 @@ async fn update_session(
         let user_id = auth_user.user_id.as_ref().ok_or_else(ApiError::missing_token)?.clone();
         let device_id = auth_user.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
         state
-            .services.admin.rendezvous_storage
+            .services
+            .admin
+            .rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to bind user", &e))?;
     }
 
     if status == "completed" {
-        let session: crate::storage::rendezvous::RendezvousSession = load_rendezvous_session(&state, &session_id).await?;
+        let session: crate::storage::rendezvous::RendezvousSession =
+            load_rendezvous_session(&state, &session_id).await?;
 
         if let Some(user_id) = &session.user_id {
             let device_id: String = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
@@ -241,7 +251,9 @@ async fn delete_session(
     ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "delete").await?;
 
     state
-        .services.admin.rendezvous_storage
+        .services
+        .admin
+        .rendezvous_storage
         .delete_session(&session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;
@@ -266,11 +278,10 @@ async fn send_message(
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
+    let message_storage =
+        crate::storage::RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
-    state
-        .services
-        .admin
-        .rendezvous_storage
+    message_storage
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
@@ -294,11 +305,10 @@ async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read messages").await?;
+    let message_storage =
+        crate::storage::RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
-    let messages = state
-        .services
-        .admin
-        .rendezvous_storage
+    let messages = message_storage
         .get_messages(&session_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;

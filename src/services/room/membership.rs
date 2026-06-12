@@ -29,11 +29,8 @@ impl RoomService {
             return Err(ApiError::forbidden("You are not a member of this room".to_string()));
         }
 
-        let members_res = self
-            .member_storage
-            .get_room_members_with_profiles(room_id, "join")
-            .await;
-        
+        let members_res = self.member_storage.get_room_members_with_profiles(room_id, "join").await;
+
         let members_with_profiles = match members_res {
             Ok(m) => m,
             Err(e) => return Err(ApiError::internal_with_log("Failed to get members", &e)),
@@ -84,11 +81,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get membership history", &e))
     }
 
-    pub async fn get_room_members_by_membership(
-        &self,
-        room_id: &str,
-        membership: &str,
-    ) -> ApiResult<Vec<RoomMember>> {
+    pub async fn get_room_members_by_membership(&self, room_id: &str, membership: &str) -> ApiResult<Vec<RoomMember>> {
         self.member_storage
             .get_room_members(room_id, membership)
             .await

@@ -1,12 +1,12 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use chrono::Utc;
+use rand::RngCore;
+use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::cas::{
     CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
     CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
 };
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use chrono::Utc;
-use rand::RngCore;
-use std::sync::Arc;
 use tracing::{info, instrument};
 
 pub struct CasService {

@@ -327,7 +327,9 @@ async fn get_anti_screenshot(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
     let events: Vec<crate::storage::event::StateEvent> = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "com.hula.privacy")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get anti-screenshot state", &e))?;
@@ -353,10 +355,12 @@ async fn set_anti_screenshot(
     let now_ts: i64 = chrono::Utc::now().timestamp_millis();
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             crate::storage::event::CreateEventParams {
-                event_id,
+                event_id: event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),
                 event_type: "com.hula.privacy".to_string(),
@@ -368,6 +372,13 @@ async fn set_anti_screenshot(
         )
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set anti-screenshot state", &e))?;
+    let content = serde_json::json!({ "action": action });
+    state
+        .services
+        .rooms
+        .room_service
+        .dispatch_appservice_event(&event_id, &room_id, "com.hula.privacy", &auth_user.user_id, &content, Some(""))
+        .await;
 
     Ok(Json(serde_json::json!({"enabled": payload.enabled})))
 }

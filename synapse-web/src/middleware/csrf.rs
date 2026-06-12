@@ -1,11 +1,11 @@
 use super::{extract_origin_candidate, is_origin_allowed, is_safe_http_method, same_origin};
-use synapse_common::error::ApiError;
 use crate::routes::AppState;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
 use axum::{body::Body, middleware::Next};
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_common::error::ApiError;
 
 const ADMIN_TOKEN_TTL_SECS: u64 = 24 * 3600;
 
@@ -111,13 +111,13 @@ pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Bod
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_cache::{CacheConfig, CacheManager};
-    use synapse_services::ServiceContainer;
     use crate::routes::AppState;
     use axum::http::StatusCode;
     use axum::{middleware, routing::post, Router};
     use std::sync::Arc;
     use std::time::Duration;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_services::ServiceContainer;
     use tower::ServiceExt;
 
     #[test]

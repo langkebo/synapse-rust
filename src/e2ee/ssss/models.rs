@@ -208,11 +208,7 @@ mod tests {
 
     #[test]
     fn test_aes_hmac_sha2_key() {
-        let key = AesHmacSha2Key {
-            key: "aes_key".to_string(),
-            iv: "aes_iv".to_string(),
-            mac: "aes_mac".to_string(),
-        };
+        let key = AesHmacSha2Key { key: "aes_key".to_string(), iv: "aes_iv".to_string(), mac: "aes_mac".to_string() };
         assert_eq!(key.key, "aes_key");
         assert_eq!(key.iv, "aes_iv");
         assert_eq!(key.mac, "aes_mac");
@@ -259,10 +255,7 @@ mod tests {
                 mac: "mac_data".to_string(),
                 signatures: serde_json::json!({}),
             },
-            tracks: Some(SecretStorageKeyTracks {
-                self_signing: Some(true),
-                user_signing: Some(false),
-            }),
+            tracks: Some(SecretStorageKeyTracks { self_signing: Some(true), user_signing: Some(false) }),
         };
         assert_eq!(info.key_id, "key_1");
         assert!(info.tracks.is_some());

@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::routes::extractors::auth::AuthenticatedUser;
 use crate::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
@@ -25,6 +24,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::ApiError;
 
 fn create_room_power_levels_compat_router() -> Router<AppState> {
     Router::new().route("/rooms/{room_id}/state/m.room.power_levels/", get(get_power_levels))
@@ -327,7 +327,9 @@ async fn get_anti_screenshot(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "com.hula.privacy")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get anti-screenshot state", &e))?;
@@ -353,7 +355,9 @@ async fn set_anti_screenshot(
     let now_ts = chrono::Utc::now().timestamp_millis();
 
     state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id,

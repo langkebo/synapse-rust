@@ -1,7 +1,3 @@
-use synapse_cache::CacheManager;
-use synapse_common::background_job::BackgroundJob;
-use synapse_common::task_queue::RedisTaskQueue;
-use synapse_common::ApiError;
 use chrono::{Duration, TimeZone, Utc};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -9,6 +5,10 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_common::background_job::BackgroundJob;
+use synapse_common::task_queue::RedisTaskQueue;
+use synapse_common::ApiError;
 use tokio::sync::RwLock;
 
 const DEVICE_SYNC_CACHE_TTL: u64 = 3600;

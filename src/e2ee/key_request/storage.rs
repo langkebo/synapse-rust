@@ -102,7 +102,10 @@ impl KeyRequestStorage {
         })
     }
 
-    pub async fn get_requests_paginated(&self, pagination: KeyRequestPagination<'_>) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_requests_paginated(
+        &self,
+        pagination: KeyRequestPagination<'_>,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
         let KeyRequestPagination { user_id, limit, from_ts, from_id, status, room_id, session_id } = pagination;
         let mut query = sqlx::QueryBuilder::new(
             r#"
@@ -161,14 +164,10 @@ impl KeyRequestStorage {
         query.push(" ORDER BY created_ts DESC, request_id DESC LIMIT ");
         query.push_bind(limit);
 
-        query
-            .build_query_as::<KeyRequestInfo>()
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })
+        query.build_query_as::<KeyRequestInfo>().fetch_all(&self.pool).await.map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })
     }
 
     pub async fn get_all_pending_requests(&self) -> Result<Vec<KeyRequestInfo>, ApiError> {

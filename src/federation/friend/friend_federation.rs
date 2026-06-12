@@ -1,5 +1,5 @@
 use crate::common::{ApiError, ApiResult};
-use crate::services::FriendRoomService;
+use crate::services::friend_room_service::FriendRoomService;
 use serde_json::Value;
 use std::sync::Arc;
 

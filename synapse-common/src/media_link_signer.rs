@@ -34,11 +34,8 @@ impl MediaLinkSigner {
     /// `path` should be `{server_name}/{media_id}`.
     #[allow(clippy::expect_used)]
     pub fn sign(&self, path: &str) -> String {
-        let expires = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .saturating_add(self.ttl_secs);
+        let expires =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().saturating_add(self.ttl_secs);
 
         let payload = format!("{path}:{expires}");
         let mut mac = HmacSha256::new_from_slice(&self.key).expect("HMAC key length is valid");
@@ -51,10 +48,7 @@ impl MediaLinkSigner {
     /// Verify a signed media download request.
     /// Returns `Ok(())` if the signature is valid and not expired.
     pub fn verify(&self, path: &str, signature: &str, expires: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
         if now > expires {
             return false;
@@ -152,11 +146,7 @@ mod tests {
 
         let signature = params.get("signature").unwrap();
         // Use an expired timestamp (1 hour ago)
-        let past_expires = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .saturating_sub(3600);
+        let past_expires = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().saturating_sub(3600);
 
         assert!(!signer.verify(path, signature, past_expires));
     }

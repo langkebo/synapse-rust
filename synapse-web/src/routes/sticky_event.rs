@@ -2,9 +2,7 @@
 // Allows clients to get and set sticky (pinned) event metadata
 
 use crate::routes::response_helpers::empty_json;
-use crate::routes::{
-    ensure_room_member, validate_event_id, validate_room_id, ApiError, AppState, AuthenticatedUser,
-};
+use crate::routes::{ensure_room_member, validate_event_id, validate_room_id, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     Json,

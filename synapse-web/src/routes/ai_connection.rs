@@ -6,11 +6,11 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::routes::AppState;
+use crate::routes::AuthenticatedUser;
 use synapse_common::error::{ApiError, ApiResult};
 use synapse_services::matrix_ai_connection_service::{CreateConnectionRequest, McpToolCallRequest};
 use synapse_storage::ai_connection::AiConnection;
-use crate::routes::AuthenticatedUser;
-use crate::routes::AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct McpToolListQuery {

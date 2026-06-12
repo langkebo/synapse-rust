@@ -4,11 +4,11 @@ use super::providers::{
     WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
-use synapse_common::error::ApiError;
-use synapse_storage::push_notification::*;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use std::time::Instant;
+use synapse_common::error::ApiError;
+use synapse_storage::push_notification::*;
 use tracing::info;
 
 #[derive(Debug, Clone)]

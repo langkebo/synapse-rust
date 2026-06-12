@@ -76,7 +76,8 @@ pub(super) async fn update_space(
     let request = body.into_request();
 
     with_resolved_space(state, space_id, |state, space| async move {
-        let space = state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
+        let space =
+            state.services.rooms.space_service.update_space(&space.space_id, &request, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceResponse>(space))
     })
@@ -116,7 +117,9 @@ pub(super) async fn get_public_spaces(
     }
 
     let spaces = state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_public_spaces(limit, cursor.map(|(created_ts, _)| created_ts), cursor.map(|(_, space_id)| space_id))
         .await?;
 
@@ -141,7 +144,8 @@ pub(super) async fn search_spaces(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(10).clamp(1, 100);
 
-    let spaces = state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
+    let spaces =
+        state.services.rooms.space_service.search_spaces(&query.query, limit, Some(&auth_user.user_id)).await?;
 
     Ok(json_vec_from::<_, SpaceResponse>(spaces))
 }

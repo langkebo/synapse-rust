@@ -1,4 +1,3 @@
-use synapse_common::ApiError;
 use crate::worker::bus::{RedisBusConfig, WorkerBus};
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
@@ -10,6 +9,7 @@ use crate::worker::types::*;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use synapse_common::ApiError;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 

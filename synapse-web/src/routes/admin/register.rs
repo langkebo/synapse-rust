@@ -5,8 +5,6 @@
 // 安全说明：此 API 默认仅允许从 localhost (127.0.0.1) 调用
 // 如需从外部调用，请修改 allow_external_access 配置
 
-use synapse_services::auth::AuthService;
-use synapse_services::captcha_service::VerifyCaptchaRequest;
 use crate::routes::AppState;
 use crate::utils::ip::extract_client_ip;
 use axum::{
@@ -26,6 +24,8 @@ use sha2::Sha256;
 use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_services::auth::AuthService;
+use synapse_services::captcha_service::VerifyCaptchaRequest;
 use url::Url;
 use validator::Validate;
 
@@ -396,7 +396,9 @@ async fn verify_additional_registration_controls(
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_code is required"))?;
 
         let verified = state
-            .services.admin.captcha_service
+            .services
+            .admin
+            .captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;

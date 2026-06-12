@@ -201,7 +201,9 @@ impl AuthService {
     ) -> ApiResult<String> {
         if let Some(name) = initial_display_name {
             if name.len() > 100 {
-                return Err(ApiError::bad_request("initial_device_display_name must not exceed 100 characters".to_string()));
+                return Err(ApiError::bad_request(
+                    "initial_device_display_name must not exceed 100 characters".to_string(),
+                ));
             }
         }
 

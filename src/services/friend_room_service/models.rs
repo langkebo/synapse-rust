@@ -1,8 +1,8 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use crate::cache::CacheManager;
 use crate::federation::friend::FriendFederationClient;
 use crate::services::RoomService;
 use crate::storage::{EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
@@ -133,7 +133,10 @@ pub(crate) fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, r
     });
 }
 
-pub(crate) fn merge_direct_links(direct_map: &mut Map<String, Value>, links: impl IntoIterator<Item = (String, String)>) {
+pub(crate) fn merge_direct_links(
+    direct_map: &mut Map<String, Value>,
+    links: impl IntoIterator<Item = (String, String)>,
+) {
     for (user_id, room_id) in links {
         ensure_room_in_direct_map(direct_map, &user_id, &room_id);
     }
@@ -167,7 +170,6 @@ pub(crate) fn sort_letter_for(value: &str) -> String {
 pub struct FriendRoomService {
     pub(crate) friend_storage: FriendRoomStorage,
     pub(crate) room_service: Arc<RoomService>,
-    pub(crate) event_storage: EventStorage,
     pub(crate) user_storage: UserStorage,
     pub(crate) presence_storage: PresenceStorage,
     pub(crate) cache: Arc<CacheManager>,

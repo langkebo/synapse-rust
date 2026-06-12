@@ -1,12 +1,12 @@
-use synapse_common::ApiError;
 use crate::admin_audit_service::AdminAuditService;
+use serde_json::json;
+use std::collections::HashSet;
+use std::sync::Arc;
+use synapse_common::ApiError;
 use synapse_storage::{
     CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput,
     UpdateFeatureFlagRequest,
 };
-use serde_json::json;
-use std::collections::HashSet;
-use std::sync::Arc;
 
 pub struct FeatureFlagService {
     storage: Arc<FeatureFlagStorage>,

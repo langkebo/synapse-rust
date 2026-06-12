@@ -28,7 +28,10 @@ pub fn is_retryable_error(error: &str) -> bool {
         return true;
     }
     // APNs specific: InternalServerError, ServiceUnavailable, TooManyRequests
-    if error.contains("InternalServerError") || error.contains("ServiceUnavailable") || error.contains("TooManyRequests") {
+    if error.contains("InternalServerError")
+        || error.contains("ServiceUnavailable")
+        || error.contains("TooManyRequests")
+    {
         return true;
     }
     // FCM specific: Unavailable, DeviceMessageRateExceeded

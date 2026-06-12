@@ -104,10 +104,7 @@ fn print_summary(result: &HealthCheckResult) {
     println!("\n========================================");
     println!("  Schema Health Check Summary");
     println!("========================================");
-    println!(
-        "Status:           {}",
-        if result.passed { "PASSED" } else { "FAILED" }
-    );
+    println!("Status:           {}", if result.passed { "PASSED" } else { "FAILED" });
     println!("Missing tables:   {}", result.missing_tables.len());
     println!("Missing columns:  {}", result.missing_columns.len());
     println!("Missing indexes:  {}", result.missing_indexes.len());

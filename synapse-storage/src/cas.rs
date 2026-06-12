@@ -1,8 +1,8 @@
-use synapse_common::ApiError;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct CasTicket {

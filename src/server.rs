@@ -12,6 +12,7 @@ use crate::cache::*;
 use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::services::*;
+use crate::services::database_initializer::DatabaseInitService; // explicit: removed from glob due to ambiguous re-export warning
 use crate::storage::schema_health_check::run_schema_health_check;
 use crate::storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
@@ -210,6 +211,17 @@ impl SynapseServer {
         };
 
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
+        if !config.server.app_service_config_files.is_empty() {
+            let imported_services = services
+                .admin
+                .app_service_manager
+                .load_from_config_files(&config.server.app_service_config_files)
+                .await?;
+            ::tracing::info!(
+                imported = imported_services.len(),
+                "Imported application service configs from app_service_config_files"
+            );
+        }
         let app_state = Arc::new(AppState::new(services, cache));
 
         let rate_limit_config_path = std::path::PathBuf::from(
@@ -298,6 +310,14 @@ impl SynapseServer {
         if let Err(e) = self.warmup().await {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
+
+        self.app_state
+            .services
+            .admin
+            .app_service_manager
+            .clone()
+            .start_sender(50, self.app_state.services.config.server.background_tasks_interval.max(10))
+            .await;
 
         self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
 
@@ -500,9 +520,7 @@ impl SynapseServer {
             // automatically. Runs every 6 hours by default.
             let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
             tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(
-                    tokio::time::Duration::from_secs(6 * 3600),
-                );
+                let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 

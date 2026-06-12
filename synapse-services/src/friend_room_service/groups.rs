@@ -1,6 +1,6 @@
 use super::models::*;
-use synapse_common::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_common::{ApiError, ApiResult};
 
 impl FriendRoomService {
     fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {

@@ -381,22 +381,20 @@ impl SecureBackupService {
     /// Delete backup
     pub async fn delete_backup(&self, user_id: &str, backup_id: &str) -> Result<(), ApiError> {
         // Delete session keys first
-        sqlx::query!("DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2",
+        sqlx::query!(
+            "DELETE FROM secure_backup_session_keys WHERE user_id = $1 AND backup_id = $2",
             user_id,
             backup_id,
         )
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         // Delete backup
-        sqlx::query!("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2",
-            user_id,
-            backup_id,
-        )
+        sqlx::query!("DELETE FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2", user_id, backup_id,)
             .execute(&*self.pool)
             .await
             .map_err(|e| {

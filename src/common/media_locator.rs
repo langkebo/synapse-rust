@@ -32,10 +32,7 @@ impl MediaLocator {
             return Err(format!("Invalid mxc URI (empty media_id): {mxc_url}"));
         }
 
-        Ok(Self {
-            server_name: server_name.to_string(),
-            media_id: media_id.to_string(),
-        })
+        Ok(Self { server_name: server_name.to_string(), media_id: media_id.to_string() })
     }
 
     /// Reconstruct the `mxc://server_name/media_id` URI.

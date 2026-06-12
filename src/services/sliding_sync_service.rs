@@ -3,9 +3,9 @@ use crate::common::error::ApiError;
 use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::presence::PresenceStorage;
-pub use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::storage::sliding_sync::{
-    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage,
+    AdminRoomTokenSyncEntry, RoomTokenSyncCursor, SlidingSyncListData, SlidingSyncRequest, SlidingSyncResponse,
+    SlidingSyncRoom, SlidingSyncStorage,
 };
 use crate::storage::{EventStorage, RoomEvent, StateEvent};
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,11 @@ impl SlidingSyncService {
     ) -> Result<SlidingSyncResponse, ApiError> {
         // Update user presence to online
         tracing::info!(user_id = %user_id, device_id = %device_id, "Updating presence for user");
-        let _ = self.presence_storage.set_presence(user_id, crate::common::PresenceState::Online, None).await;
+        if let Err(e) =
+            self.presence_storage.set_presence(user_id, crate::common::PresenceState::Online.as_str(), None).await
+        {
+            ::tracing::warn!(%e, user_id, device_id, "Failed to set presence online");
+        }
 
         let conn_id = request.conn_id.as_deref();
 
@@ -766,7 +770,14 @@ impl SlidingSyncService {
             );
 
             // Delete DB data for this connection.
-            if let Err(e) = self.storage.delete_connection_data(user_id, device_id, conn_id.as_deref()).await {
+            if let Err(e) = crate::storage::SlidingSyncStorage::delete_connection_data(
+                &self.storage,
+                user_id,
+                device_id,
+                conn_id.as_deref(),
+            )
+            .await
+            {
                 tracing::warn!(
                     error = %e,
                     user_id = %user_id,
@@ -1379,7 +1390,7 @@ mod tests {
                         .connect_lazy("postgres://localhost/test")
                         .unwrap(),
                 ),
-                Arc::new(CacheManager::new(&crate::cache::CacheConfig::default())),
+                Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default())),
             ),
             member_storage: RoomMemberStorage::new(
                 &Arc::new(

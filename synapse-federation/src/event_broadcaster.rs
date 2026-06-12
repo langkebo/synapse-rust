@@ -1,8 +1,8 @@
 use crate::client::{FederationClient, FederationTransaction};
-use synapse_storage::membership::RoomMemberStorage;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_storage::membership::RoomMemberStorage;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -728,25 +728,16 @@ impl synapse_common::traits::EventBroadcaster for EventBroadcaster {
     fn broadcast_subscriber_count(&self) -> usize {
         // Federation broadcaster doesn't track subscribers in the traditional sense;
         // return the pending queue length as a proxy for active work.
-        self.pending_queue
-            .try_read()
-            .map(|q| q.len())
-            .unwrap_or(0)
+        self.pending_queue.try_read().map(|q| q.len()).unwrap_or(0)
     }
 }
 
 impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
     fn from(e: FederationBroadcastError) -> Self {
         match e {
-            FederationBroadcastError::SendFailed(msg) => {
-                synapse_common::traits::BroadcastError::Transport(msg)
-            }
-            FederationBroadcastError::InvalidEvent(msg) => {
-                synapse_common::traits::BroadcastError::EncodingFailed(msg)
-            }
-            FederationBroadcastError::NetworkError(msg) => {
-                synapse_common::traits::BroadcastError::Transport(msg)
-            }
+            FederationBroadcastError::SendFailed(msg) => synapse_common::traits::BroadcastError::Transport(msg),
+            FederationBroadcastError::InvalidEvent(msg) => synapse_common::traits::BroadcastError::EncodingFailed(msg),
+            FederationBroadcastError::NetworkError(msg) => synapse_common::traits::BroadcastError::Transport(msg),
         }
     }
 }

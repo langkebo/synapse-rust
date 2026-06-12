@@ -1,16 +1,16 @@
 use super::models::*;
 use super::storage::SecretStorage;
-use synapse_common::traits::DehydratedDeviceProvider;
-use synapse_common::ApiError;
 use aes_gcm::{
     aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rand::RngCore;
-use x25519_dalek::{PublicKey, StaticSecret};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::traits::DehydratedDeviceProvider;
+use synapse_common::ApiError;
+use x25519_dalek::{PublicKey, StaticSecret};
 
 const SSSS_KEY_LENGTH: usize = 32;
 const SSSS_IV_LENGTH: usize = 12;
@@ -312,9 +312,12 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_create_key() {
-        let pool = sqlx::PgPool::connect(&std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()))
-            .await
-            .expect("Failed to connect to test database");
+        let pool = sqlx::PgPool::connect(
+            &std::env::var("TEST_DATABASE_URL")
+                .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()),
+        )
+        .await
+        .expect("Failed to connect to test database");
         let storage = SecretStorage::new(&pool);
         let service = SecretStorageService::new(storage);
 

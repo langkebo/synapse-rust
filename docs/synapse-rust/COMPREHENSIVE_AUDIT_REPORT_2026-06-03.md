@@ -1,6 +1,6 @@
 # synapse-rust 全面深度技术审计报告
 
-**版本**: 8.0.0（2026-06-12 当前工作区复核版）
+**版本**: 8.5.2（2026-06-12 appservice 旁路入口回归测试补齐版）
 **审计基线**: `/Users/ljf/Desktop/hu_ts/synapse-rust` 当前工作区状态（含未提交改动）
 **对标基线**: Matrix Spec v1.18；element-hq/synapse v1.153.x 文档与架构实践
 **审计对象**:
@@ -23,7 +23,7 @@
 2. **当前项目仍存在会影响持续演进和后续门禁收敛的真实问题**。
    - `feature_flags` 的 `CacheManager` 类型边界已修复，`cargo check --workspace --all-features --locked` 已恢复通过。
    - `test-utils` 集成测试编译门禁已恢复通过，但 root/canonical 双轨冗余本身仍未根治。
-   - 应用服务能力与上游 Synapse 相比仍存在结构性缺口：缺少自动事件推送、事务调度/恢复器、YAML 配置加载落地。
+  - 应用服务能力与上游 Synapse 相比仍存在结构性缺口：`app_service_config_files` 的 YAML 加载、本地房间事件的 namespace 自动 enqueue、自动 sender，以及基础 backoff/recoverer 与第二层失败治理已落地；但事务模型、bridge 端到端验证和更完整的调度组件仍未补齐。
    - 根 crate 与 canonical crate 的镜像模块冗余仍然显著，但 `src/services/mod.rs` 已移除 `pub use crate::storage::*`，服务层开始改为显式依赖 storage。
    - `admin_user_service` 的 canonical shim 已解除，root 侧已收口为 facade；但 canonical 实现中仍保留部分 direct SQL，root/canonical 双轨分层债仍未根治。
    - 协议面文档与代码存在漂移，尤其是 room versions 与静态 capability 声明策略。
@@ -54,13 +54,25 @@
 - `cargo test --features test-utils --test unit --no-run --locked`：**通过**
 - `cargo check --workspace --all-features --locked`：**再次通过**
   - 验证点：`admin_user_service` 下沉部分 direct SQL 到 `UserStorage` 后，`src/services/mod.rs` 已去除 `pub use crate::storage::*`，`sync_service` / `room` / `admin_registration_service` 已改为显式依赖 storage
+- `ApplicationServiceManager::load_from_config_files(...)` 启动期导入链路：**已落地**
+  - 验证点：`synapse-services/src/application_service.rs` 已新增 YAML 解析、regex/URL/sender 校验与 `upsert_registration()` 幂等导入；`src/server.rs` 已在服务容器装配后消费 `config.server.app_service_config_files`
+- `cargo test -p synapse-services --lib application_service::tests::test_retry_backoff_ms_grows_and_caps --locked`：**通过**
+- `cargo test -p synapse-services --lib application_service::tests::test_is_transaction_ready_to_retry_respects_backoff_window --locked`：**通过**
+- `cargo test -p synapse-services --lib application_service::tests::test_classify_http_failure_distinguishes_retryable_and_fatal_statuses --locked`：**通过**
+- `cargo test -p synapse-services --lib application_service::tests::test_should_disable_service_uses_kind_specific_thresholds --locked`：**通过**
+- `cargo check --workspace --all-features --locked`：**通过**
+  - 验证点：在 appservice 联邦/旁路事件入口覆盖、建房事务提交后统一分发，以及 `openclaw`/`sync_service` 适配收尾后，工作区 check 仍可通过
+- `cargo clippy --all-features --locked -- -D warnings`：**通过**
+  - 修复范围：补齐 root `Cargo.toml` 对 `runtime-ddl` / `voip-tracking` / `privacy-ext` 的 feature 透传；收敛 root cache 注入 canonical `UserStorage` / `PresenceStorage` 的构造点；修正 `RendezvousMessageStorage` 的使用对象，并显式调用 `SlidingSyncStorage::delete_connection_data(...)` 与 `RoomStorage::get_user_rooms_paginated(...)`；同步修复 `openclaw` messages 分页适配、`sync_service` 的 `tracing` 宏歧义，以及 appservice 建房分发辅助结构的可见性/注入收尾
+- `cargo test --features test-utils --test integration test_create_room_enqueues_appservice_events_after_commit -- --exact --nocapture`：**通过**
+- `cargo test --features test-utils --test integration test_join_room_enqueues_appservice_membership_event -- --exact --nocapture`：**通过**
 - `cargo tree -d --workspace | head -n 120`：**确认存在重复依赖版本**
   - 已确认案例：`base64 v0.21.7` 与 `base64 v0.22.1`
 
 ### 2.3 证据边界说明
 
 - 本报告以**当前磁盘工作区**为准，不以 Git 已提交历史为准。
-- 对覆盖率、全量 test pass 数等指标，本轮未重复跑完整大门禁时，统一标注为“**待运行时复核**”，不沿用旧文档中的历史数值；`cargo clippy --all-features --locked -- -D warnings` 已在本轮重新通过。
+- 对覆盖率、全量 test pass 数等指标，本轮未重复跑完整大门禁时，统一标注为“**待运行时复核**”，不沿用旧文档中的历史数值；`cargo clippy --all-features --locked -- -D warnings` 已在本轮重新恢复通过。
 
 ---
 
@@ -161,12 +173,12 @@
 
 | 对标维度 | 上游 Synapse | 当前 synapse-rust | 结论 |
 |---|---|---|---|
-| Appservice 注册 | YAML `app_service_config_files` + 运行时装载 | 仅看到配置字段声明，运行时未见加载落地 | **功能缺口** |
-| Appservice 事件推送 | 自动 namespace 匹配 + 调度 + 失败恢复 | `push_event()` 仅见于 appservice 路由入口，未接入事件主链路 | **架构缺口** |
+| Appservice 注册 | YAML `app_service_config_files` + 运行时装载 | 已支持启动期 YAML 加载、基本校验与幂等导入；仍缺少与自动事件分发联动 | **部分补齐，主缺口转向调度链路** |
+| Appservice 事件推送 | 自动 namespace 匹配 + 调度 + 失败恢复 | 已在本地房间事件、联邦 membership/transaction、以及 join/leave/invite/ban/unban/kick/upgrade/friend-room state event/部分建房事件等旁路入口接入 appservice enqueue 或提交后统一分发，并新增自动 sender、基础 backoff/recoverer 与失败分类/自动隔离坏 AS；但事务模型仍较简化，bridge 端到端验证与更完整调度组件仍未完成 | **部分补齐，仍有主链路缺口** |
 | 分层隔离 | REST/handler/storage 边界清晰 | nominal 上仍是 `route -> service -> storage`；`services/mod.rs` 的全量 storage 泄漏已移除，但 root/canonical 双轨与少量 service 直连 SQL 仍削弱边界治理 | **架构短板** |
 | Worker/replication | 围绕单写多读与缓存失效设计 | 已有 worker/replication 雏形，但根/canonical 双轨与编译门禁仍拖慢收敛 | **部分具备，未完全成熟** |
 | 协议声明治理 | 保守、以实现/测试为依据 | room version 文档漂移，部分 capability 仍静态 `true` | **治理不足** |
-| 运维配置面 | 配置项大多有明确消费路径 | `app_service_config_files` 形成死配置面 | **配置冗余** |
+| 运维配置面 | 配置项大多有明确消费路径 | `app_service_config_files` 已有启动期消费链路，自动 sender 与 recoverer 失败治理也已接入；但更完整的调度/恢复组件仍未闭环 | **部分缓解** |
 
 ### 4.4 对标后的总体判断
 
@@ -188,7 +200,7 @@
 
 ### 5.2 配置冗余
 
-- `app_service_config_files` 在配置结构中仍然存在，但当前仅见于 config/test/默认值位置，**未见运行时消费链路**。
+- `app_service_config_files` 已从“死配置面”收敛为“启动期可消费配置面”；本地房间事件、联邦 membership/transaction，以及 join/leave/invite/ban/unban/kick/upgrade/friend-room state event/部分建房事件等旁路入口会自动 enqueue 到 appservice pending queue，其中建房事务内事件会在提交成功后统一 dispatch；sender 会周期性优先重试未完成 transaction、再组批发送 pending events，并已加入基础 backoff/recoverer 以及失败分类/自动隔离坏 AS 的第二层治理，但事务模型和 bridge 端到端验证仍未闭环。
 - `SUPPORTED_MATRIX_SURFACE` 中要求后续收敛的 capability，当前代码仍存在静态 `true` 声明，形成“可配置/可验证”与“硬编码公开能力”并存。
 
 ### 5.3 依赖冗余
@@ -244,20 +256,23 @@
 
 ### P0-02 Application Service 架构与上游 Synapse 存在结构性缺口
 
-- **当前验证**：`push_event()` 的调用面当前仅见于 `src/web/routes/app_service.rs`；`app_service_manager` 也只出现在 container 与 appservice 路由中。与上游 Synapse 的自动事件推送、scheduler、transaction controller、recoverer 相比，当前实现仍偏“管理接口 + 手动推送接口”。
-- **复现步骤**：检索 `push_event(` 与 `app_service_manager` 调用面，可见缺少房间/事件主链路对 appservice 的自动挂接；检索 `app_service_config_files` 只能看到配置定义与测试默认值。
+- **当前验证**：`app_service_config_files` 已有启动期 YAML 装载、regex/URL/`sender` 基本校验与幂等导入，运行时会在服务容器装配后自动消费配置；`RoomService::create_event()` 已接入 `app_service_manager.enqueue_matching_event(...)`，本地房间消息、状态事件和 pinned state 更新会按 `room_id` / `sender` / `state_key` 做 namespace 匹配并写入 appservice pending queue；联邦 `transaction` / `membership` 路由与 `voip` / `room redaction` / `com.hula.privacy` 等路由旁路事件入口在持久化成功后会 best-effort 进入 appservice queue；`join_room()` / `leave_room()` / `invite_user()` / `ban_user()` / `unban_user()` / `kick_user()` / `upgrade_room()` / `FriendRoomService::send_state_event()` 等 service 旁路入口已经切回统一事件链路；建房链路中的 `m.room.create`、`m.room.member`、`m.room.power_levels`、`m.room.join_rules`、`m.room.history_visibility`、`m.room.guest_access`、`m.room.encryption`、`com.hula.privacy`、`initial_state`、metadata 与邀请事件会先在事务内持久化，再在 commit 成功后统一 dispatch 到 appservice queue；`room_service_tests_migrated.rs` 已新增回归测试，覆盖 `create_room()` 提交后 enqueue 与 `join_room()` 旁路 membership enqueue；`ApplicationServiceManager::start_sender(...)` 已在 server 启动后开启周期 sender，会优先重试未完成 transaction，没有未完成 transaction 时再从 pending queue 组批回填原始 room event payload 并发送；新增 `retry_backoff_ms(...)`、`is_transaction_ready_to_retry(...)`、HTTP 失败分类与自动禁用阈值后，单 AS 在存在未完成 transaction 时已按 `retry_count` 执行基础退避重试，并会在连续失败超过阈值时写入 delivery state 且自动禁用对应 AS。与上游 Synapse 的自动事件推送、scheduler、transaction controller、recoverer 相比，当前实现已具备基础调度闭环、联邦/更广的旁路覆盖，以及第二层 recoverer 治理，但事务模型和完整调度组件仍偏首版。
+- **复现步骤**：检索 `enqueue_matching_event(`、`dispatch_appservice_event(` 与 `RoomService::create_event()` 调用面，可见本地房间事件已开始自动挂接 appservice；检索 `src/web/routes/federation/transaction.rs`、`src/web/routes/federation/membership.rs`、`src/web/routes/voip.rs`、`src/web/routes/room.rs` 与 `src/web/routes/handlers/room/events.rs` 中的 `dispatch_appservice_event(` 调用，可见联邦/路由旁路入口已补齐一批 best-effort enqueue；检索 `src/services/room/membership_actions.rs`、`src/services/room/membership_moderation.rs`、`src/services/room/upgrade.rs`、`src/services/friend_room_service/mod.rs` 中对 `self.create_event(` 或 `room_service.create_event(` 的调用，以及 `src/services/room/create.rs` 中 commit 后统一 `dispatch_appservice_event(` 的循环，可见 service 旁路与建房事务后分发已落地；继续检索 `retry_backoff_ms(`、`is_transaction_ready_to_retry(`、`classify_http_failure(`、`should_disable_service(` 与 `delivery_status` / `delivery_last_error` / `delivery_disabled_reason` 等 state key，可见 recoverer 已扩展到失败分类与坏 AS 自动隔离。
 - **影响范围**：桥接类 AS（IRC/Slack/Discord 等）、第三方服务集成、从 Synapse 迁移的配置兼容性。
 - **发生场景**：部署 bridge、期待 namespace 事件自动推送、使用 Synapse YAML appservice 配置迁移时。
 - **优化方案**：补齐 AS 配置装载、namespace 匹配、排队发送、事务重试恢复全链路；以 canonical service/storage 为主线实现，root 侧仅保留兼容 facade。
 - **实施步骤**：
-  1. 落地 `app_service_config_files` YAML 加载与校验，并同步写入统一存储。
-  2. 在事件持久化/通知链路中引入 namespace 匹配与 enqueue。
-  3. 实现 per-AS 队列、事务控制器、失败恢复器与退避策略。
-  4. 增加 bridge 端到端集成测试与失败重试验证。
+  1. 已完成：落地 `app_service_config_files` YAML 加载与校验，并通过 `upsert_registration()` 同步写入统一存储。
+  2. 已完成首版：在 `RoomService::create_event()` 本地房间事件链路中引入 namespace 匹配与 enqueue。
+  3. 已完成首版：实现周期 sender，优先重试未完成 transaction，再从 pending queue 组批发送。
+  4. 已完成首版：补齐基础 backoff/recoverer，失败 transaction 会更新时间基线，sender 会按 `retry_count` 退避重试最早未完成 transaction。
+  5. 已完成增强：补齐联邦 `transaction` / `membership` 与部分旁路事件入口的 best-effort enqueue，并为 recoverer 增加失败分类、delivery state 与坏 AS 自动禁用阈值。
+  6. 已完成增强：补充 `create_room()` 提交后 enqueue 与 `join_room()` membership enqueue 的 integration 回归测试，开始把 appservice 关键分发链路纳入可重复验证。
+  7. 待完成：补齐更完整的 per-AS 调度治理、bridge 端到端集成测试与失败重试验证，并继续清点少量仍保留为显式直写+手动 dispatch 的入口是否需要进一步统一。
 - **责任节点**：协议兼容负责人、应用服务负责人、测试负责人、运维负责人。
 - **资源投入**：后端 2~3 人周，QA 1 人周，SRE 0.5 人周。
 - **验收标准**：
-  - 功能可用性：AS YAML 配置可加载；匹配 namespace 的事件可自动推送；失败事务可自动重试并最终恢复或告警。
+  - 功能可用性：当前已满足“AS YAML 配置可加载并在启动期导入”、“本地房间事件、联邦入口与多数已识别旁路事件可按 namespace 自动进入 pending queue”、“建房事务内事件可在 commit 成功后统一进入 appservice 分发链路”、“周期 sender 可自动尝试发送/重试未完成 transaction”，以及“单 AS 未完成 transaction 可按 `retry_count` 做基础 backoff 重试，并在连续失败超阈值时自动隔离坏 AS”；后续仍需补齐 bridge 端到端验证和少量剩余入口核查。
   - 性能指标：单 AS 1000 events/min 压测下，入队到首次发送 p95 < 200ms，1 万事件积压在 5 分钟内消化完毕。
   - 代码质量：新增 route/service/storage/integration 四层测试；关键调度路径具备失败场景测试。
   - 资源利用率：AS 调度器 CPU 常态占用 < 1 核；队列积压时内存增长可控，恢复后 10 分钟内回落到基线 ±15%。
@@ -401,8 +416,8 @@
 
 ### 8.1 可确认的当前真实问题
 
-- 全 feature 工作区编译门禁与 `test-utils` integration `--no-run` 编译门禁均已恢复。
-- appservice 与上游 Synapse 相比仍是“管理接口化”，而非“完整事件分发系统”。
+- `cargo check --workspace --all-features --locked`、`test-utils` integration `--no-run` 与 `cargo clippy --all-features --locked -- -D warnings` 均已恢复通过。
+- appservice 已从“管理接口化”推进到“本地房间事件自动分发 + 联邦/多数已识别旁路入口覆盖 + 建房事务提交后统一分发 + 自动 sender + 基础 backoff/recoverer + 失败分类/自动隔离坏 AS”，但仍未达到上游 Synapse 的完整事件分发系统能力。
 - root/canonical 双轨冗余仍然显著。
 - 管理员用户服务的分层隔离仍未收口。
 - 协议面文档与真实代码状态存在漂移。
@@ -430,8 +445,8 @@
 
 当前 synapse-rust 的核心矛盾已经从“若干早期致命 SQL/协议错误”转移为：
 
-1. **all-features 构建门禁与测试特性下的 integration `--no-run` 编译门禁均已恢复，但 root/canonical 双轨边界仍有系统性治理空间**。
-2. **appservice 仍未达到上游 Synapse 的完整架构能力**。
+1. **`cargo check --workspace --all-features --locked`、测试特性下的 integration `--no-run`，以及 `cargo clippy --all-features --locked -- -D warnings` 均已恢复，但 root/canonical 双轨边界仍有系统性治理空间**。
+2. **appservice 已形成基础调度闭环，并补齐联邦/多数已识别旁路入口覆盖、建房事务提交后分发及第二层 recoverer 失败治理，但仍未达到上游 Synapse 的完整架构能力**。
 3. **分层迁移停留在 facade 与兼容层并存阶段，代码/模块冗余仍大**。
 4. **文档治理落后于代码演进，导致团队对当前真实状态的判断失真**。
 

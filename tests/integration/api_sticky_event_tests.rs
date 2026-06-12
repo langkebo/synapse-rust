@@ -29,7 +29,8 @@ mod sticky_event_integration_suite {
             .await
             .expect("Failed to set sticky event");
 
-        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result =
+            storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
         assert!(result.is_some());
         let sticky = result.unwrap();
@@ -47,7 +48,8 @@ mod sticky_event_integration_suite {
 
         storage.clear_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to clear sticky event");
 
-        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result =
+            storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
         assert!(result.is_none() || !result.unwrap().is_sticky);
     }
@@ -154,7 +156,8 @@ mod sticky_event_integration_suite {
             .await
             .expect("Failed to update sticky event");
 
-        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
+        let result =
+            storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("Failed to get sticky event");
 
         assert!(result.is_some());
         assert_eq!(result.unwrap().event_id, "$event2:localhost");

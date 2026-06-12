@@ -77,13 +77,16 @@ pub async fn get_rotation_history(
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
-    let history_rows =
-        state.services.core.key_rotation_storage.get_device_rotation_history(&auth_user.user_id, &device_id).await.map_err(
-            |e| {
-                tracing::error!("Failed to get rotation history: {e}");
-                ApiError::internal("Internal server error".to_string())
-            },
-        )?;
+    let history_rows = state
+        .services
+        .core
+        .key_rotation_storage
+        .get_device_rotation_history(&auth_user.user_id, &device_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get rotation history: {e}");
+            ApiError::internal("Internal server error".to_string())
+        })?;
 
     let history: Vec<Value> = history_rows
         .into_iter()
@@ -161,12 +164,16 @@ pub async fn configure_key_rotation(
     }
 
     if let Some(interval) = interval_ms {
-        state.services.core.key_rotation_storage.set_rotation_config("interval_ms", &interval.to_string()).await.map_err(
-            |e| {
+        state
+            .services
+            .core
+            .key_rotation_storage
+            .set_rotation_config("interval_ms", &interval.to_string())
+            .await
+            .map_err(|e| {
                 tracing::error!("Failed to persist key rotation interval_ms: {e}");
                 ApiError::internal("Internal server error".to_string())
-            },
-        )?;
+            })?;
     }
 
     if let Some(days) = rotation_interval_days {

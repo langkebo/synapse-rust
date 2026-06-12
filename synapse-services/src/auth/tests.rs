@@ -1,9 +1,9 @@
 use super::*;
+use chrono::{Duration, Utc};
+use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use synapse_common::crypto::{
     hash_password_with_params, is_legacy_hash, migrate_password_hash, verify_password as verify_password_common,
 };
-use chrono::{Duration, Utc};
-use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 
 #[test]
 fn test_claims_struct() {

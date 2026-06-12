@@ -1,12 +1,12 @@
 use super::{
     ensure_room_state_write_access, ensure_room_view_access, normalize_room_event_type, state_event_content_response,
 };
-use synapse_common::ApiError;
-use synapse_common::map_internal;
-use synapse_storage::CreateEventParams;
 use crate::routes::{validate_room_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
+use synapse_common::map_internal;
+use synapse_common::ApiError;
+use synapse_storage::CreateEventParams;
 
 pub(crate) async fn get_room_state(
     State(state): State<AppState>,
@@ -16,7 +16,9 @@ pub(crate) async fn get_room_state(
     validate_room_id(&room_id)?;
 
     let room_exists = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?;
@@ -27,8 +29,13 @@ pub(crate) async fn get_room_state(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let events =
-        state.services.rooms.event_storage.get_state_events(&room_id).await.map_err(map_internal!("Failed to get state"))?;
+    let events = state
+        .services
+        .rooms
+        .event_storage
+        .get_state_events(&room_id)
+        .await
+        .map_err(map_internal!("Failed to get state"))?;
     let state_events: Vec<Value> = events
         .iter()
         .map(|e| {
@@ -55,7 +62,9 @@ pub(crate) async fn get_state_by_type(
     validate_room_id(&room_id)?;
 
     let room_exists = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .room_exists(&room_id)
         .await
         .map_err(map_internal!("Failed to check room existence"))?;
@@ -73,7 +82,9 @@ pub(crate) async fn get_state_by_type(
     };
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
         .map_err(map_internal!("Failed to get state"))?;
@@ -119,7 +130,9 @@ pub(crate) async fn get_state_event(
     };
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
         .map_err(map_internal!("Failed to get state"))?;
@@ -229,7 +242,9 @@ pub(crate) async fn send_state_event(
     };
 
     let state_event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -248,7 +263,9 @@ pub(crate) async fn send_state_event(
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
-            .services.rooms.beacon_service
+            .services
+            .rooms
+            .beacon_service
             .create_beacon(params)
             .await
             .map_err(map_internal!("Failed to index beacon_info"))?;
@@ -338,7 +355,9 @@ pub(crate) async fn put_state_event(
     };
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -357,7 +376,9 @@ pub(crate) async fn put_state_event(
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
         state
-            .services.rooms.beacon_service
+            .services
+            .rooms
+            .beacon_service
             .create_beacon(params)
             .await
             .map_err(map_internal!("Failed to index beacon_info"))?;
@@ -386,7 +407,9 @@ pub(crate) async fn get_state_event_empty_key(
     };
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, &final_event_type)
         .await
         .map_err(map_internal!("Failed to get state"))?;
@@ -409,7 +432,9 @@ pub(crate) async fn get_power_levels(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "m.room.power_levels")
         .await
         .map_err(map_internal!("Failed to get power levels"))?;
@@ -439,7 +464,9 @@ pub(crate) async fn put_state_event_empty_key(
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -477,7 +504,9 @@ pub(crate) async fn put_state_event_no_key(
     ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
 
     let event = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -509,7 +538,9 @@ pub(crate) async fn get_room_permissions(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let power_levels_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "m.room.power_levels")
         .await
         .map_err(map_internal!("Failed to get power levels"))?;
@@ -521,7 +552,9 @@ pub(crate) async fn get_room_permissions(
         .unwrap_or(json!({}));
 
     let join_rules_events = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_state_events_by_type(&room_id, "m.room.join_rules")
         .await
         .map_err(map_internal!("Failed to get join rules"))?;

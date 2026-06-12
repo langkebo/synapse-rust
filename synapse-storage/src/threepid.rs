@@ -1,7 +1,7 @@
-use synapse_common::error::ApiError;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserThreepid {

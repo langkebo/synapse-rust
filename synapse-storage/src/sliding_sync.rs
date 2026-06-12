@@ -1018,6 +1018,53 @@ impl SlidingSyncStorage {
     fn ensure_schema(&self) -> Result<(), sqlx::Error> {
         Ok(())
     }
+
+    pub async fn delete_connection_data(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        conn_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.ensure_schema()?;
+
+        sqlx::query!(
+            r#"
+            DELETE FROM sliding_sync_tokens
+            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
+            "#,
+            user_id,
+            device_id,
+            conn_id
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            DELETE FROM sliding_sync_lists
+            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
+            "#,
+            user_id,
+            device_id,
+            conn_id
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            DELETE FROM sliding_sync_rooms
+            WHERE user_id = $1 AND device_id = $2 AND (conn_id = $3 OR ($3 IS NULL AND conn_id IS NULL))
+            "#,
+            user_id,
+            device_id,
+            conn_id
+        )
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

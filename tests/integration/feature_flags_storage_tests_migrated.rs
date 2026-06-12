@@ -18,7 +18,6 @@ fn create_test_cache() -> Arc<CacheManager> {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS feature_flags (

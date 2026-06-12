@@ -148,7 +148,9 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
     let total_rooms = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .get_room_count()
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

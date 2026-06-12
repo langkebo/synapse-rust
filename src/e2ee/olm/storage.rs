@@ -141,11 +141,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn load_account(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<OlmAccountData>, ApiError> {
+    pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
         let row: Option<OlmAccountRow> = sqlx::query_as!(
             OlmAccountRow,
             r#"
@@ -235,11 +231,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn load_sessions(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<OlmSessionData>, ApiError> {
+    pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
         let rows: Vec<OlmSessionRow> = sqlx::query_as!(
             OlmSessionRow,
             r#"
@@ -358,11 +350,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn delete_sessions_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query!(
             r"
             DELETE FROM olm_sessions

@@ -1,5 +1,5 @@
+use crate::storage::cas::{CasRegisteredService, RegisterServiceRequest};
 pub use synapse_services::cas_service::*;
-pub use crate::storage::cas::{CasRegisteredService, RegisterServiceRequest};
 
 #[cfg(test)]
 mod tests {

@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use validator::Validate;
 
-use synapse_common::ApiError;
 pub(super) use crate::routes::response_helpers::{created_json_from, json_from, json_vec_from};
 use crate::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
+use synapse_common::ApiError;
 
 pub mod children_hierarchy;
 mod lifecycle_query;
@@ -30,7 +30,9 @@ pub(super) async fn resolve_space_by_room(
     space_room_id: &str,
 ) -> Result<synapse_storage::space::Space, ApiError> {
     state
-        .services.rooms.space_service
+        .services
+        .rooms
+        .space_service
         .get_space_by_room(space_room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Space not found"))

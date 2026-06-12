@@ -1,7 +1,7 @@
 use super::models::{OlmAccountData, OlmSessionData};
-use synapse_common::ApiError;
 use sqlx::PgPool;
 use std::sync::Arc;
+use synapse_common::ApiError;
 
 /// Internal row struct for `olm_sessions` (matches DB column types exactly,
 /// including `i32` for `message_index` which the public model widens to `u32`).
@@ -141,11 +141,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn load_account(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<OlmAccountData>, ApiError> {
+    pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
         let row: Option<OlmAccountRow> = sqlx::query_as::<_, OlmAccountRow>(
             r"
             SELECT
@@ -234,11 +230,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn load_sessions(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Vec<OlmSessionData>, ApiError> {
+    pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
         let rows: Vec<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r"
             SELECT
@@ -354,11 +346,7 @@ impl OlmStorage {
         Ok(())
     }
 
-    pub async fn delete_sessions_for_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"
             DELETE FROM olm_sessions

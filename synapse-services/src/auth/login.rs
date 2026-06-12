@@ -1,10 +1,10 @@
 use super::auth_generate_token;
 use super::AuthService;
+use chrono::Utc;
+use std::sync::Arc;
 use synapse_common::crypto::hash_password_with_params;
 use synapse_common::*;
 use synapse_storage::User;
-use chrono::Utc;
-use std::sync::Arc;
 
 impl AuthService {
     pub async fn login(

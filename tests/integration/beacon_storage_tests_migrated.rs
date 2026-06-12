@@ -379,8 +379,7 @@ async fn test_deactivate_beacons_no_match() {
 
     let storage = create_storage(&pool);
 
-    let deactivated =
-        storage.deactivate_beacons_by_state_key("!nomatch:localhost", "@nobody:localhost").await.unwrap();
+    let deactivated = storage.deactivate_beacons_by_state_key("!nomatch:localhost", "@nobody:localhost").await.unwrap();
     assert_eq!(deactivated, 0);
 }
 
@@ -745,25 +744,21 @@ async fn test_get_joined_member_count() {
     let room_id = format!("!member_count_room_{suffix}:localhost");
     let now = chrono::Utc::now().timestamp_millis();
 
-    sqlx::query(
-        "INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)",
-    )
-    .bind(&room_id)
-    .bind(format!("@member1_{suffix}:localhost"))
-    .bind(now)
-    .execute(pool.as_ref())
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)")
+        .bind(&room_id)
+        .bind(format!("@member1_{suffix}:localhost"))
+        .bind(now)
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
-    sqlx::query(
-        "INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)",
-    )
-    .bind(&room_id)
-    .bind(format!("@member2_{suffix}:localhost"))
-    .bind(now)
-    .execute(pool.as_ref())
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO room_memberships (room_id, user_id, membership, joined_ts) VALUES ($1, $2, 'join', $3)")
+        .bind(&room_id)
+        .bind(format!("@member2_{suffix}:localhost"))
+        .bind(now)
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
     sqlx::query(
         "INSERT INTO room_memberships (room_id, user_id, membership, invited_ts) VALUES ($1, $2, 'invite', $3)",

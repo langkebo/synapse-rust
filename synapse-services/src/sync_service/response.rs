@@ -1,11 +1,11 @@
 use super::types::*;
 use super::SyncService;
-use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
 use crate::map_internal;
 use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::*;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 
 impl SyncService {
     pub(crate) async fn build_sync_response(

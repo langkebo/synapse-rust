@@ -1,5 +1,3 @@
-use synapse_storage::device::DeviceStorage;
-use synapse_storage::user::UserStorage;
 use crate::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::State,
@@ -8,6 +6,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_storage::device::DeviceStorage;
+use synapse_storage::user::UserStorage;
 use validator::Validate;
 
 pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
@@ -34,9 +34,14 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
     .await
     .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
-    DeviceStorage::create_device(&state.services.account.device_storage, &device_id, &user.user_id, Some("Guest Device"))
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
+    DeviceStorage::create_device(
+        &state.services.account.device_storage,
+        &device_id,
+        &user.user_id,
+        Some("Guest Device"),
+    )
+    .await
+    .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
     let access_token = state
         .services

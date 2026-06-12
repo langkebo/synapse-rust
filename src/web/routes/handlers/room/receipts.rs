@@ -25,7 +25,9 @@ pub(crate) async fn send_receipt(
     let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 
     state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .send_receipt(&room_id, &auth_user.user_id, &event_id, &receipt_type, &body)
         .await?;
 
@@ -50,10 +52,7 @@ pub(crate) async fn get_receipts(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
     get_room_event(&state, &room_id, &event_id).await?;
 
-    let receipts = state
-        .services.rooms.room_service
-        .get_receipts(&room_id, &receipt_type, &event_id)
-        .await?;
+    let receipts = state.services.rooms.room_service.get_receipts(&room_id, &receipt_type, &event_id).await?;
 
     Ok(Json(json!({
         "receipts": receipts
@@ -70,8 +69,13 @@ pub(crate) async fn set_read_markers(
 
     let room = state.services.rooms.room_service.get_room(&room_id).await?;
 
-    let is_member =
-        is_joined_room_member_or_creator(&state, &auth_user.user_id, &room_id, room.get("creator").and_then(|v| v.as_str())).await?;
+    let is_member = is_joined_room_member_or_creator(
+        &state,
+        &auth_user.user_id,
+        &room_id,
+        room.get("creator").and_then(|v| v.as_str()),
+    )
+    .await?;
 
     if !is_member {
         return Err(ApiError::forbidden("You are not a member of this room".to_string()));

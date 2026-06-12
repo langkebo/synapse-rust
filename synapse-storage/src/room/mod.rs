@@ -1,5 +1,5 @@
-pub(crate) mod models;
 pub mod admin;
+pub(crate) mod models;
 pub use models::*;
 
 use serde_json::json;
@@ -424,6 +424,42 @@ impl RoomStorage {
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows)
+    }
+
+    pub async fn get_user_rooms_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_room_id: Option<&str>,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if let Some(room_id) = from_room_id {
+            sqlx::query_scalar::<_, String>(
+                r"
+                SELECT room_id FROM room_memberships
+                WHERE user_id = $1 AND membership = 'join' AND room_id > $2
+                ORDER BY room_id ASC
+                LIMIT $3
+                ",
+            )
+            .bind(user_id)
+            .bind(room_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_scalar::<_, String>(
+                r"
+                SELECT room_id FROM room_memberships
+                WHERE user_id = $1 AND membership = 'join'
+                ORDER BY room_id ASC
+                LIMIT $2
+                ",
+            )
+            .bind(user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
     }
 
     pub async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {

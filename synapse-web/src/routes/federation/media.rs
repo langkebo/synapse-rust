@@ -1,10 +1,10 @@
-use synapse_common::*;
 use crate::routes::AppState;
 use axum::{
     extract::{Path, Query, State},
     response::IntoResponse,
 };
 use serde_json::Value;
+use synapse_common::*;
 
 fn validate_federation_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
     if server_name != state.services.core.server_name {

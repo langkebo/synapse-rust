@@ -5,10 +5,10 @@
 // 安全说明：此 API 默认仅允许从 localhost (127.0.0.1) 调用
 // 如需从外部调用，请修改 allow_external_access 配置
 
-use crate::common::ApiError;
 use crate::common::error::MatrixErrorCode;
-use crate::services::AdminRegisterRequest;
+use crate::common::ApiError;
 use crate::services::captcha_service::VerifyCaptchaRequest;
+use crate::services::AdminRegisterRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 use axum::{
@@ -328,7 +328,9 @@ async fn verify_additional_registration_controls(
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_code is required"))?;
 
         let verified = state
-            .services.admin.captcha_service
+            .services
+            .admin
+            .captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;

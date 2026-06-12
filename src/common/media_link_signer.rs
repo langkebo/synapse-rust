@@ -36,11 +36,8 @@ impl MediaLinkSigner {
     /// [`HmacSha256::new_from_slice`] cannot fail when using a valid key.
     #[allow(clippy::expect_used)]
     pub fn sign(&self, path: &str) -> String {
-        let expires = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .saturating_add(self.ttl_secs);
+        let expires =
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs().saturating_add(self.ttl_secs);
 
         let payload = format!("{path}:{expires}");
         let mut mac = HmacSha256::new_from_slice(&self.key).expect("HMAC key length is valid");
@@ -53,10 +50,7 @@ impl MediaLinkSigner {
     /// Verify a signed media download request.
     /// Returns `Ok(())` if the signature is valid and not expired.
     pub fn verify(&self, path: &str, signature: &str, expires: u64) -> bool {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
         if now > expires {
             return false;
@@ -154,11 +148,7 @@ mod tests {
 
         let signature = params.get("signature").unwrap();
         // Use an expired timestamp (1 hour ago)
-        let past_expires = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            .saturating_sub(3600);
+        let past_expires = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs().saturating_sub(3600);
 
         assert!(!signer.verify(path, signature, past_expires));
     }
@@ -203,10 +193,7 @@ mod tests {
     fn test_verify_empty_signature() {
         let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
         let path = "example.com/abc123";
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         assert!(!signer.verify(path, "", now));
     }
@@ -235,12 +222,8 @@ mod tests {
     fn test_sign_and_verify_different_paths() {
         let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
 
-        let paths = vec![
-            "example.com/abc123",
-            "matrix.org/xyz789",
-            "server.test/media-id",
-            "example.com/path/with/slashes",
-        ];
+        let paths =
+            vec!["example.com/abc123", "matrix.org/xyz789", "server.test/media-id", "example.com/path/with/slashes"];
 
         for path in &paths {
             let query = signer.sign(path);
@@ -268,24 +251,8 @@ mod tests {
         let query_short = signer_short.sign(path);
         let query_long = signer_long.sign(path);
 
-        let expires_short: u64 = query_short
-            .split('&')
-            .nth(1)
-            .unwrap()
-            .split('=')
-            .nth(1)
-            .unwrap()
-            .parse()
-            .unwrap();
-        let expires_long: u64 = query_long
-            .split('&')
-            .nth(1)
-            .unwrap()
-            .split('=')
-            .nth(1)
-            .unwrap()
-            .parse()
-            .unwrap();
+        let expires_short: u64 = query_short.split('&').nth(1).unwrap().split('=').nth(1).unwrap().parse().unwrap();
+        let expires_long: u64 = query_long.split('&').nth(1).unwrap().split('=').nth(1).unwrap().parse().unwrap();
 
         // The long TTL should produce a later expiry than the short one
         assert!(expires_long > expires_short);

@@ -116,17 +116,22 @@ pub enum PresenceState {
 }
 
 impl PresenceState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Online => "online",
+            Self::Offline => "offline",
+            Self::Unavailable => "unavailable",
+            Self::Busy => "busy",
+        }
+    }
+
     /// Derive `last_active_ago` and `currently_active` from the presence
     /// state and an optional absolute timestamp (ms).
     ///
     /// - `offline` → both fields `None`
     /// - `online`  → `currently_active` = true when within 5 min of `now`
     /// - others    → `currently_active` = false
-    pub fn derive_activity(
-        &self,
-        last_active_ts: Option<i64>,
-        now_ts: i64,
-    ) -> (Option<i64>, Option<bool>) {
+    pub fn derive_activity(&self, last_active_ts: Option<i64>, now_ts: i64) -> (Option<i64>, Option<bool>) {
         const CURRENTLY_ACTIVE_THRESHOLD_MS: i64 = 5 * 60 * 1000;
         match self {
             PresenceState::Offline => (None, None),

@@ -127,13 +127,7 @@ impl RoomService {
         Ok(())
     }
 
-    pub async fn ban_user(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        banned_by: &str,
-        reason: Option<&str>,
-    ) -> ApiResult<()> {
+    pub async fn ban_user(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> ApiResult<()> {
         if !self
             .room_storage
             .room_exists(room_id)

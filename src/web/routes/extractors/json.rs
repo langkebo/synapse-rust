@@ -98,10 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn matrix_json_requires_application_json_content_type() {
-        let request = Request::builder()
-            .uri("/_matrix/test")
-            .body(Body::from(r#"{"count": 1}"#))
-            .unwrap();
+        let request = Request::builder().uri("/_matrix/test").body(Body::from(r#"{"count": 1}"#)).unwrap();
 
         let error = match extract_payload(request).await {
             Ok(_) => panic!("expected missing content-type error"),

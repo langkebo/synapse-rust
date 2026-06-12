@@ -33,13 +33,9 @@ impl Config {
             config_values.security.secret.len()
         );
 
-        config_values
-            .resolve_env_variables()
-            .map_err(|e| format!("Failed to resolve environment variables: {e}"))?;
+        config_values.resolve_env_variables().map_err(|e| format!("Failed to resolve environment variables: {e}"))?;
 
-        config_values
-            .validate()
-            .map_err(|e| format!("Configuration validation failed: {e}"))?;
+        config_values.validate().map_err(|e| format!("Configuration validation failed: {e}"))?;
 
         tracing::info!("Environment variables resolved successfully");
         tracing::debug!(
@@ -65,14 +61,11 @@ impl Config {
             self.server.signing_key_path.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.macaroon_secret_key =
             self.server.macaroon_secret_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.server.form_secret =
-            self.server.form_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.server.server_name =
-            self.server.server_name.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.form_secret = self.server.form_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.server_name = self.server.server_name.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.registration_shared_secret =
             self.server.registration_shared_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.server.admin_contact =
-            self.server.admin_contact.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.server.admin_contact = self.server.admin_contact.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.user_agent_suffix =
             self.server.user_agent_suffix.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.server.web_client_location =
@@ -95,14 +88,9 @@ impl Config {
         self.federation.server_name = resolve_env_in_string(&self.federation.server_name)?;
         self.federation.signing_key =
             self.federation.signing_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.federation.key_id =
-            self.federation.key_id.take().map(|v| resolve_env_in_string(&v)).transpose()?;
-        self.federation.signing_key_master_key = self
-            .federation
-            .signing_key_master_key
-            .take()
-            .map(|v| resolve_env_in_string(&v))
-            .transpose()?;
+        self.federation.key_id = self.federation.key_id.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+        self.federation.signing_key_master_key =
+            self.federation.signing_key_master_key.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         self.federation.ca_file = self
             .federation
             .ca_file
@@ -135,13 +123,11 @@ impl Config {
         if self.oidc.enabled {
             self.oidc.issuer = resolve_env_in_string(&self.oidc.issuer)?;
             self.oidc.client_id = resolve_env_in_string(&self.oidc.client_id)?;
-            self.oidc.client_secret =
-                self.oidc.client_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+            self.oidc.client_secret = self.oidc.client_secret.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         }
 
         if self.saml.enabled {
-            self.saml.metadata_url =
-                self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
+            self.saml.metadata_url = self.saml.metadata_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
             self.saml.sp_entity_id = resolve_env_in_string(&self.saml.sp_entity_id)?;
         }
 

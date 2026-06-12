@@ -34,7 +34,9 @@ async fn ensure_room_alias_write_allowed(
     ensure_room_member(state, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
 
     let is_creator = state
-        .services.rooms.room_service
+        .services
+        .rooms
+        .room_service
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -185,7 +187,9 @@ pub(crate) async fn report_event(
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report events in this room").await?;
 
     let event = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_event(&event_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load event", &e))?;
@@ -197,7 +201,9 @@ pub(crate) async fn report_event(
     let score = body.get("score").and_then(|v| v.as_i64()).unwrap_or(-100) as i32;
 
     let report_id = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .report_event(&event.event_id, &event.room_id, "", &auth_user.user_id, reason, score)
         .await?;
 
@@ -277,7 +283,9 @@ pub(crate) async fn get_scanner_info(
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view scanner info").await?;
 
     let event = state
-        .services.rooms.event_storage
+        .services
+        .rooms
+        .event_storage
         .get_event(&event_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load event", &e))?;
@@ -302,7 +310,9 @@ pub(crate) async fn get_room_aliases(
     validate_room_id(&room_id)?;
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
@@ -330,7 +340,9 @@ pub(crate) async fn set_room_alias(
     }
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
@@ -401,7 +413,9 @@ pub(crate) async fn set_room_alias_direct(
     }
 
     if !state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_storage
         .room_exists(room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
@@ -457,14 +471,18 @@ pub(crate) async fn get_public_rooms(
     let (rooms, total) = tokio::try_join!(
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .count_public_rooms()
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
@@ -540,14 +558,18 @@ pub(crate) async fn query_public_rooms(
     let (rooms, total) = tokio::try_join!(
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
         async {
             state
-                .services.rooms.room_storage
+                .services
+                .rooms
+                .room_storage
                 .count_public_rooms()
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed", &e))

@@ -475,11 +475,7 @@ async fn download_media_signed(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params
-        .get("expires")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
@@ -501,11 +497,7 @@ async fn download_media_signed_with_filename(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::unauthorized("Missing signature parameter".to_string()))?;
 
-    let expires: u64 = params
-        .get("expires")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));

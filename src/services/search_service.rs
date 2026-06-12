@@ -283,9 +283,7 @@ impl SearchService {
     }
 
     fn postgres_pool(&self) -> ApiResult<&sqlx::Pool<Postgres>> {
-        self.postgres_pool
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))
+        self.postgres_pool.as_ref().ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))
     }
 
     /// 使用 PostgreSQL 全文搜索搜索消息
@@ -431,11 +429,11 @@ impl SearchService {
             ON events
             USING GIN (to_tsvector('english', content))
             WHERE event_type = 'm.room.message' AND stream_ordering > 0
-            "
+            ",
         )
-            .execute(pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to create FTS index", &e))?;
+        .execute(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create FTS index", &e))?;
 
         ::tracing::info!(
             provider = %"postgres",
@@ -910,10 +908,7 @@ impl SearchService {
         }
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        Ok(row.map(|row| TimestampEventMatch {
-            event_id: row.event_id,
-            origin_server_ts: row.origin_server_ts,
-        }))
+        Ok(row.map(|row| TimestampEventMatch { event_id: row.event_id, origin_server_ts: row.origin_server_ts }))
     }
 
     #[::tracing::instrument(skip_all, fields(room_id = %room_id, target_ts = target_ts, limit = limit))]

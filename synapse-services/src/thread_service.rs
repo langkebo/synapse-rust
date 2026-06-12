@@ -1,9 +1,9 @@
+use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::thread::{
     CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadReply, ThreadRoot,
     ThreadStorage, ThreadSubscription, ThreadSummary,
 };
-use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

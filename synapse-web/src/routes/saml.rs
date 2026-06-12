@@ -1,4 +1,3 @@
-use synapse_common::error::ApiError;
 use crate::routes::AppState;
 use crate::AuthenticatedUser;
 use axum::{
@@ -9,6 +8,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_common::error::ApiError;
 
 #[derive(Debug, Deserialize)]
 pub struct SamlLoginQuery {
@@ -102,7 +102,8 @@ async fn handle_saml_callback(
 
     let saml_response = saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    let auth_result = state.services.sso.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
+    let auth_result =
+        state.services.sso.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
 
     let user = state
         .services
@@ -119,7 +120,8 @@ async fn handle_saml_callback(
 
     let expires_in = 3600_i64;
 
-    let refresh_token = state.services.core.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await.ok();
+    let refresh_token =
+        state.services.core.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await.ok();
 
     Ok(Json(SamlAuthResult { user_id: auth_result.user_id, access_token, device_id, expires_in, refresh_token }))
 }
@@ -138,8 +140,12 @@ pub async fn saml_logout(
         let sessions = state.services.sso.saml_storage.get_session_by_user(&_auth_user.user_id).await?;
 
         if let Some(session) = sessions {
-            let redirect_url =
-                state.services.sso.saml_service.initiate_logout(&session.session_id, Some("User initiated logout")).await?;
+            let redirect_url = state
+                .services
+                .sso
+                .saml_service
+                .initiate_logout(&session.session_id, Some("User initiated logout"))
+                .await?;
 
             return Ok(Json(serde_json::json!({
                 "redirect_url": redirect_url

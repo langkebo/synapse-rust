@@ -1,7 +1,7 @@
 use super::storage::{ToDeviceMessage, ToDeviceStorage};
+use serde_json::Value;
 use synapse_common::ApiError;
 use synapse_storage::UserStorage;
-use serde_json::Value;
 
 const TRANSACTION_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
 

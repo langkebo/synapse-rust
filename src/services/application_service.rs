@@ -1,18 +1,15 @@
 pub use synapse_services::application_service::*;
-pub use crate::storage::application_service::{
-    ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
-    UpdateApplicationServiceRequest,
-};
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplicationServiceManager, NamespacesInfo, UpdateApplicationServiceRequest};
-    use crate::storage::application_service::{ApplicationServiceNamespace, ApplicationServiceStorage};
+    use super::{ApplicationServiceManager, NamespacesInfo};
+    use crate::storage::application_service::{ApplicationServiceNamespace, ApplicationServiceStorage, UpdateApplicationServiceRequest};
+    use crate::storage::EventStorage;
     use std::sync::Arc;
 
     #[test]
     fn root_application_service_manager_reexport_keeps_constructor_shape() {
-        let _ctor: fn(Arc<ApplicationServiceStorage>, String) -> ApplicationServiceManager =
+        let _ctor: fn(Arc<ApplicationServiceStorage>, Arc<EventStorage>, String) -> ApplicationServiceManager =
             ApplicationServiceManager::new;
     }
 

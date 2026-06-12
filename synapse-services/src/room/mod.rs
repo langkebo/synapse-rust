@@ -10,10 +10,10 @@
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
 
-pub mod create;
-pub mod create_events;
 pub mod aliases;
 pub mod burn_after_read;
+pub mod create;
+pub mod create_events;
 pub mod events;
 pub mod info;
 pub mod membership;

@@ -1,18 +1,18 @@
-pub mod models;
 pub mod groups;
+pub mod models;
 pub use models::*;
 
+use crate::RoomService;
+use serde_json::{json, Map, Value};
+use sqlx::Row;
+use std::collections::HashMap;
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use crate::RoomService;
 use synapse_storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
-use serde_json::{json, Map, Value};
-use sqlx::Row;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
@@ -201,7 +201,12 @@ impl FriendRoomService {
 
     /// 接受好友请求
     #[::tracing::instrument(skip(self), fields(request_id = %request_id))]
-    pub async fn accept_friend_request(&self, request_id: &str, user_id: &str, requester_id: &str) -> ApiResult<String> {
+    pub async fn accept_friend_request(
+        &self,
+        request_id: &str,
+        user_id: &str,
+        requester_id: &str,
+    ) -> ApiResult<String> {
         let _pending_request = self
             .friend_storage
             .get_pending_friend_request(requester_id, user_id)
@@ -1234,10 +1239,10 @@ impl FriendRoomProvider for FriendRoomService {
 
 #[cfg(test)]
 mod tests {
-    use synapse_cache::{CacheConfig, CacheManager};
     use crate::ServiceContainer;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -1268,7 +1273,8 @@ mod tests {
 
     async fn register_test_user(container: &ServiceContainer, username: &str, display_name: &str) -> String {
         let (user, _, _, _) = container
-            .core.auth_service
+            .core
+            .auth_service
             .register(username, "Test@123", false, Some(display_name))
             .await
             .expect("register test user");
@@ -1277,12 +1283,14 @@ mod tests {
 
     async fn establish_friendship(container: &ServiceContainer, alice_user_id: &str, bob_user_id: &str) {
         container
-            .extensions.friend_room_service
+            .extensions
+            .friend_room_service
             .send_friend_request("test-request-id", alice_user_id, bob_user_id, Some("hello"))
             .await
             .expect("send friend request");
         container
-            .extensions.friend_room_service
+            .extensions
+            .friend_room_service
             .accept_friend_request("test-request-id", bob_user_id, alice_user_id)
             .await
             .expect("accept friend request");
@@ -1314,7 +1322,8 @@ mod tests {
         establish_friendship(&container, &alice_user_id, &bob_user_id).await;
 
         let room_id = container
-            .extensions.friend_room_service
+            .extensions
+            .friend_room_service
             .get_existing_dm_room_id(&alice_user_id, &bob_user_id)
             .await
             .expect("query existing dm room");
@@ -1336,14 +1345,16 @@ mod tests {
         establish_friendship(&container, &alice_user_id, &bob_user_id).await;
 
         let room_id = container
-            .extensions.friend_room_service
+            .extensions
+            .friend_room_service
             .get_existing_dm_room_id(&alice_user_id, &bob_user_id)
             .await
             .expect("query existing dm room")
             .expect("existing dm room id");
 
         let partner = container
-            .extensions.friend_room_service
+            .extensions
+            .friend_room_service
             .get_dm_partner_for_room(&alice_user_id, &room_id)
             .await
             .expect("query dm partner")

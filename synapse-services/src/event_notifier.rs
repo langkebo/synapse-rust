@@ -96,10 +96,8 @@ impl EventNotifier {
             return;
         }
 
-        let notifiers: Vec<Arc<Notify>> = room_ids
-            .iter()
-            .map(|room_id| self.get_or_create_room_notify(room_id))
-            .collect();
+        let notifiers: Vec<Arc<Notify>> =
+            room_ids.iter().map(|room_id| self.get_or_create_room_notify(room_id)).collect();
 
         let futures: Vec<_> = notifiers.iter().map(|n| Box::pin(n.notified())).collect();
 
@@ -170,19 +168,11 @@ impl EventNotifier {
     }
 
     fn get_or_create_room_notify(&self, room_id: &str) -> Arc<Notify> {
-        self.room_notifiers
-            .entry(room_id.to_string())
-            .or_insert_with(|| Arc::new(Notify::new()))
-            .value()
-            .clone()
+        self.room_notifiers.entry(room_id.to_string()).or_insert_with(|| Arc::new(Notify::new())).value().clone()
     }
 
     fn get_or_create_user_notify(&self, user_id: &str) -> Arc<Notify> {
-        self.user_notifiers
-            .entry(user_id.to_string())
-            .or_insert_with(|| Arc::new(Notify::new()))
-            .value()
-            .clone()
+        self.user_notifiers.entry(user_id.to_string()).or_insert_with(|| Arc::new(Notify::new())).value().clone()
     }
 
     fn publish_redis(&self, kind: EventNotifyKind, key: &str) {
@@ -190,7 +180,8 @@ impl EventNotifier {
             return;
         };
 
-        let msg = EventNotifyMessage { kind: kind.clone(), key: key.to_string(), sender_instance: self.instance_id.clone() };
+        let msg =
+            EventNotifyMessage { kind: kind.clone(), key: key.to_string(), sender_instance: self.instance_id.clone() };
 
         let encoded = match serde_json::to_vec(&msg) {
             Ok(v) => v,
@@ -315,9 +306,7 @@ mod tests {
         let notifier_clone = notifier.clone();
         let room_id_clone = room_id.clone();
         let handle = tokio::spawn(async move {
-            notifier_clone
-                .wait_for_room(&[room_id_clone], tokio::time::Duration::from_secs(5))
-                .await;
+            notifier_clone.wait_for_room(&[room_id_clone], tokio::time::Duration::from_secs(5)).await;
         });
 
         // Give the waiter time to register
@@ -336,9 +325,7 @@ mod tests {
         let notifier_clone = notifier.clone();
         let user_id_clone = user_id.clone();
         let handle = tokio::spawn(async move {
-            notifier_clone
-                .wait_for_user(&user_id_clone, tokio::time::Duration::from_secs(5))
-                .await;
+            notifier_clone.wait_for_user(&user_id_clone, tokio::time::Duration::from_secs(5)).await;
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -354,9 +341,7 @@ mod tests {
         let room_id = "!timeout:example.com".to_string();
 
         let start = tokio::time::Instant::now();
-        notifier
-            .wait_for_room(&[room_id], tokio::time::Duration::from_millis(50))
-            .await;
+        notifier.wait_for_room(&[room_id], tokio::time::Duration::from_millis(50)).await;
         let elapsed = start.elapsed();
 
         assert!(elapsed >= tokio::time::Duration::from_millis(40));

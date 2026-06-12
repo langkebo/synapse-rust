@@ -474,7 +474,8 @@ async fn search_friend_directory(
 
     let target_user_ids: Vec<String> =
         results.iter().filter(|r| r.user_id != auth_user.user_id).map(|r| r.user_id.clone()).collect();
-    let visibility: std::collections::HashMap<String, bool> = can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
+    let visibility: std::collections::HashMap<String, bool> =
+        can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
 
     let mut visible = Vec::new();
     for result in results.drain(..) {
@@ -485,8 +486,8 @@ async fn search_friend_directory(
             continue;
         }
         let presence_str = result.presence.unwrap_or_else(|| "offline".to_string());
-        let presence_state = crate::common::PresenceState::from_str_opt(&presence_str)
-            .unwrap_or(crate::common::PresenceState::Offline);
+        let presence_state =
+            crate::common::PresenceState::from_str_opt(&presence_str).unwrap_or(crate::common::PresenceState::Offline);
         let online = presence_state == crate::common::PresenceState::Online;
 
         visible.push(json!({
@@ -571,11 +572,7 @@ async fn reject_friend_request(
     validate_user_id(&requester_id)?;
 
     let request_id = resolve_request_id(&headers);
-    state
-        .services
-        .friend_room_service
-        .reject_friend_request(&request_id, &auth_user.user_id, &requester_id)
-        .await?;
+    state.services.friend_room_service.reject_friend_request(&request_id, &auth_user.user_id, &requester_id).await?;
 
     Ok(Json(json!({ "status": "rejected" })))
 }
@@ -589,11 +586,7 @@ async fn cancel_friend_request(
     validate_user_id(&target_id)?;
 
     let request_id = resolve_request_id(&headers);
-    state
-        .services
-        .friend_room_service
-        .cancel_friend_request(&request_id, &auth_user.user_id, &target_id)
-        .await?;
+    state.services.friend_room_service.cancel_friend_request(&request_id, &auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({ "status": "cancelled" })))
 }
@@ -612,7 +605,8 @@ async fn get_outgoing_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let requests: Vec<serde_json::Value> = state.services.friend_room_service.get_outgoing_requests(&auth_user.user_id).await?;
+    let requests: Vec<serde_json::Value> =
+        state.services.friend_room_service.get_outgoing_requests(&auth_user.user_id).await?;
 
     Ok(Json(json!({ "requests": requests })))
 }
@@ -683,11 +677,8 @@ async fn get_friend_info(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    let info: Option<serde_json::Value> = state
-        .services
-        .friend_room_service
-        .get_friend_info(&auth_user.user_id, &friend_id)
-        .await?;
+    let info: Option<serde_json::Value> =
+        state.services.friend_room_service.get_friend_info(&auth_user.user_id, &friend_id).await?;
     let info: serde_json::Value = info.ok_or_else(|| ApiError::not_found(format!("Friend {friend_id} not found")))?;
 
     Ok(Json(info))
@@ -722,7 +713,8 @@ async fn get_received_requests(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<axum::response::Response, ApiError> {
-    let requests: Vec<serde_json::Value> = state.services.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
+    let requests: Vec<serde_json::Value> =
+        state.services.friend_room_service.get_incoming_requests(&auth_user.user_id).await?;
 
     let body: Json<Value> = Json(json!({ "requests": requests }));
     let mut response: axum::response::Response = body.into_response();
@@ -750,7 +742,8 @@ async fn get_friend_status(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&friend_id)?;
 
-    let status: serde_json::Value = state.services.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
+    let status: serde_json::Value =
+        state.services.friend_room_service.get_friend_status(&auth_user.user_id, &friend_id).await?;
 
     Ok(Json(status))
 }
@@ -762,8 +755,7 @@ async fn check_friendship(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&target_id)?;
 
-    let is_friend: bool =
-        state.services.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
+    let is_friend: bool = state.services.friend_room_service.check_friendship(&auth_user.user_id, &target_id).await?;
 
     Ok(Json(json!({
         "user_id": target_id,
@@ -806,7 +798,8 @@ async fn get_friend_groups(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let groups: Vec<serde_json::Value> = state.services.friend_room_service.get_friend_groups(&auth_user.user_id).await?;
+    let groups: Vec<serde_json::Value> =
+        state.services.friend_room_service.get_friend_groups(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -822,7 +815,8 @@ async fn create_friend_group(
         return Err(ApiError::bad_request("Group name must be between 1 and 50 characters".to_string()));
     }
 
-    let group: serde_json::Value = state.services.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
+    let group: serde_json::Value =
+        state.services.friend_room_service.create_friend_group(&auth_user.user_id, &body.name).await?;
 
     Ok(Json(group))
 }
@@ -897,7 +891,8 @@ async fn get_friends_in_group(
     auth_user: AuthenticatedUser,
     Path(group_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let friends: Vec<serde_json::Value> = state.services.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
+    let friends: Vec<serde_json::Value> =
+        state.services.friend_room_service.get_friends_in_group(&auth_user.user_id, &group_id).await?;
 
     Ok(Json(json!({
         "friends": friends
@@ -911,7 +906,8 @@ async fn get_groups_for_user(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let groups: Vec<serde_json::Value> = state.services.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
+    let groups: Vec<serde_json::Value> =
+        state.services.friend_room_service.get_groups_for_user(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "groups": groups
@@ -924,7 +920,8 @@ async fn get_friend_dm(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let room_id: Option<String> = state.services.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
+    let room_id: Option<String> =
+        state.services.friend_room_service.get_existing_dm_room_id(&auth_user.user_id, &user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,

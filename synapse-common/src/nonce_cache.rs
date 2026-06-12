@@ -62,7 +62,12 @@ impl FederationNonceCache {
     /// (a replay). The function is idempotent w.r.t. concurrent
     /// callers: each `(origin, nonce)` pair transitions to "seen" at
     /// most once.
-    pub async fn check_and_record(&self, origin: &str, nonce: &str, origin_server_ts_ms: i64) -> Result<bool, ApiError> {
+    pub async fn check_and_record(
+        &self,
+        origin: &str,
+        nonce: &str,
+        origin_server_ts_ms: i64,
+    ) -> Result<bool, ApiError> {
         let key = build_nonce_key(origin, nonce, origin_server_ts_ms);
 
         if self.inner.get(&key).await.is_some() {

@@ -1,4 +1,3 @@
-use tracing::instrument;
 use crate::common::ApiError;
 use crate::services::registration_token_service::RegistrationTokenService;
 use crate::storage::refresh_token::RefreshTokenStorage;
@@ -8,6 +7,7 @@ use crate::storage::registration_token::{
 use crate::storage::token::AccessTokenStorage;
 use sqlx::PgPool;
 use std::sync::Arc;
+use tracing::instrument;
 
 #[derive(Debug, Clone)]
 pub struct AdminAccessTokenInfo {
@@ -101,12 +101,7 @@ impl AdminTokenService {
         self.registration_token_service
             .update_token(
                 existing.id,
-                UpdateRegistrationTokenRequest {
-                    description: None,
-                    max_uses,
-                    is_enabled: None,
-                    expires_at,
-                },
+                UpdateRegistrationTokenRequest { description: None, max_uses, is_enabled: None, expires_at },
             )
             .await
     }
@@ -133,14 +128,10 @@ impl AdminTokenService {
 
     #[instrument(skip(self))]
     pub async fn delete_user_access_token(&self, user_id: &str, token_id: i64) -> Result<(), ApiError> {
-        let result = sqlx::query!(
-            "DELETE FROM access_tokens WHERE id = $1 AND user_id = $2",
-            token_id,
-            user_id,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let result = sqlx::query!("DELETE FROM access_tokens WHERE id = $1 AND user_id = $2", token_id, user_id,)
+            .execute(&*self.pool)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         if result.rows_affected() == 0 {
             return Err(ApiError::not_found("Token not found".to_string()));

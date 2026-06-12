@@ -19,8 +19,6 @@
 //!
 //! 两者不应同时启用。启动时会检测冲突并发出警告。
 
-use synapse_common::error::ApiError;
-use synapse_common::{BuiltinOidcConfig, BuiltinOidcUser};
 use argon2::{password_hash::PasswordHash, Argon2, PasswordVerifier};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -34,6 +32,8 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use synapse_common::error::ApiError;
+use synapse_common::{BuiltinOidcConfig, BuiltinOidcUser};
 
 use tracing::{info, warn};
 use uuid::Uuid;

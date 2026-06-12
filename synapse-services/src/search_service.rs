@@ -1,9 +1,9 @@
-use synapse_common::*;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Postgres, Row};
+use synapse_common::*;
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {

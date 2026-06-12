@@ -2261,14 +2261,7 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
         app.oneshot(signed_request("PUT", uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let presence = state
-        .services
-        .account
-        .presence_storage
-        .get_presence(&user_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let presence = state.services.account.presence_storage.get_presence(&user_id).await.unwrap().unwrap();
     assert_eq!(presence.0, "online");
     assert_eq!(presence.1.as_deref(), Some("ready"));
 

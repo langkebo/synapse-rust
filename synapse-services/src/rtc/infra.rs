@@ -1,12 +1,12 @@
 use super::metrics::RtcMetrics;
-use synapse_common::config::VoipConfig;
-use synapse_common::error::ApiError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_common::config::VoipConfig;
+use synapse_common::error::ApiError;
 
 type HmacSha1 = Hmac<Sha1>;
 

@@ -126,11 +126,8 @@ pub struct PushAction {
 
 async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     // P2 #32: 只返回当前设备的 pusher，防止跨设备查看
-    let pushers_list: Vec<serde_json::Value> = state
-        .services
-        .client_push_service
-        .get_pushers(&auth_user.user_id, auth_user.device_id.as_deref())
-        .await?;
+    let pushers_list: Vec<serde_json::Value> =
+        state.services.client_push_service.get_pushers(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({
         "pushers": pushers_list
@@ -148,7 +145,8 @@ async fn set_pusher(
         .clone()
         .ok_or_else(|| ApiError::forbidden("Device ID required for pusher operations".to_string()))?;
 
-    let kind: String = body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
+    let kind: String =
+        body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     if kind != "null" {
         let created_ts: i64 = state
@@ -188,7 +186,8 @@ async fn set_pusher(
 async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
-    let row: Option<serde_json::Value> = state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+    let row: Option<serde_json::Value> =
+        state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
@@ -209,7 +208,8 @@ async fn get_push_rules_scope(
     if scope == "global" {
         let username: &str = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
-        let result: Option<serde_json::Value> = state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+        let result: Option<serde_json::Value> =
+            state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
         if let Some(content) = result {
             if let Some(global) = content.get("global") {
@@ -217,7 +217,8 @@ async fn get_push_rules_scope(
             }
         }
 
-        let defaults: serde_json::Value = crate::web::routes::push_rules::default_push_rules_for_user(&auth_user.user_id, username);
+        let defaults: serde_json::Value =
+            crate::web::routes::push_rules::default_push_rules_for_user(&auth_user.user_id, username);
         if let Some(global) = defaults.get("global") {
             Ok(Json(global.clone()))
         } else {
@@ -239,7 +240,8 @@ async fn get_push_rules_kind(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let rules: Vec<serde_json::Value> = state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+    let rules: Vec<serde_json::Value> =
+        state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
     Ok(Json(json!({
         kind: rules
     })))
@@ -250,9 +252,11 @@ async fn get_push_rule(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let rules: Vec<serde_json::Value> = state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+    let rules: Vec<serde_json::Value> =
+        state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
 
-    let rule: Option<&serde_json::Value> = rules.iter().find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
+    let rule: Option<&serde_json::Value> =
+        rules.iter().find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
 
     match rule {
         Some(r) => Ok(Json(r.clone())),
@@ -345,7 +349,8 @@ async fn set_push_rule_actions(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let actions: serde_json::Value = if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
+    let actions: serde_json::Value =
+        if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
 
     state
         .services
@@ -404,7 +409,8 @@ async fn get_notifications(
 ) -> Result<Json<Value>, ApiError> {
     let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
 
-    let notifications_list: Vec<serde_json::Value> = state.services.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
+    let notifications_list: Vec<serde_json::Value> =
+        state.services.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
 
     Ok(Json(json!({
         "notifications": notifications_list,
@@ -417,7 +423,8 @@ async fn ack_notification(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let success: bool = state.services.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
+    let success: bool =
+        state.services.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
 
     if success {
         Ok(Json(json!({
@@ -432,7 +439,6 @@ async fn ack_notification(
 
 // Remove the helper get_user_push_rules as it's now in the service
 // (or I can keep it if it's still needed, but I've already replaced calls to it)
-
 
 #[cfg(test)]
 mod tests {

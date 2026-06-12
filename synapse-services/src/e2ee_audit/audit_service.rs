@@ -1,7 +1,7 @@
-use synapse_common::ApiError;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
+use synapse_common::ApiError;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

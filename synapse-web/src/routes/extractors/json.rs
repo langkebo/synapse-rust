@@ -1,5 +1,5 @@
-use synapse_common::ApiError;
 use axum::extract::rejection::JsonRejection;
+use synapse_common::ApiError;
 
 pub struct MatrixJson<T>(pub T);
 
@@ -31,7 +31,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::MatrixJson;
-    use synapse_common::ApiError;
     use axum::{
         body::Body,
         extract::FromRequest,
@@ -39,6 +38,7 @@ mod tests {
     };
     use futures::stream;
     use serde::Deserialize;
+    use synapse_common::ApiError;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct SamplePayload {
@@ -98,10 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn matrix_json_requires_application_json_content_type() {
-        let request = Request::builder()
-            .uri("/_matrix/test")
-            .body(Body::from(r#"{"count": 1}"#))
-            .unwrap();
+        let request = Request::builder().uri("/_matrix/test").body(Body::from(r#"{"count": 1}"#)).unwrap();
 
         let error = match extract_payload(request).await {
             Ok(_) => panic!("expected missing content-type error"),

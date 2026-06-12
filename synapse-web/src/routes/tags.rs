@@ -6,10 +6,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
-use synapse_common::ApiError;
 use crate::routes::response_helpers::empty_json;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
+use synapse_common::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomTag {

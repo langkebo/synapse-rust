@@ -298,9 +298,17 @@ impl ChunkedUploadService {
             return Err(ApiError::forbidden("Upload does not belong to user"));
         }
 
-        sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
+        if let Err(e) =
+            sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await
+        {
+            tracing::warn!(%e, upload_id, "Failed to delete upload chunks during cancel");
+        }
 
-        sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
+        if let Err(e) =
+            sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await
+        {
+            tracing::warn!(%e, upload_id, "Failed to delete upload progress during cancel");
+        }
 
         info!(upload_id = %upload_id, user_id = %user_id, "Cancelled chunked upload");
         Ok(())
@@ -317,9 +325,17 @@ impl ChunkedUploadService {
 
         let mut cleaned = 0u64;
         for upload_id in expired {
-            sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
+            if let Err(e) =
+                sqlx::query!("DELETE FROM upload_chunks WHERE upload_id = $1", upload_id).execute(&*self.pool).await
+            {
+                tracing::warn!(%e, upload_id, "Failed to delete expired upload chunks");
+            }
 
-            sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await.ok();
+            if let Err(e) =
+                sqlx::query!("DELETE FROM upload_progress WHERE upload_id = $1", upload_id).execute(&*self.pool).await
+            {
+                tracing::warn!(%e, upload_id, "Failed to delete expired upload progress");
+            }
 
             cleaned += 1;
         }

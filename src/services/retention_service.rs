@@ -5,7 +5,6 @@ use crate::common::ApiError;
 use crate::services::beacon_service::BeaconService;
 use crate::services::media::chunked_upload::ChunkedUploadService;
 use crate::storage::audit::AuditEventStorage;
-pub use crate::storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 use crate::storage::retention::*;
 use sqlx::PgPool;
 use std::sync::Arc;

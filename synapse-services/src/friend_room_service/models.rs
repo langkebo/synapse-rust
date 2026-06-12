@@ -1,10 +1,10 @@
-use synapse_cache::CacheManager;
-use synapse_federation::friend::FriendFederationClient;
 use crate::RoomService;
-use synapse_storage::{EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
+use synapse_cache::CacheManager;
+use synapse_federation::friend::FriendFederationClient;
+use synapse_storage::{EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
@@ -107,7 +107,10 @@ pub(crate) fn remove_room_from_direct_map(direct_map: &mut Map<String, Value>, r
     });
 }
 
-pub(crate) fn merge_direct_links(direct_map: &mut Map<String, Value>, links: impl IntoIterator<Item = (String, String)>) {
+pub(crate) fn merge_direct_links(
+    direct_map: &mut Map<String, Value>,
+    links: impl IntoIterator<Item = (String, String)>,
+) {
     for (user_id, room_id) in links {
         ensure_room_in_direct_map(direct_map, &user_id, &room_id);
     }

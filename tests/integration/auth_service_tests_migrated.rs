@@ -8,8 +8,8 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::crypto::is_legacy_hash;
-use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::common::error::MatrixErrorCode;
+use synapse_rust::common::metrics::MetricsCollector;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -126,13 +126,11 @@ async fn test_password_migration_on_login() {
     let result = auth.login(&username, password, None, None).await;
     assert!(result.is_ok(), "Login should succeed with legacy hash");
 
-    let updated_user = sqlx::query_as::<_, (Option<String>,)>(
-        "SELECT password_hash FROM users WHERE user_id = $1"
-    )
-    .bind(&user_id)
-    .fetch_one(&*pool)
-    .await
-    .expect("Failed to fetch user");
+    let updated_user = sqlx::query_as::<_, (Option<String>,)>("SELECT password_hash FROM users WHERE user_id = $1")
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("Failed to fetch user");
 
     let new_hash = updated_user.0.expect("Password hash should exist");
     assert!(!is_legacy_hash(&new_hash), "Password should be migrated to Argon2");
@@ -228,8 +226,7 @@ async fn test_no_migration_for_argon2_hash() {
     let password = "Argon2_password123";
     let user_id = format!("@{username}:localhost");
 
-    let (user, _, _, _) =
-        auth.register(&username, password, false, None).await.expect("Registration should succeed");
+    let (user, _, _, _) = auth.register(&username, password, false, None).await.expect("Registration should succeed");
 
     let initial_hash = user.password_hash.clone().expect("Password hash should exist");
     assert!(!is_legacy_hash(&initial_hash), "New user should have Argon2 hash");

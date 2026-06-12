@@ -209,7 +209,12 @@ impl PushProvider for WebPushProvider {
 
         match self.send_to_endpoint(&subscription, &encrypted).await {
             Ok(_) => {
-                debug!(title_present = !payload.title.is_empty(), room_id = payload.room_id, event_id = payload.event_id, "WebPush successful");
+                debug!(
+                    title_present = !payload.title.is_empty(),
+                    room_id = payload.room_id,
+                    event_id = payload.event_id,
+                    "WebPush successful"
+                );
                 PushResult::success()
             }
             Err(e) => {

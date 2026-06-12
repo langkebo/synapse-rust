@@ -1,8 +1,4 @@
 #[cfg(feature = "server-notifications")]
-use synapse_common::ApiError;
-#[cfg(feature = "server-notifications")]
-use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
-#[cfg(feature = "server-notifications")]
 use crate::routes::AdminUser;
 use crate::routes::AppState;
 #[cfg(feature = "server-notifications")]
@@ -19,6 +15,10 @@ use axum::{
 use serde::Deserialize;
 #[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
+#[cfg(feature = "server-notifications")]
+use synapse_common::ApiError;
+#[cfg(feature = "server-notifications")]
+use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 
 #[cfg(feature = "server-notifications")]
 fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {
@@ -289,8 +289,12 @@ pub async fn update_notification(
         created_by: existing.created_by,
     };
 
-    let notification =
-        state.services.extensions.server_notification_storage.update_notification(notification_id, update_request).await?;
+    let notification = state
+        .services
+        .extensions
+        .server_notification_storage
+        .update_notification(notification_id, update_request)
+        .await?;
 
     Ok(Json(json!(notification)))
 }
@@ -318,7 +322,8 @@ pub async fn deactivate_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deactivated = state.services.extensions.server_notification_storage.deactivate_notification(notification_id).await?;
+    let deactivated =
+        state.services.extensions.server_notification_storage.deactivate_notification(notification_id).await?;
 
     if !deactivated {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -430,7 +435,8 @@ pub async fn delete_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice_info = state.services.extensions.server_notification_storage.get_server_notice_with_room(notice_id).await?;
+    let notice_info =
+        state.services.extensions.server_notification_storage.get_server_notice_with_room(notice_id).await?;
 
     let Some((event_id, room_id)) = notice_info else {
         return Err(ApiError::not_found("Server notice not found".to_string()));
@@ -474,7 +480,12 @@ pub async fn update_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.extensions.server_notification_storage.upsert_user_notification_setting(&user_id, body.is_enabled).await?;
+    state
+        .services
+        .extensions
+        .server_notification_storage
+        .upsert_user_notification_setting(&user_id, body.is_enabled)
+        .await?;
 
     Ok(Json(json!({ "is_enabled": body.is_enabled })))
 }

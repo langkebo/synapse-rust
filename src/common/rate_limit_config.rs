@@ -580,10 +580,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_reload() {
-        let config = RateLimitConfigFile {
-            default: RateLimitRule { per_second: 10, burst_size: 20 },
-            ..Default::default()
-        };
+        let config =
+            RateLimitConfigFile { default: RateLimitRule { per_second: 10, burst_size: 20 }, ..Default::default() };
 
         let (path, _temp) = temp_config_path();
         config.save(&path).await.unwrap();
@@ -591,10 +589,8 @@ mod tests {
         let manager = RateLimitConfigManager::from_file(&path).await.unwrap();
 
         // Modify the file on disk
-        let updated = RateLimitConfigFile {
-            default: RateLimitRule { per_second: 99, burst_size: 199 },
-            ..Default::default()
-        };
+        let updated =
+            RateLimitConfigFile { default: RateLimitRule { per_second: 99, burst_size: 199 }, ..Default::default() };
         updated.save(&path).await.unwrap();
 
         manager.reload().await.unwrap();

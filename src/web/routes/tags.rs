@@ -57,7 +57,8 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<crate::storage::room_tag::RoomTag> = state.services.room_tag_service.get_all_user_tags(&user_id).await?;
+    let tags: Vec<crate::storage::room_tag::RoomTag> =
+        state.services.room_tag_service.get_all_user_tags(&user_id).await?;
 
     let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for tag in tags {
@@ -88,7 +89,8 @@ async fn get_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<crate::storage::room_tag::RoomTag> = state.services.room_tag_service.get_room_tags(&user_id, &room_id).await?;
+    let tags: Vec<crate::storage::room_tag::RoomTag> =
+        state.services.room_tag_service.get_room_tags(&user_id, &room_id).await?;
 
     let tags_map: serde_json::Map<String, serde_json::Value> = tags
         .into_iter()
@@ -113,11 +115,7 @@ async fn put_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    state
-        .services
-        .room_tag_service
-        .put_room_tag(&user_id, &room_id, &tag, content.order)
-        .await?;
+    state.services.room_tag_service.put_room_tag(&user_id, &room_id, &tag, content.order).await?;
 
     Ok(empty_json())
 }

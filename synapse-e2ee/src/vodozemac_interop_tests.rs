@@ -31,7 +31,9 @@
 // disambiguate the vodozemac types with module-scoped `as` aliases
 // to keep the test bodies readable and free of `crate::*`
 // references that could accidentally pull in project code.
-use vodozemac::megolm::{GroupSession as MegolmSender, InboundGroupSession as MegolmReceiver, SessionKey as MegolmSessionKey};
+use vodozemac::megolm::{
+    GroupSession as MegolmSender, InboundGroupSession as MegolmReceiver, SessionKey as MegolmSessionKey,
+};
 use vodozemac::olm::Account as OlmAccount;
 
 fn interop_enabled() -> bool {
@@ -151,9 +153,7 @@ fn olm_session_roundtrip() {
     };
 
     let alice_identity = alice.identity_keys().curve25519;
-    let inbound = bob
-        .create_inbound_session(alice_identity, &pre_key)
-        .expect("bob creates session from inbound");
+    let inbound = bob.create_inbound_session(alice_identity, &pre_key).expect("bob creates session from inbound");
     assert_eq!(inbound.plaintext, plaintext, "pre-key message plaintext matches");
     let mut bob_session = inbound.session;
 
@@ -310,8 +310,8 @@ fn megolm_ciphertext_wire_roundtrip() {
 
     let ciphertext_bytes = sender.encrypt(b"wire bytes").to_bytes();
     // Re-parse the bytes the way a real receiver would.
-    let parsed = vodozemac::megolm::MegolmMessage::from_bytes(&ciphertext_bytes)
-        .expect("MegolmMessage parses from bytes");
+    let parsed =
+        vodozemac::megolm::MegolmMessage::from_bytes(&ciphertext_bytes).expect("MegolmMessage parses from bytes");
     let decrypted = receiver.decrypt(&parsed).expect("decrypts after wire roundtrip");
     assert_eq!(decrypted.plaintext, b"wire bytes");
 }
@@ -339,9 +339,8 @@ fn megolm_session_shared_with_multiple_receivers() {
     let session_key = sender.session_key();
 
     // Three independent receivers, each with their own inbound session.
-    let mut receivers: Vec<MegolmReceiver> = (0..3)
-        .map(|_| MegolmReceiver::new(&session_key, SessionConfig::default()))
-        .collect();
+    let mut receivers: Vec<MegolmReceiver> =
+        (0..3).map(|_| MegolmReceiver::new(&session_key, SessionConfig::default())).collect();
 
     // Encrypt 5 messages; all three receivers must decrypt every one,
     // and every receiver must see the same message_index for the
@@ -465,7 +464,8 @@ fn pickle_vodozemac_group_session_roundtrip() {
     let pickle = sender.pickle();
     let json = serde_json::to_vec(&pickle).expect("serialise GroupSessionPickle");
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &json);
-    let restored_json = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).expect("base64 decode");
+    let restored_json =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).expect("base64 decode");
     let restored_pickle: vodozemac::megolm::GroupSessionPickle =
         serde_json::from_slice(&restored_json).expect("GroupSessionPickle parses");
     let _restored = MegolmSender::from_pickle(restored_pickle);
@@ -488,7 +488,8 @@ fn pickle_vodozemac_inbound_session_roundtrip() {
     let pickle = receiver.pickle();
     let json = serde_json::to_vec(&pickle).expect("serialise InboundGroupSessionPickle");
     let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &json);
-    let restored_json = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).expect("base64 decode");
+    let restored_json =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).expect("base64 decode");
     let restored_pickle: vodozemac::megolm::InboundGroupSessionPickle =
         serde_json::from_slice(&restored_json).expect("InboundGroupSessionPickle parses");
     let _restored = MegolmReceiver::from_pickle(restored_pickle);
@@ -532,8 +533,7 @@ fn pickle_dual_format_vodozemac_pickle_parses() {
     let pickle = sender.pickle();
     let json = serde_json::to_vec(&pickle).expect("serialise");
     // In a Dual row, this is what `MegolmSession::vodozemac_pickle` holds.
-    let stored_vodozemac_pickle =
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &json);
+    let stored_vodozemac_pickle = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &json);
 
     // The legacy `session_key` column is opaque bytes from the
     // vodozemac path's perspective: trying to base64+JSON parse it as
@@ -628,9 +628,7 @@ fn room_key_payload_is_well_formed() {
     // into a SessionKey. This is the field that crosses the wire and
     // is most likely to be subtly wrong (URL-safe vs standard padding,
     // leading whitespace, etc.).
-    let session_key_b64 = content["session_key"]
-        .as_str()
-        .expect("session_key is a string");
+    let session_key_b64 = content["session_key"].as_str().expect("session_key is a string");
     assert!(!session_key_b64.is_empty());
     let parsed = MegolmSessionKey::from_base64(session_key_b64).expect("vodozemac parses session_key");
     // The decoded SessionKey must produce the same session: re-import

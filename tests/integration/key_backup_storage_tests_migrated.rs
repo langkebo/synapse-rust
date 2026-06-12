@@ -54,48 +54,48 @@ async fn setup_test_database() -> Arc<sqlx::PgPool> {
 
 #[tokio::test]
 async fn test_key_backup_lifecycle() {
-        let pool = setup_test_database().await;
-        let storage = KeyBackupStorage::new(&pool);
-        let key_storage = BackupKeyStorage::new(&pool);
+    let pool = setup_test_database().await;
+    let storage = KeyBackupStorage::new(&pool);
+    let key_storage = BackupKeyStorage::new(&pool);
 
-        let user_id = "@alice:localhost";
-        let backup = KeyBackup {
-            user_id: user_id.to_string(),
-            backup_id: "backup_1".to_string(),
-            version: 1,
-            algorithm: "m.megolm_backup.v1.curve25519-aes-sha2".to_string(),
-            auth_key: "auth_key".to_string(),
-            mgmt_key: "mgmt_key".to_string(),
-            backup_data: json!({"public_key": "pubkey"}),
-            etag: Some("etag1".to_string()),
-        };
+    let user_id = "@alice:localhost";
+    let backup = KeyBackup {
+        user_id: user_id.to_string(),
+        backup_id: "backup_1".to_string(),
+        version: 1,
+        algorithm: "m.megolm_backup.v1.curve25519-aes-sha2".to_string(),
+        auth_key: "auth_key".to_string(),
+        mgmt_key: "mgmt_key".to_string(),
+        backup_data: json!({"public_key": "pubkey"}),
+        etag: Some("etag1".to_string()),
+    };
 
-        // Create backup
-        storage.create_backup(&backup).await.unwrap();
+    // Create backup
+    storage.create_backup(&backup).await.unwrap();
 
-        // Get backup
-        let fetched = storage.get_backup(user_id).await.unwrap().unwrap();
-        assert_eq!(fetched.backup_id, "backup_1");
-        assert_eq!(fetched.version, 1);
+    // Get backup
+    let fetched = storage.get_backup(user_id).await.unwrap().unwrap();
+    assert_eq!(fetched.backup_id, "backup_1");
+    assert_eq!(fetched.version, 1);
 
-        // Upload key
-        let key_params = BackupKeyInsertParams {
-            user_id: user_id.to_string(),
-            backup_id: "backup_1".to_string(),
-            room_id: "!room:localhost".to_string(),
-            session_id: "session1".to_string(),
-            first_message_index: 0,
-            forwarded_count: 0,
-            is_verified: true,
-            backup_data: json!({"key": "data"}),
-        };
-        key_storage.upload_backup_key(key_params).await.unwrap();
+    // Upload key
+    let key_params = BackupKeyInsertParams {
+        user_id: user_id.to_string(),
+        backup_id: "backup_1".to_string(),
+        room_id: "!room:localhost".to_string(),
+        session_id: "session1".to_string(),
+        first_message_index: 0,
+        forwarded_count: 0,
+        is_verified: true,
+        backup_data: json!({"key": "data"}),
+    };
+    key_storage.upload_backup_key(key_params).await.unwrap();
 
-        // Get room keys
-        let keys = key_storage.get_room_backup_keys(user_id, "!room:localhost").await.unwrap();
-        assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].session_id, "session1");
-        assert_eq!(keys[0].first_message_index, 0);
-        assert!(keys[0].is_verified);
-        assert_eq!(keys[0].session_data, json!({"key": "data"}));
+    // Get room keys
+    let keys = key_storage.get_room_backup_keys(user_id, "!room:localhost").await.unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].session_id, "session1");
+    assert_eq!(keys[0].first_message_index, 0);
+    assert!(keys[0].is_verified);
+    assert_eq!(keys[0].session_data, json!({"key": "data"}));
 }

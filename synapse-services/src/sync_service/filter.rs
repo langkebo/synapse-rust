@@ -1,9 +1,9 @@
 use super::types::*;
 use super::SyncService;
-use synapse_common::*;
 use crate::*;
-use synapse_storage::EventQueryFilter;
 use serde_json::{Map, Value};
+use synapse_common::*;
+use synapse_storage::EventQueryFilter;
 
 impl SyncService {
     pub(crate) async fn resolve_sync_response_filter(

@@ -7,11 +7,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::routes::extractors::auth::AuthenticatedUser as AuthInfo;
+use crate::routes::AppState;
 use synapse_common::ApiError;
 use synapse_services::openclaw_service::OpenClawService;
 use synapse_storage::openclaw::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
-use crate::routes::extractors::auth::AuthenticatedUser as AuthInfo;
-use crate::routes::AppState;
 
 // ---------------------------------------------------------------------------
 // Response DTOs
@@ -514,12 +514,13 @@ async fn list_messages(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let messages = svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.before).await?;
+    let (messages, next_batch) =
+        svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.from.clone(), query.before).await?;
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
         limit: query.limit,
         offset: query.offset,
-        next_batch: None,
+        next_batch,
         items: messages.into_iter().map(MessageResponse::from).collect(),
     }))
 }

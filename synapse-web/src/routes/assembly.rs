@@ -397,8 +397,12 @@ async fn post_dehydrated_device_events(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
-    let response =
-        state.services.e2ee.dehydrated_device_service.claim_events(&auth_user.user_id, &device_id, next_batch, 100).await?;
+    let response = state
+        .services
+        .e2ee
+        .dehydrated_device_service
+        .claim_events(&auth_user.user_id, &device_id, next_batch, 100)
+        .await?;
     Ok(Json(response))
 }
 
