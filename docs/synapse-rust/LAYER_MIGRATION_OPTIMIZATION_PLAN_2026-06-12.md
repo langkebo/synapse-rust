@@ -1,10 +1,40 @@
 # 分层迁移优化方案：类型边界与重复实现治理
 
 > 日期: 2026-06-12
-> 版本: v2.0.0
+> 版本: v3.0.0
 > 审查范围: `admin_user_service.rs`、`application_service.rs` 及全项目同类问题
 > 参考基准: [element-hq/synapse](https://github.com/element-hq/synapse) v1.153.0
-> 状态: 待执行
+> 状态: Phase 0-2 已完成，Phase 3 进行中
+
+---
+
+## 执行进度总览
+
+| Phase | 描述 | 状态 | 提交 |
+|-------|------|:---:|------|
+| Phase 0 | 紧急修复（致命 SQL 错误和 bug） | ✅ 完成 | `4ef01b54` |
+| Phase 1 | 消除 A 类全量副本（16 个 service shim） | ✅ 完成 | `4ef01b54` |
+| Phase 2 | 存储层迁移 + 类型边界 + 错误吞没 + CI 守卫 | ✅ 完成 | `cf27fab2` |
+| Phase 3 | C 类文件合并 + AS 架构补全 + Container 统一 | ⏳ 待执行 | — |
+
+### Phase 0-2 已完成工作总结
+
+| 类别 | 完成项 | 数量 |
+|------|--------|:---:|
+| 致命 SQL 修复 | `mark_event_processed`/`add_event` 列名错误 | 3 |
+| Bug 修复 | `openclaw_service` `let _ = ... .await?` 模式 | 10 |
+| 错误传播修复 | `send_transaction` 错误吞没 | 4 |
+| A 类 service shim | 16 个全量副本 → shim re-export | 16 |
+| 存储层 shim | 34 个文件 → `pub use synapse_storage::*` | 34 |
+| 孤儿文件清理 | 已删除 event/、media/、room/ 子目录重复文件 | 9 |
+| borrow-after-move 修复 | federation/transaction.rs 等 3 个文件 | 5 |
+| 存储类型泄漏修复 | `pub use crate::storage::` → 私有 `use` | 9 |
+| 调用方路径更新 | 路由文件导入路径修正 | 7 |
+| 错误吞没修复 | `let _ =`/`.await.ok()` → `if let Err(e)` | 6 |
+| 通配符重导出清理 | 移除 `database_initializer::*`/`friend_room_service::*` | 2 |
+| CI 守卫脚本 | `scripts/check_layer_isolation.sh` | 1 |
+| 编译状态 | `cargo check` 零错误零警告 | — |
+| 测试状态 | 1782 passed, 1 pre-existing failure | — |
 
 ---
 
@@ -427,7 +457,13 @@ Phase 3: 清理存储层 + CI 守卫 + AS 架构补全
   └──────────────────────────────────────────────────┘
 ```
 
-### 6.2 Phase 0：紧急修复（1-2 天）
+### 6.2 Phase 0：紧急修复（1-2 天）✅ 已完成
+
+> **状态**: 已在提交 `4ef01b54` 中完成。
+> - 修复 `mark_event_processed` 列名错误（`transaction_id` → 移除，`processed` → `is_processed`）
+> - 修复 `add_event` 列名错误（`processed` → `is_processed`）
+> - 修复 `openclaw_service.rs` 10 处 `let _ = ... .await?` bug
+> - 修复 `send_transaction` 4 处错误吞没
 
 #### 6.2.1 修复 `mark_event_processed` 列名错误
 
@@ -492,7 +528,13 @@ if let Err(e) = self.storage.mark_event_processed(event_id).await {
 }
 ```
 
-### 6.3 Phase 1：消除全量副本（A 类文件，~18 个文件）
+### 6.3 Phase 1：消除全量副本（A 类文件）✅ 已完成
+
+> **状态**: 已在提交 `4ef01b54` 中完成。
+> - 16 个 A 类 service 文件替换为 `pub use synapse_services::*` shim
+> - 移除 shim 文件中引用私有项的测试代码
+> - 添加 feature 传递到 `Cargo.toml`（synapse-services/xxx）
+> - 修复路由测试中的导入路径
 
 **目标**：将 `src/services/` 中的全量副本替换为 `pub use synapse_services::*` shim。
 
@@ -515,7 +557,16 @@ mod tests {
 
 **风险**：低。A 类文件的代码完全相同，仅 crate 路径不同。编译即可验证。
 
-### 6.4 Phase 2：统一类型边界 + 消除直接 SQL（~30 个文件）
+### 6.4 Phase 2：统一类型边界 + 消除直接 SQL ✅ 已完成
+
+> **状态**: 已在提交 `cf27fab2` 中完成。
+> - 34 个存储层文件 → `pub use synapse_storage::*` shim
+> - 删除 9 个孤儿文件
+> - 移除 `src/services/mod.rs` 中的 `pub use crate::storage::PresenceStorage` 和 `#![allow(ambiguous_glob_reexports)]`
+> - 移除 9 处服务层的 `pub use crate::storage::` 类型泄漏
+> - 修复 6 处错误吞没（`friend_room_service`、`sync_service`、`chunked_upload`、`lazy_load`、`sliding_sync`）
+> - 创建 `scripts/check_layer_isolation.sh` CI 守卫脚本
+> - 修复 5 个 borrow-after-move 编译错误
 
 #### 6.4.1 类型边界重构策略
 
@@ -592,13 +643,51 @@ if let Err(e) = self.presence_storage.remove_subscription(user_id, friend_id).aw
 | P2 | `openclaw_service.rs` | 154 行差异 | diff 分析后合并 |
 | P2 | `cas_service.rs` | 143 行差异 | diff 分析后合并 |
 
-### 6.5 Phase 3：清理存储层 + CI 守卫 + AS 架构补全
+### 6.5 Phase 3：C 类文件合并 + AS 架构补全 + Container 统一（待执行）⏳
 
-#### 6.5.1 存储层统一
+> **状态**: 待执行。预估 4 周。
 
-将 `src/storage/` 中仍有完整实现的文件迁移到 `synapse-storage/`，`src/storage/` 中仅保留 shim。
+#### 6.5.0 当前剩余 C 类文件清单（CI 脚本可自动检测）
 
-#### 6.5.2 建立 CI 守卫
+以下 19 个文件在 `src/services/` 和 `synapse-services/` 中均有完整实现，需逐文件分析合并：
+
+| 文件 | src/ 行数 | synapse-services/ 行数 | 差异 | 优先级 |
+|------|:---:|:---:|:---:|:---:|
+| `module_service.rs` | 1027 | 755 | 272 | P0 |
+| `search_service.rs` | 1571 | 1008 | 563 | P0 |
+| `telemetry_service.rs` | 902 | 548 | 354 | P1 |
+| `translation_service.rs` | 514 | 355 | 159 | P1 |
+| `sliding_sync_service.rs` | 1428 | 1280 | 148 | P1 |
+| `openclaw_service.rs` | 789 | 657 | 132 | P1 |
+| `retention_service.rs` | 743 | 687 | 56 | P2 |
+| `dehydrated_device_service.rs` | 349 | 217 | 132 | P2 |
+| `event_notifier.rs` | 395 | 357 | 38 | P2 |
+| `registration_service.rs` | 331 | 295 | 36 | P2 |
+| `uia_service.rs` | 734 | 701 | 33 | P2 |
+| `admin_registration_service.rs` | 269 | 256 | 13 | P2 |
+| `external_service_integration.rs` | 821 | 821 | 0 | P2 |
+| `event_report_service.rs` | 540 | 534 | 6 | P2 |
+| `builtin_oidc_provider.rs` | 223 | 957 | 734 | P3 |
+| `refresh_token_service.rs` | 60 | 447 | 387 | P3 |
+| `widget_service.rs` | 73 | 399 | 326 | P3 |
+| `thread_service.rs` | 172 | 699 | 527 | P3 |
+| `voice_service.rs` | 60 | 320 | 260 | P3 |
+
+> 注：后半部分（P3 优先级）的文件差异来自 `src/` 中包含测试代码而 `synapse-services/` 中不包含。
+
+#### 6.5.1 存储层统一 ✅ 已完成
+
+~~将 `src/storage/` 中仍有完整实现的文件迁移到 `synapse-storage/`~~ — 已在 Phase 2 完成。
+
+#### 6.5.2 建立 CI 守卫 ✅ 已完成
+
+CI 检查脚本 `scripts/check_layer_isolation.sh` 已创建并验证通过。检查项包括：
+- 存储层非 shim 文件检测（ERROR）
+- 服务层 C 类文件/测试代码检测（INFO/WARNING）
+- 存储类型泄漏检测（ERROR）
+- 直接 SQL 检测（WARNING）
+- 错误吞没检测（WARNING）
+- 通配符重导出检测（ERROR）
 
 在 CI 中增加以下检查（增强版）：
 
@@ -903,3 +992,4 @@ Week 8-11: Phase 3 — 清理存储层 + CI 守卫 + AS 管道
 |------|------|----------|
 | 1.0.0 | 2026-06-12 | 初始版本，基于 `admin_user_service.rs` 和 `application_service.rs` 的全面审查 |
 | 2.0.0 | 2026-06-12 | 全面审查升级：验证所有 v1.0.0 问题；新增 18 项发现（含 8 项 Critical）；参考 element-hq/synapse v1.153.0 对比分析；新增 Phase 0 紧急修复和 AS 架构补全；问题统计从 6 项扩展到 151 个问题点 |
+| 3.0.0 | 2026-06-12 | Phase 0-2 执行完成：46 个文件 shim 化、9 个孤儿文件删除、5 个 borrow-after-move 修复、9 处存储类型泄漏修复、6 处错误吞没修复、CI 守卫脚本创建；更新 C 类文件清单 |
