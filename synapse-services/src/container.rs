@@ -296,6 +296,7 @@ fn assemble_room_and_sync(
             server_name: config.server.name.clone(),
             task_queue: task_queue.clone(),
             relations_storage: relations_storage.clone(),
+            event_broadcaster: None,
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
@@ -421,6 +422,7 @@ pub struct AdminServices {
     pub admin_registration_service: crate::admin_registration_service::AdminRegistrationService,
     pub audit_storage: synapse_storage::audit::AuditEventStorage,
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
+    pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
     pub feature_flag_storage: synapse_storage::feature_flags::FeatureFlagStorage,
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: synapse_storage::event_report::EventReportStorage,
@@ -523,6 +525,11 @@ fn assemble_admin_support(
         Arc::new(crate::federation_blacklist_service::FederationBlacklistService::new(Arc::new(
             federation_blacklist_storage.clone(),
         )));
+    let admin_federation_service = Arc::new(crate::admin_federation_service::AdminFederationService::new(
+        pool.clone(),
+        Arc::new(federation_blacklist_storage.clone()),
+        federation_blacklist_service.clone(),
+    ));
 
     let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
     let push_notification_service = Arc::new(crate::push_notification_service::PushNotificationService::new(
@@ -554,6 +561,7 @@ fn assemble_admin_support(
         admin_registration_service,
         audit_storage,
         admin_audit_service,
+        admin_federation_service,
         feature_flag_storage,
         feature_flag_service,
         event_report_storage,
@@ -888,6 +896,16 @@ impl ServiceContainer {
         let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_member_storage = rooms.member_storage.clone();
         let broadcaster_origin = config.server.get_server_name().to_string();
+        let event_broadcaster = {
+            let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
+                .with_client(broadcaster_federation_client)
+                .with_pool(pool.as_ref().clone())
+                .with_membership_storage(Arc::new(broadcaster_member_storage));
+            broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
+            Arc::new(broadcaster)
+        };
+
+        rooms.room_service.set_event_broadcaster(event_broadcaster.clone()).await;
 
         // User lock service — needs user_storage before it's moved into the container
         let user_lock_service = Arc::new(crate::user_lock_service::UserLockService::new(
@@ -911,14 +929,7 @@ impl ServiceContainer {
                 config,
                 key_rotation_storage: KeyRotationStorage::new(pool.clone()),
                 server_metrics,
-                event_broadcaster: {
-                    let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
-                        .with_client(broadcaster_federation_client)
-                        .with_pool(pool.as_ref().clone())
-                        .with_membership_storage(Arc::new(broadcaster_member_storage));
-                    broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
-                    Arc::new(broadcaster)
-                },
+                event_broadcaster,
                 event_notifier: crate::event_notifier::EventNotifier::new(),
             },
             account: AccountServices {

@@ -699,6 +699,36 @@ impl CacheManager {
         self.local_cache_ttl
     }
 
+    pub fn to_synapse_cache_manager(&self) -> synapse_services::cache::CacheManager {
+        let cache_config = synapse_services::cache::CacheConfig::default();
+
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                if let Some(invalidation_manager) = &self.invalidation_manager {
+                    let config = invalidation_manager.config();
+                    let synapse_invalidation_config = synapse_services::cache::CacheInvalidationConfig {
+                        enabled: config.enabled,
+                        channel_name: config.channel_name.clone(),
+                        local_cache_ttl_secs: config.local_cache_ttl_secs,
+                        redis_cache_ttl_secs: config.redis_cache_ttl_secs,
+                        instance_id: config.instance_id.clone(),
+                        redis_url: config.redis_url.clone(),
+                    };
+
+                    return synapse_services::cache::CacheManager::with_redis_pool_and_invalidation(
+                        redis.pool.clone(),
+                        &cache_config,
+                        &synapse_invalidation_config,
+                    );
+                }
+
+                return synapse_services::cache::CacheManager::with_redis_pool(redis.pool.clone(), &cache_config);
+            }
+        }
+
+        synapse_services::cache::CacheManager::new(&cache_config)
+    }
+
     pub fn invalidate_local_key(&self, key: &str) {
         self.local.remove(key);
     }

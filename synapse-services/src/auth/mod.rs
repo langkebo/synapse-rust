@@ -16,8 +16,8 @@ use synapse_storage::*;
 use rand::RngCore;
 use std::sync::Arc;
 
-// Re-export Claims from synapse-common for backward compatibility
-pub use synapse_common::claims::Claims;
+// Re-export shared claims types from synapse-common for backward compatibility.
+pub use synapse_common::claims::{Claims, ClaimsBuilder};
 
 const TOKEN_CACHE_TTL_SECS: u64 = 3600;
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;

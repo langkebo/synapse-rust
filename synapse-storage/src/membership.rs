@@ -127,6 +127,33 @@ impl RoomMemberStorage {
         .await
     }
 
+    /// Check whether any user from the given server domain has a non-banned
+    /// membership (join, invite, or leave) in the room. This is used for
+    /// federation authorization—aligns with Synapse v1.153 which allows
+    /// servers with any non-banned members to access room state/backfill.
+    pub async fn has_any_non_banned_member_from_server(
+        &self,
+        room_id: &str,
+        server_name: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let domain_pattern = format!("%:{}", server_name);
+        let exists: Option<bool> = sqlx::query_scalar(
+            r"
+            SELECT EXISTS(
+                SELECT 1 FROM room_memberships
+                WHERE room_id = $1
+                  AND user_id LIKE $2
+                  AND membership IN ('join', 'invite', 'leave')
+            )
+            ",
+        )
+        .bind(room_id)
+        .bind(&domain_pattern)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(exists.unwrap_or(false))
+    }
+
     pub async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         let count = sqlx::query_scalar::<_, i64>(
             r"

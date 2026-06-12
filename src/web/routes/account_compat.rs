@@ -61,7 +61,7 @@ pub(crate) async fn enforce_profile_visibility(
 ) -> Result<(), ApiError> {
     let token = extract_token_from_headers(headers).ok();
     let requester_id = if let Some(t) = token {
-        state.services.auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id)
+        state.services.core.auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id)
     } else {
         None
     };
@@ -81,7 +81,7 @@ pub(crate) async fn get_profile(
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
-    Ok(Json(state.services.registration_service.get_profile(&user_id).await?))
+    Ok(Json(state.services.core.registration_service.get_profile(&user_id).await?))
 }
 
 pub(crate) async fn get_displayname(
@@ -92,7 +92,7 @@ pub(crate) async fn get_displayname(
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
-    let profile = state.services.registration_service.get_profile(&user_id).await.map_err(|e| {
+    let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -109,7 +109,7 @@ pub(crate) async fn get_avatar_url(
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
-    let profile = state.services.registration_service.get_profile(&user_id).await.map_err(|e| {
+    let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -139,7 +139,7 @@ pub(crate) async fn update_displayname(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let user_exists = state.services.user_storage.user_exists(&user_id).await.map_err(|e| {
+    let user_exists = state.services.account.user_storage.user_exists(&user_id).await.map_err(|e| {
         tracing::error!("Failed to check user existence: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -148,7 +148,7 @@ pub(crate) async fn update_displayname(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state.services.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
+    state.services.core.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
     Ok(Json(json!({})))
 }
 
@@ -173,7 +173,7 @@ pub(crate) async fn update_avatar(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let user_exists = state.services.user_storage.user_exists(&user_id).await.map_err(|e| {
+    let user_exists = state.services.account.user_storage.user_exists(&user_id).await.map_err(|e| {
         tracing::error!("Failed to check user existence: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -182,7 +182,7 @@ pub(crate) async fn update_avatar(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state.services.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
+    state.services.core.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
     Ok(Json(json!({})))
 }
 
@@ -204,10 +204,10 @@ pub(crate) async fn change_password_uia(
     if auth_type.is_empty() {
         let user_id =
             auth_user.user_id.as_deref().ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
-        let session = state.services.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
+        let session = state.services.extensions.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
         return Ok((
             StatusCode::UNAUTHORIZED,
-            Json(state.services.uia_service.build_uia_response(
+            Json(state.services.extensions.uia_service.build_uia_response(
                 &session,
                 "M_UIA_REQUIRED",
                 "User-Interactive Authentication required",
@@ -241,7 +241,7 @@ pub(crate) async fn change_password_uia(
                 if username.starts_with('@') {
                     username.to_string()
                 } else {
-                    format!("@{}:{}", username, state.services.server_name)
+                    format!("@{}:{}", username, state.services.core.server_name)
                 }
             } else {
                 authenticated_user_id.to_string()
@@ -253,6 +253,7 @@ pub(crate) async fn change_password_uia(
 
             state
                 .services
+                .core
                 .registration_service
                 .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
                 .await?;
@@ -307,7 +308,7 @@ pub(crate) async fn change_password_uia(
                 ApiError::bad_request("Verification session is not valid for password reset".to_string())
             })?;
 
-            state.services.registration_service.change_password(&user_id, None, new_password, None).await?;
+            state.services.core.registration_service.change_password(&user_id, None, new_password, None).await?;
 
             Ok(Json(json!({})).into_response())
         }
@@ -317,10 +318,10 @@ pub(crate) async fn change_password_uia(
                 .as_deref()
                 .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
             let session =
-                state.services.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
+                state.services.extensions.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
             Ok((
                 StatusCode::UNAUTHORIZED,
-                Json(state.services.uia_service.build_uia_response(
+                Json(state.services.extensions.uia_service.build_uia_response(
                     &session,
                     "M_UIA_REQUIRED",
                     "m.login.password or m.login.email.identity authentication required",
@@ -347,10 +348,10 @@ pub(crate) async fn request_password_email_verification(
     // m.login.email.identity 分支显式拒绝 user_id 为空的 session，
     // 所以占位会话无法被用来重置任何账户的密码，但响应却与命中账户
     // 的情况完全一致 —— 切断 OWASP A07 类账户枚举通道。
-    let verified = state.services.threepid_storage.get_verified_threepid_by_address("email", email).await;
+    let verified = state.services.account.threepid_storage.get_verified_threepid_by_address("email", email).await;
     let resolved_user_id = match verified {
         Ok(Some(threepid)) => Some(threepid.user_id),
-        Ok(None) => match state.services.user_storage.get_user_by_email(email).await {
+        Ok(None) => match state.services.account.user_storage.get_user_by_email(email).await {
             Ok(user) => user.map(|u| u.user_id),
             Err(e) => {
                 ::tracing::warn!(
@@ -406,18 +407,24 @@ pub(crate) async fn deactivate_account(
     let flows = UiaService::get_deactivate_account_flows();
     let auth = body.get("auth");
     if let Err(uia_response) =
-        state.services.uia_service.require_uia(auth, &auth_user.user_id, flows, &state.services.auth_service).await
+        state.services.extensions.uia_service.require_uia(
+            auth,
+            &auth_user.user_id,
+            flows,
+            &state.services.core.auth_service,
+            &state.services.account.threepid_storage,
+        ).await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
     }
 
     let user_id = auth_user.user_id.clone();
 
-    state.services.registration_service.deactivate_account(&user_id).await?;
+    state.services.core.registration_service.deactivate_account(&user_id).await?;
 
-    state.services.cache.delete(&format!("user:active:{user_id}")).await;
+    state.services.core.cache.delete(&format!("user:active:{user_id}")).await;
 
-    state.services.cache.delete(&format!("token:{}", auth_user.access_token)).await;
+    state.services.core.cache.delete(&format!("token:{}", auth_user.access_token)).await;
 
     Ok(Json(json!({
         "id_server_unbind_result": "success"
@@ -431,7 +438,7 @@ pub(crate) async fn get_threepids(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let threepids = state.services.threepid_storage.get_threepids_by_user(user_id).await.map_err(|e| {
+    let threepids = state.services.account.threepid_storage.get_threepids_by_user(user_id).await.map_err(|e| {
         tracing::error!("Failed to get threepids: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -539,7 +546,7 @@ pub(crate) async fn add_threepid(
     let address = verification_token.email.as_str();
 
     let rows_affected =
-        state.services.threepid_storage.add_verified_threepid(user_id, medium, address, now, now).await.map_err(
+        state.services.account.threepid_storage.add_verified_threepid(user_id, medium, address, now, now).await.map_err(
             |e| {
                 tracing::error!(
                     request_id = %request_id,
@@ -626,7 +633,7 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
+    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
         tracing::error!("Failed to delete threepid: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -641,7 +648,7 @@ pub(crate) async fn unbind_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
+    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
         tracing::error!("Failed to unbind threepid: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;

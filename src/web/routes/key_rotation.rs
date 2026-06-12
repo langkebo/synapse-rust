@@ -19,8 +19,13 @@ pub async fn get_key_rotation_status(
     let status = rotation_manager.get_rotation_status().await;
 
     // Add user-specific last rotation info
-    let last_rotation =
-        state.services.key_rotation_storage.get_user_last_rotation_ts(&auth_user.user_id).await.map_err(|e| {
+    let last_rotation = state
+        .services
+        .core
+        .key_rotation_storage
+        .get_user_last_rotation_ts(&auth_user.user_id)
+        .await
+        .map_err(|e| {
             tracing::error!("Failed to query key rotation log: {e}");
             ApiError::internal("Internal server error".to_string())
         })?;
@@ -77,8 +82,13 @@ pub async fn get_rotation_history(
         return Err(ApiError::forbidden("Key rotation management requires server admin privileges".to_string()));
     }
 
-    let history_rows =
-        state.services.key_rotation_storage.get_device_rotation_history(&auth_user.user_id, &device_id).await.map_err(
+    let history_rows = state
+        .services
+        .core
+        .key_rotation_storage
+        .get_device_rotation_history(&auth_user.user_id, &device_id)
+        .await
+        .map_err(
             |e| {
                 tracing::error!("Failed to get rotation history: {e}");
                 ApiError::internal("Internal server error".to_string())
@@ -161,7 +171,13 @@ pub async fn configure_key_rotation(
     }
 
     if let Some(interval) = interval_ms {
-        state.services.key_rotation_storage.set_rotation_config("interval_ms", &interval.to_string()).await.map_err(
+        state
+            .services
+            .core
+            .key_rotation_storage
+            .set_rotation_config("interval_ms", &interval.to_string())
+            .await
+            .map_err(
             |e| {
                 tracing::error!("Failed to persist key rotation interval_ms: {e}");
                 ApiError::internal("Internal server error".to_string())
@@ -195,7 +211,7 @@ pub async fn configure_key_rotation(
     }
 
     if olm_rotation_days.is_some() || megolm_rotation_messages.is_some() || max_session_age_days.is_some() {
-        let storage = &state.services.key_rotation_storage;
+        let storage = &state.services.core.key_rotation_storage;
         if let Some(days) = olm_rotation_days {
             storage.set_rotation_config("olm_rotation_days", &days.to_string()).await.map_err(|e| {
                 tracing::error!("Failed to persist olm_rotation_days: {e}");
@@ -223,6 +239,7 @@ pub async fn configure_key_rotation(
     } else {
         state
             .services
+            .core
             .key_rotation_storage
             .get_rotation_config("interval_ms")
             .await
@@ -262,15 +279,26 @@ pub async fn check_needs_rotation(
     let key_id_filter = params.get("key_id").map(|s| s.as_str());
 
     let last_rotation: Option<i64> = if let Some(key_id) = key_id_filter {
-        state.services.key_rotation_storage.get_last_rotation_for_key(&auth_user.user_id, key_id).await.map_err(
+        state
+            .services
+            .core
+            .key_rotation_storage
+            .get_last_rotation_for_key(&auth_user.user_id, key_id)
+            .await
+            .map_err(
             |e| {
                 tracing::error!("Failed to query rotation log by key_id: {e}");
                 ApiError::internal("Internal server error".to_string())
             },
         )?
     } else {
-        let max_ts =
-            state.services.key_rotation_storage.get_max_rotation_ts(&auth_user.user_id).await.map_err(|e| {
+        let max_ts = state
+            .services
+            .core
+            .key_rotation_storage
+            .get_max_rotation_ts(&auth_user.user_id)
+            .await
+            .map_err(|e| {
                 tracing::error!("Failed to query rotation log: {e}");
                 ApiError::internal("Internal server error".to_string())
             })?;

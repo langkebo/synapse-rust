@@ -271,7 +271,7 @@ impl ExternalServiceIntegration {
             as_id.clone(),
             ServiceHealthStatus {
                 service_id: as_id,
-                service_type: config.service_type,
+                service_type: config.service_type.clone(),
                 is_healthy: true,
                 last_check_ts: Utc::now().timestamp_millis(),
                 last_success_ts: None,

@@ -4,7 +4,7 @@
 //! Moderation methods (invite, knock, ban, unban, kick) live in [`membership_moderation`].
 
 use crate::common::error::{ApiError, ApiResult};
-use crate::services::*;
+use crate::storage::RoomMember;
 use serde_json::json;
 
 use super::service::RoomService;

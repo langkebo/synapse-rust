@@ -1,9 +1,9 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
 use crate::services::{
-    decode_destination_cursor, decode_federation_blacklist_cursor, decode_pending_federation_cursor,
-    encode_destination_cursor, encode_pending_federation_cursor,
+    decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor, encode_pending_federation_cursor,
 };
+use crate::storage::federation_blacklist::decode_federation_blacklist_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},

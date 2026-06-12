@@ -169,7 +169,7 @@ pub async fn call_invite(
     let _session =
         state.services.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
+    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state
@@ -223,7 +223,7 @@ pub async fn call_answer(
     let _session =
         state.services.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
 
-    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
+    let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let _ = state

@@ -428,6 +428,187 @@ pub struct SecuritySummaryResponse {
 mod tests {
     use super::*;
 
+    // --- DeviceTrustLevel ---
+
+    #[test]
+    fn test_device_trust_level_display() {
+        assert_eq!(DeviceTrustLevel::Verified.to_string(), "verified");
+        assert_eq!(DeviceTrustLevel::Unverified.to_string(), "unverified");
+        assert_eq!(DeviceTrustLevel::Blocked.to_string(), "blocked");
+    }
+
+    #[test]
+    fn test_device_trust_level_from_str() {
+        assert_eq!("verified".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Verified);
+        assert_eq!("VERIFIED".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Verified);
+        assert_eq!("unverified".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Unverified);
+        assert_eq!("blocked".parse::<DeviceTrustLevel>().unwrap(), DeviceTrustLevel::Blocked);
+        assert!("unknown".parse::<DeviceTrustLevel>().is_err());
+    }
+
+    #[test]
+    fn test_device_trust_level_default() {
+        assert_eq!(DeviceTrustLevel::default(), DeviceTrustLevel::Unverified);
+    }
+
+    #[test]
+    fn test_device_trust_level_serialization() {
+        assert_eq!(serde_json::to_string(&DeviceTrustLevel::Verified).unwrap(), r#""verified""#);
+        assert_eq!(serde_json::to_string(&DeviceTrustLevel::Unverified).unwrap(), r#""unverified""#);
+        assert_eq!(serde_json::to_string(&DeviceTrustLevel::Blocked).unwrap(), r#""blocked""#);
+    }
+
+    // --- VerificationMethod ---
+
+    #[test]
+    fn test_verification_method_from_str() {
+        assert_eq!("sas".parse::<VerificationMethod>().unwrap(), VerificationMethod::Sas);
+        assert_eq!("qr".parse::<VerificationMethod>().unwrap(), VerificationMethod::Qr);
+        assert_eq!("emoji".parse::<VerificationMethod>().unwrap(), VerificationMethod::Emoji);
+        assert!("invalid".parse::<VerificationMethod>().is_err());
+    }
+
+    #[test]
+    fn test_verification_method_serialization() {
+        assert_eq!(serde_json::to_string(&VerificationMethod::Sas).unwrap(), r#""sas""#);
+        assert_eq!(serde_json::to_string(&VerificationMethod::Qr).unwrap(), r#""qr""#);
+        assert_eq!(serde_json::to_string(&VerificationMethod::Emoji).unwrap(), r#""emoji""#);
+    }
+
+    // --- VerificationRequestStatus ---
+
+    #[test]
+    fn test_verification_request_status_display() {
+        assert_eq!(VerificationRequestStatus::Pending.to_string(), "pending");
+        assert_eq!(VerificationRequestStatus::Approved.to_string(), "approved");
+        assert_eq!(VerificationRequestStatus::Rejected.to_string(), "rejected");
+        assert_eq!(VerificationRequestStatus::Expired.to_string(), "expired");
+    }
+
+    #[test]
+    fn test_verification_request_status_from_str() {
+        assert_eq!("pending".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Pending);
+        assert_eq!("approved".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Approved);
+        assert_eq!("rejected".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Rejected);
+        assert_eq!("expired".parse::<VerificationRequestStatus>().unwrap(), VerificationRequestStatus::Expired);
+        assert!("unknown".parse::<VerificationRequestStatus>().is_err());
+    }
+
+    #[test]
+    fn test_verification_request_status_default() {
+        assert_eq!(VerificationRequestStatus::default(), VerificationRequestStatus::Pending);
+    }
+
+    // --- DeviceVerificationRequest ---
+
+    #[test]
+    fn test_device_verification_request_approve() {
+        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Sas, "token456", 5);
+        req.approve();
+        assert_eq!(req.status, VerificationRequestStatus::Approved);
+        assert!(req.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_device_verification_request_reject() {
+        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Qr, "token456", 5);
+        req.reject();
+        assert_eq!(req.status, VerificationRequestStatus::Rejected);
+        assert!(req.completed_at.is_some());
+    }
+
+    #[test]
+    fn test_device_verification_request_expire() {
+        let mut req = DeviceVerificationRequest::new("@user:example.com", "DEVICE123", VerificationMethod::Emoji, "token456", 5);
+        req.expire();
+        assert_eq!(req.status, VerificationRequestStatus::Expired);
+        assert!(req.completed_at.is_some());
+    }
+
+    // --- E2eeSecurityEvent ---
+
+    #[test]
+    fn test_e2ee_security_event_new() {
+        let event = E2eeSecurityEvent::new("@user:example.com", "device.added");
+        assert_eq!(event.user_id, "@user:example.com");
+        assert_eq!(event.event_type, "device.added");
+        assert!(event.device_id.is_none());
+        assert!(event.created_ts > 0);
+    }
+
+    #[test]
+    fn test_e2ee_security_event_builder() {
+        let event = E2eeSecurityEvent::new("@user:example.com", "device.verified")
+            .with_device("DEVICE123")
+            .with_data(serde_json::json!({"key": "value"}))
+            .with_ip("192.168.1.1")
+            .with_user_agent("MatrixClient/1.0");
+
+        assert_eq!(event.device_id, Some("DEVICE123".to_string()));
+        assert!(event.event_data.is_some());
+        assert_eq!(event.ip_address, Some("192.168.1.1".to_string()));
+        assert_eq!(event.user_agent, Some("MatrixClient/1.0".to_string()));
+    }
+
+    // --- CrossSigningTrust ---
+
+    #[test]
+    fn test_cross_signing_trust() {
+        let trust = CrossSigningTrust {
+            id: 1,
+            user_id: "@alice:example.com".to_string(),
+            target_user_id: "@bob:example.com".to_string(),
+            master_key_id: Some("master_key_1".to_string()),
+            is_trusted: true,
+            trusted_at: Some(1710000000000),
+            created_ts: 1710000000000,
+            updated_ts: 1710000000000,
+        };
+        assert!(trust.is_trusted);
+        assert_eq!(trust.master_key_id, Some("master_key_1".to_string()));
+    }
+
+    // --- Response types ---
+
+    #[test]
+    fn test_verification_respond_response() {
+        let resp = VerificationRespondResponse {
+            success: true,
+            trust_level: Some("verified".to_string()),
+        };
+        assert!(resp.success);
+        assert_eq!(resp.trust_level, Some("verified".to_string()));
+    }
+
+    #[test]
+    fn test_device_trust_list_response() {
+        let device = DeviceTrustStatusResponse {
+            device_id: "DEVICE123".to_string(),
+            trust_level: "verified".to_string(),
+            verified_at: Some(1710000000000),
+            verified_by: Some("DEVICE_OLD".to_string()),
+        };
+        let list = DeviceTrustListResponse { devices: vec![device] };
+        assert_eq!(list.devices.len(), 1);
+        assert_eq!(list.devices[0].device_id, "DEVICE123");
+    }
+
+    #[test]
+    fn test_security_summary_response() {
+        let summary = SecuritySummaryResponse {
+            verified_devices: 3,
+            unverified_devices: 1,
+            blocked_devices: 0,
+            has_cross_signing_master: true,
+            security_score: 87.5,
+            recommendations: vec!["Verify remaining devices".to_string()],
+        };
+        assert_eq!(summary.verified_devices, 3);
+        assert!(summary.security_score > 80.0);
+    }
+
+    // --- Existing tests ---
+
     #[test]
     fn test_device_trust_status_new() {
         let status = DeviceTrustStatus::new("@user:example.com", "DEVICE123");

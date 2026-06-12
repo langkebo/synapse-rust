@@ -1,45 +1,40 @@
 # 数据库迁移说明
 
-> 最后更新: 2026-06-04
+> 最后更新: 2026-06-12
 
 ## 目录结构
 
 ```
 migrations/
-├── 00000000_unified_schema_v8.sql          # v8 统一基线 (新环境唯一建库入口)
-├── 00000001_extensions_v8.sql              # Feature-gated: 扩展表 (CAS/SAML/Friends/Voice)
+├── 00000000_unified_schema_v10.sql         # v10 统一基线（新环境唯一建库入口）
+├── 00000001_extensions_v10.sql             # Feature-gated: 扩展表
+├── archive/                                # 历史归档（v8 系列，已废弃，仅溯源）
+│   ├── 00000000_unified_schema_v8.sql
+│   ├── 00000001_extensions_v8.sql
+│   ├── 20260605120000_megolm_vodozemac_dual_write_v8.sql
+│   └── 20260606120000_m26_drop_redundant_module_columns.sql
 ├── extension_map.conf                      # 扩展迁移映射表
 └── README.md                               # 本文件
 ```
 
-**当前活跃链路**: `v8 baseline + 1 extension` (合计 2 个迁移文件)
+**当前活跃链路**: `v10 baseline + 1 extension`（合计 2 个迁移文件）
 
-## v8 变更摘要 (2026-06-04)
+> v8 系列已归档至 `archive/`，不再作为活跃迁移链路。新环境应使用 v10 基线建库。
 
-v8 基线将 v7 基线 + 8 个批次迁移 + 14 个增量迁移合并为单一真相源：
+## v10 变更摘要 (2026-06-12)
 
-- 移除 19 个已 DROP 的冗余表
-- 移除 v7 基线内部 ~30 个重复表定义（主干 + Folded Delta）
+v10 基线在 v8 基础上进一步收敛：
+
+- v8 系列文件归档至 `archive/`
+- v10 双文件作为唯一生效基线
 - 所有 ALTER TABLE 变更内联到表定义
-- `voice_usage_stats` 使用 20260517 版本（与 Rust `VoiceUsageRecord` 匹配）
-- `user_privacy_settings` 合并 visibility 列
-- `spam_check_results`/`third_party_rule_results` 使用 20260529 新版本
-- CAS 表使用 `_at` 后缀（`consumed_at`/`logout_sent_at`）
-- 新增 burn_after_read, key_rotation, megolm_session_keys 等表
-- 整合所有索引、视图、外键、触发器、默认数据
 - 布尔字段统一 `is_` 前缀
 - NOT NULL 时间戳使用 `_ts` 后缀，可空时间戳使用 `_at` 后缀
 
 ## 迁移执行顺序
 
-1. `00000000_unified_schema_v8.sql` — 基线 (IF NOT EXISTS，幂等)
-2. `00000001_extensions_v8.sql` — 按 ENABLED_EXTENSIONS 过滤
-
-## v7 → v8 升级指引
-
-1. 先执行 `bash docker/db_migrate.sh migrate`（自动检测 v7 基线并执行增量升级）
-2. 再执行 `bash docker/db_migrate.sh validate`
-3. CI 中统一通过 `scripts/build_sqlx_migration_source.py` 构建前向迁移链
+1. `00000000_unified_schema_v10.sql` — 基线 (IF NOT EXISTS，幂等)
+2. `00000001_extensions_v10.sql` — 按 ENABLED_EXTENSIONS 过滤
 
 ## 首次部署
 
@@ -82,14 +77,13 @@ ENABLED_EXTENSIONS=openclaw-routes,friends ./deploy.sh
 
 ## 合并历史
 
-### 第四轮合并 (2026-06-04) — v8 基线
+### 第五轮合并 (2026-06-12) — v10 基线
 
-将 v7 基线 + 8 个批次迁移 + 14 个增量迁移（共 25 个文件）合并为 2 个文件：
+将 v8 系列归档，升级至 v10 双文件基线。
 
-| 合并文件 | 源文件数 | 合并逻辑 |
-|----------|---------|---------|
-| `00000000_unified_schema_v8.sql` | 25 | 全量收敛：消除重复、内联变更、解决冲突 |
-| `00000001_extensions_v8.sql` | 1 | 扩展表对齐 v8 命名规范 |
+### 第四轮合并 (2026-06-04) — v8 基线（已归档）
+
+v8 基线将 v7 基线 + 8 个批次迁移 + 14 个增量迁移（共 25 个文件）合并为 2 个文件。详见 `archive/` 目录。
 
 ### 历史合并记录
 
@@ -99,4 +93,4 @@ ENABLED_EXTENSIONS=openclaw-routes,friends ./deploy.sh
 
 ## 相关文档
 
-- `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` — 全面技术审查报告
+- `docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` — 全面技术审查报告（v7.0）

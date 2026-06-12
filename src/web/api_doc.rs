@@ -9,6 +9,25 @@
 
 use crate::web::routes::AppState;
 
+#[cfg(feature = "openapi-docs")]
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct ApiHealthCheckResult {
+    status: String,
+    message: String,
+    duration_ms: u64,
+}
+
+#[cfg(feature = "openapi-docs")]
+#[derive(utoipa::ToSchema)]
+#[allow(dead_code)]
+pub struct ApiHealthStatus {
+    status: String,
+    version: String,
+    timestamp: i64,
+    checks: std::collections::HashMap<String, ApiHealthCheckResult>,
+}
+
 /// Build the Swagger UI router for the given OpenAPI schema.
 ///
 /// The UI is mounted at `/_swagger` with a redirect from `/_swagger/` for
@@ -475,8 +494,8 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
         ),
         components(
             schemas(
-                crate::common::health::HealthStatus,
-                crate::common::health::CheckResult,
+                ApiHealthStatus,
+                ApiHealthCheckResult,
             ),
         ),
     )]
@@ -547,11 +566,11 @@ pub fn health_check() -> axum::Json<serde_json::Value> {
     tag = "Health",
     responses(
         (status = 200, description = "Detailed health status",
-            body = crate::common::health::HealthStatus,
+            body = ApiHealthStatus,
         ),
     ),
 )]
-pub fn detailed_health_check() -> axum::Json<crate::common::health::HealthStatus> {
+pub fn detailed_health_check() -> axum::Json<ApiHealthStatus> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 

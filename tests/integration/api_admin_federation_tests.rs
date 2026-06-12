@@ -9,7 +9,7 @@ use tower::ServiceExt;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
     let (app, state) = super::setup_test_app_with_config(|_| {}).await?;
-    let pool = state.services.user_storage.pool;
+    let pool = state.services.account.user_storage.pool;
     Some((app, pool))
 }
 

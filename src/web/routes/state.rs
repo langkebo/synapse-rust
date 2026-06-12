@@ -20,7 +20,7 @@ pub struct AppState {
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
     #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: Arc<crate::storage::ai_connection::AiConnectionStorage>,
+    pub ai_connection_storage: Arc<synapse_storage::ai_connection::AiConnectionStorage>,
     #[cfg(feature = "openclaw-routes")]
     pub matrix_ai_connection_service: Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "openclaw-routes")]
@@ -55,6 +55,8 @@ impl AppState {
         services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
 
         #[cfg(feature = "openclaw-routes")]
+        let canonical_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
+        #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
             let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));
             let encryption_key = crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
@@ -71,7 +73,7 @@ impl AppState {
 
         Self {
             services,
-            cache: cache.clone(),
+            cache,
             health_checker: Arc::new(health_checker),
             federation_signature_cache,
             federation_key_fetch_priority_semaphore: Arc::new(Semaphore::new(key_fetch_max_concurrency)),
@@ -82,16 +84,16 @@ impl AppState {
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
             #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage: Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool.clone())),
+            ai_connection_storage: Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone())),
             #[cfg(feature = "openclaw-routes")]
             matrix_ai_connection_service: Arc::new(
                 crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
-                    Arc::new(crate::storage::ai_connection::AiConnectionStorage::new(pool)),
-                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache.clone())),
+                    Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool)),
+                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(canonical_cache.clone())),
                 ),
             ),
             #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(cache)),
+            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(canonical_cache)),
             #[cfg(feature = "openclaw-routes")]
             openclaw_service,
         }

@@ -239,7 +239,7 @@ pub async fn get_pending_burns(
             json!({
                 "event_id": p.event_id,
                 "created_at": p.created_ts,
-                "delete_at": p.delete_at,
+                "delete_at": p.delete_ts,
             })
         })
         .collect();

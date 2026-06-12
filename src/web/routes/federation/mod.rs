@@ -54,13 +54,18 @@ async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, ori
 }
 
 async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_members = state
+    // Aligned with Synapse v1.153: allow servers with any non-banned
+    // membership (join, invite, leave) to access room state/backfill.
+    // Previously only checked "join" membership, which was overly
+    // restrictive and could cause federation issues for servers that
+    // have invited or previously-left members.
+    let has_member = state
         .services.rooms.member_storage
-        .get_room_members(room_id, "join")
+        .has_any_non_banned_member_from_server(room_id, origin)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
 
-    if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
+    if has_member {
         return Ok(());
     }
 
@@ -78,7 +83,7 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
         return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
     }
 
-    if origin == state.services.server_name.as_str() {
+    if origin == state.services.core.server_name.as_str() {
         return Ok(());
     }
 
@@ -98,34 +103,34 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 }
 
 fn increment_counter(state: &AppState, name: &str) {
-    if let Some(counter) = state.services.metrics.get_counter(name) {
+    if let Some(counter) = state.services.core.metrics.get_counter(name) {
         counter.inc();
     } else {
-        state.services.metrics.register_counter(name.to_string()).inc();
+        state.services.core.metrics.register_counter(name.to_string()).inc();
     }
 }
 
 fn observe_histogram(state: &AppState, name: &str, value: f64) {
-    if let Some(histogram) = state.services.metrics.get_histogram(name) {
+    if let Some(histogram) = state.services.core.metrics.get_histogram(name) {
         histogram.observe(value);
     } else {
-        state.services.metrics.register_histogram(name.to_string()).observe(value);
+        state.services.core.metrics.register_histogram(name.to_string()).observe(value);
     }
 }
 
 fn increment_gauge(state: &AppState, name: &str) {
-    if let Some(gauge) = state.services.metrics.get_gauge(name) {
+    if let Some(gauge) = state.services.core.metrics.get_gauge(name) {
         gauge.inc();
     } else {
-        state.services.metrics.register_gauge(name.to_string()).inc();
+        state.services.core.metrics.register_gauge(name.to_string()).inc();
     }
 }
 
 fn decrement_gauge(state: &AppState, name: &str) {
-    if let Some(gauge) = state.services.metrics.get_gauge(name) {
+    if let Some(gauge) = state.services.core.metrics.get_gauge(name) {
         gauge.dec();
     } else {
-        state.services.metrics.register_gauge(name.to_string()).dec();
+        state.services.core.metrics.register_gauge(name.to_string()).dec();
     }
 }
 
@@ -154,7 +159,7 @@ async fn federation_version(State(_state): State<AppState>) -> Json<Value> {
 async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "server_name": state.services.server_name,
+        "server_name": state.services.core.server_name,
         "capabilities": {
             "m.change_password": true,
             "m.room_versions": federation_room_versions_capability()
@@ -180,12 +185,13 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
         .ok_or_else(|| ApiError::unauthorized("Invalid subject in OpenID token".to_string()))?;
 
     // Validate that the sub belongs to this homeserver
-    if user_server_name != state.services.server_name.as_str() {
+    if user_server_name != state.services.core.server_name.as_str() {
         return Err(ApiError::not_found("User does not belong to this server".to_string()));
     }
 
     let user_exists = state
         .services
+        .account
         .user_storage
         .user_exists(&token.user_id)
         .await

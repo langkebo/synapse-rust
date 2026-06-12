@@ -1,7 +1,9 @@
 use crate::cache::CacheManager;
+use crate::auth::AuthService;
+use crate::common::config::AdminRegistrationConfig;
 use crate::common::metrics::MetricsCollector;
 use crate::common::*;
-use crate::services::*;
+use crate::storage::UserStorage;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
 use hmac::{Hmac, Mac};

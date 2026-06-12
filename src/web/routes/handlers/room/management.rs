@@ -158,7 +158,7 @@ pub(crate) async fn create_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());
     if let Some(v) = visibility {

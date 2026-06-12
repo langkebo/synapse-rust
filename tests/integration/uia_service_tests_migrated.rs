@@ -33,6 +33,15 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
     AuthService::new(pool, cache, metrics, &security, "localhost")
 }
 
+fn create_lazy_auth_service() -> AuthService {
+    let pool = Arc::new(
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
+            .expect("lazy postgres pool should construct"),
+    );
+    create_auth_service(&pool)
+}
+
 #[test]
 fn test_get_default_flows() {
     let flows = UiaService::get_default_flows();
@@ -197,13 +206,14 @@ fn test_build_uia_response_structure() {
     assert_eq!(flows[1]["stages"], serde_json::json!(["m.login.token"]));
 }
 
-#[test]
-fn test_verify_token_stage_missing_token() {
+#[tokio::test]
+async fn test_verify_token_stage_missing_token() {
     let service = create_service();
+    let auth_service = create_lazy_auth_service();
     let auth = serde_json::json!({
         "txn_id": "txn123"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost");
+    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Token required") => {}
@@ -211,13 +221,14 @@ fn test_verify_token_stage_missing_token() {
     }
 }
 
-#[test]
-fn test_verify_token_stage_missing_txn_id() {
+#[tokio::test]
+async fn test_verify_token_stage_missing_txn_id() {
     let service = create_service();
+    let auth_service = create_lazy_auth_service();
     let auth = serde_json::json!({
         "token": "sometoken"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost");
+    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
@@ -225,14 +236,15 @@ fn test_verify_token_stage_missing_txn_id() {
     }
 }
 
-#[test]
-fn test_verify_token_stage_empty_txn_id() {
+#[tokio::test]
+async fn test_verify_token_stage_empty_txn_id() {
     let service = create_service();
+    let auth_service = create_lazy_auth_service();
     let auth = serde_json::json!({
         "token": "sometoken",
         "txn_id": ""
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost");
+    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
     assert!(result.is_err());
     match result.unwrap_err() {
         e if e.is_bad_request() && e.internal_message().contains("Transaction ID required") => {}
@@ -240,15 +252,20 @@ fn test_verify_token_stage_empty_txn_id() {
     }
 }
 
-#[test]
-fn test_verify_token_stage_success() {
+#[tokio::test]
+async fn test_verify_token_stage_non_string_token_is_rejected() {
     let service = create_service();
+    let auth_service = create_lazy_auth_service();
     let auth = serde_json::json!({
-        "token": "sometoken",
+        "token": 12345,
         "txn_id": "txn123"
     });
-    let result = service.verify_token_stage(&auth, "@user:localhost");
-    assert!(result.is_ok());
+    let result = service.verify_token_stage(&auth, "@user:localhost", &auth_service).await;
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        e if e.is_bad_request() && e.internal_message().contains("Token required") => {}
+        _ => panic!("Expected BadRequest error"),
+    }
 }
 
 #[test]

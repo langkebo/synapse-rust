@@ -73,7 +73,7 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
 }
 
 pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let csrf_manager = CsrfTokenManager::new(state.services.server_name.clone());
+    let csrf_manager = CsrfTokenManager::new(state.services.core.server_name.clone());
     let method = request.method().clone();
     let headers = request.headers().clone();
     let session_id = extract_cookie_session_id_for_csrf(&headers);

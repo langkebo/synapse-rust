@@ -354,7 +354,7 @@ impl SecureNonceGenerator {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Aes256GcmCipher {
     #[cfg(test)]
     nonce_generator: Option<Arc<SecureNonceGenerator>>,
@@ -377,6 +377,7 @@ impl Aes256GcmCipher {
         Ok((nonce, ciphertext))
     }
 
+    #[allow(dead_code)]
     fn encrypt(&self, key: &Aes256GcmKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce = {
             #[cfg(test)]
@@ -423,6 +424,7 @@ impl Aes256GcmCipher {
         Ok(result)
     }
 
+    #[allow(dead_code)]
     fn decrypt(
         key: &Aes256GcmKey,
         nonce: &Aes256GcmNonce,
@@ -436,15 +438,6 @@ impl Aes256GcmCipher {
             cipher.decrypt(nonce_bytes, encrypted).map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
 
         Ok(plaintext)
-    }
-}
-
-impl Default for Aes256GcmCipher {
-    fn default() -> Self {
-        Self {
-            #[cfg(test)]
-            nonce_generator: None,
-        }
     }
 }
 

@@ -619,6 +619,7 @@ async fn upload_device_signing(
             &auth_user.user_id,
             synapse_services::uia_service::UiaService::get_cross_signing_flows(),
             &state.services.core.auth_service,
+            &state.services.account.threepid_storage,
         )
         .await
     {

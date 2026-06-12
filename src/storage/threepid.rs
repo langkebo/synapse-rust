@@ -446,6 +446,20 @@ mod tests {
     }
 
     #[test]
+    fn test_create_threepid_request_phone() {
+        let request = CreateThreepidRequest {
+            user_id: "@test:example.com".to_string(),
+            medium: "msisdn".to_string(),
+            address: "+1234567890".to_string(),
+            verification_token: None,
+            verification_expires_at: None,
+        };
+        assert_eq!(request.medium, "msisdn");
+        assert!(request.verification_token.is_none());
+        assert!(request.verification_expires_at.is_none());
+    }
+
+    #[test]
     fn test_user_threepid_struct() {
         let threepid = UserThreepid {
             id: 1,
@@ -460,5 +474,122 @@ mod tests {
         };
         assert_eq!(threepid.id, 1);
         assert!(threepid.is_verified);
+    }
+
+    #[test]
+    fn test_user_threepid_unverified() {
+        let threepid = UserThreepid {
+            id: 2,
+            user_id: "@bob:example.com".to_string(),
+            medium: "email".to_string(),
+            address: "bob@example.com".to_string(),
+            validated_at: None,
+            added_ts: 1234567800000,
+            is_verified: false,
+            verification_token: Some("verify_token_abc".to_string()),
+            verification_expires_at: Some(1234654200000),
+        };
+        assert!(!threepid.is_verified);
+        assert!(threepid.validated_at.is_none());
+        assert!(threepid.verification_token.is_some());
+        assert!(threepid.verification_expires_at.is_some());
+    }
+
+    #[test]
+    fn test_user_threepid_phone() {
+        let threepid = UserThreepid {
+            id: 3,
+            user_id: "@carol:example.com".to_string(),
+            medium: "msisdn".to_string(),
+            address: "+1234567890".to_string(),
+            validated_at: Some(1234567890000),
+            added_ts: 1234567800000,
+            is_verified: true,
+            verification_token: None,
+            verification_expires_at: None,
+        };
+        assert_eq!(threepid.medium, "msisdn");
+        assert!(threepid.is_verified);
+    }
+
+    #[test]
+    fn test_threepid_validation_session() {
+        let session = ThreepidValidationSession {
+            id: 1,
+            session_id: "session-uuid-123".to_string(),
+            medium: "email".to_string(),
+            address: "test@example.com".to_string(),
+            client_secret: "secret123".to_string(),
+            token: "token456".to_string(),
+            send_attempt: 1,
+            next_link: Some("https://example.com/next".to_string()),
+            is_validated: false,
+            validated_at: None,
+            created_ts: 1700000000000,
+            expires_at: 1700086400000,
+        };
+        assert_eq!(session.session_id, "session-uuid-123");
+        assert_eq!(session.medium, "email");
+        assert!(!session.is_validated);
+        assert!(session.next_link.is_some());
+        assert_eq!(session.send_attempt, 1);
+    }
+
+    #[test]
+    fn test_threepid_validation_session_validated() {
+        let session = ThreepidValidationSession {
+            id: 2,
+            session_id: "validated-session".to_string(),
+            medium: "email".to_string(),
+            address: "verified@example.com".to_string(),
+            client_secret: "secret789".to_string(),
+            token: "token012".to_string(),
+            send_attempt: 2,
+            next_link: None,
+            is_validated: true,
+            validated_at: Some(1700050000000),
+            created_ts: 1700000000000,
+            expires_at: 1700086400000,
+        };
+        assert!(session.is_validated);
+        assert!(session.validated_at.is_some());
+        assert_eq!(session.send_attempt, 2);
+        assert!(session.next_link.is_none());
+    }
+
+    #[test]
+    fn test_threepid_serialization() {
+        let threepid = UserThreepid {
+            id: 1,
+            user_id: "@test:example.com".to_string(),
+            medium: "email".to_string(),
+            address: "test@example.com".to_string(),
+            validated_at: Some(1700000000000),
+            added_ts: 1699900000000,
+            is_verified: true,
+            verification_token: None,
+            verification_expires_at: None,
+        };
+        let json = serde_json::to_string(&threepid).expect("Failed to serialize");
+        let deserialized: UserThreepid = serde_json::from_str(&json).expect("Failed to deserialize");
+        assert_eq!(threepid.id, deserialized.id);
+        assert_eq!(threepid.medium, deserialized.medium);
+        assert_eq!(threepid.address, deserialized.address);
+        assert_eq!(threepid.is_verified, deserialized.is_verified);
+    }
+
+    #[test]
+    fn test_create_threepid_request_serialization() {
+        let request = CreateThreepidRequest {
+            user_id: "@test:example.com".to_string(),
+            medium: "email".to_string(),
+            address: "test@example.com".to_string(),
+            verification_token: Some("token123".to_string()),
+            verification_expires_at: Some(1234567890000),
+        };
+        let json = serde_json::to_string(&request).expect("Failed to serialize");
+        assert!(json.contains("verification_expires_ts"));
+        let deserialized: CreateThreepidRequest = serde_json::from_str(&json).expect("Failed to deserialize");
+        assert_eq!(deserialized.verification_expires_at, Some(1234567890000));
     }
 }

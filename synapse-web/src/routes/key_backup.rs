@@ -176,7 +176,13 @@ async fn create_backup_version(
         .services
         .extensions
         .uia_service
-        .require_uia(auth, &auth_user.user_id, UiaService::get_default_flows(), &state.services.core.auth_service)
+        .require_uia(
+            auth,
+            &auth_user.user_id,
+            UiaService::get_default_flows(),
+            &state.services.core.auth_service,
+            &state.services.account.threepid_storage,
+        )
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());

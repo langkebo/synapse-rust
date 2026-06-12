@@ -42,16 +42,20 @@ pub struct ServiceContainer {
     pub federation: FederationServices,
     pub admin: AdminServices,
 
+    // Canonical-compatible grouped views. Keep flat fields below for
+    // existing root callers while we migrate access paths incrementally.
+    pub core: CoreServices,
+    pub account: AccountServices,
+    pub sso: SsoServices,
+    pub extensions: ExtensionServices,
+
     // Core services — not specific to any single domain
-    pub user_storage: UserStorage,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
-    pub presence_storage: PresenceStorage,
     pub qr_login_storage: QrLoginStorage,
     pub invite_blocklist_storage: InviteBlocklistStorage,
     pub sticky_event_storage: StickyEventStorage,
-    pub auth_service: AuthService,
     pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
     pub search_service: Arc<crate::services::search_service::SearchService>,
     pub media_service: crate::services::media_service::MediaService,
@@ -61,7 +65,6 @@ pub struct ServiceContainer {
     pub server_metrics: Arc<crate::common::server_metrics::ServerMetrics>,
     pub server_name: String,
     pub config: Config,
-    pub key_rotation_storage: KeyRotationStorage,
     #[cfg(feature = "voice-extended")]
     pub voice_service: crate::services::voice_service::VoiceService,
     #[cfg(feature = "friends")]
@@ -102,13 +105,105 @@ pub struct ServiceContainer {
     #[cfg(not(feature = "builtin-oidc"))]
     pub builtin_oidc_provider: Option<()>,
     pub identity_service: Arc<crate::services::identity::IdentityService>,
-    pub translation_service: Arc<crate::services::translation_service::TranslationService>,
     pub uia_service: Arc<crate::services::uia_service::UiaService>,
     pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
-    pub event_notifier: crate::services::event_notifier::EventNotifier,
     pub account_data_service: Arc<crate::services::account_data_service::AccountDataService>,
     pub client_push_service: Arc<crate::services::client_push_service::ClientPushService>,
     pub room_tag_service: Arc<crate::services::room_tag_service::RoomTagService>,
+}
+
+// =============================================================================
+// Core — infra, auth, media, config
+// =============================================================================
+
+#[derive(Clone)]
+pub struct CoreServices {
+    pub auth_service: AuthService,
+    pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
+    pub search_service: Arc<crate::services::search_service::SearchService>,
+    pub media_service: crate::services::media_service::MediaService,
+    pub cache: Arc<CacheManager>,
+    pub task_queue: Option<Arc<RedisTaskQueue>>,
+    pub metrics: Arc<MetricsCollector>,
+    pub server_metrics: Arc<crate::common::server_metrics::ServerMetrics>,
+    pub server_name: String,
+    pub config: Config,
+    pub key_rotation_storage: KeyRotationStorage,
+    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub event_notifier: crate::services::event_notifier::EventNotifier,
+}
+
+// =============================================================================
+// Account — user identity, devices, tokens, presence
+// =============================================================================
+
+#[derive(Clone)]
+pub struct AccountServices {
+    pub user_storage: UserStorage,
+    pub threepid_storage: ThreepidStorage,
+    pub device_storage: DeviceStorage,
+    pub token_storage: AccessTokenStorage,
+    pub presence_storage: PresenceStorage,
+    pub qr_login_storage: QrLoginStorage,
+    pub invite_blocklist_storage: InviteBlocklistStorage,
+    pub sticky_event_storage: StickyEventStorage,
+}
+
+// =============================================================================
+// SSO — SAML, CAS, OIDC
+// =============================================================================
+
+#[derive(Clone)]
+pub struct SsoServices {
+    #[cfg(feature = "saml-sso")]
+    pub saml_storage: crate::storage::saml::SamlStorage,
+    #[cfg(feature = "saml-sso")]
+    pub saml_service: Arc<crate::services::saml_service::SamlService>,
+    #[cfg(feature = "cas-sso")]
+    pub cas_storage: crate::storage::cas::CasStorage,
+    #[cfg(feature = "cas-sso")]
+    pub cas_service: Arc<crate::services::cas_service::CasService>,
+    pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    #[cfg(feature = "builtin-oidc")]
+    pub builtin_oidc_provider: Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
+    #[cfg(not(feature = "builtin-oidc"))]
+    pub builtin_oidc_provider: Option<()>,
+}
+
+// =============================================================================
+// Extensions — feature-gated and cross-cutting domain services
+// =============================================================================
+
+#[derive(Clone)]
+pub struct ExtensionServices {
+    #[cfg(feature = "voice-extended")]
+    pub voice_service: crate::services::voice_service::VoiceService,
+    #[cfg(feature = "friends")]
+    pub friend_storage: FriendRoomStorage,
+    #[cfg(feature = "friends")]
+    pub friend_room_service: Arc<crate::services::friend_room_service::FriendRoomService>,
+    #[cfg(feature = "friends")]
+    pub friend_federation: Arc<FriendFederation>,
+    pub rtc_domain_service: Arc<crate::services::rtc::RtcDomainService>,
+    pub directory_service: Arc<crate::services::directory_service::DirectoryService>,
+    pub media_domain_service: Arc<crate::services::media::MediaDomainService>,
+    #[cfg(feature = "openclaw-routes")]
+    pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
+    #[cfg(feature = "server-notifications")]
+    pub server_notification_storage: crate::storage::server_notification::ServerNotificationStorage,
+    #[cfg(feature = "server-notifications")]
+    pub server_notification_service: Arc<crate::services::server_notification_service::ServerNotificationService>,
+    #[cfg(feature = "privacy-ext")]
+    pub privacy_storage: crate::storage::privacy::PrivacyStorage,
+    #[cfg(feature = "widgets")]
+    pub widget_storage: crate::storage::widget::WidgetStorage,
+    #[cfg(feature = "widgets")]
+    pub widget_service: Arc<crate::services::widget_service::WidgetService>,
+    #[cfg(feature = "burn-after-read")]
+    pub burn_after_read: Arc<BurnAfterReadService>,
+    pub identity_service: Arc<crate::services::identity::IdentityService>,
+    pub translation_service: Arc<crate::services::translation_service::TranslationService>,
+    pub uia_service: Arc<crate::services::uia_service::UiaService>,
 }
 
 // =============================================================================
@@ -231,7 +326,6 @@ fn assemble_room_and_sync(
     presence_storage: &PresenceStorage,
     to_device_storage: &crate::e2ee::to_device::ToDeviceStorage,
     metrics: &Arc<MetricsCollector>,
-    event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
 ) -> RoomSyncServices {
     let server_name_for_storage = config.server.get_server_name().to_string();
     let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
@@ -247,7 +341,9 @@ fn assemble_room_and_sync(
     ));
 
     #[cfg(feature = "beacons")]
-    let beacon_service = Arc::new(crate::services::beacon_service::BeaconService::new(pool.clone(), cache.clone()));
+    let beacon_cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+    #[cfg(feature = "beacons")]
+    let beacon_service = Arc::new(crate::services::beacon_service::BeaconService::new(pool.clone(), beacon_cache));
 
     let room_service =
         Arc::new(crate::services::room_service::RoomService::new(crate::services::room_service::RoomServiceConfig {
@@ -261,7 +357,7 @@ fn assemble_room_and_sync(
             server_name: config.server.name.clone(),
             task_queue: task_queue.clone(),
             relations_storage: relations_storage.clone(),
-            event_broadcaster,
+            event_broadcaster: None,
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
@@ -282,7 +378,9 @@ fn assemble_room_and_sync(
         },
     ));
 
-    let typing_service = Arc::new(crate::services::typing_service::TypingService::new(cache.clone()));
+    let typing_service = Arc::new(crate::services::typing_service::TypingService::new(Arc::new(
+        cache.as_ref().to_synapse_cache_manager(),
+    )));
 
     let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
     let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
@@ -307,8 +405,10 @@ fn assemble_room_and_sync(
     ));
 
     let thread_storage = crate::storage::thread::ThreadStorage::new(pool);
-    let thread_service =
-        Arc::new(crate::services::thread_service::ThreadService::new(Arc::new(thread_storage.clone())));
+    let canonical_thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
+    let thread_service = Arc::new(crate::services::thread_service::ThreadService::new(Arc::new(
+        canonical_thread_storage,
+    )));
 
     RoomSyncServices {
         room_storage,
@@ -445,7 +545,10 @@ fn assemble_admin_support(
     let admin_audit_service =
         Arc::new(crate::services::admin_audit_service::AdminAuditService::new(Arc::new(audit_storage.clone())));
 
-    let feature_flag_storage = crate::storage::feature_flags::FeatureFlagStorage::new(pool, cache.clone());
+    let feature_flag_storage = crate::storage::feature_flags::FeatureFlagStorage::new(
+        pool,
+        Arc::new(cache.as_ref().to_synapse_cache_manager()),
+    );
     let feature_flag_service = Arc::new(crate::services::feature_flag_service::FeatureFlagService::new(
         Arc::new(feature_flag_storage.clone()),
         admin_audit_service.clone(),
@@ -457,8 +560,9 @@ fn assemble_admin_support(
     )));
 
     let background_update_storage = crate::storage::background_update::BackgroundUpdateStorage::new(pool);
+    let canonical_background_update_storage = synapse_storage::background_update::BackgroundUpdateStorage::new(pool);
     let background_update_service = Arc::new(crate::services::background_update_service::BackgroundUpdateService::new(
-        Arc::new(background_update_storage.clone()),
+        Arc::new(canonical_background_update_storage),
     ));
 
     let module_storage = crate::storage::module::ModuleStorage::new(pool);
@@ -476,8 +580,9 @@ fn assemble_admin_support(
     ));
 
     let refresh_token_storage = crate::storage::refresh_token::RefreshTokenStorage::new(pool);
+    let canonical_refresh_token_storage = synapse_storage::refresh_token::RefreshTokenStorage::new(pool);
     let refresh_token_service = Arc::new(crate::services::refresh_token_service::RefreshTokenService::new(
-        Arc::new(refresh_token_storage.clone()),
+        Arc::new(canonical_refresh_token_storage),
         DEFAULT_REFRESH_TOKEN_TTL_MS,
     ));
 
@@ -488,8 +593,10 @@ fn assemble_admin_support(
         )));
 
     let captcha_storage = crate::storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service =
-        Arc::new(crate::services::captcha_service::CaptchaService::new(Arc::new(captcha_storage.clone())));
+    let canonical_captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
+    let captcha_service = Arc::new(crate::services::captcha_service::CaptchaService::new(Arc::new(
+        canonical_captcha_storage,
+    )));
 
     let federation_blacklist_storage = crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
     let federation_blacklist_service =
@@ -517,12 +624,13 @@ fn assemble_admin_support(
         Arc::new(refresh_token_storage.clone()),
         registration_token_service.clone(),
     ));
+    let canonical_admin_user_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
     let admin_user_service = Arc::new(crate::services::admin_user_service::AdminUserService::new(
         pool.clone(),
-        UserStorage::new(pool, cache.clone()),
-        DeviceStorage::new(pool),
-        RoomStorage::new(pool),
-        RoomMemberStorage::new(pool, config.server.get_server_name()),
+        synapse_storage::UserStorage::new(pool, canonical_admin_user_cache),
+        synapse_storage::DeviceStorage::new(pool),
+        synapse_storage::RoomStorage::new(pool),
+        synapse_storage::RoomMemberStorage::new(pool, config.server.get_server_name()),
         config.server.name.clone(),
     ));
 
@@ -601,7 +709,7 @@ fn assemble_admin_support(
 
 impl ServiceContainer {
     pub fn database_pool(&self) -> Arc<sqlx::PgPool> {
-        self.user_storage.pool.clone()
+        self.account.user_storage.pool.clone()
     }
 
     pub async fn new(
@@ -692,13 +800,16 @@ impl ServiceContainer {
             &presence_storage,
             &e2ee.to_device_storage,
             &metrics,
-            event_broadcaster.clone(),
         );
+
+        rooms.room_service.set_event_broadcaster(event_broadcaster.clone()).await;
 
         // Media service
         let media_service = crate::services::media_service::MediaService::with_pool(
             media_path.as_str(),
-            task_queue.clone(),
+        task_queue
+            .as_ref()
+            .map(|queue| Arc::new(queue.as_ref().to_synapse_redis_task_queue())),
             &config.server.name,
             Some(pool.clone()),
         );
@@ -818,7 +929,7 @@ impl ServiceContainer {
 
         #[cfg(feature = "burn-after-read")]
         let burn_after_read = {
-            let burn_storage = crate::storage::burn_after_read::BurnAfterReadStorage::new(pool);
+            let burn_storage = synapse_storage::burn_after_read::BurnAfterReadStorage::new(pool);
             Arc::new(BurnAfterReadService::new(burn_storage, rooms.event_storage.clone(), config.server.name.clone()))
         };
 
@@ -911,6 +1022,86 @@ impl ServiceContainer {
 
         let client_push_service = Arc::new(crate::services::client_push_service::ClientPushService::new(pool.clone()));
         let room_tag_service = Arc::new(crate::services::room_tag_service::RoomTagService::new(pool.clone()));
+        let device_storage = DeviceStorage::new(pool);
+        let token_storage = AccessTokenStorage::new(pool);
+        let key_rotation_storage = KeyRotationStorage::new(pool.clone());
+        let uia_service = Arc::new(crate::services::uia_service::UiaService::new(
+            cache.clone(),
+            ui_auth_session_timeout,
+        ));
+        let event_notifier = crate::services::event_notifier::EventNotifier::new();
+        let server_name = config.server.name.clone();
+
+        let core = CoreServices {
+            auth_service: auth_service.clone(),
+            registration_service: registration_service.clone(),
+            search_service: search_service.clone(),
+            media_service: media_service.clone(),
+            cache: cache.clone(),
+            task_queue: task_queue.clone(),
+            metrics: metrics.clone(),
+            server_metrics: server_metrics.clone(),
+            server_name: server_name.clone(),
+            config: config.clone(),
+            key_rotation_storage: key_rotation_storage.clone(),
+            event_broadcaster: event_broadcaster.clone(),
+            event_notifier: event_notifier.clone(),
+        };
+
+        let account = AccountServices {
+            user_storage: user_storage.clone(),
+            threepid_storage: threepid_storage.clone(),
+            device_storage: device_storage.clone(),
+            token_storage: token_storage.clone(),
+            presence_storage: presence_storage.clone(),
+            qr_login_storage: qr_login_storage.clone(),
+            invite_blocklist_storage: invite_blocklist_storage.clone(),
+            sticky_event_storage: sticky_event_storage.clone(),
+        };
+
+        let sso = SsoServices {
+            #[cfg(feature = "saml-sso")]
+            saml_storage: saml_storage.clone(),
+            #[cfg(feature = "saml-sso")]
+            saml_service: saml_service.clone(),
+            #[cfg(feature = "cas-sso")]
+            cas_storage: cas_storage.clone(),
+            #[cfg(feature = "cas-sso")]
+            cas_service: cas_service.clone(),
+            oidc_service: oidc_service.clone(),
+            builtin_oidc_provider: builtin_oidc_provider.clone(),
+        };
+
+        let extensions = ExtensionServices {
+            #[cfg(feature = "voice-extended")]
+            voice_service: voice_service.clone(),
+            #[cfg(feature = "friends")]
+            friend_storage: friend_storage.clone(),
+            #[cfg(feature = "friends")]
+            friend_room_service: friend_room_service.clone(),
+            #[cfg(feature = "friends")]
+            friend_federation: friend_federation.clone(),
+            rtc_domain_service: rtc_domain_service.clone(),
+            directory_service: directory_service.clone(),
+            media_domain_service: media_domain_service.clone(),
+            #[cfg(feature = "openclaw-routes")]
+            ai_connection_storage: ai_connection_storage.clone(),
+            #[cfg(feature = "server-notifications")]
+            server_notification_storage: server_notification_storage.clone(),
+            #[cfg(feature = "server-notifications")]
+            server_notification_service: server_notification_service.clone(),
+            #[cfg(feature = "privacy-ext")]
+            privacy_storage: privacy_storage.clone(),
+            #[cfg(feature = "widgets")]
+            widget_storage: widget_storage.clone(),
+            #[cfg(feature = "widgets")]
+            widget_service: widget_service.clone(),
+            #[cfg(feature = "burn-after-read")]
+            burn_after_read: burn_after_read.clone(),
+            identity_service: identity_service.clone(),
+            translation_service: translation_service.clone(),
+            uia_service: uia_service.clone(),
+        };
 
         // Event broadcaster (federation)
         let container = Self {
@@ -918,24 +1109,24 @@ impl ServiceContainer {
             rooms,
             federation,
             admin,
-            user_storage,
+            core,
+            account,
+            sso,
+            extensions,
             threepid_storage,
-            device_storage: DeviceStorage::new(pool),
-            token_storage: AccessTokenStorage::new(pool),
-            presence_storage: presence_storage.clone(),
+            device_storage,
+            token_storage,
             qr_login_storage,
             invite_blocklist_storage,
             sticky_event_storage,
-            auth_service,
             registration_service,
             search_service,
             media_service,
             cache: cache.clone(),
             task_queue,
             metrics,
-            server_name: config.server.name.clone(),
+            server_name,
             config,
-            key_rotation_storage: KeyRotationStorage::new(pool.clone()),
             server_metrics,
             #[cfg(feature = "voice-extended")]
             voice_service,
@@ -974,13 +1165,8 @@ impl ServiceContainer {
             oidc_mapping_service,
             builtin_oidc_provider,
             identity_service,
-            translation_service,
-            uia_service: Arc::new(crate::services::uia_service::UiaService::new(
-                cache.clone(),
-                ui_auth_session_timeout,
-            )),
+            uia_service,
             event_broadcaster,
-            event_notifier: crate::services::event_notifier::EventNotifier::new(),
             account_data_service,
             client_push_service,
             room_tag_service,

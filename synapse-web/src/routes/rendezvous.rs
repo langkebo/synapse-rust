@@ -79,7 +79,7 @@ async fn create_session(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
 
-    ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = %session.intent, "Created rendezvous session");
+    ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
     let rendezvous_url: String = format!("matrix://rendezvous/{}/{}", &state.services.core.server_name, session.session_id);
 

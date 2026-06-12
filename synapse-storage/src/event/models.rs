@@ -42,6 +42,15 @@ pub struct StateEvent {
     pub stream_ordering: Option<i64>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RoomEphemeralEvent {
+    pub event_type: String,
+    pub user_id: String,
+    pub content: serde_json::Value,
+    pub stream_id: i64,
+    pub created_ts: i64,
+}
+
 #[derive(Clone)]
 pub struct EventStorage {
     pub pool: Arc<Pool<Postgres>>,
@@ -59,7 +68,7 @@ pub struct CreateEventParams {
     pub origin_server_ts: i64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct EventQueryFilter {
     pub types: Option<Vec<String>>,
     pub not_types: Option<Vec<String>>,

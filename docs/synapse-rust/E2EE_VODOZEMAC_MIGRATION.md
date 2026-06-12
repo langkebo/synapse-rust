@@ -205,6 +205,95 @@ artifacts/e2ee-interop/mobile/<run-id>/
 | I-3 | not-run | - | 待长时间离线场景 |
 ```
 
+### 5.3.3 Android/iOS 执行 Checklist（I-1 ~ I-8）
+
+- **通用前置检查**
+  - [ ] 已生成 `RUN_ID`，并运行 backend-only 入口保留 `artifacts/e2ee-interop/mobile/<run-id>/backend/`
+  - [ ] `backend/client-versions.json` 已生成，确认 homeserver 可访问
+  - [ ] Android / iOS 客户端版本、设备型号、模拟器/真机信息已写入各自 `summary.md`
+  - [ ] 如需 Web 交叉验证，已运行 Element Web overlay，并确认 `element-web/` 目录可写入截图与日志
+  - [ ] 已准备 2 个测试账号：
+    - `A`：主发送方，优先放在 Android 或 iOS
+    - `B`：主接收方，优先放在另一个移动端或 Element Web
+  - [ ] 两端都已完成首次登录后的密钥初始化，未停留在 `Setting up keys` 或恢复引导页面
+
+- **I-1 房间加密状态同步**
+  - [ ] 用 `A` 创建私聊或小群房间，并邀请 `B`
+  - [ ] 确认房间已开启 E2EE，双方房间详情页都能看到加密状态
+  - [ ] Android 侧截图保存为 `android/case-I1-room-state.png`
+  - [ ] iOS 侧截图保存为 `ios/case-I1-room-state.png`
+  - [ ] 在两端 `case-matrix.md` 记录 `I-1`
+  - **通过标准**：双方都成功进入同一加密房间，且都能观察到 `m.room.encrypted` 生效
+
+- **I-2 单条消息端到端解密**
+  - [ ] `A` 向 `B` 发送 1 条纯文本消息，例如 `I2 hello from <client>`
+  - [ ] `B` 成功看到明文，不出现“无法解密”占位
+  - [ ] 反向再发 1 条，从 `B` 到 `A`
+  - [ ] Android / iOS 各保存 1 张明文消息截图：`case-I2-send.png` / `case-I2-recv.png`
+  - [ ] 在 `case-matrix.md` 记录发送端、接收端、房间 ID、消息时间
+  - **通过标准**：双向消息都能明文显示，无红锁错误、未知设备阻断或解密失败提示
+
+- **I-3 离线期间批量消息补拉**
+  - [ ] 让 `B` 完全离线：
+    - Android：强制停止应用或关闭网络
+    - iOS：杀掉应用并打开飞行模式，或确保不再前台 sync
+  - [ ] `A` 在离线窗口内连续发送消息；快速验收至少先做 20 条，若通过再扩到目标批量
+  - [ ] 重新让 `B` 上线并等待首次 sync 完成
+  - [ ] 确认 `B` 能一次性拉到离线期消息，且中间不出现明显缺口
+  - [ ] 保存离线前后截图：`case-I3-offline.png`、`case-I3-recovered.png`
+  - [ ] 在 `case-matrix.md` 记录发送条数、恢复耗时、缺失条数
+  - **通过标准**：离线期间消息恢复后可连续查看，未出现 Megolm session 丢失或重复建房间密钥导致的大面积解密失败
+
+- **I-4 新 device 加入与 device list 更新**
+  - [ ] 为 `A` 新增第二台设备：
+    - Android：新开一个 emulator 或登出后在另一设备登录
+    - iOS：使用 Simulator/真机上的第二实例或切换到另一设备
+  - [ ] 新设备登录完成后，等待 `B` 侧收到设备列表更新
+  - [ ] 在 `B` 侧打开用户/设备安全信息，确认可见 `A` 的新 device
+  - [ ] 用 `A` 的新 device 发一条消息，确认 `B` 能正常解密
+  - [ ] 保存证据：设备列表截图 `case-I4-device-list.png`，新 device 发消息截图 `case-I4-message.png`
+  - [ ] 在 `case-matrix.md` 记录新 device 标识、是否看到 `device_list_update`
+  - **通过标准**：新 device 出现在 `B` 的已知设备中，且加入后发送的加密消息能被 `B` 成功解密
+
+- **I-5 device 撤销后的前向保密**
+  - [ ] 选定 `A` 的旧 device，在会话中执行登出/移除/撤销
+  - [ ] 让 `A` 的仍有效 device 再发送新消息
+  - [ ] 确认 `B` 仍能解密新消息
+  - [ ] 如可操作，检查被撤销 device 不再收到新的 to-device / 同步更新
+  - [ ] 保存撤销前后截图：`case-I5-device-before.png`、`case-I5-device-after.png`
+  - [ ] 在 `case-matrix.md` 记录撤销方式、撤销后首条新消息时间
+  - **通过标准**：撤销不会破坏现有有效设备的消息解密；被撤销设备不再参与新的设备分发
+
+- **I-6 cross-signing 验证状态传播**
+  - [ ] 在 `A` 上启用 cross-signing，并完成需要的密码/UIA 步骤
+  - [ ] 等待 `B` 同步到 `A` 的最新验证状态
+  - [ ] 在 `B` 的设备/用户安全界面确认 `A` 显示为 `verified`
+  - [ ] 保存截图：`case-I6-cross-signing-a.png`、`case-I6-cross-signing-b.png`
+  - [ ] 在 `case-matrix.md` 记录是否需要重新登录、是否出现 bootstrap 卡点
+  - **通过标准**：`A` 完成 cross-signing 后，`B` 最终能看到已验证状态，且过程中无签名校验失败提示
+
+- **I-7 key backup / secret send**
+  - [ ] 在 `A` 上开启 key backup，完成 UIA 或恢复密钥保存流程
+  - [ ] 触发一次需要 secret send / key backup 同步的场景
+  - [ ] 在 `B` 侧确认能收到相关恢复材料，或在恢复流程中成功解密历史消息
+  - [ ] 保存 key backup 状态页或恢复成功截图：`case-I7-backup.png`
+  - [ ] 如有日志，可把关键事件摘要写入 `summary.md`
+  - **通过标准**：key backup 建立成功，恢复材料可被另一端消费，不出现 `M_BAD_MAC` / `M_INVALID_SIGNATURE` 之类的错误
+
+- **I-8 错误密钥注入拒绝**
+  - [ ] 仅在可控测试环境执行，不要污染长期保留账号
+  - [ ] 通过错误恢复密钥、过期 secret、或手工替换错误 key material 触发失败路径
+  - [ ] 观察客户端是否明确拒绝并给出预期错误，而不是静默接受
+  - [ ] 保存错误界面或日志：`case-I8-invalid-key.png`
+  - [ ] 在 `case-matrix.md` 记录触发方式与实际错误文案
+  - **通过标准**：错误密钥被拒绝，且能映射到 `M_INVALID_SIGNATURE` / `M_BAD_MAC` 或客户端等价错误
+
+- **收尾检查**
+  - [ ] `android/case-matrix.md` 已补齐 I-1 ~ I-8
+  - [ ] `ios/case-matrix.md` 已补齐 I-1 ~ I-8
+  - [ ] `summary.md` 中已写明 `result: pass / partial / fail`
+  - [ ] 若本轮只完成部分 case，已在 `notes` 中说明阻塞点和下一步建议
+
 ### 5.4 Phase 4 边界冻结补充（2026-06-11）
 
 - `Aes256Gcm*` 仍需保留：生产路径仍由 `src/e2ee/ssss/service.rs` 用于 SSSS 密钥封装，并由 `src/e2ee/vodozemac_megolm.rs` 用于 Phase 2 双写 legacy `session_key` 兼容写入

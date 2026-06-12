@@ -122,3 +122,176 @@ impl OlmAccountData {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_olm_message_type() {
+        assert_eq!(
+            serde_json::to_string(&OlmMessageType::PreKey).unwrap(),
+            r#""PreKey""#
+        );
+        assert_eq!(
+            serde_json::to_string(&OlmMessageType::Message).unwrap(),
+            r#""Message""#
+        );
+    }
+
+    #[test]
+    fn test_olm_session_data_new() {
+        let session = OlmSessionData::new(
+            "session_1".to_string(),
+            "@alice:example.com".to_string(),
+            "DEVICE1".to_string(),
+            "sender_key".to_string(),
+            "receiver_key".to_string(),
+            "serialized_state".to_string(),
+        );
+        assert_eq!(session.session_id, "session_1");
+        assert_eq!(session.user_id, "@alice:example.com");
+        assert_eq!(session.message_index, 0);
+        assert!(session.created_ts > 0);
+        assert_eq!(session.created_ts, session.last_used_ts);
+        assert!(!session.is_expired());
+    }
+
+    #[test]
+    fn test_olm_session_data_touch() {
+        let mut session = OlmSessionData::new(
+            "s1".to_string(),
+            "@user:example.com".to_string(),
+            "DEV".to_string(),
+            "sk".to_string(),
+            "rk".to_string(),
+            "state".to_string(),
+        );
+        let old_ts = session.last_used_ts;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        session.touch();
+        assert!(session.last_used_ts > old_ts);
+    }
+
+    #[test]
+    fn test_olm_session_data_increment_message_index() {
+        let mut session = OlmSessionData::new(
+            "s1".to_string(),
+            "@user:example.com".to_string(),
+            "DEV".to_string(),
+            "sk".to_string(),
+            "rk".to_string(),
+            "state".to_string(),
+        );
+        assert_eq!(session.message_index, 0);
+        session.increment_message_index();
+        assert_eq!(session.message_index, 1);
+        session.increment_message_index();
+        assert_eq!(session.message_index, 2);
+    }
+
+    #[test]
+    fn test_olm_session_data_is_expired() {
+        let mut session = OlmSessionData::new(
+            "s1".to_string(),
+            "@user:example.com".to_string(),
+            "DEV".to_string(),
+            "sk".to_string(),
+            "rk".to_string(),
+            "state".to_string(),
+        );
+        assert!(!session.is_expired());
+
+        let now = chrono::Utc::now().timestamp_millis();
+        session.expires_at = Some(now - 1000);
+        assert!(session.is_expired());
+
+        session.expires_at = Some(now + 3600000);
+        assert!(!session.is_expired());
+    }
+
+    #[test]
+    fn test_olm_account_data_new() {
+        let account = OlmAccountData::new(
+            "@alice:example.com".to_string(),
+            "DEVICE1".to_string(),
+            "identity_key".to_string(),
+            "serialized".to_string(),
+        );
+        assert_eq!(account.user_id, "@alice:example.com");
+        assert_eq!(account.device_id, "DEVICE1");
+        assert_eq!(account.identity_key, "identity_key");
+        assert!(!account.has_published_one_time_keys);
+        assert!(!account.has_published_fallback_key);
+    }
+
+    #[test]
+    fn test_olm_account_info() {
+        let info = OlmAccountInfo {
+            identity_key: "id_key".to_string(),
+            one_time_keys: vec!["otk1".to_string(), "otk2".to_string()],
+            fallback_key: Some("fbk".to_string()),
+        };
+        assert_eq!(info.identity_key, "id_key");
+        assert_eq!(info.one_time_keys.len(), 2);
+        assert!(info.fallback_key.is_some());
+    }
+
+    #[test]
+    fn test_olm_message_info() {
+        let info = OlmMessageInfo {
+            message_type: OlmMessageType::PreKey,
+            ciphertext: "encrypted_text".to_string(),
+        };
+        assert_eq!(info.message_type, OlmMessageType::PreKey);
+        assert_eq!(info.ciphertext, "encrypted_text");
+    }
+
+    #[test]
+    fn test_olm_encrypted_message() {
+        let msg = OlmEncryptedMessage {
+            session_id: "s1".to_string(),
+            message_type: OlmMessageType::Message,
+            ciphertext: "cipher".to_string(),
+        };
+        assert_eq!(msg.session_id, "s1");
+    }
+
+    #[test]
+    fn test_olm_decrypted_message() {
+        let msg = OlmDecryptedMessage {
+            plaintext: "hello".to_string(),
+            session_id: "s1".to_string(),
+        };
+        assert_eq!(msg.plaintext, "hello");
+    }
+
+    #[test]
+    fn test_one_time_key() {
+        let key = OneTimeKey {
+            key_id: "signed_curve25519:AAAAAA".to_string(),
+            public_key: "base64key".to_string(),
+        };
+        assert_eq!(key.key_id, "signed_curve25519:AAAAAA");
+    }
+
+    #[test]
+    fn test_fallback_key() {
+        let key = FallbackKey {
+            key_id: "signed_curve25519:BBBBBB".to_string(),
+            public_key: "base64key".to_string(),
+            used: false,
+        };
+        assert!(!key.used);
+    }
+
+    #[test]
+    fn test_fallback_key_used() {
+        let key = FallbackKey {
+            key_id: "signed_curve25519:CCCCCC".to_string(),
+            public_key: "base64key".to_string(),
+            used: true,
+        };
+        assert!(key.used);
+    }
+}

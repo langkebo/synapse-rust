@@ -144,6 +144,7 @@ pub async fn make_room_admin(
 
     if state
         .services
+        .account
         .user_storage
         .get_user_by_id(&body.user_id)
         .await
@@ -407,6 +408,7 @@ async fn join_room_member_internal(
 
     if !state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await
@@ -459,6 +461,7 @@ async fn remove_room_member_internal(
 
     if !state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await
@@ -513,6 +516,7 @@ async fn ban_user_internal(
 
     if !state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await
@@ -540,6 +544,7 @@ async fn ban_user_internal(
 
     let actor_is_admin = state
         .services
+        .account
         .user_storage
         .get_user_by_id(actor_user_id)
         .await
@@ -619,6 +624,7 @@ async fn unban_user_internal(
 
     if !state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await
@@ -681,6 +687,7 @@ async fn kick_user_internal(
 
     if !state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await

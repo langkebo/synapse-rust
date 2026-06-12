@@ -1,6 +1,6 @@
 # Supported Matrix Surface
 
-审查日期: 2026-05-29
+审查日期: 2026-06-12（P2 #3/#8 优化完成 + P1 #5/#6 收敛）
 
 基线:
 - Matrix Specification latest: v1.18

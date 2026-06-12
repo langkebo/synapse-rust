@@ -356,7 +356,7 @@ async fn key_changes(
     let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
     let to = params.get("to").and_then(parse_stream_id);
 
-    let max_stream_id: i64 = state.services.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+    let max_stream_id: i64 = state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
         tracing::error!("Failed to get device list stream position: {e}");
         ApiError::database("Failed to get device list stream position")
     })?;
@@ -364,7 +364,7 @@ async fn key_changes(
     let to = to.unwrap_or(max_stream_id);
 
     let changed: Vec<String> =
-        state.services.device_storage.get_device_list_changed_users(from, to, &auth_user.user_id).await.map_err(
+        state.services.account.device_storage.get_device_list_changed_users(from, to, &auth_user.user_id).await.map_err(
             |e| {
                 tracing::error!("Failed to get key changes: {e}");
                 ApiError::database("Failed to get key changes")
@@ -377,7 +377,7 @@ async fn key_changes(
         .collect::<Vec<_>>();
 
     let left: Vec<String> =
-        state.services.device_storage.get_device_list_left_users(from, to, &auth_user.user_id).await.map_err(|e| {
+        state.services.account.device_storage.get_device_list_left_users(from, to, &auth_user.user_id).await.map_err(|e| {
             tracing::error!("Failed to get key changes left: {e}");
             ApiError::database("Failed to get key changes left")
         })?;
@@ -415,7 +415,7 @@ async fn device_list_update(
     let mut left: Vec<String> = Vec::new();
 
     if since.is_none() {
-        let devices_by_user = state.services.device_storage.get_users_devices_batch(&users).await.map_err(|e| {
+        let devices_by_user = state.services.account.device_storage.get_users_devices_batch(&users).await.map_err(|e| {
             tracing::error!("Failed to get devices: {e}");
             ApiError::database("Failed to get devices")
         })?;
@@ -450,14 +450,14 @@ async fn device_list_update(
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
 
-    let max_stream_id: i64 = state.services.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
+    let max_stream_id: i64 = state.services.account.device_storage.get_max_device_list_stream_id().await.map_err(|e| {
         tracing::error!("Failed to get device list stream position: {e}");
         ApiError::database("Failed to get device list stream position")
     })?;
 
     let to = if to > 0 { to } else { max_stream_id };
 
-    let change_rows = state.services.device_storage.get_device_list_changes(since, to, &users).await.map_err(|e| {
+    let change_rows = state.services.account.device_storage.get_device_list_changes(since, to, &users).await.map_err(|e| {
         tracing::error!("Failed to get device list changes: {e}");
         ApiError::database("Failed to get device list changes")
     })?;
@@ -489,7 +489,7 @@ async fn device_list_update(
         let device_ids: Vec<&str> = active_pairs.iter().map(|(_, d)| d.as_str()).collect();
 
         let device_rows =
-            state.services.device_storage.get_devices_by_user_device_pairs(&user_ids, &device_ids).await.map_err(
+            state.services.account.device_storage.get_devices_by_user_device_pairs(&user_ids, &device_ids).await.map_err(
                 |e| {
                     tracing::error!("Failed to batch get device data: {e}");
                     ApiError::database("Failed to get device data")
@@ -509,7 +509,7 @@ async fn device_list_update(
     }
 
     let existing_users: Vec<String> =
-        state.services.device_storage.filter_existing_users(&users).await.map_err(|e| {
+        state.services.account.device_storage.filter_existing_users(&users).await.map_err(|e| {
             tracing::error!("Failed to resolve left users: {e}");
             ApiError::database("Failed to resolve left users")
         })?;
@@ -584,7 +584,7 @@ async fn send_to_device(
     // immediately instead of waiting for the next polling cycle.
     if let Some(msg_map) = body.get("messages").and_then(|m| m.as_object()) {
         for (user_id, _) in msg_map {
-            state.services.event_notifier.notify_user(user_id);
+            state.services.core.event_notifier.notify_user(user_id);
         }
     }
 
@@ -613,12 +613,14 @@ async fn upload_device_signing(
     let auth = body.get("auth");
     if let Err(uia_response) = state
         .services
+        .extensions
         .uia_service
         .require_uia(
             auth,
             &auth_user.user_id,
             crate::services::uia_service::UiaService::get_cross_signing_flows(),
-            &state.services.auth_service,
+            &state.services.core.auth_service,
+            &state.services.account.threepid_storage,
         )
         .await
     {
@@ -717,15 +719,15 @@ async fn get_room_key_requests(
 
     let requests = state
         .services.e2ee.key_request_service
-        .get_requests_paginated(
-            &auth_user.user_id,
-            limit as i64,
-            cursor.as_ref().map(|c| c.0),
-            cursor.as_ref().map(|c| c.1.as_str()),
-            params.status.as_deref(),
-            params.room_id.as_deref(),
-            params.session_id.as_deref(),
-        )
+        .get_requests_paginated(crate::e2ee::key_request::KeyRequestPagination {
+            user_id: &auth_user.user_id,
+            limit: limit as i64,
+            from_ts: cursor.as_ref().map(|c| c.0),
+            from_id: cursor.as_ref().map(|c| c.1.as_str()),
+            status: params.status.as_deref(),
+            room_id: params.room_id.as_deref(),
+            session_id: params.session_id.as_deref(),
+        })
         .await?;
 
     let next_batch = if requests.len() == limit {

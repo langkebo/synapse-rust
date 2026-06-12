@@ -221,7 +221,7 @@ impl CasService {
     pub async fn register_service(&self, request: RegisterServiceRequest) -> Result<CasRegisteredService, ApiError> {
         info!(
             service_id = %request.service_id,
-            has_service_url = !request.service_url.is_empty(),
+            has_service_url = !request.service_url_pattern.is_empty(),
             "Registering CAS service"
         );
         self.storage.register_service(request).await

@@ -3,7 +3,7 @@ use super::SyncService;
 use crate::common::*;
 use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::map_internal;
-use crate::services::*;
+use crate::storage::{RoomEvent, StateEvent};
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 

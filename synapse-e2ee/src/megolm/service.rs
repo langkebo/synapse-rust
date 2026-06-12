@@ -54,6 +54,10 @@ impl MegolmProvider {
         self.inner.delete_session(session_id).await
     }
 
+    pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
+        self.inner.cleanup_expired_sessions().await
+    }
+
     pub async fn get_outbound_session(&self, room_id: &str) -> Result<Option<RoomKeyDistributionData>, ApiError> {
         self.inner.get_outbound_session(room_id).await
     }

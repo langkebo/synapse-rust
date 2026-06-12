@@ -52,3 +52,74 @@ impl PartialEq for CryptoError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_crypto_error_partial_eq_same_variant() {
+        assert_eq!(CryptoError::InvalidBase64, CryptoError::InvalidBase64);
+        assert_eq!(CryptoError::InvalidKeyLength, CryptoError::InvalidKeyLength);
+        assert_eq!(CryptoError::SignatureVerificationFailed, CryptoError::SignatureVerificationFailed);
+        assert_eq!(CryptoError::NonceReuseDetected, CryptoError::NonceReuseDetected);
+        assert_eq!(CryptoError::NonceCounterOverflow, CryptoError::NonceCounterOverflow);
+        assert_eq!(CryptoError::InvalidNonceLength, CryptoError::InvalidNonceLength);
+    }
+
+    #[test]
+    fn test_crypto_error_partial_eq_different_variant() {
+        assert_ne!(CryptoError::InvalidBase64, CryptoError::InvalidKeyLength);
+        assert_ne!(CryptoError::InvalidBase64, CryptoError::NonceReuseDetected);
+        assert_ne!(CryptoError::SignatureVerificationFailed, CryptoError::NonceCounterOverflow);
+    }
+
+    #[test]
+    fn test_crypto_error_partial_eq_with_message() {
+        let e1 = CryptoError::EncryptionError("bad key".to_string());
+        let e2 = CryptoError::EncryptionError("bad key".to_string());
+        let e3 = CryptoError::EncryptionError("other error".to_string());
+        assert_eq!(e1, e2);
+        assert_ne!(e1, e3);
+        // Different variant types with same message
+        assert_ne!(e1, CryptoError::DecryptionError("bad key".to_string()));
+    }
+
+    #[test]
+    fn test_crypto_error_display() {
+        let err = CryptoError::InvalidBase64;
+        assert_eq!(err.to_string(), "Invalid base64 encoding");
+
+        let err = CryptoError::InvalidKeyLength;
+        assert_eq!(err.to_string(), "Invalid key length");
+
+        let err = CryptoError::SignatureVerificationFailed;
+        assert_eq!(err.to_string(), "Signature verification failed");
+
+        let err = CryptoError::EncryptionError("key too short".to_string());
+        assert_eq!(err.to_string(), "Encryption error: key too short");
+
+        let err = CryptoError::DecryptionError("bad padding".to_string());
+        assert_eq!(err.to_string(), "Decryption error: bad padding");
+
+        let err = CryptoError::HashError("unsupported algo".to_string());
+        assert_eq!(err.to_string(), "Hash error: unsupported algo");
+
+        let err = CryptoError::NonceReuseDetected;
+        assert_eq!(err.to_string(), "Nonce reuse detected");
+
+        let err = CryptoError::NonceCounterOverflow;
+        assert_eq!(err.to_string(), "Nonce counter overflow");
+
+        let err = CryptoError::InvalidNonceLength;
+        assert_eq!(err.to_string(), "Invalid nonce length");
+    }
+
+    #[test]
+    fn test_crypto_error_debug() {
+        let err = CryptoError::InvalidBase64;
+        assert!(format!("{:?}", err).contains("InvalidBase64"));
+        let err = CryptoError::EncryptionError("test".to_string());
+        assert!(format!("{:?}", err).contains("EncryptionError"));
+    }
+}
