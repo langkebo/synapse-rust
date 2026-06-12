@@ -3,6 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::Value;
+use synapse_rust::common::room_versions::{DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS};
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
@@ -120,4 +121,53 @@ async fn test_client_capabilities_and_media_config_routes_work_across_versions()
 
     assert_eq!(media_config_jsons[0], media_config_jsons[1]);
     assert_eq!(media_config_jsons[1], media_config_jsons[2]);
+}
+
+#[tokio::test]
+async fn test_versions_and_public_capabilities_match_declared_room_version_surface() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let versions_request =
+        Request::builder().method("GET").uri("/_matrix/client/versions").body(Body::empty()).unwrap();
+    let versions_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), versions_request).await.unwrap();
+    assert_eq!(versions_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(versions_response.into_body(), 4096).await.unwrap();
+    let versions_json: Value = serde_json::from_slice(&body).unwrap();
+    let declared_versions = versions_json["versions"].as_array().expect("versions should be an array");
+    assert!(declared_versions.iter().any(|version| version.as_str() == Some("v1.13")));
+    assert!(!declared_versions.iter().any(|version| version.as_str() == Some("v1.14")));
+
+    let capabilities_request =
+        Request::builder().method("GET").uri("/_matrix/client/v3/capabilities").body(Body::empty()).unwrap();
+    let capabilities_response = ServiceExt::<Request<Body>>::oneshot(app, capabilities_request).await.unwrap();
+    assert_eq!(capabilities_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(capabilities_response.into_body(), 4096).await.unwrap();
+    let capabilities_json: Value = serde_json::from_slice(&body).unwrap();
+    let capabilities = capabilities_json["capabilities"].as_object().expect("capabilities should be an object");
+    let room_versions = capabilities["m.room_versions"].as_object().expect("m.room_versions should be an object");
+    let available = room_versions["available"].as_object().expect("available should be an object");
+
+    assert_eq!(capabilities["m.change_password"]["enabled"], true);
+    assert_eq!(capabilities["m.set_displayname"]["enabled"], true);
+    assert_eq!(capabilities["m.set_avatar_url"]["enabled"], true);
+    assert_eq!(capabilities["m.3pid_changes"]["enabled"], true);
+    assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
+    assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
+    for supported in SUPPORTED_ROOM_VERSIONS {
+        assert_eq!(
+            available.get(supported.version).and_then(|value| value.as_str()),
+            Some(supported.disposition_str()),
+            "declared room version surface should include {}",
+            supported.version
+        );
+    }
+
+    assert!(!capabilities.contains_key("m.sso"));
+    assert!(!capabilities.contains_key("io.hula.friends"));
+    assert!(!capabilities.contains_key("io.hula.widget"));
+    assert!(!capabilities.contains_key("io.hula.burn_after_read"));
 }

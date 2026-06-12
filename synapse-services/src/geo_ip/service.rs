@@ -72,18 +72,7 @@ impl GeoIpService {
     }
 
     fn lookup_maxmind(&self, _ip: &str) -> Result<GeoIpResult, ApiError> {
-        Ok(GeoIpResult {
-            country: self.config.default_country.clone(),
-            region: None,
-            city: None,
-            latitude: None,
-            longitude: None,
-            isp: None,
-            org: None,
-            is_datacenter: false,
-            is_vpn: false,
-            is_proxy: false,
-        })
+        todo!("lookup_maxmind: not yet implemented")
     }
 
     async fn lookup_ipapi(&self, ip: &str) -> Result<GeoIpResult, ApiError> {

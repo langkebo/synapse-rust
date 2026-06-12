@@ -214,15 +214,31 @@ fn openclaw_routes_enabled(config: &Config) -> bool {
     }
 }
 
+pub(crate) fn change_password_capability_enabled() -> bool {
+    true
+}
+
+fn set_displayname_capability_enabled() -> bool {
+    true
+}
+
+fn set_avatar_url_capability_enabled() -> bool {
+    true
+}
+
+fn threepid_changes_capability_enabled() -> bool {
+    true
+}
+
 fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     let mut capabilities = Map::new();
     let sso_providers = sso_providers(config);
 
-    insert_enabled_capability(&mut capabilities, "m.change_password", true);
+    insert_enabled_capability(&mut capabilities, "m.change_password", change_password_capability_enabled());
     capabilities.insert("m.room_versions".to_string(), client_room_versions_capability());
-    insert_enabled_capability(&mut capabilities, "m.set_displayname", true);
-    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", true);
-    insert_enabled_capability(&mut capabilities, "m.3pid_changes", true);
+    insert_enabled_capability(&mut capabilities, "m.set_displayname", set_displayname_capability_enabled());
+    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", set_avatar_url_capability_enabled());
+    insert_enabled_capability(&mut capabilities, "m.3pid_changes", threepid_changes_capability_enabled());
     insert_enabled_capability(&mut capabilities, "m.room.summary", true);
     insert_enabled_capability(&mut capabilities, "m.room.suggested", true);
     insert_enabled_capability(&mut capabilities, "m.voice", true);
@@ -289,8 +305,9 @@ pub async fn get_capabilities(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_capabilities_response, build_client_versions, build_well_known_client, client_versions_headers,
-        derive_well_known_server, get_client_versions, ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
+        build_capabilities_response, build_client_versions, build_well_known_client,
+        change_password_capability_enabled, client_versions_headers, derive_well_known_server, get_client_versions,
+        ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
     };
     use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::Config;
@@ -376,7 +393,10 @@ mod tests {
         let body = build_capabilities_response(&Config::default(), false);
         let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
 
-        assert!(capabilities.contains_key("m.change_password"));
+        assert_eq!(capabilities["m.change_password"]["enabled"], change_password_capability_enabled());
+        assert_eq!(capabilities["m.set_displayname"]["enabled"], true);
+        assert_eq!(capabilities["m.set_avatar_url"]["enabled"], true);
+        assert_eq!(capabilities["m.3pid_changes"]["enabled"], true);
         assert!(capabilities.contains_key("m.room_versions"));
         assert!(!capabilities.contains_key("m.sso"));
         assert!(!capabilities.contains_key("io.hula.friends"));

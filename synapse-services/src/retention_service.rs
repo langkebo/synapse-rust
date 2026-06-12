@@ -316,7 +316,7 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn process_pending_cleanups(&self, _limit: i64) -> Result<usize, ApiError> {
-        Ok(0)
+        todo!("process_pending_cleanups: not yet implemented")
     }
 
     #[instrument(skip(self))]
@@ -327,17 +327,17 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, _room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
-        Ok(None)
+        todo!("get_stats: not yet implemented")
     }
 
     #[instrument(skip(self))]
     pub async fn get_cleanup_logs(&self, _room_id: &str, _limit: i64) -> Result<Vec<RetentionCleanupLog>, ApiError> {
-        Ok(vec![])
+        todo!("get_cleanup_logs: not yet implemented")
     }
 
     #[instrument(skip(self))]
     pub async fn get_deleted_events(&self, _room_id: &str, _since_ts: i64) -> Result<Vec<DeletedEventIndex>, ApiError> {
-        Ok(vec![])
+        todo!("get_deleted_events: not yet implemented")
     }
 
     #[instrument(skip(self))]
@@ -353,7 +353,7 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn get_pending_cleanup_count(&self, _room_id: &str) -> Result<i64, ApiError> {
-        Ok(0)
+        todo!("get_pending_cleanup_count: not yet implemented")
     }
 
     #[instrument(skip(self))]
@@ -578,7 +578,7 @@ impl RetentionService {
     }
 
     fn prune_finished_cleanup_queue(&self, _retention_days: u64, _now_ts: i64) -> Result<u64, ApiError> {
-        Ok(0)
+        todo!("prune_finished_cleanup_queue: not yet implemented")
     }
 
     fn cutoff_ts_from_days(now_ts: i64, retention_days: u64) -> Option<i64> {

@@ -136,11 +136,14 @@ fn integration_tests_required() -> bool {
 
 fn integration_test_setup_timeout() -> Duration {
     let default_secs = if integration_tests_required() { 600 } else { 120 };
+    let minimum_secs = synapse_rust::test_utils::configured_test_db_init_timeout()
+        .as_secs()
+        .saturating_add(60);
     let secs = std::env::var("INTEGRATION_TEST_SETUP_TIMEOUT_SECS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|value| *value > 0)
-        .unwrap_or(default_secs);
+        .unwrap_or_else(|| default_secs.max(minimum_secs));
     Duration::from_secs(secs)
 }
 
