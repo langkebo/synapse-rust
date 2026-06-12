@@ -303,6 +303,8 @@ impl UiaService {
         }
 
         // Verify the token is valid and belongs to the user.
+        // In the UIA context, the token is typically a login token issued
+        // during the m.login.token registration/login flow.
         match auth_service.validate_token(token).await {
             Ok((token_user_id, _, _, _, _)) => {
                 if token_user_id != user_id {
@@ -327,7 +329,8 @@ impl UiaService {
     ///
     /// Validates that the user has at least one verified email threepid
     /// associated with their account. Additionally validates the
-    /// `threepidCreds` structure (sid/client_secret).
+    /// `threepidCreds` structure (sid/client_secret) against the HS-managed
+    /// validation session when available.
     ///
     /// This aligns with Synapse v1.153 behavior: email-based UIA stages
     /// require the user to have a verified email threepid.
@@ -339,10 +342,12 @@ impl UiaService {
     ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
+        // Validate threepidCreds structure
         let creds_array = threepid_creds.and_then(|v| v.as_array()).ok_or_else(|| {
             ApiError::bad_request("threepidCreds array required for m.login.email.identity".to_string())
         })?;
 
+        // Per Synapse v1.153: validate each credential entry
         for cred in creds_array {
             let sid = cred
                 .get("sid")
@@ -358,6 +363,9 @@ impl UiaService {
             }
         }
 
+        // Verify the user has at least one verified email threepid.
+        // This is the core check: without a verified email, the email-based
+        // UIA stage cannot be completed.
         let user_threepids = threepid_storage
             .get_threepids_by_user(user_id)
             .await
@@ -415,6 +423,7 @@ impl UiaService {
             }
         }
 
+        // Verify the user has at least one verified MSISDN threepid
         let user_threepids = threepid_storage
             .get_threepids_by_user(user_id)
             .await

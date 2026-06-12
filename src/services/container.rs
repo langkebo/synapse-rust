@@ -386,7 +386,7 @@ fn assemble_room_and_sync(
     let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
     let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
         sliding_sync_storage,
-        cache.clone(),
+        Arc::new(cache.as_ref().to_synapse_cache_manager()),
         event_storage.clone(),
         typing_service.clone(),
         presence_storage.clone(),
@@ -537,7 +537,7 @@ fn assemble_admin_support(
         auth_service.clone(),
         config.admin_registration.clone(),
         UserStorage::new(pool, canonical_user_cache.clone()),
-        cache.clone(),
+        canonical_user_cache.clone(),
         metrics.clone(),
     );
 
@@ -736,7 +736,7 @@ impl ServiceContainer {
         // Auth — must be initialized first; downstream services depend on it
         let auth_service = AuthService::new_with_lifetime(
             pool,
-            cache.clone(),
+            canonical_user_cache.clone(),
             metrics.clone(),
             &config.security,
             &config.server.name,
@@ -746,7 +746,7 @@ impl ServiceContainer {
         // Core storage
         let user_storage = UserStorage::new(pool, canonical_user_cache.clone());
         let threepid_storage = ThreepidStorage::new(pool);
-        let presence_storage = PresenceStorage::new(pool.clone(), canonical_user_cache);
+        let presence_storage = PresenceStorage::new(pool.clone(), canonical_user_cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
@@ -808,7 +808,7 @@ impl ServiceContainer {
         // Media service
         let media_service = crate::services::media_service::MediaService::with_pool(
             media_path.as_str(),
-            task_queue.as_ref().map(|queue| Arc::new(queue.as_ref().to_synapse_redis_task_queue())),
+            task_queue.as_ref().map(|queue| queue.clone()),
             &config.server.name,
             Some(pool.clone()),
         );
@@ -1025,8 +1025,10 @@ impl ServiceContainer {
         let device_storage = DeviceStorage::new(pool);
         let token_storage = AccessTokenStorage::new(pool);
         let key_rotation_storage = KeyRotationStorage::new(pool.clone());
-        let uia_service =
-            Arc::new(crate::services::uia_service::UiaService::new(cache.clone(), ui_auth_session_timeout));
+        let uia_service = Arc::new(crate::services::uia_service::UiaService::new(
+            canonical_user_cache.clone(),
+            ui_auth_session_timeout,
+        ));
         let event_notifier = crate::services::event_notifier::EventNotifier::new();
         let server_name = config.server.name.clone();
 

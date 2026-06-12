@@ -37,7 +37,7 @@ fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
 #[cfg(all(test, feature = "server-notifications"))]
 mod cursor_tests {
     use super::{decode_notice_cursor, encode_notice_cursor};
-    use crate::services::{
+    use crate::storage::{
         decode_server_notification_cursor, encode_server_notification_cursor, ServerNotificationCursor,
     };
 
