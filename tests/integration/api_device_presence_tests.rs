@@ -6,8 +6,8 @@ use futures::future::join_all;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::PresenceStorage;
 use synapse_rust::PresenceState;
+use synapse_rust::PresenceStorage;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
@@ -587,7 +587,8 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
         register_user(&app, &format!("presence_stale_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) = register_user(&app, &format!("presence_stale_bob_{}", rand::random::<u32>())).await;
 
-    let presence = PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default())));
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let presence = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
     presence.add_subscription(&alice_user_id, &bob_user_id).await.expect("failed to create stale subscription");
 
     let set_request = Request::builder()
@@ -626,7 +627,7 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
         return;
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence = PresenceStorage::new(pool.clone(), cache);
+    let presence = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
     let suffix = rand::random::<u32>();
     let now = chrono::Utc::now().timestamp_millis();
     let mut user_ids = Vec::new();
@@ -655,8 +656,9 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
             for iteration in 0..5 {
                 let state = if iteration % 2 == 0 { PresenceState::Online } else { PresenceState::Unavailable };
                 let expected: &str = if iteration % 2 == 0 { "online" } else { "unavailable" };
-                presence.set_presence(&user_id, state, Some("stable under concurrency")).await.unwrap();
-                let current = presence.get_presence(&user_id).await.unwrap();
+                presence.set_presence(&user_id, state.as_str(), Some("stable under concurrency")).await.unwrap();
+                let current: Option<(String, Option<String>)> =
+                    PresenceStorage::get_presence(&presence, &user_id).await.unwrap();
                 assert!(current.is_some());
                 let (presence_state, status_msg) = current.unwrap();
                 assert_eq!(presence_state, expected);

@@ -29,15 +29,7 @@ impl FriendRoomService {
         key_rotation_manager: Arc<KeyRotationManager>,
     ) -> Self {
         let federation_client = Arc::new(FriendFederationClient::new(server_name.clone(), Some(key_rotation_manager)));
-        Self {
-            friend_storage,
-            room_service,
-            user_storage,
-            presence_storage,
-            cache,
-            server_name,
-            federation_client,
-        }
+        Self { friend_storage, room_service, user_storage, presence_storage, cache, server_name, federation_client }
     }
 
     /// 创建或获取好友列表房间

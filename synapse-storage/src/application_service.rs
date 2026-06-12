@@ -624,7 +624,7 @@ impl ApplicationServiceStorage {
             SET retry_count = retry_count + 1, last_error = $3, sent_ts = $4
             WHERE as_id = $1 AND transaction_id = $2
             RETURNING id, as_id, transaction_id, events, sent_ts, completed_ts, retry_count, last_error
-            "
+            ",
         )
         .bind(as_id)
         .bind(transaction_id)

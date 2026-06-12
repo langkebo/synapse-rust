@@ -443,14 +443,18 @@ impl ApplicationServiceManager {
                 let error_body = resp.text().await.unwrap_or_default();
                 let failure_kind = Self::classify_http_failure(status);
                 let failure_reason = format!("HTTP {status}: {error_body}");
-                self.handle_transaction_failure(service, transaction_id, &failure_reason, failure_kind)
-                    .await;
+                self.handle_transaction_failure(service, transaction_id, &failure_reason, failure_kind).await;
 
                 Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
             }
             Err(e) => {
-                self.handle_transaction_failure(service, transaction_id, &e.to_string(), TransactionFailureKind::Retryable)
-                    .await;
+                self.handle_transaction_failure(
+                    service,
+                    transaction_id,
+                    &e.to_string(),
+                    TransactionFailureKind::Retryable,
+                )
+                .await;
 
                 Err(ApiError::internal_with_log("Failed to send transaction", &e))
             }
@@ -846,24 +850,19 @@ impl ApplicationServiceManager {
         failure_reason: &str,
         failure_kind: TransactionFailureKind,
     ) {
-        let failed_transaction = match self
-            .storage
-            .fail_transaction(&service.as_id, transaction_id, failure_reason)
-            .await
-        {
-            Ok(transaction) => transaction,
-            Err(e) => {
-                error!(%e, as_id = %service.as_id, transaction_id, "Failed to fail transaction");
-                return;
-            }
-        };
+        let failed_transaction =
+            match self.storage.fail_transaction(&service.as_id, transaction_id, failure_reason).await {
+                Ok(transaction) => transaction,
+                Err(e) => {
+                    error!(%e, as_id = %service.as_id, transaction_id, "Failed to fail transaction");
+                    return;
+                }
+            };
 
-        self.record_delivery_failure(&service.as_id, failure_reason, failure_kind, failed_transaction.sent_ts)
-            .await;
+        self.record_delivery_failure(&service.as_id, failure_reason, failure_kind, failed_transaction.sent_ts).await;
 
         if Self::should_disable_service(failure_kind, failed_transaction.retry_count) {
-            self.disable_service_for_delivery_failure(service, &failed_transaction, failure_reason, failure_kind)
-                .await;
+            self.disable_service_for_delivery_failure(service, &failed_transaction, failure_reason, failure_kind).await;
         }
     }
 
@@ -883,8 +882,7 @@ impl ApplicationServiceManager {
         self.set_delivery_state(as_id, APPSERVICE_STATE_DELIVERY_STATUS, "failing").await;
         self.set_delivery_state(as_id, APPSERVICE_STATE_DELIVERY_LAST_ERROR, failure_reason).await;
         self.set_delivery_state(as_id, APPSERVICE_STATE_DELIVERY_LAST_FAILURE_KIND, failure_kind.as_str()).await;
-        self.set_delivery_state(as_id, APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS, &failed_ts.to_string())
-            .await;
+        self.set_delivery_state(as_id, APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS, &failed_ts.to_string()).await;
     }
 
     async fn disable_service_for_delivery_failure(
@@ -901,20 +899,11 @@ impl ApplicationServiceManager {
             failure_reason
         );
 
-        match self
-            .storage
-            .update(&service.as_id, &UpdateApplicationServiceRequest::new().is_enabled(false))
-            .await
-        {
+        match self.storage.update(&service.as_id, &UpdateApplicationServiceRequest::new().is_enabled(false)).await {
             Ok(_) => {
-                self.set_delivery_state(&service.as_id, APPSERVICE_STATE_DELIVERY_STATUS, "disabled")
+                self.set_delivery_state(&service.as_id, APPSERVICE_STATE_DELIVERY_STATUS, "disabled").await;
+                self.set_delivery_state(&service.as_id, APPSERVICE_STATE_DELIVERY_DISABLED_REASON, &disable_reason)
                     .await;
-                self.set_delivery_state(
-                    &service.as_id,
-                    APPSERVICE_STATE_DELIVERY_DISABLED_REASON,
-                    &disable_reason,
-                )
-                .await;
                 warn!(
                     as_id = %service.as_id,
                     transaction_id = %failed_transaction.transaction_id,
@@ -956,10 +945,7 @@ impl ApplicationServiceManager {
 
     fn classify_http_failure(status: StatusCode) -> TransactionFailureKind {
         if status.is_server_error()
-            || matches!(
-                status,
-                StatusCode::TOO_MANY_REQUESTS | StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY
-            )
+            || matches!(status, StatusCode::TOO_MANY_REQUESTS | StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY)
         {
             TransactionFailureKind::Retryable
         } else {

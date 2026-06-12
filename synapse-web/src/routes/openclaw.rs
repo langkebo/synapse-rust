@@ -514,8 +514,9 @@ async fn list_messages(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (messages, next_batch) =
-        svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.from.clone(), query.before).await?;
+    let (messages, next_batch) = svc(&state)
+        .list_messages(conversation_id, &auth.user_id, query.limit, query.from.clone(), query.before)
+        .await?;
     Ok(Json(PaginatedResponse {
         total: messages.len() as i64,
         limit: query.limit,
