@@ -340,7 +340,10 @@ fn create_room_service(
         user_storage,
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
-            Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
+            Arc::new(
+                synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())
+                    .to_synapse_cache_manager(),
+            ),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
