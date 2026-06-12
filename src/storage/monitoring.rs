@@ -89,6 +89,235 @@ pub struct DatabaseMonitor {
     max_connections: u32,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== ConnectionPoolStatus tests ==========
+
+    #[test]
+    fn test_connection_pool_status() {
+        let status = ConnectionPoolStatus {
+            total_connections: 10,
+            idle_connections: 5,
+            busy_connections: 5,
+            max_connections: 20,
+            connection_utilization: 50.0,
+        };
+        assert_eq!(status.total_connections, 10);
+        assert_eq!(status.idle_connections, 5);
+        assert_eq!(status.busy_connections, 5);
+        assert_eq!(status.max_connections, 20);
+        assert_eq!(status.connection_utilization, 50.0);
+    }
+
+    #[test]
+    fn test_connection_pool_status_json() {
+        let status = ConnectionPoolStatus {
+            total_connections: 10,
+            idle_connections: 5,
+            busy_connections: 5,
+            max_connections: 20,
+            connection_utilization: 50.0,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let deserialized: ConnectionPoolStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.total_connections, 10);
+        assert_eq!(deserialized.connection_utilization, 50.0);
+    }
+
+    // ========== PerformanceMetrics tests ==========
+
+    #[test]
+    fn test_performance_metrics() {
+        let metrics = PerformanceMetrics {
+            average_query_time_ms: 5.5,
+            slow_queries_count: 3,
+            total_queries: 1000,
+            transactions_per_second: 50.0,
+            cache_hit_ratio: 0.95,
+            deadlock_count: 0,
+            redis_latency_ms: 1.2,
+            redis_slow_commands_count: 0,
+        };
+        assert_eq!(metrics.average_query_time_ms, 5.5);
+        assert_eq!(metrics.slow_queries_count, 3);
+        assert_eq!(metrics.cache_hit_ratio, 0.95);
+    }
+
+    #[test]
+    fn test_performance_metrics_json() {
+        let metrics = PerformanceMetrics {
+            average_query_time_ms: 5.5,
+            slow_queries_count: 3,
+            total_queries: 1000,
+            transactions_per_second: 50.0,
+            cache_hit_ratio: 0.95,
+            deadlock_count: 0,
+            redis_latency_ms: 1.2,
+            redis_slow_commands_count: 0,
+        };
+        let json = serde_json::to_string(&metrics).unwrap();
+        let deserialized: PerformanceMetrics = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.average_query_time_ms, 5.5);
+    }
+
+    // ========== DatabaseHealthStatus tests ==========
+
+    #[test]
+    fn test_database_health_status() {
+        let status = DatabaseHealthStatus {
+            is_healthy: true,
+            connection_pool_status: ConnectionPoolStatus {
+                total_connections: 10, idle_connections: 5, busy_connections: 5,
+                max_connections: 20, connection_utilization: 50.0,
+            },
+            performance_metrics: PerformanceMetrics {
+                average_query_time_ms: 5.5, slow_queries_count: 3, total_queries: 1000,
+                transactions_per_second: 50.0, cache_hit_ratio: 0.95, deadlock_count: 0,
+                redis_latency_ms: 1.2, redis_slow_commands_count: 0,
+            },
+            last_checked: chrono::Utc::now(),
+        };
+        assert!(status.is_healthy);
+        assert_eq!(status.connection_pool_status.total_connections, 10);
+    }
+
+    #[test]
+    fn test_database_health_status_unhealthy() {
+        let status = DatabaseHealthStatus {
+            is_healthy: false,
+            connection_pool_status: ConnectionPoolStatus {
+                total_connections: 20, idle_connections: 0, busy_connections: 20,
+                max_connections: 20, connection_utilization: 100.0,
+            },
+            performance_metrics: PerformanceMetrics {
+                average_query_time_ms: 100.0, slow_queries_count: 50, total_queries: 100,
+                transactions_per_second: 1.0, cache_hit_ratio: 0.1, deadlock_count: 5,
+                redis_latency_ms: 10.0, redis_slow_commands_count: 10,
+            },
+            last_checked: chrono::Utc::now(),
+        };
+        assert!(!status.is_healthy);
+    }
+
+    // ========== ForeignKeyViolation tests ==========
+
+    #[test]
+    fn test_foreign_key_violation() {
+        let violation = ForeignKeyViolation {
+            table_name: "events".to_string(),
+            column_name: "room_id".to_string(),
+            violating_row_id: 42,
+            referenced_table: "rooms".to_string(),
+        };
+        assert_eq!(violation.table_name, "events");
+        assert_eq!(violation.column_name, "room_id");
+        assert_eq!(violation.violating_row_id, 42);
+    }
+
+    #[test]
+    fn test_foreign_key_violation_json() {
+        let violation = ForeignKeyViolation {
+            table_name: "events".to_string(),
+            column_name: "room_id".to_string(),
+            violating_row_id: 42,
+            referenced_table: "rooms".to_string(),
+        };
+        let json = serde_json::to_string(&violation).unwrap();
+        let deserialized: ForeignKeyViolation = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.table_name, "events");
+    }
+
+    // ========== OrphanedRecord tests ==========
+
+    #[test]
+    fn test_orphaned_record() {
+        let record = OrphanedRecord {
+            table_name: "room_memberships".to_string(),
+            column_name: "user_id".to_string(),
+            orphan_count: 5,
+            sample_orphans: vec!["@user1:example.com".to_string()],
+        };
+        assert_eq!(record.orphan_count, 5);
+        assert_eq!(record.sample_orphans.len(), 1);
+    }
+
+    // ========== DuplicateEntry tests ==========
+
+    #[test]
+    fn test_duplicate_entry() {
+        let entry = DuplicateEntry {
+            table_name: "users".to_string(),
+            column_name: "email".to_string(),
+            duplicate_count: 3,
+            sample_duplicates: vec!["dup@example.com".to_string()],
+        };
+        assert_eq!(entry.duplicate_count, 3);
+    }
+
+    // ========== NullConstraintViolation tests ==========
+
+    #[test]
+    fn test_null_constraint_violation() {
+        let violation = NullConstraintViolation {
+            table_name: "users".to_string(),
+            column_name: "displayname".to_string(),
+            null_count: 10,
+        };
+        assert_eq!(violation.null_count, 10);
+    }
+
+    // ========== VacuumStats tests ==========
+
+    #[test]
+    fn test_vacuum_stats() {
+        let stats = VacuumStats {
+            table_name: "events".to_string(),
+            last_vacuum: None,
+            last_analyze: None,
+            dead_tuple_count: 100,
+            dead_tuple_ratio: 0.05,
+        };
+        assert_eq!(stats.table_name, "events");
+        assert_eq!(stats.dead_tuple_count, 100);
+        assert!(stats.last_vacuum.is_none());
+    }
+
+    // ========== DataIntegrityReport tests ==========
+
+    #[test]
+    fn test_data_integrity_report() {
+        let report = DataIntegrityReport {
+            check_timestamp: chrono::Utc::now(),
+            foreign_key_violations: vec![],
+            orphaned_records: vec![],
+            duplicate_entries: vec![],
+            null_constraint_violations: vec![],
+            overall_integrity_score: 100.0,
+        };
+        assert_eq!(report.overall_integrity_score, 100.0);
+        assert!(report.foreign_key_violations.is_empty());
+    }
+
+    #[test]
+    fn test_data_integrity_report_with_violations() {
+        let report = DataIntegrityReport {
+            check_timestamp: chrono::Utc::now(),
+            foreign_key_violations: vec![ForeignKeyViolation {
+                table_name: "events".to_string(), column_name: "room_id".to_string(),
+                violating_row_id: 1, referenced_table: "rooms".to_string(),
+            }],
+            orphaned_records: vec![],
+            duplicate_entries: vec![],
+            null_constraint_violations: vec![],
+            overall_integrity_score: 80.0,
+        };
+        assert_eq!(report.overall_integrity_score, 80.0);
+        assert_eq!(report.foreign_key_violations.len(), 1);
+    }
+}
+
 impl DatabaseMonitor {
     pub fn new(pool: Pool<Postgres>, redis_pool: Option<RedisPool>, max_connections: u32) -> Self {
         Self { pool, redis_pool, max_connections }

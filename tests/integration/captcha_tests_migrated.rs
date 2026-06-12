@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use synapse_rust::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
-use synapse_rust::storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
 use std::sync::Arc;
+use synapse_storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
 
 #[tokio::test]
 async fn test_captcha_storage_create() {

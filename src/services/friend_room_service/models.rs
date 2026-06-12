@@ -32,6 +32,7 @@ pub struct FriendListCursor {
     pub user_id: String,
 }
 
+#[allow(clippy::expect_used)]
 pub fn encode_friend_list_cursor(cursor: &FriendListCursor) -> String {
     let raw = serde_json::to_string(cursor).expect("friend list cursor serialization should succeed");
     URL_SAFE_NO_PAD.encode(raw.as_bytes())

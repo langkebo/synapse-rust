@@ -111,4 +111,12 @@ mod tests {
         assert_eq!(json["type"], "m.room.message");
         assert!(json.get("unsigned").is_none());
     }
+
+    #[test]
+    fn test_events_to_json_without_age() {
+        let events = vec![create_test_event(), create_test_event()];
+        let json_events = events_to_json_without_age(&events);
+
+        assert_eq!(json_events.len(), 2);
+    }
 }

@@ -1,7 +1,6 @@
 use super::types::*;
 use super::SyncService;
-use crate::services::*;
-use crate::storage::UserRoomMembership;
+use crate::storage::{RoomEvent, UserRoomMembership};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 

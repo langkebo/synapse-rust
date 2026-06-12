@@ -90,7 +90,7 @@ pub async fn get_directory_room(
     match room_id {
         Some(rid) => Ok(Json(json!({
             "room_id": rid,
-            "servers": [state.services.server_name.clone()],
+            "servers": [state.services.core.server_name.clone()],
         }))),
         None => Err(ApiError::not_found("Room not found".to_string())),
     }
@@ -168,7 +168,7 @@ pub async fn get_alias_servers(
 
     match room_id {
         Some(_) => Ok(Json(json!({
-            "servers": [state.services.server_name.clone()]
+            "servers": [state.services.core.server_name.clone()]
         }))),
         None => Err(ApiError::not_found("Room not found".to_string())),
     }

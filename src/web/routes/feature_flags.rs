@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
+use crate::storage::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},

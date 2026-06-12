@@ -106,6 +106,7 @@ pub mod test_utils;
 
 pub use self::application_service::*;
 pub use self::audit::*;
+pub use self::background_update::*;
 pub use self::captcha::*;
 pub use self::dehydrated_device::*;
 pub use self::device::*;
@@ -155,6 +156,9 @@ pub use self::cas::*;
 
 #[cfg(feature = "beacons")]
 pub use self::beacon::*;
+
+#[cfg(feature = "voice-extended")]
+pub use self::voice::*;
 
 #[cfg(feature = "voip-tracking")]
 pub use self::call_session::*;

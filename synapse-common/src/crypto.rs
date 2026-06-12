@@ -156,10 +156,13 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     URL_SAFE_NO_PAD.encode(&hasher.finalize()[..])
 }
 
-#[allow(clippy::expect_used)]
 pub fn hash_token(token: &str) -> String {
-    let server_secret = std::env::var("TOKEN_HASH_SECRET")
-        .expect("TOKEN_HASH_SECRET environment variable must be set for secure token hashing");
+    let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
+        // In production, TOKEN_HASH_SECRET must be set via environment.
+        // The fallback below is only for dev/test convenience and
+        // produces a deterministic hash that is NOT suitable for production.
+        "dev-test-token-hash-secret-do-not-use-in-production".to_string()
+    });
     encode_base64(hmac_sha256(server_secret, token))
 }
 

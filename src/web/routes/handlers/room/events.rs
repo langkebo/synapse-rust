@@ -1,7 +1,7 @@
 use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
-use crate::services::CreateEventParams;
+use crate::storage::CreateEventParams;
 use crate::web::utils::auth::resolve_request_id;
 use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
 use axum::{
@@ -219,14 +219,14 @@ pub(crate) async fn send_message(
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        if let Ok(Some(cached)) = state.services.cache.get::<String>(&cache_key).await {
+        if let Ok(Some(cached)) = state.services.core.cache.get::<String>(&cache_key).await {
             if let Ok(event_id) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(Json(event_id));
             }
         }
     }
 
-    state.services.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
+    state.services.core.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
 
     if event_type == "m.room.encrypted" {
         let is_encrypted = state
@@ -242,7 +242,7 @@ pub(crate) async fn send_message(
     }
 
     if event_type == "m.room.power_levels" {
-        state.services.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
+        state.services.core.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
     }
 
     let mut body = body;
@@ -261,7 +261,7 @@ pub(crate) async fn send_message(
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        let _ = state.services.cache.set(&cache_key, &result.to_string(), 3600).await;
+        let _ = state.services.core.cache.set(&cache_key, &result.to_string(), 3600).await;
     }
 
     Ok(Json(result))
@@ -742,7 +742,7 @@ pub(crate) async fn translate_room_event(
     let target_lang = body
         .get("target_lang")
         .and_then(|v| v.as_str())
-        .unwrap_or(&state.services.config.translate.default_target_lang);
+        .unwrap_or(&state.services.core.config.translate.default_target_lang);
 
     // Extract optional source language from request body
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
@@ -752,7 +752,13 @@ pub(crate) async fn translate_room_event(
 
     // Call the translation service
     let translation_result =
-        state.services.translation_service.translate(text_to_translate, target_lang, source_lang).await.map_err(
+        state
+            .services
+            .extensions
+            .translation_service
+            .translate(text_to_translate, target_lang, source_lang)
+            .await
+            .map_err(
             |e| {
                 ::tracing::warn!(
                     request_id = %request_id,
@@ -763,7 +769,7 @@ pub(crate) async fn translate_room_event(
                 );
                 ApiError::bad_request(format!("Translation failed: {}", e))
             },
-        )?;
+            )?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -795,7 +801,7 @@ pub(crate) async fn translate_text(
     }
 
     // Validate text length
-    let max_len = state.services.config.translate.max_text_length;
+    let max_len = state.services.core.config.translate.max_text_length;
     if text.len() > max_len {
         return Err(ApiError::bad_request(format!("Text too long: {} bytes (max: {})", text.len(), max_len)));
     }
@@ -803,12 +809,17 @@ pub(crate) async fn translate_text(
     let target_lang = body
         .get("target_lang")
         .and_then(|v| v.as_str())
-        .unwrap_or(&state.services.config.translate.default_target_lang);
+        .unwrap_or(&state.services.core.config.translate.default_target_lang);
 
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
 
-    let translation_result =
-        state.services.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
+    let translation_result = state
+        .services
+        .extensions
+        .translation_service
+        .translate(text, target_lang, source_lang)
+        .await
+        .map_err(|e| {
             ::tracing::warn!(
                 request_id = %request_id,
                 target_lang = %target_lang,
@@ -876,11 +887,11 @@ pub(crate) async fn redact_event(
         return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
-    state.services.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
+    state.services.core.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let content = json!({

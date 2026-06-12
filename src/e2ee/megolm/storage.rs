@@ -467,6 +467,33 @@ impl MegolmSessionStorage {
 
         Ok(rows.into_iter().map(|r| (r.pickle_format, r.cnt)).collect())
     }
+
+    /// Clean up expired Megolm sessions.
+    ///
+    /// Aligned with Synapse v1.153 behavior: sessions with a non-null `expires_at`
+    /// that is past the current time are removed from the database.
+    ///
+    /// Returns the number of sessions deleted.
+    pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
+        let now_ms = Utc::now().timestamp_millis();
+
+        let result = sqlx::query!(
+            r"
+            DELETE FROM megolm_sessions
+            WHERE expires_at IS NOT NULL
+              AND expires_at < $1
+            ",
+            now_ms,
+        )
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to cleanup expired megolm sessions: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(result.rows_affected())
+    }
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

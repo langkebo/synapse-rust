@@ -1,3 +1,4 @@
+use crate::services::auth::GuestAuthExt;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::State,
@@ -9,16 +10,16 @@ use serde_json::{json, Value};
 use validator::Validate;
 
 pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    if !state.services.config.server.enable_registration {
+    if !state.services.core.config.server.enable_registration {
         return Err(ApiError::forbidden("Registration is disabled".to_string()));
     }
-    let (user, device_id, access_token) = state.services.auth_service.register_guest_account().await?;
+    let (user, device_id, access_token) = state.services.core.auth_service.register_guest_account().await?;
 
     Ok(Json(json!({
         "access_token": access_token,
         "device_id": device_id,
         "user_id": user.user_id,
-        "expires_in": state.services.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry,
     })))
 }
 
@@ -26,7 +27,7 @@ pub async fn get_guest_info(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.auth_service.require_guest_user(&auth_user.user_id).await?;
+    state.services.core.auth_service.require_guest_user(&auth_user.user_id).await?;
     Ok(Json(json!({
         "user_id": auth_user.user_id,
         "is_guest": true,
@@ -52,6 +53,7 @@ pub async fn upgrade_guest(
     let password = &body.password;
     let access_token = state
         .services
+        .core
         .auth_service
         .upgrade_guest_account(&auth_user.user_id, auth_user.device_id.as_deref(), username, password)
         .await?;

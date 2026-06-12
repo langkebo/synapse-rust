@@ -185,6 +185,7 @@ pub struct CreateUpdateUserRequest {
 async fn resolve_user(state: &AppState, identifier: &str) -> Result<AdminUserRecord, ApiError> {
     state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(identifier)
         .await
@@ -214,6 +215,7 @@ pub async fn get_users(
 
     let users = state
         .services
+        .account
         .user_storage
         .get_users_paginated(
             limit,
@@ -225,6 +227,7 @@ pub async fn get_users(
 
     let total = state
         .services
+        .account
         .user_storage
         .get_user_count()
         .await
@@ -272,6 +275,7 @@ async fn get_user(
 ) -> Result<Json<Value>, ApiError> {
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
@@ -307,7 +311,7 @@ async fn delete_user(
         "Admin deleting user"
     );
 
-    state.services.user_storage.delete_user(&user.user_id).await.map_err(|e| {
+    state.services.account.user_storage.delete_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -372,7 +376,7 @@ pub async fn set_admin(
         "Admin changing user admin status"
     );
 
-    state.services.user_storage.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
+    state.services.account.user_storage.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -437,7 +441,7 @@ pub async fn deactivate_user(
         "Admin deactivating user"
     );
 
-    state.services.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
+    state.services.core.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -482,7 +486,7 @@ pub async fn reset_user_password(
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.auth_service.validator.validate_password(&body.new_password)?;
+    state.services.core.auth_service.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&state, &user_id).await?;
 
@@ -578,7 +582,7 @@ pub async fn delete_user_device_admin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let rows = state.services.auth_service.revoke_device(&user.user_id, &device_id).await?;
+    let rows = state.services.core.auth_service.revoke_device(&user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -624,6 +628,7 @@ pub async fn login_as_user(
 ) -> Result<Json<Value>, ApiError> {
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
@@ -639,6 +644,7 @@ pub async fn login_as_user(
 
     let token = state
         .services
+        .core
         .auth_service
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
@@ -669,7 +675,7 @@ pub async fn logout_user_devices(
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
-    state.services.auth_service.logout_all(&user.user_id).await?;
+    state.services.core.auth_service.logout_all(&user.user_id).await?;
 
     Ok(Json(json!({
         "devices_deleted": device_count
@@ -828,12 +834,11 @@ pub async fn get_single_user_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
     let stats = state
         .services
         .admin
         .admin_user_service
-        .get_single_user_stats(&user)
+        .get_single_user_stats(&user_id)
         .await?;
 
     Ok(Json(json!({
@@ -985,7 +990,7 @@ pub async fn invalidate_user_sessions(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    state.services.auth_service.logout_all(&canonical_user_id).await?;
+    state.services.core.auth_service.logout_all(&canonical_user_id).await?;
 
     Ok(Json(json!({
         "invalidated": true,

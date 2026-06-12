@@ -21,6 +21,7 @@ pub fn crypto_error_to_api_error(err: crate::e2ee::crypto::CryptoError) -> ApiEr
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
 pub fn ed25519_error_to_api_error(err: ed25519_dalek::ed25519::Error) -> ApiError {
     ApiError::crypto(format!("Ed25519 error: {err}"))
 }

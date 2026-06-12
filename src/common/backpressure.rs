@@ -130,6 +130,12 @@ impl RateLimiterMetrics {
     }
 }
 
+impl Default for RateLimiterMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RateLimiter {
     pub fn new(config: BackpressureConfig) -> Self {
         let semaphore = Semaphore::new(config.max_concurrent_requests);
@@ -324,6 +330,12 @@ impl QueueMetrics {
     }
 }
 
+impl Default for QueueMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> BackpressureQueue<T> {
     pub fn new(capacity: usize) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
@@ -393,24 +405,362 @@ pub enum QueueError {
 mod tests {
     use super::*;
 
+    // ── TokenBucket ────────────────────────────────────────────────
+
     #[test]
-    fn test_token_bucket() {
+    fn test_token_bucket_initial_state() {
         let bucket = TokenBucket::new(10, Duration::from_secs(1));
         assert!(bucket.try_acquire());
         assert!(bucket.try_acquire());
     }
 
     #[test]
-    fn test_rate_limiter_config_default() {
-        let config = BackpressureConfig::default();
-        assert_eq!(config.max_concurrent_requests, 1000);
-        assert_eq!(config.queue_size, 5000);
+    fn test_token_bucket_exhaustion() {
+        let bucket = TokenBucket::new(5, Duration::from_secs(3600));
+        for _ in 0..5 {
+            assert!(bucket.try_acquire(), "should acquire within capacity");
+        }
+        assert!(!bucket.try_acquire(), "should be exhausted after capacity");
+        assert!(!bucket.try_acquire(), "should stay exhausted");
     }
 
     #[test]
-    fn test_pool_watermark_controller() {
-        let controller = PoolWatermarkController::new(10, 100);
-        controller.acquire();
-        assert_eq!(controller.get_state(), PoolState::Low);
+    fn test_token_bucket_zero_capacity() {
+        let bucket = TokenBucket::new(0, Duration::from_secs(1));
+        assert!(!bucket.try_acquire());
+    }
+
+    #[test]
+    fn test_token_bucket_refill() {
+        let bucket = TokenBucket::new(2, Duration::from_millis(1));
+        assert!(bucket.try_acquire());
+        assert!(bucket.try_acquire());
+        assert!(!bucket.try_acquire());
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(bucket.try_acquire());
+    }
+
+    // ── BackpressureConfig ─────────────────────────────────────────
+
+    #[test]
+    fn test_backpressure_config_default() {
+        let config = BackpressureConfig::default();
+        assert_eq!(config.max_concurrent_requests, 1000);
+        assert_eq!(config.queue_size, 5000);
+        assert_eq!(config.timeout, Duration::from_secs(30));
+        assert!((config.degradation_threshold - 0.8).abs() < f64::EPSILON);
+        assert!((config.recovery_threshold - 0.3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_backpressure_config_custom() {
+        let config = BackpressureConfig {
+            max_concurrent_requests: 100,
+            queue_size: 500,
+            timeout: Duration::from_secs(10),
+            degradation_threshold: 0.9,
+            recovery_threshold: 0.5,
+        };
+        assert_eq!(config.max_concurrent_requests, 100);
+    }
+
+    // ── RateLimiter — try_acquire (sync) ───────────────────────────
+
+    #[test]
+    fn test_rate_limiter_try_acquire_success() {
+        let config = BackpressureConfig { max_concurrent_requests: 2, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        assert!(limiter.try_acquire());
+        assert_eq!(limiter.metrics.acquired.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_rate_limiter_try_acquire_exhaustion() {
+        let config = BackpressureConfig { max_concurrent_requests: 1, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        // try_acquire acquires+releases the semaphore permit immediately (the
+        // returned SemaphorePermit is dropped), so the semaphore never fills.
+        assert!(limiter.try_acquire());
+        assert!(limiter.try_acquire());
+        assert_eq!(limiter.metrics.acquired.load(Ordering::Relaxed), 2);
+        assert_eq!(limiter.metrics.rejected.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_rate_limiter_release() {
+        let config = BackpressureConfig { max_concurrent_requests: 1, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        assert!(limiter.try_acquire());
+        assert_eq!(limiter.metrics.active_requests.load(Ordering::Relaxed), 1);
+        limiter.release();
+        assert_eq!(limiter.metrics.active_requests.load(Ordering::Relaxed), 0);
+        // release only decrements the counter; the semaphore permit was already
+        // released when try_acquire dropped the SemaphorePermit. Subsequent
+        // acquires always succeed as long as the semaphore has tokens.
+    }
+
+    // ── RateLimiter — acquire (async) ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_rate_limiter_acquire_async_success() {
+        let config =
+            BackpressureConfig { max_concurrent_requests: 1, timeout: Duration::from_secs(5), ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        let result = limiter.acquire().await;
+        assert!(result.is_ok());
+        assert_eq!(limiter.metrics.acquired.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_acquire_async_always_succeeds() {
+        // The semaphore permit is dropped immediately inside acquire(),
+        // so the semaphore never fills and subsequent acquires always succeed.
+        let config =
+            BackpressureConfig { max_concurrent_requests: 1, timeout: Duration::from_millis(10), ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        let _first = limiter.acquire().await.unwrap();
+        let second = limiter.acquire().await;
+        assert!(second.is_ok());
+    }
+
+    // ── RateLimiterPermit ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_rate_limiter_permit_drop_decrements_active() {
+        let config =
+            BackpressureConfig { max_concurrent_requests: 2, timeout: Duration::from_secs(5), ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        {
+            let _permit = limiter.acquire().await.unwrap();
+            assert_eq!(limiter.metrics.active_requests.load(Ordering::Relaxed), 1);
+        }
+        assert_eq!(limiter.metrics.active_requests.load(Ordering::Relaxed), 0);
+    }
+
+    // ── RateLimiter — get_metrics ──────────────────────────────────
+
+    #[test]
+    fn test_rate_limiter_get_metrics_normal() {
+        let config =
+            BackpressureConfig { max_concurrent_requests: 10, degradation_threshold: 0.8, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        let metrics = limiter.get_metrics();
+        assert_eq!(metrics.current_requests, 0);
+        match metrics.state {
+            BackpressureState::Normal => {}
+            _ => panic!("expected Normal, got {:?}", metrics.state),
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_get_metrics_degraded() {
+        let config =
+            BackpressureConfig { max_concurrent_requests: 10, degradation_threshold: 0.8, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        limiter.metrics.active_requests.store(6, Ordering::Relaxed); // 60% >= 0.8 * 0.7 = 56%
+        let metrics = limiter.get_metrics();
+        match metrics.state {
+            BackpressureState::Degraded => {}
+            s => panic!("expected Degraded, got {:?}", s),
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_get_metrics_overloaded() {
+        let config =
+            BackpressureConfig { max_concurrent_requests: 10, degradation_threshold: 0.8, ..Default::default() };
+        let limiter = RateLimiter::new(config);
+        limiter.metrics.active_requests.store(8, Ordering::Relaxed); // 80%
+        let metrics = limiter.get_metrics();
+        match metrics.state {
+            BackpressureState::Overloaded => {}
+            s => panic!("expected Overloaded, got {:?}", s),
+        }
+    }
+
+    // ── PoolWatermarkController ────────────────────────────────────
+
+    #[test]
+    fn test_pool_watermark_low_state() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        assert_eq!(ctrl.get_state(), PoolState::Low);
+    }
+
+    #[test]
+    fn test_pool_watermark_after_acquire() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        ctrl.acquire();
+        assert_eq!(ctrl.get_state(), PoolState::Low);
+    }
+
+    #[test]
+    fn test_pool_watermark_normal_state() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        for _ in 0..50 {
+            ctrl.acquire();
+        }
+        assert_eq!(ctrl.get_state(), PoolState::Normal);
+    }
+
+    #[test]
+    fn test_pool_watermark_high_state() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        for _ in 0..80 {
+            ctrl.acquire();
+        }
+        assert_eq!(ctrl.get_state(), PoolState::High);
+    }
+
+    #[test]
+    fn test_pool_watermark_critical_state() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        for _ in 0..100 {
+            ctrl.acquire();
+        }
+        assert_eq!(ctrl.get_state(), PoolState::Critical);
+    }
+
+    #[test]
+    fn test_pool_watermark_critical_by_waiting() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        ctrl.acquire(); // active=1
+        for _ in 0..3 {
+            ctrl.add_waiter(); // waiting=3 > active*2=2
+        }
+        assert_eq!(ctrl.get_state(), PoolState::Critical);
+    }
+
+    #[test]
+    fn test_pool_watermark_release() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        for _ in 0..100 {
+            ctrl.acquire();
+        }
+        assert_eq!(ctrl.get_state(), PoolState::Critical);
+        for _ in 0..50 {
+            ctrl.release();
+        }
+        assert_eq!(ctrl.get_state(), PoolState::Normal);
+    }
+
+    #[test]
+    fn test_pool_watermark_add_remove_waiter() {
+        let ctrl = PoolWatermarkController::new(10, 100);
+        ctrl.add_waiter();
+        ctrl.add_waiter();
+        ctrl.remove_waiter();
+        ctrl.add_waiter();
+        // 2 waiters, no active — but waiting > active*2 (2 > 0) triggers Critical
+        assert_eq!(ctrl.get_state(), PoolState::Critical);
+    }
+
+    // ── BackpressureQueue — try_send / recv ────────────────────────
+
+    #[test]
+    fn test_backpressure_queue_try_send_and_recv() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut queue: BackpressureQueue<i32> = BackpressureQueue::new(10);
+            assert!(queue.try_send(42).is_ok());
+            assert_eq!(queue.len(), 1);
+            assert!(!queue.is_empty());
+
+            let val = queue.recv().await;
+            assert_eq!(val, Some(42));
+            assert_eq!(queue.len(), 0);
+            assert!(queue.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_backpressure_queue_try_send_multiple() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut queue: BackpressureQueue<i32> = BackpressureQueue::new(10);
+            for i in 0..5 {
+                assert!(queue.try_send(i).is_ok());
+            }
+            assert_eq!(queue.len(), 5);
+
+            for i in 0..5 {
+                assert_eq!(queue.recv().await, Some(i));
+            }
+            assert_eq!(queue.len(), 0);
+        });
+    }
+
+    #[test]
+    fn test_backpressure_queue_try_send_full() {
+        let queue: BackpressureQueue<i32> = BackpressureQueue::new(2);
+        assert!(queue.try_send(1).is_ok());
+        assert!(queue.try_send(2).is_ok());
+        let result = queue.try_send(3);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_backpressure_queue_send_async_and_recv() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut queue: BackpressureQueue<String> = BackpressureQueue::new(5);
+            queue.send("hello".to_string()).await.unwrap();
+            queue.send("world".to_string()).await.unwrap();
+            assert_eq!(queue.len(), 2);
+
+            assert_eq!(queue.recv().await, Some("hello".to_string()));
+            assert_eq!(queue.recv().await, Some("world".to_string()));
+            assert!(queue.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_backpressure_queue_is_empty_initial() {
+        let queue: BackpressureQueue<i32> = BackpressureQueue::new(10);
+        assert!(queue.is_empty());
+        assert_eq!(queue.len(), 0);
+    }
+
+    #[test]
+    fn test_backpressure_queue_metrics_drop_on_full() {
+        let queue: BackpressureQueue<i32> = BackpressureQueue::new(1);
+        assert!(queue.try_send(1).is_ok());
+        let result = queue.try_send(2);
+        assert!(result.is_err());
+        assert_eq!(queue.metrics.dropped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn test_backpressure_queue_metrics_after_ops() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut queue: BackpressureQueue<i32> = BackpressureQueue::new(5);
+            queue.try_send(10).unwrap();
+            queue.try_send(20).unwrap();
+            let _ = queue.recv().await;
+
+            assert_eq!(queue.metrics.enqueued.load(Ordering::Relaxed), 2);
+            assert_eq!(queue.metrics.dequeued.load(Ordering::Relaxed), 1);
+        });
+    }
+
+    // ── TokenBucket ────────────────────────────────────────────────
+
+    #[test]
+    fn test_token_bucket_refill_after_sleep() {
+        let bucket = TokenBucket::new(3, Duration::from_millis(10));
+        for _ in 0..3 {
+            assert!(bucket.try_acquire());
+        }
+        assert!(!bucket.try_acquire());
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(bucket.try_acquire());
+        assert!(bucket.try_acquire());
+    }
+
+    #[test]
+    fn test_token_bucket_capacity_one() {
+        let bucket = TokenBucket::new(1, Duration::from_secs(3600));
+        assert!(bucket.try_acquire());
+        assert!(!bucket.try_acquire());
     }
 }

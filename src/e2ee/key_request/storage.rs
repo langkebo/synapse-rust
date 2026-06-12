@@ -1,4 +1,4 @@
-use super::models::KeyRequestInfo;
+use super::models::{KeyRequestInfo, KeyRequestPagination};
 use crate::error::ApiError;
 use sqlx::PgPool;
 
@@ -102,16 +102,8 @@ impl KeyRequestStorage {
         })
     }
 
-    pub async fn get_requests_paginated(
-        &self,
-        user_id: &str,
-        limit: i64,
-        from_ts: Option<i64>,
-        from_id: Option<&str>,
-        status_filter: Option<&str>,
-        room_id: Option<&str>,
-        session_id: Option<&str>,
-    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+    pub async fn get_requests_paginated(&self, pagination: KeyRequestPagination<'_>) -> Result<Vec<KeyRequestInfo>, ApiError> {
+        let KeyRequestPagination { user_id, limit, from_ts, from_id, status, room_id, session_id } = pagination;
         let mut query = sqlx::QueryBuilder::new(
             r#"
             SELECT
@@ -141,7 +133,7 @@ impl KeyRequestStorage {
             query.push_bind(session);
         }
 
-        if let Some(status) = status_filter {
+        if let Some(status) = status {
             match status {
                 "pending" => {
                     query.push(" AND is_fulfilled = FALSE");

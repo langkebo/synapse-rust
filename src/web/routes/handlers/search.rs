@@ -1,5 +1,6 @@
 use crate::common::ApiError;
-use crate::services::{RoomEventsSearchFilter, StateEvent, TimestampDirection};
+use crate::services::{RoomEventsSearchFilter, TimestampDirection};
+use crate::storage::StateEvent;
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
     AuthenticatedUser,
@@ -324,6 +325,7 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
 
     let rows = state
         .services
+        .account
         .user_storage
         .search_directory_users(&search.search_term, limit, false)
         .await
@@ -1054,6 +1056,7 @@ async fn search_recipients(
 
     let users = state
         .services
+        .account
         .user_storage
         .search_directory_users(search_term, limit, false)
         .await

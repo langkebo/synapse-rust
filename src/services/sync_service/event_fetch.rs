@@ -2,7 +2,7 @@ use super::types::*;
 use super::SyncService;
 use crate::common::*;
 use crate::map_internal;
-use crate::services::*;
+use crate::storage::RoomEvent;
 use std::collections::HashMap;
 
 impl SyncService {

@@ -12,8 +12,10 @@ mod types;
 pub use types::*;
 
 use crate::common::*;
-use crate::services::*;
-use crate::storage::{PresenceStorage, UserRoomMembership};
+use crate::storage::{
+    DeviceStorage, EventStorage, FilterStorage, PresenceStorage, RoomEvent, RoomMemberStorage, RoomStorage,
+    UserRoomMembership,
+};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

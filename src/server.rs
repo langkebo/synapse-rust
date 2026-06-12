@@ -282,7 +282,7 @@ impl SynapseServer {
 
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         ::tracing::info!("Starting Synapse Rust Matrix Server...");
-        ::tracing::info!("Server name: {}", self.app_state.services.server_name);
+        ::tracing::info!("Server name: {}", self.app_state.services.core.server_name);
         ::tracing::info!("Listening on (Client API): {}", self.address);
         ::tracing::info!("Listening on (Federation): {}", self.federation_address);
         if self.app_state.services.config.prometheus.enabled {
@@ -308,6 +308,7 @@ impl SynapseServer {
         let beacon_service = self.app_state.services.rooms.beacon_service.clone();
         let retention_service = self.app_state.services.admin.retention_service.clone();
         let retention_config = self.app_state.services.config.retention.clone();
+        let megolm_service = self.app_state.services.e2ee.megolm_service.clone();
         let background_tasks_interval = self.app_state.services.config.server.background_tasks_interval.max(10);
         let dehydrated_cleanup_interval_secs =
             self.app_state.services.config.server.dehydrated_device_cleanup_interval_secs;
@@ -343,6 +344,18 @@ impl SynapseServer {
                         }
                     }
                 }
+
+                // Clean up expired Megolm sessions (Synapse v1.153 alignment)
+                match megolm_service.cleanup_expired_sessions().await {
+                    Ok(count) => {
+                        if count > 0 {
+                            ::tracing::info!("Cleaned up {} expired Megolm sessions", count);
+                        }
+                    }
+                    Err(error) => {
+                        ::tracing::warn!("Failed to cleanup expired Megolm sessions: {}", error);
+                    }
+                }
             }
         });
 
@@ -374,6 +387,7 @@ impl SynapseServer {
         let mut shutdown_rx3 = shutdown_tx.subscribe();
         let mut shutdown_rx4 = shutdown_tx.subscribe();
         let mut shutdown_rx5 = shutdown_tx.subscribe();
+        let mut shutdown_rx6 = shutdown_tx.subscribe();
 
         {
             let bg_service = self.app_state.services.admin.background_update_service.clone();
@@ -479,6 +493,49 @@ impl SynapseServer {
             });
         }
 
+        {
+            // Megolm session expiry cleanup: periodically delete expired megolm
+            // sessions to prevent unbounded growth of the megolm_sessions table.
+            // Per Synapse v1.153 behavior, expired sessions should be cleaned up
+            // automatically. Runs every 6 hours by default.
+            let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
+            tokio::spawn(async move {
+                let mut interval_timer = tokio::time::interval(
+                    tokio::time::Duration::from_secs(6 * 3600),
+                );
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval_timer.tick().await; // skip immediate tick after startup
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            match key_rotation_storage.delete_expired_sessions().await {
+                                Ok(0) => {
+                                    ::tracing::debug!("Megolm session cleanup: no expired sessions found");
+                                }
+                                Ok(n) => {
+                                    ::tracing::info!(
+                                        deleted_sessions = n,
+                                        "Megolm session cleanup: deleted expired sessions"
+                                    );
+                                }
+                                Err(e) => {
+                                    ::tracing::warn!(
+                                        error = %e,
+                                        "Megolm session cleanup failed"
+                                    );
+                                }
+                            }
+                        }
+                        _ = shutdown_rx6.recv() => {
+                            ::tracing::info!("Megolm session cleanup task shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
         tokio::spawn(async move {
             let _ = shutdown_tx;
             axum::serve(client_listener, router.into_make_service_with_connect_info::<SocketAddr>())
@@ -530,7 +587,7 @@ impl SynapseServer {
     }
 
     async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let pool = &self.app_state.services.user_storage.pool;
+        let pool = &self.app_state.services.account.user_storage.pool;
 
         ::tracing::info!("Performing system warmup...");
 

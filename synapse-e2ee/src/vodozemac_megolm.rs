@@ -64,6 +64,7 @@ fn get_session_max_age_days() -> i64 {
 
 /// Serialise a `GroupSessionPickle` to a base64-encoded string for
 /// storage in the `MegolmSession::session_key` column.
+#[allow(clippy::expect_used)]
 fn pickle_to_string(pickle: &GroupSessionPickle) -> String {
     let json = serde_json::to_vec(pickle).expect("GroupSessionPickle should serialize");
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json)
@@ -78,6 +79,7 @@ fn pickle_from_string(s: &str) -> Result<GroupSessionPickle, ApiError> {
 }
 
 /// Serialise an `InboundGroupSessionPickle` to a base64-encoded string.
+#[allow(clippy::expect_used)]
 fn inbound_pickle_to_string(pickle: &InboundGroupSessionPickle) -> String {
     let json = serde_json::to_vec(pickle).expect("InboundGroupSessionPickle should serialize");
     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, json)
@@ -296,6 +298,7 @@ impl MegolmVodozemacService {
     }
 
     /// Encrypt a single plaintext message using the vodozemac outbound session.
+    #[allow(clippy::expect_used)]
     pub async fn encrypt(&self, session_id: &str, plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let mut out = self.encrypt_many(session_id, std::slice::from_ref(&plaintext)).await?;
         Ok(out.pop().expect("encrypt_many returns one ciphertext per input plaintext"))
@@ -568,6 +571,14 @@ impl MegolmVodozemacService {
             ::tracing::error!("Failed to delete session: {e}");
             ApiError::database("A database error occurred".to_string())
         })
+    }
+
+    /// Clean up expired Megolm sessions.
+    ///
+    /// Aligned with Synapse v1.153: removes sessions whose `expires_at`
+    /// timestamp is in the past.
+    pub async fn cleanup_expired_sessions(&self) -> Result<u64, ApiError> {
+        self.storage.cleanup_expired_sessions().await
     }
 
     /// Get the outbound session key distribution data for a room.

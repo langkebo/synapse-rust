@@ -753,3 +753,290 @@ impl ThirdPartyRule for SimpleThirdPartyRule {
         Ok(ThirdPartyRuleOutput { is_allowed: true, reason: None, modified_content: None })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========== SpamCheckResultType tests ==========
+
+    #[test]
+    fn test_spam_check_result_type_as_str() {
+        assert_eq!(SpamCheckResultType::Allow.as_str(), "allow");
+        assert_eq!(SpamCheckResultType::Block.as_str(), "block");
+        assert_eq!(SpamCheckResultType::ShadowBan.as_str(), "shadow_ban");
+    }
+
+    #[test]
+    fn test_spam_check_result_type_from_str() {
+        assert_eq!("allow".parse::<SpamCheckResultType>().unwrap().as_str(), "allow");
+        assert_eq!("block".parse::<SpamCheckResultType>().unwrap().as_str(), "block");
+        assert_eq!("shadow_ban".parse::<SpamCheckResultType>().unwrap().as_str(), "shadow_ban");
+    }
+
+    #[test]
+    fn test_spam_check_result_type_from_str_invalid() {
+        assert!("invalid".parse::<SpamCheckResultType>().is_err());
+        assert!("".parse::<SpamCheckResultType>().is_err());
+    }
+
+    // ========== SpamCheckContext tests ==========
+
+    #[test]
+    fn test_spam_check_context() {
+        let ctx = SpamCheckContext {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hello"}),
+        };
+        assert_eq!(ctx.event_type, "m.room.message");
+        assert_eq!(ctx.sender, "@alice:example.com");
+    }
+
+    // ========== SpamCheckOutput tests ==========
+
+    #[test]
+    fn test_spam_check_output_allow() {
+        let output = SpamCheckOutput {
+            result: SpamCheckResultType::Allow,
+            score: 0,
+            reason: None,
+            action_taken: None,
+        };
+        assert_eq!(output.result.as_str(), "allow");
+        assert_eq!(output.score, 0);
+    }
+
+    #[test]
+    fn test_spam_check_output_block() {
+        let output = SpamCheckOutput {
+            result: SpamCheckResultType::Block,
+            score: 100,
+            reason: Some("blocked word".to_string()),
+            action_taken: Some("blocked".to_string()),
+        };
+        assert_eq!(output.result.as_str(), "block");
+        assert_eq!(output.score, 100);
+    }
+
+    // ========== ThirdPartyRuleContext tests ==========
+
+    #[test]
+    fn test_third_party_rule_context() {
+        let ctx = ThirdPartyRuleContext {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "test"}),
+            state_events: vec![],
+        };
+        assert_eq!(ctx.event_type, "m.room.message");
+        assert!(ctx.state_events.is_empty());
+    }
+
+    // ========== ThirdPartyRuleOutput tests ==========
+
+    #[test]
+    fn test_third_party_rule_output_allowed() {
+        let output = ThirdPartyRuleOutput {
+            is_allowed: true,
+            reason: None,
+            modified_content: None,
+        };
+        assert!(output.is_allowed);
+    }
+
+    #[test]
+    fn test_third_party_rule_output_blocked() {
+        let output = ThirdPartyRuleOutput {
+            is_allowed: false,
+            reason: Some("blocked type".to_string()),
+            modified_content: None,
+        };
+        assert!(!output.is_allowed);
+    }
+
+    // ========== PasswordAuthContext tests ==========
+
+    #[test]
+    fn test_password_auth_context() {
+        let ctx = PasswordAuthContext {
+            user_id: "@alice:example.com".to_string(),
+            password: "secret".to_string(),
+            device_id: Some("DEV123".to_string()),
+            initial_device_display_name: Some("My Device".to_string()),
+        };
+        assert_eq!(ctx.user_id, "@alice:example.com");
+        assert_eq!(ctx.device_id, Some("DEV123".to_string()));
+    }
+
+    // ========== PasswordAuthOutput tests ==========
+
+    #[test]
+    fn test_password_auth_output_valid() {
+        let output = PasswordAuthOutput {
+            valid: true,
+            user_id: Some("@alice:example.com".to_string()),
+        };
+        assert!(output.valid);
+        assert_eq!(output.user_id, Some("@alice:example.com".to_string()));
+    }
+
+    #[test]
+    fn test_password_auth_output_invalid() {
+        let output = PasswordAuthOutput {
+            valid: false,
+            user_id: None,
+        };
+        assert!(!output.valid);
+        assert!(output.user_id.is_none());
+    }
+
+    // ========== ModuleRegistry tests ==========
+
+    #[test]
+    fn test_module_registry_new() {
+        let registry = ModuleRegistry::new();
+        assert!(registry.spam_checkers().is_empty());
+        assert!(registry.third_party_rules().is_empty());
+        assert!(registry.password_providers().is_empty());
+    }
+
+    #[test]
+    fn test_module_registry_default() {
+        let registry = ModuleRegistry::default();
+        assert!(registry.spam_checkers().is_empty());
+    }
+
+    // ========== SimpleSpamChecker tests ==========
+
+    #[test]
+    fn test_simple_spam_checker_allow() {
+        let checker = SimpleSpamChecker::new("test", vec!["spam".to_string()], 1000);
+        assert_eq!(checker.name(), "test");
+    }
+
+    #[test]
+    fn test_simple_spam_checker_block_word() {
+        let checker = SimpleSpamChecker::new("test", vec!["spam".to_string()], 1000);
+        let ctx = SpamCheckContext {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "this is spam content"}),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(checker.check(&ctx)).unwrap();
+        assert_eq!(result.result.as_str(), "block");
+        assert_eq!(result.score, 80);
+        assert!(result.reason.unwrap().contains("spam"));
+    }
+
+    #[test]
+    fn test_simple_spam_checker_allow_clean() {
+        let checker = SimpleSpamChecker::new("test", vec!["badword".to_string()], 1000);
+        let ctx = SpamCheckContext {
+            event_id: "$ev2:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hello world"}),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(checker.check(&ctx)).unwrap();
+        assert_eq!(result.result.as_str(), "allow");
+        assert_eq!(result.score, 0);
+    }
+
+    #[test]
+    fn test_simple_spam_checker_too_long() {
+        let checker = SimpleSpamChecker::new("test", vec!["spam".to_string()], 10);
+        let ctx = SpamCheckContext {
+            event_id: "$ev3:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@carol:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "this is a very long message that exceeds the limit"}),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(checker.check(&ctx)).unwrap();
+        assert_eq!(result.result.as_str(), "block");
+        assert_eq!(result.score, 100);
+        assert!(result.reason.unwrap().contains("maximum length"));
+    }
+
+    #[test]
+    fn test_simple_spam_checker_case_insensitive() {
+        let checker = SimpleSpamChecker::new("test", vec!["SPAM".to_string()], 1000);
+        let ctx = SpamCheckContext {
+            event_id: "$ev4:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "this is spam lowercase"}),
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(checker.check(&ctx)).unwrap();
+        assert_eq!(result.result.as_str(), "block");
+    }
+
+    // ========== SimpleThirdPartyRule tests ==========
+
+    #[test]
+    fn test_simple_third_party_rule_name() {
+        let rule = SimpleThirdPartyRule::new("my_rule", vec!["m.room.redaction".to_string()]);
+        assert_eq!(rule.name(), "my_rule");
+    }
+
+    #[test]
+    fn test_simple_third_party_rule_blocked_type() {
+        let rule = SimpleThirdPartyRule::new("test", vec!["m.room.redaction".to_string()]);
+        let ctx = ThirdPartyRuleContext {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({}),
+            state_events: vec![],
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(rule.check(&ctx)).unwrap();
+        assert!(!result.is_allowed);
+    }
+
+    #[test]
+    fn test_simple_third_party_rule_allowed_type() {
+        let rule = SimpleThirdPartyRule::new("test", vec!["m.room.redaction".to_string()]);
+        let ctx = ThirdPartyRuleContext {
+            event_id: "$ev2:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@bob:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({}),
+            state_events: vec![],
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(rule.check(&ctx)).unwrap();
+        assert!(result.is_allowed);
+    }
+
+    #[test]
+    fn test_simple_third_party_rule_no_blocked_types() {
+        let rule = SimpleThirdPartyRule::new("test", vec![]);
+        let ctx = ThirdPartyRuleContext {
+            event_id: "$ev3:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@carol:example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({}),
+            state_events: vec![],
+        };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(rule.check(&ctx)).unwrap();
+        assert!(result.is_allowed);
+    }
+}

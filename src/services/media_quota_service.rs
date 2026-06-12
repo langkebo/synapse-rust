@@ -1,307 +1,39 @@
-use crate::common::ApiError;
-use crate::storage::media_quota::*;
-use std::sync::Arc;
-use tracing::{info, instrument};
-
-pub struct MediaQuotaService {
-    storage: Arc<MediaQuotaStorage>,
-}
-
-impl MediaQuotaService {
-    pub fn new(storage: Arc<MediaQuotaStorage>) -> Self {
-        Self { storage }
-    }
-
-    #[instrument(skip(self))]
-    pub async fn check_upload_quota(&self, user_id: &str, file_size: i64) -> Result<QuotaCheckResult, ApiError> {
-        info!(user_id = %user_id, file_size, "Checking upload quota");
-
-        let server_quota = self.storage.get_server_quota().await?;
-
-        if let Some(max_file_size) = server_quota.max_file_size_bytes {
-            if file_size > max_file_size {
-                return Ok(QuotaCheckResult {
-                    is_allowed: false,
-                    reason: Some(format!("File size {file_size} exceeds maximum allowed size {max_file_size}")),
-                    current_usage: 0,
-                    quota_limit: max_file_size,
-                    usage_percent: 0.0,
-                });
-            }
-        }
-
-        if let Some(max_storage) = server_quota.max_storage_bytes {
-            if max_storage > 0 {
-                let new_total = server_quota.current_storage_bytes + file_size;
-                if new_total > max_storage {
-                    return Ok(QuotaCheckResult {
-                        is_allowed: false,
-                        reason: Some("Server storage quota exceeded".to_string()),
-                        current_usage: server_quota.current_storage_bytes,
-                        quota_limit: max_storage,
-                        usage_percent: (server_quota.current_storage_bytes as f64 / max_storage as f64) * 100.0,
-                    });
-                }
-            }
-        }
-
-        let result = self.storage.check_quota(user_id, file_size).await?;
-
-        if result.usage_percent >= 80.0 && result.usage_percent < 100.0 {
-            let _ = self
-                .storage
-                .create_alert(
-                    user_id,
-                    "warning",
-                    80,
-                    result.current_usage,
-                    result.quota_limit,
-                    Some("You are approaching your storage quota limit"),
-                )
-                .await;
-        }
-
-        Ok(result)
-    }
-
-    #[instrument(skip(self))]
-    pub async fn record_upload(
-        &self,
-        user_id: &str,
-        media_id: &str,
-        file_size: i64,
-        mime_type: Option<&str>,
-    ) -> Result<(), ApiError> {
-        info!(
-            user_id = %user_id,
-            media_id = %media_id,
-            file_size,
-            mime_type = ?mime_type,
-            "Recording media upload"
-        );
-
-        self.storage
-            .update_usage(UpdateUsageRequest {
-                user_id: user_id.to_string(),
-                media_id: media_id.to_string(),
-                file_size_bytes: file_size,
-                mime_type: mime_type.map(|s| s.to_string()),
-                operation: "upload".to_string(),
-            })
-            .await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn record_delete(&self, user_id: &str, media_id: &str, file_size: i64) -> Result<(), ApiError> {
-        info!(user_id = %user_id, media_id = %media_id, file_size, "Recording media delete");
-
-        self.storage
-            .update_usage(UpdateUsageRequest {
-                user_id: user_id.to_string(),
-                media_id: media_id.to_string(),
-                file_size_bytes: file_size,
-                mime_type: None,
-                operation: "delete".to_string(),
-            })
-            .await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_quota(&self, user_id: &str) -> Result<UserQuotaInfo, ApiError> {
-        let user_quota = self.storage.get_or_create_user_quota(user_id).await?;
-        let config = if let Some(config_id) = user_quota.quota_config_id {
-            self.storage.get_config(config_id).await?
-        } else {
-            self.storage.get_default_config().await?
-        };
-
-        let max_storage =
-            user_quota.custom_max_storage_bytes.or(config.as_ref().map(|c| c.max_storage_bytes)).unwrap_or(0);
-
-        let max_file_size =
-            user_quota.custom_max_file_size_bytes.or(config.as_ref().map(|c| c.max_file_size_bytes)).unwrap_or(0);
-
-        let max_files = user_quota.custom_max_files_count.or(config.as_ref().map(|c| c.max_files_count)).unwrap_or(0);
-
-        let usage_percent =
-            if max_storage > 0 { (user_quota.current_storage_bytes as f64 / max_storage as f64) * 100.0 } else { 0.0 };
-
-        Ok(UserQuotaInfo {
-            current_storage_bytes: user_quota.current_storage_bytes,
-            current_files_count: user_quota.current_files_count,
-            max_storage_bytes: max_storage,
-            max_file_size_bytes: max_file_size,
-            max_files_count: max_files,
-            usage_percent,
-        })
-    }
-
-    #[instrument(skip(self))]
-    pub async fn set_user_quota(&self, request: SetUserQuotaRequest) -> Result<UserMediaQuota, ApiError> {
-        info!(
-            user_id = %request.user_id,
-            quota_config_id = ?request.quota_config_id,
-            custom_max_storage_bytes = ?request.custom_max_storage_bytes,
-            custom_max_file_size_bytes = ?request.custom_max_file_size_bytes,
-            custom_max_files_count = ?request.custom_max_files_count,
-            "Setting user quota"
-        );
-        self.storage.set_user_quota(request).await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn create_quota_config(&self, request: CreateQuotaConfigRequest) -> Result<MediaQuotaConfig, ApiError> {
-        info!(
-            config_name = %request.name,
-            max_storage_bytes = request.max_storage_bytes,
-            max_file_size_bytes = request.max_file_size_bytes,
-            max_files_count = request.max_files_count,
-            is_default = ?request.is_default,
-            "Creating quota config"
-        );
-        self.storage.create_config(request).await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn list_quota_configs(&self) -> Result<Vec<MediaQuotaConfig>, ApiError> {
-        self.storage.list_configs().await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn delete_quota_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        info!(config_id, "Deleting quota config");
-        self.storage.delete_config(config_id).await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_server_quota(&self) -> Result<ServerMediaQuota, ApiError> {
-        self.storage.get_server_quota().await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn update_server_quota(
-        &self,
-        max_storage_bytes: Option<i64>,
-        max_file_size_bytes: Option<i64>,
-        max_files_count: Option<i32>,
-        alert_threshold_percent: Option<i32>,
-    ) -> Result<ServerMediaQuota, ApiError> {
-        info!(
-            max_storage_bytes = ?max_storage_bytes,
-            max_file_size_bytes = ?max_file_size_bytes,
-            max_files_count = ?max_files_count,
-            alert_threshold_percent = ?alert_threshold_percent,
-            "Updating server quota"
-        );
-        self.storage
-            .update_server_quota(max_storage_bytes, max_file_size_bytes, max_files_count, alert_threshold_percent)
-            .await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_user_alerts(&self, user_id: &str, unread_only: bool) -> Result<Vec<MediaQuotaAlert>, ApiError> {
-        self.storage.get_user_alerts(user_id, unread_only).await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn mark_alert_read(&self, alert_id: i64) -> Result<bool, ApiError> {
-        self.storage.mark_alert_read(alert_id).await
-    }
-
-    #[instrument(skip(self))]
-    pub async fn get_usage_stats(&self, user_id: &str) -> Result<serde_json::Value, ApiError> {
-        self.storage.get_usage_stats(user_id).await
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserQuotaInfo {
-    pub current_storage_bytes: i64,
-    pub current_files_count: i32,
-    pub max_storage_bytes: i64,
-    pub max_file_size_bytes: i64,
-    pub max_files_count: i32,
-    pub usage_percent: f64,
-}
-
-use serde::{Deserialize, Serialize};
+pub use synapse_services::media_quota_service::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::UserQuotaInfo;
 
     #[test]
-    fn test_user_quota_info() {
+    fn root_media_quota_service_reexport_keeps_user_quota_shape() {
         let info = UserQuotaInfo {
-            current_storage_bytes: 1000,
-            current_files_count: 10,
-            max_storage_bytes: 10000,
-            max_file_size_bytes: 1000,
-            max_files_count: 100,
-            usage_percent: 10.0,
+            current_storage_bytes: 1024,
+            current_files_count: 4,
+            max_storage_bytes: 4096,
+            max_file_size_bytes: 2048,
+            max_files_count: 16,
+            usage_percent: 25.0,
         };
 
-        assert_eq!(info.current_storage_bytes, 1000);
-        assert_eq!(info.usage_percent, 10.0);
+        assert_eq!(info.current_storage_bytes, 1024);
+        assert_eq!(info.usage_percent, 25.0);
     }
 
     #[test]
-    fn test_user_quota_info_usage_percent() {
+    fn root_media_quota_service_reexport_keeps_user_quota_serde_round_trip() {
         let info = UserQuotaInfo {
-            current_storage_bytes: 5000,
-            current_files_count: 50,
-            max_storage_bytes: 10000,
-            max_file_size_bytes: 1000,
-            max_files_count: 100,
-            usage_percent: 50.0,
+            current_storage_bytes: 2048,
+            current_files_count: 8,
+            max_storage_bytes: 8192,
+            max_file_size_bytes: 2048,
+            max_files_count: 32,
+            usage_percent: 25.0,
         };
 
-        assert_eq!(info.usage_percent, 50.0);
-    }
+        let json = serde_json::to_string(&info).expect("serialize user quota info");
+        let parsed: UserQuotaInfo = serde_json::from_str(&json).expect("deserialize user quota info");
 
-    #[test]
-    fn test_user_quota_info_full() {
-        let info = UserQuotaInfo {
-            current_storage_bytes: 10000,
-            current_files_count: 100,
-            max_storage_bytes: 10000,
-            max_file_size_bytes: 1000,
-            max_files_count: 100,
-            usage_percent: 100.0,
-        };
-
-        assert_eq!(info.usage_percent, 100.0);
-    }
-
-    #[test]
-    fn test_user_quota_info_zero_limit() {
-        let info = UserQuotaInfo {
-            current_storage_bytes: 100,
-            current_files_count: 5,
-            max_storage_bytes: 0,
-            max_file_size_bytes: 0,
-            max_files_count: 0,
-            usage_percent: 0.0,
-        };
-
-        assert_eq!(info.usage_percent, 0.0);
-    }
-
-    #[test]
-    fn test_user_quota_info_serialization() {
-        let info = UserQuotaInfo {
-            current_storage_bytes: 1000,
-            current_files_count: 10,
-            max_storage_bytes: 10000,
-            max_file_size_bytes: 1000,
-            max_files_count: 100,
-            usage_percent: 10.0,
-        };
-
-        let json = serde_json::to_string(&info).expect("Failed to serialize UserQuotaInfo");
-        let parsed: UserQuotaInfo = serde_json::from_str(&json).expect("Failed to deserialize UserQuotaInfo");
-
-        assert_eq!(parsed.current_storage_bytes, info.current_storage_bytes);
-        assert_eq!(parsed.usage_percent, info.usage_percent);
+        assert_eq!(parsed.current_files_count, info.current_files_count);
+        assert_eq!(parsed.max_storage_bytes, info.max_storage_bytes);
     }
 }

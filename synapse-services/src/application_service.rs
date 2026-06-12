@@ -212,18 +212,15 @@ impl ApplicationServiceManager {
 
         match response {
             Ok(resp) if resp.status().is_success() => {
-                let _ = self
-                    .storage
-                    .complete_transaction(as_id, &transaction_id)
-                    .await
-                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to complete transaction"));
+                if let Err(e) = self.storage.complete_transaction(as_id, &transaction_id).await {
+                    error!(%e, as_id, transaction_id, "Failed to complete transaction");
+                }
 
                 for event in &events {
                     if let Some(event_id) = event.get("event_id").and_then(|e| e.as_str()) {
-                        let _ =
-                            self.storage.mark_event_processed(event_id, &transaction_id).await.map_err(
-                                |e| warn!(%e, as_id, transaction_id, event_id, "Failed to mark event processed"),
-                            );
+                        if let Err(e) = self.storage.mark_event_processed(event_id).await {
+                            warn!(%e, as_id, transaction_id, event_id, "Failed to mark event processed");
+                        }
                     }
                 }
 
@@ -234,20 +231,18 @@ impl ApplicationServiceManager {
                 let status = resp.status();
                 let error_body = resp.text().await.unwrap_or_default();
 
-                let _ = self
-                    .storage
-                    .fail_transaction(as_id, &transaction_id, &format!("HTTP {status}: {error_body}"))
-                    .await
-                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to fail transaction"));
+                if let Err(e) =
+                    self.storage.fail_transaction(as_id, &transaction_id, &format!("HTTP {status}: {error_body}")).await
+                {
+                    error!(%e, as_id, transaction_id, "Failed to fail transaction");
+                }
 
                 Err(ApiError::internal_with_log("Application service returned error", &format!("HTTP {status}")))
             }
             Err(e) => {
-                let _ = self
-                    .storage
-                    .fail_transaction(as_id, &transaction_id, &e.to_string())
-                    .await
-                    .map_err(|e| error!(%e, as_id, transaction_id, "Failed to fail transaction"));
+                if let Err(e) = self.storage.fail_transaction(as_id, &transaction_id, &e.to_string()).await {
+                    error!(%e, as_id, transaction_id, "Failed to fail transaction");
+                }
 
                 Err(ApiError::internal_with_log("Failed to send transaction", &e))
             }

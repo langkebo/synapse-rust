@@ -517,9 +517,8 @@ async fn send_friend_request(
         .friend_room_service
         .send_friend_request(&request_id, &auth_user.user_id, &body.user_id, body.message.as_deref())
         .await?;
-    let friend_request_id = request_id_val.to_string();
     Ok(Json(json!({
-        "request_id": friend_request_id,
+        "request_id": request_id,
         "status": "pending"
     })))
 }

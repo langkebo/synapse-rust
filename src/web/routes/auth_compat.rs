@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::services::auth::GuestAuthExt;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
@@ -20,20 +21,20 @@ pub(crate) async fn register(
         || body.get("kind").and_then(|v| v.as_str()) == Some("guest");
 
     if is_guest {
-        if !state.services.config.server.enable_registration {
+        if !state.services.core.config.server.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
-        let (user, device_id, access_token) = state.services.auth_service.register_guest_account().await?;
+        let (user, device_id, access_token) = state.services.core.auth_service.register_guest_account().await?;
 
         return Ok(Json(json!({
             "access_token": access_token,
             "device_id": device_id,
             "user_id": user.user_id,
             "is_guest": true,
-            "expires_in": state.services.auth_service.token_expiry,
+            "expires_in": state.services.core.auth_service.token_expiry,
             "well_known": {
                 "m.homeserver": {
-                    "base_url": state.services.config.server.get_public_baseurl()
+                    "base_url": state.services.core.config.server.get_public_baseurl()
                 }
             }
         }))
@@ -72,8 +73,8 @@ pub(crate) async fn register(
     let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
     let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
-    state.services.auth_service.validator.validate_username(username)?;
-    state.services.auth_service.validator.validate_password(password)?;
+    state.services.core.auth_service.validator.validate_username(username)?;
+    state.services.core.auth_service.validator.validate_password(password)?;
 
     let displayname = body.get("displayname").and_then(|v| v.as_str());
     let initial_device_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
@@ -81,6 +82,7 @@ pub(crate) async fn register(
     Ok(Json(
         state
             .services
+            .core
             .registration_service
             .register_user(username, password, displayname, initial_device_display_name)
             .await?,
@@ -97,13 +99,14 @@ pub(crate) async fn check_username_availability(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
-    if let Err(e) = state.services.auth_service.validator.validate_username(username) {
+    if let Err(e) = state.services.core.auth_service.validator.validate_username(username) {
         return Err(e.into());
     }
 
-    let user_id = format!("@{}:{}", username, state.services.server_name);
+    let user_id = format!("@{}:{}", username, state.services.core.server_name);
     let exists = state
         .services
+        .account
         .user_storage
         .user_exists(&user_id)
         .await
@@ -145,7 +148,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    if state.services.auth_service.validator.validate_email(email).is_err() {
+    if state.services.core.auth_service.validator.validate_email(email).is_err() {
         return Err(ApiError::bad_request("Invalid email address format".to_string()));
     }
 
@@ -156,7 +159,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
 
-    let token = state.services.auth_service.generate_email_verification_token().map_err(|e| {
+    let token = state.services.core.auth_service.generate_email_verification_token().map_err(|e| {
         ::tracing::error!(
             request_id = %request_id,
             purpose = %purpose,
@@ -189,7 +192,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let sid = format!("{token_id}");
 
-    let submit_url = format!("{}{}", state.services.config.server.get_public_baseurl(), submit_path);
+    let submit_url = format!("{}{}", state.services.core.config.server.get_public_baseurl(), submit_path);
 
     ::tracing::info!(
         request_id = %request_id,
@@ -290,7 +293,7 @@ pub(crate) async fn get_login_flows(State(state): State<AppState>) -> Json<Value
     }
 
     // 检查 OIDC
-    if state.services.oidc_service.is_some() {
+    if state.services.sso.oidc_service.is_some() {
         sso_providers.push(json!({
             "id": "oidc",
             "name": "OIDC",
@@ -318,7 +321,7 @@ pub(crate) async fn get_login_flows(State(state): State<AppState>) -> Json<Value
     }
 
     // 检查内置 OIDC Provider
-    if state.services.builtin_oidc_provider.is_some() {
+    if state.services.sso.builtin_oidc_provider.is_some() {
         flows.push(json!({"type": "m.login.oidc"}));
     }
 
@@ -370,17 +373,17 @@ pub(crate) async fn login(
     enforce_admin_login_mfa(&state, username, mfa_code).await?;
 
     let (user, access_token, refresh_token, device_id) =
-        state.services.auth_service.login(username, password, device_id, initial_display_name).await?;
+        state.services.core.auth_service.login(username, password, device_id, initial_display_name).await?;
 
     Ok(Json(json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": state.services.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry,
         "device_id": device_id,
         "user_id": user.user_id(),
         "well_known": {
             "m.homeserver": {
-                "base_url": state.services.config.server.get_public_baseurl()
+                "base_url": state.services.core.config.server.get_public_baseurl()
             }
         }
     })))
@@ -390,7 +393,7 @@ pub(crate) async fn logout(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.auth_service.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
+    state.services.core.auth_service.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({})))
 }
@@ -399,7 +402,7 @@ pub(crate) async fn logout_all(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.auth_service.logout_all(&auth_user.user_id).await?;
+    state.services.core.auth_service.logout_all(&auth_user.user_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -413,12 +416,12 @@ pub(crate) async fn refresh_token(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
 
-    let (new_access, new_refresh, device_id) = state.services.auth_service.refresh_token(refresh_token).await?;
+    let (new_access, new_refresh, device_id) = state.services.core.auth_service.refresh_token(refresh_token).await?;
 
     Ok(Json(json!({
         "access_token": new_access,
         "refresh_token": new_refresh,
-        "expires_in": state.services.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry,
         "device_id": device_id
     })))
 }

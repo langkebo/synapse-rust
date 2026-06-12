@@ -17,8 +17,9 @@
 use crate::common::error::{ApiError, ApiResult};
 use crate::common::task_queue::RedisTaskQueue;
 use crate::common::validation::Validator;
-use crate::services::*;
-use crate::storage::UserStorage;
+use crate::auth::AuthService;
+use crate::services::room_summary_service::RoomSummaryService;
+use crate::storage::{EventStorage, RoomMemberStorage, RoomStorage, UserStorage};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -65,7 +66,7 @@ pub struct RoomServiceConfig {
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: crate::storage::relations::RelationsStorage,
-    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub event_broadcaster: Option<Arc<crate::federation::event_broadcaster::EventBroadcaster>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -86,7 +87,7 @@ pub struct RoomService {
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub(crate) relations_storage: crate::storage::relations::RelationsStorage,
-    pub(crate) event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<crate::federation::event_broadcaster::EventBroadcaster>>>>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::services::beacon_service::BeaconService>>,
 }
@@ -107,7 +108,7 @@ impl RoomService {
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             relations_storage: config.relations_storage,
-            event_broadcaster: config.event_broadcaster,
+            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
         }
@@ -162,6 +163,13 @@ impl RoomService {
             ::tracing::info!(task_id = %task_id, "Aborting delayed task");
             handle.abort();
         }
+    }
+
+    pub async fn set_event_broadcaster(
+        &self,
+        event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    ) {
+        *self.event_broadcaster.write().await = Some(event_broadcaster);
     }
 
     // ── Basic room queries ──

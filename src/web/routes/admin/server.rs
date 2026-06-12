@@ -142,6 +142,7 @@ pub async fn restart_server(
 pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let total_users = state
         .services
+        .account
         .user_storage
         .get_user_count()
         .await
@@ -189,6 +190,7 @@ pub async fn whois(
 ) -> Result<Json<Value>, ApiError> {
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
@@ -228,6 +230,7 @@ pub async fn whois_device(
 ) -> Result<Json<Value>, ApiError> {
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(&user_id)
         .await

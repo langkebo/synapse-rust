@@ -283,8 +283,8 @@ mod tests {
     async fn test_registration_service_creation() {
         let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
-            services.user_storage.clone(),
-            services.auth_service.clone(),
+            services.account.user_storage.clone(),
+            services.core.auth_service.clone(),
             services.metrics.clone(),
             &services.server_name,
             services.config.server.enable_registration,
@@ -317,8 +317,8 @@ mod tests {
     async fn test_registration_service_disabled() {
         let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
-            services.user_storage.clone(),
-            services.auth_service.clone(),
+            services.account.user_storage.clone(),
+            services.core.auth_service.clone(),
             services.metrics.clone(),
             &services.server_name,
             false,

@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::CreateAuditEventRequest;
+use crate::storage::CreateAuditEventRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::auth::resolve_request_id;
@@ -53,7 +53,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 
         async move {
             let token = token_result?;
-            let result = state.services.auth_service.validate_token(&token).await;
+            let result = state.services.core.auth_service.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
                     // 对敏感写操作记录审计日志 (非管理员路径)
@@ -126,7 +126,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
 
         async move {
             match token_result {
-                Ok(token) => match state.services.auth_service.validate_token(&token).await {
+                Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,
@@ -185,4 +185,66 @@ pub(crate) fn extract_token_from_request(headers: &HeaderMap, uri: &str) -> Resu
 
 pub(crate) fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
     crate::web::utils::auth::bearer_token(headers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn test_extract_token_from_headers_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer test-token-123".parse().unwrap());
+        assert_eq!(extract_token_from_headers(&headers).unwrap(), "test-token-123");
+    }
+
+    #[test]
+    fn test_extract_token_from_headers_missing() {
+        let headers = HeaderMap::new();
+        assert!(extract_token_from_headers(&headers).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_from_request_bearer_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        assert_eq!(extract_token_from_request(&headers, "/test").unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_query_param() {
+        let headers = HeaderMap::new();
+        let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
+        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "query-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_header_takes_priority() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        let uri = "/test?access_token=query-token";
+        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_query_only() {
+        let headers = HeaderMap::new();
+        let uri = "/test?access_token=abc123";
+        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "abc123");
+    }
+
+    #[test]
+    fn test_extract_token_from_request_no_token() {
+        let headers = HeaderMap::new();
+        let uri = "/test";
+        assert!(extract_token_from_request(&headers, uri).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_from_request_query_no_access_token() {
+        let headers = HeaderMap::new();
+        let uri = "/test?other_param=value";
+        assert!(extract_token_from_request(&headers, uri).is_err());
+    }
 }

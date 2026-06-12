@@ -245,7 +245,7 @@ impl OpenClawService {
         }
 
         // Ownership check
-        let _ = self.get_connection_for_user(id, auth_user_id).await?;
+        self.get_connection_for_user(id, auth_user_id).await?;
 
         let encrypted_key = self.encrypt_optional_api_key(api_key)?;
 
@@ -266,7 +266,7 @@ impl OpenClawService {
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_connection(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
-        let _ = self.get_connection_for_user(id, auth_user_id).await?;
+        self.get_connection_for_user(id, auth_user_id).await?;
 
         self.storage
             .delete_connection(id)
@@ -337,7 +337,7 @@ impl OpenClawService {
     ) -> Result<AiConversation, ApiError> {
         // Validate connection ownership if specified
         if let Some(conn_id) = connection_id {
-            let _ = self.get_connection_for_user(conn_id, user_id).await?;
+            self.get_connection_for_user(conn_id, user_id).await?;
         }
 
         self.storage
@@ -391,7 +391,7 @@ impl OpenClawService {
         is_pinned: Option<bool>,
     ) -> Result<AiConversation, ApiError> {
         // Ownership check
-        let _ = self.get_conversation_for_user(id, auth_user_id).await?;
+        self.get_conversation_for_user(id, auth_user_id).await?;
 
         self.storage
             .update_conversation(id, title, system_prompt, temperature, max_tokens, is_pinned)
@@ -402,7 +402,7 @@ impl OpenClawService {
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_conversation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
-        let _ = self.get_conversation_for_user(id, auth_user_id).await?;
+        self.get_conversation_for_user(id, auth_user_id).await?;
 
         self.storage
             .delete_conversation(id)
@@ -433,7 +433,7 @@ impl OpenClawService {
         before: Option<i64>,
     ) -> Result<(Vec<AiMessage>, Option<String>), ApiError> {
         // Ownership check via conversation
-        let _ = self.get_conversation_for_user(conversation_id, auth_user_id).await?;
+        self.get_conversation_for_user(conversation_id, auth_user_id).await?;
 
         let cursor = match (from, before) {
             (Some(from), _) => {
@@ -483,7 +483,7 @@ impl OpenClawService {
         tool_call_id: Option<&str>,
     ) -> Result<AiMessage, ApiError> {
         // Ownership check via conversation
-        let _ = self.get_conversation_for_user(conversation_id, auth_user_id).await?;
+        self.get_conversation_for_user(conversation_id, auth_user_id).await?;
 
         let role = role.unwrap_or("user");
 
@@ -503,7 +503,7 @@ impl OpenClawService {
             .ok_or_else(|| ApiError::not_found("Message not found"))?;
 
         // Ownership check via conversation
-        let _ = self.get_conversation_for_user(msg.conversation_id, auth_user_id).await?;
+        self.get_conversation_for_user(msg.conversation_id, auth_user_id).await?;
 
         self.storage.delete_message(id).await.map_err(|e| ApiError::internal_with_log("Failed to delete message", &e))
     }
@@ -557,7 +557,7 @@ impl OpenClawService {
     ) -> Result<AiGeneration, ApiError> {
         // Validate conversation ownership if specified
         if let Some(conv_id) = conversation_id {
-            let _ = self.get_conversation_for_user(conv_id, user_id).await?;
+            self.get_conversation_for_user(conv_id, user_id).await?;
         }
 
         self.storage
@@ -582,7 +582,7 @@ impl OpenClawService {
     #[::tracing::instrument(skip_all, fields(id = id, auth_user_id = %auth_user_id))]
     pub async fn delete_generation(&self, id: i64, auth_user_id: &str) -> Result<(), ApiError> {
         // Ownership check
-        let _ = self.get_generation_for_user(id, auth_user_id).await?;
+        self.get_generation_for_user(id, auth_user_id).await?;
 
         self.storage
             .delete_generation(id)

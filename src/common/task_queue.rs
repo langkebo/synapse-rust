@@ -229,6 +229,10 @@ impl RedisTaskQueue {
         Self { pool }
     }
 
+    pub fn to_synapse_redis_task_queue(&self) -> synapse_services::common::task_queue::RedisTaskQueue {
+        synapse_services::common::task_queue::RedisTaskQueue::from_pool(self.pool.clone())
+    }
+
     pub async fn submit(&self, job: BackgroundJob) -> Result<String, TaskQueueError> {
         let payload = serde_json::to_string(&job)
             .map_err(|e| TaskQueueError::SubmissionError(format!("Failed to serialize job: {e}")))?;

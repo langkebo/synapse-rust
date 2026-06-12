@@ -1,7 +1,7 @@
 //! Room receipt operations: send and query read receipts.
 
 use crate::common::error::{ApiError, ApiResult};
-use crate::services::*;
+use crate::storage::Receipt;
 use serde_json::json;
 
 use super::service::RoomService;
@@ -36,16 +36,17 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store ephemeral receipt", &e))?;
 
-        let receipt_edu = json!({
-            "edu_type": "m.receipt",
-            "room_id": room_id,
-            "content": receipt_content
-        });
+        if let Some(event_broadcaster) = self.event_broadcaster.read().await.clone() {
+            let receipt_edu = json!({
+                "edu_type": "m.receipt",
+                "room_id": room_id,
+                "content": receipt_content
+            });
 
-        let _ = self
-            .event_broadcaster
-            .broadcast_edu_to_room(room_id, &receipt_edu, &self.server_name)
-            .await;
+            let _ = event_broadcaster
+                .broadcast_edu_to_room(room_id, &receipt_edu, &self.server_name)
+                .await;
+        }
 
         Ok(())
     }

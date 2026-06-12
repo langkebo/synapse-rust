@@ -19,7 +19,7 @@ pub struct BurnPendingRow {
     pub room_id: String,
     pub event_id: String,
     pub created_ts: i64,
-    pub delete_at: i64,
+    pub delete_ts: i64,
     pub is_processed: bool,
 }
 
@@ -104,7 +104,7 @@ impl BurnAfterReadStorage {
         user_id: &str,
         room_id: &str,
         event_id: &str,
-        delete_at: i64,
+        delete_ts: i64,
     ) -> Result<BurnPendingRow, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
 
@@ -116,13 +116,13 @@ impl BurnAfterReadStorage {
             ON CONFLICT (user_id, room_id, event_id) DO UPDATE SET
                 delete_ts = EXCLUDED.delete_ts,
                 created_ts = EXCLUDED.created_ts
-            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
+            RETURNING id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_ts!", is_processed AS "is_processed!: bool"
             "#,
             user_id,
             room_id,
             event_id,
             now,
-            delete_at,
+            delete_ts,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -149,7 +149,7 @@ impl BurnAfterReadStorage {
         let rows = sqlx::query_as!(
             BurnPendingRow,
             r#"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_ts!", is_processed AS "is_processed!: bool"
             FROM burn_after_read_pending
             WHERE user_id = $1 AND room_id = $2 AND is_processed = FALSE
             ORDER BY delete_ts ASC
@@ -167,7 +167,7 @@ impl BurnAfterReadStorage {
         let rows = sqlx::query_as!(
             BurnPendingRow,
             r#"
-            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_at!", is_processed AS "is_processed!: bool"
+            SELECT id, user_id, room_id, event_id, created_ts, delete_ts AS "delete_ts!", is_processed AS "is_processed!: bool"
             FROM burn_after_read_pending
             WHERE delete_ts <= $1 AND is_processed = FALSE
             ORDER BY delete_ts ASC
@@ -285,7 +285,7 @@ mod tests {
             room_id: "!room:example.com".to_string(),
             event_id: "$event1".to_string(),
             created_ts: 1234567890,
-            delete_at: 1234567950,
+            delete_ts: 1234567950,
             is_processed: false,
         };
         assert_eq!(row.id, 1);

@@ -156,3 +156,115 @@ impl SecretStorageSessionKey {
         Self { key: key.to_string(), iv: iv.to_string(), mac: mac.to_string() }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_secret_storage_key() {
+        let key = SecretStorageKey {
+            key_id: "key_1".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            algorithm: "org.matrix.msc2697.v1.curve25519-aes-sha2".to_string(),
+            encrypted_key: "encrypted_key_data".to_string(),
+            public_key: Some("public_key_data".to_string()),
+            signatures: serde_json::json!({"@alice:example.com": {"ed25519:DEVICE": "sig"}}),
+            created_ts: 1700000000000,
+        };
+        assert_eq!(key.key_id, "key_1");
+        assert_eq!(key.user_id, "@alice:example.com");
+        assert!(key.public_key.is_some());
+    }
+
+    #[test]
+    fn test_secret_storage_algorithm_default() {
+        let algo = SecretStorageAlgorithm::default();
+        assert_eq!(algo.algorithm, "org.matrix.msc2697.v1.curve25519-aes-sha2");
+        assert!(algo.config.is_object());
+    }
+
+    #[test]
+    fn test_secret_storage_encryption_info_default() {
+        let info = SecretStorageEncryptionInfo::default();
+        assert_eq!(info.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+        assert!(info.master_key_id.is_none());
+        assert!(info.key_count.is_empty());
+    }
+
+    #[test]
+    fn test_secret_storage_session_key_from_parts() {
+        let key = SecretStorageSessionKey::from_key_parts("enc_key", "iv_value", "mac_value");
+        assert_eq!(key.key, "enc_key");
+        assert_eq!(key.iv, "iv_value");
+        assert_eq!(key.mac, "mac_value");
+    }
+
+    #[test]
+    fn test_curve25519_key() {
+        let key = Curve25519Key { key: "curve25519_key_data".to_string() };
+        assert_eq!(key.key, "curve25519_key_data");
+    }
+
+    #[test]
+    fn test_aes_hmac_sha2_key() {
+        let key = AesHmacSha2Key {
+            key: "aes_key".to_string(),
+            iv: "aes_iv".to_string(),
+            mac: "aes_mac".to_string(),
+        };
+        assert_eq!(key.key, "aes_key");
+        assert_eq!(key.iv, "aes_iv");
+        assert_eq!(key.mac, "aes_mac");
+    }
+
+    #[test]
+    fn test_stored_secret() {
+        let secret = StoredSecret {
+            secret_name: "m.cross_signing.master".to_string(),
+            encrypted_secret: "encrypted_data".to_string(),
+            key_id: "key_1".to_string(),
+        };
+        assert_eq!(secret.secret_name, "m.cross_signing.master");
+    }
+
+    #[test]
+    fn test_secret_storage_get_request() {
+        let request = SecretStorageGetRequest {
+            secrets: vec!["m.cross_signing.master".to_string()],
+            keys: Some(vec!["key_1".to_string()]),
+        };
+        assert_eq!(request.secrets.len(), 1);
+        assert!(request.keys.is_some());
+    }
+
+    #[test]
+    fn test_secret_storage_set_request() {
+        let request = SecretStorageSetRequest {
+            secret: "m.cross_signing.master".to_string(),
+            encrypted_secret: "encrypted".to_string(),
+            key: "key_1".to_string(),
+        };
+        assert_eq!(request.secret, "m.cross_signing.master");
+    }
+
+    #[test]
+    fn test_secret_storage_key_info() {
+        let info = SecretStorageKeyInfo {
+            key_id: "key_1".to_string(),
+            algorithm: "aes-hmac-sha2".to_string(),
+            auth_data: SecretStorageKeyAuthData {
+                key: "key_data".to_string(),
+                iv: "iv_data".to_string(),
+                mac: "mac_data".to_string(),
+                signatures: serde_json::json!({}),
+            },
+            tracks: Some(SecretStorageKeyTracks {
+                self_signing: Some(true),
+                user_signing: Some(false),
+            }),
+        };
+        assert_eq!(info.key_id, "key_1");
+        assert!(info.tracks.is_some());
+    }
+}

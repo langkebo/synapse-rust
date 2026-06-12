@@ -1,6 +1,6 @@
 use super::types::*;
 use super::SyncService;
-use crate::services::*;
+use crate::storage::RoomEvent;
 use serde_json::Value;
 use std::collections::HashSet;
 

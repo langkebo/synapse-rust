@@ -1,5 +1,6 @@
 use crate::cache::CacheManager;
 use crate::common::ApiError;
+use crate::storage::ThreepidStorage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -279,8 +280,18 @@ impl UiaService {
         Ok(())
     }
 
-    pub fn verify_token_stage(&self, auth: &Value, _user_id: &str) -> Result<(), ApiError> {
-        let _token = auth
+    /// Verify `m.login.token` UIA stage.
+    ///
+    /// Validates that the token is present and that the transaction ID is
+    /// provided. Full token verification against stored login tokens is
+    /// performed when a token storage reference is available.
+    pub async fn verify_token_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        auth_service: &crate::auth::AuthService,
+    ) -> Result<(), ApiError> {
+        let token = auth
             .get("token")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Token required for m.login.token".to_string()))?;
@@ -291,54 +302,146 @@ impl UiaService {
             return Err(ApiError::bad_request("Transaction ID required".to_string()));
         }
 
-        Ok(())
-    }
-
-    /// Stub verification for `m.login.email.identity`.
-    ///
-    /// Validates that the required `threepidCreds` fields are present in the
-    /// auth dict. Full verification (checking the identity server response and
-    /// matching the 3PID to the user) is deferred to a follow-up iteration;
-    /// this stub ensures the auth type is accepted in UIA flows and the
-    /// session stage is marked completed.
-    pub fn verify_email_identity_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
-        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
-
-        if threepid_creds.is_none_or(|v| !v.is_array()) {
-            return Err(ApiError::bad_request("threepidCreds array required for m.login.email.identity".to_string()));
+        // Verify the token is valid and belongs to the user.
+        // In the UIA context, the token is typically a login token issued
+        // during the m.login.token registration/login flow.
+        match auth_service.validate_token(token).await {
+            Ok((token_user_id, _, _, _, _)) => {
+                if token_user_id != user_id {
+                    return Err(ApiError::forbidden("Token belongs to a different user".to_string()));
+                }
+            }
+            Err(_) => {
+                return Err(ApiError::forbidden("Invalid or expired token".to_string()));
+            }
         }
 
-        // Stub: accept any non-empty threepidCreds array.
-        // A full implementation would verify the sid/client_secret against
-        // the identity server and confirm the email belongs to `user_id`.
         tracing::info!(
             target: "uia",
             user_id = user_id,
-            "m.login.email.identity stage accepted (stub)"
+            "m.login.token stage accepted"
         );
 
         Ok(())
     }
 
-    /// Stub verification for `m.login.msisdn`.
+    /// Verify `m.login.email.identity` UIA stage.
     ///
-    /// Validates that the required `threepidCreds` fields are present in the
-    /// auth dict. Full verification (checking the identity server response and
-    /// matching the MSISDN to the user) is deferred to a follow-up iteration.
-    pub fn verify_msisdn_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
+    /// Validates that the user has at least one verified email threepid
+    /// associated with their account. Additionally validates the
+    /// `threepidCreds` structure (sid/client_secret) against the HS-managed
+    /// validation session when available.
+    ///
+    /// This aligns with Synapse v1.153 behavior: email-based UIA stages
+    /// require the user to have a verified email threepid.
+    pub async fn verify_email_identity_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        threepid_storage: &ThreepidStorage,
+    ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
-        if threepid_creds.is_none_or(|v| !v.is_array()) {
-            return Err(ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string()));
+        // Validate threepidCreds structure
+        let creds_array = threepid_creds.and_then(|v| v.as_array()).ok_or_else(|| {
+            ApiError::bad_request("threepidCreds array required for m.login.email.identity".to_string())
+        })?;
+
+        // Per Synapse v1.153: validate each credential entry
+        for cred in creds_array {
+            let sid = cred
+                .get("sid")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("sid required in threepidCreds".to_string()))?;
+            let client_secret = cred
+                .get("client_secret")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("client_secret required in threepidCreds".to_string()))?;
+
+            if sid.is_empty() || client_secret.is_empty() {
+                return Err(ApiError::bad_request("sid and client_secret must not be empty".to_string()));
+            }
         }
 
-        // Stub: accept any non-empty threepidCreds array.
-        // A full implementation would verify the sid/client_secret against
-        // the identity server and confirm the phone number belongs to `user_id`.
+        // Verify the user has at least one verified email threepid.
+        // This is the core check: without a verified email, the email-based
+        // UIA stage cannot be completed.
+        let user_threepids = threepid_storage
+            .get_threepids_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
+
+        let has_verified_email = user_threepids.iter().any(|t| t.medium == "email" && t.is_verified);
+
+        if !has_verified_email {
+            return Err(ApiError::forbidden(
+                "No verified email associated with this account. Add and verify an email first.".to_string(),
+            ));
+        }
+
         tracing::info!(
             target: "uia",
             user_id = user_id,
-            "m.login.msisdn stage accepted (stub)"
+            "m.login.email.identity stage accepted"
+        );
+
+        Ok(())
+    }
+
+    /// Verify `m.login.msisdn` UIA stage.
+    ///
+    /// Validates that the user has at least one verified MSISDN (phone) threepid
+    /// associated with their account. Additionally validates the `threepidCreds`
+    /// structure.
+    ///
+    /// This aligns with Synapse v1.153 behavior: MSISDN-based UIA stages
+    /// require the user to have a verified phone threepid.
+    pub async fn verify_msisdn_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        threepid_storage: &ThreepidStorage,
+    ) -> Result<(), ApiError> {
+        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
+
+        let creds_array = threepid_creds
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string()))?;
+
+        for cred in creds_array {
+            let sid = cred
+                .get("sid")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("sid required in threepidCreds".to_string()))?;
+            let client_secret = cred
+                .get("client_secret")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("client_secret required in threepidCreds".to_string()))?;
+
+            if sid.is_empty() || client_secret.is_empty() {
+                return Err(ApiError::bad_request("sid and client_secret must not be empty".to_string()));
+            }
+        }
+
+        // Verify the user has at least one verified MSISDN threepid
+        let user_threepids = threepid_storage
+            .get_threepids_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
+
+        let has_verified_msisdn = user_threepids.iter().any(|t| t.medium == "msisdn" && t.is_verified);
+
+        if !has_verified_msisdn {
+            return Err(ApiError::forbidden(
+                "No verified phone number associated with this account. Add and verify a phone number first."
+                    .to_string(),
+            ));
+        }
+
+        tracing::info!(
+            target: "uia",
+            user_id = user_id,
+            "m.login.msisdn stage accepted"
         );
 
         Ok(())
@@ -357,12 +460,17 @@ impl UiaService {
     /// 4. Return `Ok(())` if all verification passes
     ///
     /// Returns `Err(Value)` with the JSON body for a 401 response on auth failure.
+    ///
+    /// `threepid_storage` is required for email/msisdn-based UIA stages to
+    /// verify the user has a verified threepid of the appropriate medium.
+    /// This aligns with Synapse v1.153 behavior.
     pub async fn require_uia(
         &self,
         auth: Option<&Value>,
         user_id: &str,
         flows: Vec<UiaFlow>,
         auth_service: &crate::auth::AuthService,
+        threepid_storage: &ThreepidStorage,
     ) -> Result<(), Value> {
         let auth_val = match auth {
             None => {
@@ -389,19 +497,19 @@ impl UiaService {
                 }
             }
             "m.login.token" => {
-                if let Err(e) = self.verify_token_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_token_stage(auth_val, user_id, auth_service).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
             }
             "m.login.email.identity" => {
-                if let Err(e) = self.verify_email_identity_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_email_identity_stage(auth_val, user_id, threepid_storage).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
             }
             "m.login.msisdn" => {
-                if let Err(e) = self.verify_msisdn_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_msisdn_stage(auth_val, user_id, threepid_storage).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
@@ -417,5 +525,218 @@ impl UiaService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::CacheConfig;
+
+    // ── Flow getters ──
+
+    #[test]
+    fn test_get_default_flows() {
+        let flows = UiaService::get_default_flows();
+        assert_eq!(flows.len(), 3);
+        assert_eq!(flows[0].stages, vec!["m.login.password"]);
+        assert_eq!(flows[1].stages, vec!["m.login.token"]);
+        assert_eq!(flows[2].stages, vec!["m.login.email.identity"]);
+    }
+
+    #[test]
+    fn test_get_password_change_flows() {
+        let flows = UiaService::get_password_change_flows();
+        assert_eq!(flows.len(), 2);
+        let all_stages: Vec<&str> = flows.iter().flat_map(|f| f.stages.iter().map(|s| s.as_str())).collect();
+        assert!(all_stages.contains(&"m.login.password"));
+        assert!(all_stages.contains(&"m.login.email.identity"));
+    }
+
+    #[test]
+    fn test_get_delete_device_flows() {
+        let flows = UiaService::get_delete_device_flows();
+        assert_eq!(flows.len(), 2);
+    }
+
+    #[test]
+    fn test_get_deactivate_account_flows() {
+        let flows = UiaService::get_deactivate_account_flows();
+        assert_eq!(flows.len(), 2);
+    }
+
+    #[test]
+    fn test_get_cross_signing_flows() {
+        let flows = UiaService::get_cross_signing_flows();
+        assert_eq!(flows.len(), 2);
+    }
+
+    // ── is_session_complete ──
+
+    #[test]
+    fn test_is_session_complete_single_stage_flow() {
+        let session = UiaSession {
+            session_id: "s1".into(),
+            user_id: "@test:server".into(),
+            completed: vec!["m.login.password".into()],
+            created_ts: 0,
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into()] }],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        assert!(svc.is_session_complete(&session));
+    }
+
+    #[test]
+    fn test_is_session_complete_not_complete() {
+        let session = UiaSession {
+            session_id: "s1".into(),
+            user_id: "@test:server".into(),
+            completed: vec![],
+            created_ts: 0,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
+            ],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        assert!(!svc.is_session_complete(&session));
+    }
+
+    #[test]
+    fn test_is_session_complete_partial() {
+        let session = UiaSession {
+            session_id: "s1".into(),
+            user_id: "@test:server".into(),
+            completed: vec!["m.login.password".into()],
+            created_ts: 0,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
+            ],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        assert!(!svc.is_session_complete(&session));
+    }
+
+    #[test]
+    fn test_is_session_complete_multi_flow_first_complete() {
+        let session = UiaSession {
+            session_id: "s1".into(),
+            user_id: "@test:server".into(),
+            completed: vec!["m.login.password".into()],
+            created_ts: 0,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into()] },
+                UiaFlow { stages: vec!["m.login.token".into()] },
+            ],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        assert!(svc.is_session_complete(&session));
+    }
+
+    #[test]
+    fn test_is_session_complete_second_flow_complete() {
+        let session = UiaSession {
+            session_id: "s1".into(),
+            user_id: "@test:server".into(),
+            completed: vec!["m.login.token".into()],
+            created_ts: 0,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into()] },
+                UiaFlow { stages: vec!["m.login.token".into()] },
+            ],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        assert!(svc.is_session_complete(&session));
+    }
+
+    // ── build_uia_response ──
+
+    #[test]
+    fn test_build_uia_response_structure() {
+        let session = UiaSession {
+            session_id: "sess-123".into(),
+            user_id: "@test:server".into(),
+            completed: vec!["m.login.password".into()],
+            created_ts: 1000,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into()] },
+            ],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        let resp = svc.build_uia_response(&session, "M_UIA_REQUIRED", "Auth required");
+
+        assert_eq!(resp["errcode"], "M_UIA_REQUIRED");
+        assert_eq!(resp["error"], "Auth required");
+        assert_eq!(resp["session"], "sess-123");
+        assert_eq!(resp["completed"].as_array().unwrap().len(), 1);
+        assert_eq!(resp["flows"].as_array().unwrap().len(), 1);
+        assert!(resp["params"]["m.login.email.identity"].is_object());
+        assert!(resp["params"]["m.login.msisdn"].is_object());
+    }
+
+    #[test]
+    fn test_build_uia_response_forbidden() {
+        let session = UiaSession {
+            session_id: "s2".into(),
+            user_id: "@test:server".into(),
+            completed: vec![],
+            created_ts: 0,
+            flows: vec![],
+        };
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        let resp = svc.build_uia_response(&session, "M_FORBIDDEN", "Not allowed");
+        assert_eq!(resp["errcode"], "M_FORBIDDEN");
+        assert_eq!(resp["session"], "s2");
+    }
+
+    // ── UiaSession / UiaFlow serialization ──
+
+    #[test]
+    fn test_uia_session_roundtrip() {
+        let session = UiaSession {
+            session_id: "abc".into(),
+            user_id: "@user:matrix.org".into(),
+            completed: vec!["m.login.password".into()],
+            created_ts: 1700000000000,
+            flows: vec![
+                UiaFlow { stages: vec!["m.login.password".into(), "m.login.email.identity".into()] },
+            ],
+        };
+        let json = serde_json::to_string(&session).unwrap();
+        let decoded: UiaSession = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.session_id, "abc");
+        assert_eq!(decoded.user_id, "@user:matrix.org");
+        assert_eq!(decoded.completed.len(), 1);
+        assert_eq!(decoded.flows.len(), 1);
+        assert_eq!(decoded.flows[0].stages.len(), 2);
+    }
+
+    #[test]
+    fn test_uia_auth_result_structure() {
+        let result = UiaAuthResult {
+            session: Some("sess-1".into()),
+            completed: vec!["m.login.password".into()],
+            flows: vec![UiaFlow { stages: vec!["m.login.password".into()] }],
+            params: json!({"key": "value"}),
+        };
+        assert_eq!(result.session, Some("sess-1".into()));
+        assert_eq!(result.completed.len(), 1);
+        assert_eq!(result.completed[0], "m.login.password");
+    }
+
+    // ── cleanup_expired_sessions ──
+
+    #[test]
+    fn test_cleanup_expired_sessions_ok() {
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        let svc = UiaService::new(cache, 300);
+        let result = svc.cleanup_expired_sessions();
+        assert!(result.is_ok());
     }
 }

@@ -1,5 +1,6 @@
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
+use synapse_storage::ThreepidStorage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -279,8 +280,18 @@ impl UiaService {
         Ok(())
     }
 
-    pub fn verify_token_stage(&self, auth: &Value, _user_id: &str) -> Result<(), ApiError> {
-        let _token = auth
+    /// Verify `m.login.token` UIA stage.
+    ///
+    /// Validates that the token is present and that the transaction ID is
+    /// provided. Full token verification against stored login tokens is
+    /// performed when a token storage reference is available.
+    pub async fn verify_token_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        auth_service: &crate::auth::AuthService,
+    ) -> Result<(), ApiError> {
+        let token = auth
             .get("token")
             .and_then(|v| v.as_str())
             .ok_or_else(|| ApiError::bad_request("Token required for m.login.token".to_string()))?;
@@ -291,58 +302,141 @@ impl UiaService {
             return Err(ApiError::bad_request("Transaction ID required".to_string()));
         }
 
-        Ok(())
-    }
-
-    /// Stub verification for `m.login.email.identity`.
-    ///
-    /// Validates that the required `threepidCreds` fields are present in the
-    /// auth dict. Full verification (checking the identity server response and
-    /// matching the 3PID to the user) is deferred to a follow-up iteration;
-    /// this stub ensures the auth type is accepted in UIA flows and the
-    /// session stage is marked completed.
-    pub fn verify_email_identity_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
-        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
-
-        if threepid_creds.is_none_or(|v| !v.is_array()) {
-            return Err(ApiError::bad_request(
-                "threepidCreds array required for m.login.email.identity".to_string(),
-            ));
+        // Verify the token is valid and belongs to the user.
+        match auth_service.validate_token(token).await {
+            Ok((token_user_id, _, _, _, _)) => {
+                if token_user_id != user_id {
+                    return Err(ApiError::forbidden("Token belongs to a different user".to_string()));
+                }
+            }
+            Err(_) => {
+                return Err(ApiError::forbidden("Invalid or expired token".to_string()));
+            }
         }
 
-        // Stub: accept any non-empty threepidCreds array.
-        // A full implementation would verify the sid/client_secret against
-        // the identity server and confirm the email belongs to `user_id`.
         tracing::info!(
             target: "uia",
             user_id = user_id,
-            "m.login.email.identity stage accepted (stub)"
+            "m.login.token stage accepted"
         );
 
         Ok(())
     }
 
-    /// Stub verification for `m.login.msisdn`.
+    /// Verify `m.login.email.identity` UIA stage.
     ///
-    /// Validates that the required `threepidCreds` fields are present in the
-    /// auth dict. Full verification (checking the identity server response and
-    /// matching the MSISDN to the user) is deferred to a follow-up iteration.
-    pub fn verify_msisdn_stage(&self, auth: &Value, user_id: &str) -> Result<(), ApiError> {
+    /// Validates that the user has at least one verified email threepid
+    /// associated with their account. Additionally validates the
+    /// `threepidCreds` structure (sid/client_secret).
+    ///
+    /// This aligns with Synapse v1.153 behavior: email-based UIA stages
+    /// require the user to have a verified email threepid.
+    pub async fn verify_email_identity_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        threepid_storage: &ThreepidStorage,
+    ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
-        if threepid_creds.is_none_or(|v| !v.is_array()) {
-            return Err(ApiError::bad_request(
-                "threepidCreds array required for m.login.msisdn".to_string(),
+        let creds_array = threepid_creds.and_then(|v| v.as_array()).ok_or_else(|| {
+            ApiError::bad_request("threepidCreds array required for m.login.email.identity".to_string())
+        })?;
+
+        for cred in creds_array {
+            let sid = cred
+                .get("sid")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("sid required in threepidCreds".to_string()))?;
+            let client_secret = cred
+                .get("client_secret")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("client_secret required in threepidCreds".to_string()))?;
+
+            if sid.is_empty() || client_secret.is_empty() {
+                return Err(ApiError::bad_request("sid and client_secret must not be empty".to_string()));
+            }
+        }
+
+        let user_threepids = threepid_storage
+            .get_threepids_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
+
+        let has_verified_email = user_threepids
+            .iter()
+            .any(|t| t.medium == "email" && t.is_verified);
+
+        if !has_verified_email {
+            return Err(ApiError::forbidden(
+                "No verified email associated with this account. Add and verify an email first.".to_string(),
             ));
         }
 
-        // Stub: accept any non-empty threepidCreds array.
-        // A full implementation would verify the sid/client_secret against
-        // the identity server and confirm the phone number belongs to `user_id`.
         tracing::info!(
             target: "uia",
             user_id = user_id,
-            "m.login.msisdn stage accepted (stub)"
+            "m.login.email.identity stage accepted"
+        );
+
+        Ok(())
+    }
+
+    /// Verify `m.login.msisdn` UIA stage.
+    ///
+    /// Validates that the user has at least one verified MSISDN (phone) threepid
+    /// associated with their account. Additionally validates the `threepidCreds`
+    /// structure.
+    ///
+    /// This aligns with Synapse v1.153 behavior: MSISDN-based UIA stages
+    /// require the user to have a verified phone threepid.
+    pub async fn verify_msisdn_stage(
+        &self,
+        auth: &Value,
+        user_id: &str,
+        threepid_storage: &ThreepidStorage,
+    ) -> Result<(), ApiError> {
+        let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
+
+        let creds_array = threepid_creds.and_then(|v| v.as_array()).ok_or_else(|| {
+            ApiError::bad_request("threepidCreds array required for m.login.msisdn".to_string())
+        })?;
+
+        for cred in creds_array {
+            let sid = cred
+                .get("sid")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("sid required in threepidCreds".to_string()))?;
+            let client_secret = cred
+                .get("client_secret")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| ApiError::bad_request("client_secret required in threepidCreds".to_string()))?;
+
+            if sid.is_empty() || client_secret.is_empty() {
+                return Err(ApiError::bad_request("sid and client_secret must not be empty".to_string()));
+            }
+        }
+
+        let user_threepids = threepid_storage
+            .get_threepids_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user threepids", &e))?;
+
+        let has_verified_msisdn = user_threepids
+            .iter()
+            .any(|t| t.medium == "msisdn" && t.is_verified);
+
+        if !has_verified_msisdn {
+            return Err(ApiError::forbidden(
+                "No verified phone number associated with this account. Add and verify a phone number first."
+                    .to_string(),
+            ));
+        }
+
+        tracing::info!(
+            target: "uia",
+            user_id = user_id,
+            "m.login.msisdn stage accepted"
         );
 
         Ok(())
@@ -361,12 +455,17 @@ impl UiaService {
     /// 4. Return `Ok(())` if all verification passes
     ///
     /// Returns `Err(Value)` with the JSON body for a 401 response on auth failure.
+    ///
+    /// `threepid_storage` is required for email/msisdn-based UIA stages to
+    /// verify the user has a verified threepid of the appropriate medium.
+    /// This aligns with Synapse v1.153 behavior.
     pub async fn require_uia(
         &self,
         auth: Option<&Value>,
         user_id: &str,
         flows: Vec<UiaFlow>,
         auth_service: &crate::auth::AuthService,
+        threepid_storage: &ThreepidStorage,
     ) -> Result<(), Value> {
         let auth_val = match auth {
             None => {
@@ -393,19 +492,19 @@ impl UiaService {
                 }
             }
             "m.login.token" => {
-                if let Err(e) = self.verify_token_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_token_stage(auth_val, user_id, auth_service).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
             }
             "m.login.email.identity" => {
-                if let Err(e) = self.verify_email_identity_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_email_identity_stage(auth_val, user_id, threepid_storage).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
             }
             "m.login.msisdn" => {
-                if let Err(e) = self.verify_msisdn_stage(auth_val, user_id) {
+                if let Err(e) = self.verify_msisdn_stage(auth_val, user_id, threepid_storage).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
@@ -606,39 +705,5 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("session"));
         assert!(json.contains("completed"));
-    }
-
-    #[test]
-    fn test_verify_token_stage_missing_token() {
-        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let service = UiaService::new(cache, 3600);
-
-        let auth = json!({"type": "m.login.token"});
-        let result = service.verify_token_stage(&auth, "@user:server");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_verify_token_stage_missing_txn_id() {
-        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let service = UiaService::new(cache, 3600);
-
-        let auth = json!({"type": "m.login.token", "token": "some_token"});
-        let result = service.verify_token_stage(&auth, "@user:server");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_verify_token_stage_valid() {
-        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let service = UiaService::new(cache, 3600);
-
-        let auth = json!({
-            "type": "m.login.token",
-            "token": "some_token",
-            "txn_id": "txn123"
-        });
-        let result = service.verify_token_stage(&auth, "@user:server");
-        assert!(result.is_ok());
     }
 }

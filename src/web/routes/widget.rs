@@ -359,7 +359,13 @@ async fn ensure_room_widget_manage_access(
     ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to manage room widgets")
         .await?;
 
-    let is_moderator = state.services.auth_service.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
+    let is_moderator = state
+        .services
+        .core
+        .auth_service
+        .verify_room_moderator(room_id, &auth_user.user_id)
+        .await
+        .is_ok();
 
     if is_moderator {
         return Ok(());

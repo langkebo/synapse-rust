@@ -460,6 +460,7 @@ const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
 async fn ensure_extended_profile_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
     let exists = state
         .services
+        .account
         .user_storage
         .user_exists(user_id)
         .await

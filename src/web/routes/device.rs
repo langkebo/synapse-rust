@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 
 async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, body: &Value) -> Result<(), Response> {
     let auth = body.get("auth");
+    let core = &state.services.core;
+    let extensions = &state.services.extensions;
 
     match auth {
         None => {
@@ -22,7 +24,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
-                Json(state.services.uia_service.build_uia_response(
+                Json(extensions.uia_service.build_uia_response(
                     &session,
                     "M_UIA_REQUIRED",
                     "User-Interactive Authentication required",
@@ -54,7 +56,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                     if let Err(e) = state
                         .services
                         .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &state.services.auth_service)
+                        .verify_password_stage(auth_val, &auth_user.user_id, &core.auth_service)
                         .await
                     {
                         let session = state
@@ -67,7 +69,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(state.services.uia_service.build_uia_response(
+                            Json(extensions.uia_service.build_uia_response(
                                 &session,
                                 "M_FORBIDDEN",
                                 &e.to_string(),
@@ -77,7 +79,12 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                     }
                 }
                 "m.login.token" => {
-                    if let Err(e) = state.services.uia_service.verify_token_stage(auth_val, &auth_user.user_id) {
+                    if let Err(e) = state
+                        .services
+                        .uia_service
+                        .verify_token_stage(auth_val, &auth_user.user_id, &core.auth_service)
+                        .await
+                    {
                         let session = state
                             .services
                             .uia_service
@@ -88,7 +95,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(state.services.uia_service.build_uia_response(
+                            Json(extensions.uia_service.build_uia_response(
                                 &session,
                                 "M_FORBIDDEN",
                                 &e.to_string(),
@@ -108,7 +115,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                         .await;
                     return Err((
                         StatusCode::UNAUTHORIZED,
-                        Json(state.services.uia_service.build_uia_response(
+                        Json(extensions.uia_service.build_uia_response(
                             &session,
                             "M_INVALID_PARAM",
                             &format!("Unsupported auth type: {auth_type}"),
@@ -147,7 +154,7 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
 }
 
 async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id: &str) {
-    let server_name = state.services.config.server.server_name.as_deref().unwrap_or("localhost");
+    let server_name = state.services.core.config.server.server_name.as_deref().unwrap_or("localhost");
     let edu = serde_json::json!({
         "edu_type": "m.device_list_update",
         "content": {
@@ -172,6 +179,7 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
                                     sent_servers.insert(member_server.to_string());
                                     let _ = state
                                         .services
+                                        .core
                                         .event_broadcaster
                                         .broadcast_edu(member_server, &edu, server_name)
                                         .await;
@@ -196,6 +204,7 @@ fn create_device_compat_router() -> Router<AppState> {
 pub async fn get_devices(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     let devices: Vec<crate::storage::device::Device> = state
         .services
+        .account
         .device_storage
         .get_user_devices(&auth_user.user_id)
         .await
@@ -225,6 +234,7 @@ pub async fn get_device(
 ) -> Result<Json<Value>, ApiError> {
     let device: Option<crate::storage::device::Device> = state
         .services
+        .account
         .device_storage
         .get_device(&device_id)
         .await
@@ -258,6 +268,7 @@ pub async fn update_device(
         }
         let rows_affected: u64 = state
             .services
+            .account
             .device_storage
             .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
             .await
@@ -270,6 +281,7 @@ pub async fn update_device(
 
     let device: crate::storage::device::Device = state
         .services
+        .account
         .device_storage
         .get_device(&device_id)
         .await
@@ -295,7 +307,7 @@ pub async fn delete_device(
         return Ok(challenge);
     }
 
-    let rows: u64 = state.services.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
+    let rows: u64 = state.services.core.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -317,7 +329,7 @@ pub async fn delete_devices(
 
     let device_ids = parse_device_ids(&body)?;
 
-    state.services.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
+    state.services.core.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
 
     for device_id in &device_ids {
         broadcast_device_list_update(&state, &auth_user.user_id, device_id).await;
@@ -349,6 +361,7 @@ pub async fn get_device_list_updates(
     if since.is_none() {
         let devices_by_user = state
             .services
+            .account
             .device_storage
             .get_users_devices_batch(&users)
             .await
@@ -386,6 +399,7 @@ pub async fn get_device_list_updates(
 
     let max_stream_id = state
         .services
+        .account
         .device_storage
         .get_max_device_list_stream_id()
         .await
@@ -395,6 +409,7 @@ pub async fn get_device_list_updates(
 
     let change_rows = state
         .services
+        .account
         .device_storage
         .get_device_list_changes(since, to, &users)
         .await
@@ -427,6 +442,7 @@ pub async fn get_device_list_updates(
         let device_ids: Vec<&str> = active_pairs.iter().map(|(_, device_id)| device_id.as_str()).collect();
         let device_rows = state
             .services
+            .account
             .device_storage
             .get_devices_by_user_device_pairs(&user_ids, &device_ids)
             .await
@@ -446,6 +462,7 @@ pub async fn get_device_list_updates(
 
     let existing_users: Vec<String> = state
         .services
+        .account
         .device_storage
         .filter_existing_users(&users)
         .await

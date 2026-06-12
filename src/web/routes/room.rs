@@ -349,7 +349,7 @@ async fn set_anti_screenshot(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 
-    let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), state.services.server_name);
+    let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now_ts: i64 = chrono::Utc::now().timestamp_millis();
 
     state

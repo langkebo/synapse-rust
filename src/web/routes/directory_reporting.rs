@@ -52,13 +52,14 @@ pub(crate) async fn get_user_directory_profile(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let _ = state.services.auth_service.validate_token(&token).await?;
+    let _ = state.services.core.auth_service.validate_token(&token).await?;
 
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
     let user = state
         .services
+        .account
         .user_storage
         .get_user_by_identifier(&user_id)
         .await
@@ -78,13 +79,13 @@ pub(crate) async fn search_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10).clamp(1, 100) as i64;
 
-    let results = state.services.user_storage.search_users(&search_query, limit).await?;
+    let results = state.services.account.user_storage.search_users(&search_query, limit).await?;
 
     let target_user_ids: Vec<String> = results.iter().map(|u| u.user_id.clone()).collect();
     let visibility = can_view_profile_for_requester_batch(&state, Some(&requester_id), &target_user_ids).await?;
@@ -128,15 +129,16 @@ pub(crate) async fn list_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (requester_id, _, _, _, _) = state.services.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
 
-    let total_count = state.services.user_storage.get_user_count().await?;
+    let total_count = state.services.account.user_storage.get_user_count().await?;
 
     let users = state
         .services
+        .account
         .user_storage
         .get_users_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, user_id)| user_id))
         .await?;

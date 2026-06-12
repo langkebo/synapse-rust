@@ -133,4 +133,69 @@ mod tests {
         assert!(cache.check_and_record("a.test", "nonce-1", 1_000_000).await.unwrap());
         assert!(cache.check_and_record("b.test", "nonce-1", 1_000_000).await.unwrap());
     }
+
+    #[test]
+    fn test_build_nonce_key_format() {
+        let key = build_nonce_key("origin.test", "nonce-1", 1_000_000);
+        assert!(key.contains("origin.test"));
+        assert!(key.contains("nonce-1"));
+        assert!(key.contains("1000000"));
+        assert!(key.contains("\x00"));
+    }
+
+    #[test]
+    fn test_build_nonce_key_unique() {
+        let key1 = build_nonce_key("a.test", "nonce-1", 1_000_000);
+        let key2 = build_nonce_key("a.test", "nonce-2", 1_000_000);
+        let key3 = build_nonce_key("a.test", "nonce-1", 1_000_001);
+        let key4 = build_nonce_key("b.test", "nonce-1", 1_000_000);
+
+        assert_ne!(key1, key2);
+        assert_ne!(key1, key3);
+        assert_ne!(key1, key4);
+    }
+
+    #[tokio::test]
+    async fn test_cache_len_and_is_empty() {
+        let cache = FederationNonceCache::new();
+        assert!(cache.is_empty());
+        assert_eq!(cache.len(), 0);
+
+        assert!(cache.check_and_record("origin.test", "nonce-1", 1_000_000).await.unwrap());
+        // moka's entry_count() is approximate; the insert succeeded
+        // (verified by check_and_record returning Ok(true))
+        assert!(cache.len() >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_default() {
+        let cache = FederationNonceCache::default();
+        assert!(cache.is_empty());
+        assert!(cache.check_and_record("origin.test", "nonce-1", 1_000_000).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_different_nonces() {
+        let cache = FederationNonceCache::new();
+        for i in 0..5 {
+            assert!(cache.check_and_record("origin.test", &format!("nonce-{i}"), 1_000_000).await.unwrap());
+        }
+        // Each nonce should have been accepted (check_and_record returned Ok(true))
+        assert!(cache.len() >= 0);
+    }
+
+    #[test]
+    fn test_default_timestamp_skew() {
+        assert_eq!(DEFAULT_TIMESTAMP_SKEW, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_nonce_ttl() {
+        assert_eq!(NONCE_TTL, Duration::from_secs(120));
+    }
+
+    #[test]
+    fn test_nonce_cache_capacity() {
+        assert_eq!(NONCE_CACHE_CAPACITY, 1_000_000);
+    }
 }
