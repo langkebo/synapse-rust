@@ -102,7 +102,7 @@ typenum = "1"
 
 vodozemac = "0.9"
 
-config = "0.14"
+config = { version = "0.14", default-features = false, features = ["yaml", "convert-case"] }
 
 jsonwebtoken = "9"
 rsa = { version = "0.9", features = ["pem", "sha2"] }
@@ -220,4 +220,4 @@ required-features = ["test-utils"]
 [[test]]
 name = "performance_manual"
 path = "tests/performance/mod.rs"
-required-features = ["performance-tests"]
+required-features = ["performance-tests", "test-utils"]

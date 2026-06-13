@@ -44,15 +44,15 @@ impl ProfileFlags {
     /// each `RouteModule::manifest_for_profile` implementation.
     pub fn from_state(state: &AppState) -> Self {
         #[cfg(feature = "saml-sso")]
-        let saml_enabled = state.services.saml_service.is_enabled();
+        let saml_enabled = state.services.sso.saml_service.is_enabled();
         #[cfg(not(feature = "saml-sso"))]
         let saml_enabled = false;
         Self {
             oidc_enabled: oidc::oidc_enabled(state),
-            worker_enabled: state.services.config.worker.enabled,
+            worker_enabled: state.services.core.config.worker.enabled,
             saml_enabled,
             #[cfg(feature = "openclaw-routes")]
-            openclaw_enabled: state.services.config.experimental.openclaw_routes_enabled,
+            openclaw_enabled: state.services.core.config.experimental.openclaw_routes_enabled,
         }
     }
 
@@ -238,7 +238,7 @@ impl RouteModule for WorkerBodyModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.config.worker.enabled {
+        if state.services.core.config.worker.enabled {
             router.merge(worker::create_worker_body_router(state))
         } else {
             router
@@ -334,7 +334,7 @@ impl RouteModule for OpenClawModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.config.experimental.openclaw_routes_enabled {
+        if state.services.core.config.experimental.openclaw_routes_enabled {
             router.merge(openclaw::create_openclaw_router(state))
         } else {
             router
@@ -353,7 +353,7 @@ impl RouteModule for AiConnectionModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if state.services.config.experimental.openclaw_routes_enabled {
+        if state.services.core.config.experimental.openclaw_routes_enabled {
             router
                 .nest("/_matrix/client/v1/ai", ai_connection::create_ai_connection_router())
                 .nest("/_matrix/client/v3/ai", ai_connection::create_ai_connection_router())

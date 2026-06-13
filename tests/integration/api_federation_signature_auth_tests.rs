@@ -114,7 +114,13 @@ async fn insert_join_membership(state: &AppState, room_id: &str, user_id: &str, 
 }
 
 async fn upload_test_device_keys(state: &AppState, user_id: &str, device_id: &str, include_one_time_key: bool) {
-    state.services.device_storage.create_device(device_id, user_id, Some("Federation test device")).await.unwrap();
+    state
+        .services
+        .account
+        .device_storage
+        .create_device(device_id, user_id, Some("Federation test device"))
+        .await
+        .unwrap();
 
     state
         .services
@@ -850,7 +856,7 @@ async fn test_federation_get_user_devices_omits_sensitive_metadata() {
     let user_id = format!("@alice:{}", server_name);
     let room_id = format!("!device-share:{}", server_name);
     state.services.account.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
-    state.services.device_storage.create_device("ALICEDEVICE", &user_id, Some("Alice device")).await.unwrap();
+    state.services.account.device_storage.create_device("ALICEDEVICE", &user_id, Some("Alice device")).await.unwrap();
     state.services.rooms.room_storage.create_room(&room_id, &user_id, "private", "1", false).await.unwrap();
     state.services.rooms.member_storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
@@ -882,7 +888,7 @@ async fn test_federation_get_user_devices_rejects_server_without_shared_room() {
 
     let user_id = format!("@device-target:{}", server_name);
     state.services.account.user_storage.create_user(&user_id, "device-target", None, false).await.unwrap();
-    state.services.device_storage.create_device("TARGETDEVICE", &user_id, Some("Target device")).await.unwrap();
+    state.services.account.device_storage.create_device("TARGETDEVICE", &user_id, Some("Target device")).await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/user/devices/{}", user_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
@@ -1725,8 +1731,8 @@ async fn test_federation_profile_query_honors_field_filter_without_leaking_user_
 
     let user_id = format!("@alice:{}", server_name);
     state.services.account.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
-    state.services.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
-    state.services.registration_service.set_avatar_url(&user_id, "mxc://test.example.com/alice").await.unwrap();
+    state.services.core.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
+    state.services.core.registration_service.set_avatar_url(&user_id, "mxc://test.example.com/alice").await.unwrap();
 
     let remote_user = "@mallory:evil.example";
     state.services.account.user_storage.create_user(remote_user, "mallory", None, false).await.unwrap();
@@ -1760,7 +1766,7 @@ async fn test_federation_profile_query_requires_shared_room_with_origin() {
 
     let user_id = format!("@alice:{}", server_name);
     state.services.account.user_storage.create_user(&user_id, "alice", None, false).await.unwrap();
-    state.services.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
+    state.services.core.registration_service.set_displayname(&user_id, "Alice Federation").await.unwrap();
 
     let uri = format!("/_matrix/federation/v1/query/profile?user_id={}&field=displayname", user_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();

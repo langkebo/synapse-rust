@@ -1,5 +1,1 @@
-pub mod models;
-pub mod service;
-
-pub use models::*;
-pub use service::WebhookNotifier;
+pub use synapse_services::webhook_notification::*;

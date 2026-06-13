@@ -216,6 +216,25 @@ CREATE TABLE IF NOT EXISTS user_settings (
     CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS rooms (
+    room_id TEXT NOT NULL,
+    creator TEXT,
+    is_public BOOLEAN DEFAULT FALSE,
+    room_version TEXT DEFAULT '6',
+    created_ts BIGINT NOT NULL,
+    last_activity_ts BIGINT,
+    is_federated BOOLEAN DEFAULT TRUE,
+    has_guest_access BOOLEAN DEFAULT FALSE,
+    join_rules TEXT DEFAULT 'invite',
+    history_visibility TEXT DEFAULT 'shared',
+    name TEXT,
+    topic TEXT,
+    avatar_url TEXT,
+    canonical_alias TEXT,
+    visibility TEXT DEFAULT 'private',
+    CONSTRAINT pk_rooms PRIMARY KEY (room_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_directory (
     user_id TEXT NOT NULL,
     room_id TEXT NOT NULL,
@@ -258,25 +277,6 @@ CREATE TABLE IF NOT EXISTS account_validity (
 -- ============================================================================
 -- Part 2: Room Tables
 -- ============================================================================
-
-CREATE TABLE IF NOT EXISTS rooms (
-    room_id TEXT NOT NULL,
-    creator TEXT,
-    is_public BOOLEAN DEFAULT FALSE,
-    room_version TEXT DEFAULT '6',
-    created_ts BIGINT NOT NULL,
-    last_activity_ts BIGINT,
-    is_federated BOOLEAN DEFAULT TRUE,
-    has_guest_access BOOLEAN DEFAULT FALSE,
-    join_rules TEXT DEFAULT 'invite',
-    history_visibility TEXT DEFAULT 'shared',
-    name TEXT,
-    topic TEXT,
-    avatar_url TEXT,
-    canonical_alias TEXT,
-    visibility TEXT DEFAULT 'private',
-    CONSTRAINT pk_rooms PRIMARY KEY (room_id)
-);
 
 CREATE TABLE IF NOT EXISTS room_memberships (
     id BIGSERIAL,
@@ -3469,7 +3469,6 @@ CREATE INDEX IF NOT EXISTS idx_users_username_trgm ON users USING GIN (username 
 CREATE INDEX IF NOT EXISTS idx_users_displayname_trgm ON users USING GIN (displayname gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_users_user_id_trgm ON users USING GIN (user_id gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING GIN (email gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_users_name_trgm ON users USING GIN (name gin_trgm_ops) WHERE EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'name');
 
 -- User threepids
 CREATE INDEX IF NOT EXISTS idx_user_threepids_user ON user_threepids(user_id);
@@ -3956,10 +3955,8 @@ CREATE INDEX IF NOT EXISTS idx_oidc_user_mapping_user ON oidc_user_mapping(user_
 CREATE INDEX IF NOT EXISTS idx_saml_config_overrides_updated_ts ON saml_config_overrides(updated_ts DESC);
 
 -- Key rotation config
-CREATE INDEX IF NOT EXISTS idx_key_rotation_config_room ON key_rotation_config(room_id);
-
 -- Registration captcha
-CREATE INDEX IF NOT EXISTS idx_registration_captcha_session ON registration_captcha(session_id);
+CREATE INDEX IF NOT EXISTS idx_registration_captcha_captcha_id ON registration_captcha(captcha_id);
 
 -- Cross signing keys
 CREATE INDEX IF NOT EXISTS idx_cross_signing_keys_user ON cross_signing_keys(user_id);
@@ -4006,7 +4003,6 @@ CREATE INDEX IF NOT EXISTS idx_friend_requests_receiver_status ON friend_request
 CREATE INDEX IF NOT EXISTS idx_friend_requests_sender_status ON friend_requests(sender_id, status, created_ts DESC);
 
 -- pg_trgm search indexes
-CREATE INDEX IF NOT EXISTS idx_users_name_trgm ON users USING GIN (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING GIN (email gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_users_user_id_trgm ON users USING GIN (user_id gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_rooms_name_trgm ON rooms USING GIN (name gin_trgm_ops);
@@ -4040,10 +4036,10 @@ CREATE INDEX IF NOT EXISTS idx_dehydrated_devices_user ON dehydrated_devices(use
 CREATE INDEX IF NOT EXISTS idx_delayed_events_room ON delayed_events(room_id);
 
 -- Rendezvous sessions
-CREATE INDEX IF NOT EXISTS idx_rendezvous_sessions_expires ON rendezvous_sessions(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_rendezvous_session_expires ON rendezvous_session(expires_at) WHERE expires_at IS NOT NULL;
 
 -- QR login
-CREATE INDEX IF NOT EXISTS idx_qr_login_codes_expires ON qr_login_codes(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_expires ON qr_login_transactions(expires_at) WHERE expires_at IS NOT NULL;
 
 -- Widgets
 CREATE INDEX IF NOT EXISTS idx_widgets_room ON widgets(room_id);

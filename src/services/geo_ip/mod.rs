@@ -1,5 +1,1 @@
-pub mod models;
-pub mod service;
-
-pub use models::*;
-pub use service::GeoIpService;
+pub use synapse_services::geo_ip::*;

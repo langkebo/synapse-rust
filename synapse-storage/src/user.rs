@@ -78,6 +78,15 @@ pub struct UserSearchResultWithPresence {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
+pub struct UserStatsSummary {
+    pub total_users: i64,
+    pub active_users: i64,
+    pub admin_users: i64,
+    pub deactivated_users: i64,
+    pub guest_users: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct UserDirectorySearchResult {
     pub user_id: String,
     pub username: String,
@@ -298,6 +307,44 @@ impl UserStorage {
         }
     }
 
+    pub async fn list_users(
+        &self,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_user_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            r"
+            SELECT user_id, username, password_hash, is_admin, is_guest, is_shadow_banned, is_deactivated,
+                   created_ts, updated_ts, displayname, avatar_url, email, phone, generation, consent_version,
+                   appservice_id, user_type, invalid_update_at, migration_state, password_changed_ts,
+                   is_password_change_required, password_expires_at, failed_login_attempts, locked_until, must_change_password
+            FROM users WHERE 1=1
+            ",
+        );
+
+        if let Some(name) = name_filter {
+            query.push(" AND username LIKE ");
+            query.push_bind(format!("%{}%", name));
+        }
+
+        if let (Some(ts), Some(user_id)) = (from_ts, from_user_id) {
+            query.push(" AND (created_ts < ");
+            query.push_bind(ts);
+            query.push(" OR (created_ts = ");
+            query.push_bind(ts);
+            query.push(" AND user_id < ");
+            query.push_bind(user_id);
+            query.push("))");
+        }
+
+        query.push(" ORDER BY created_ts DESC, user_id DESC LIMIT ");
+        query.push_bind(limit);
+
+        query.build_query_as::<User>().fetch_all(&*self.pool).await
+    }
+
     pub async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
         let row = sqlx::query(
             r"
@@ -307,6 +354,35 @@ impl UserStorage {
         .fetch_one(&*self.pool)
         .await?;
         row.try_get::<i64, _>("count")
+    }
+
+    pub async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
+        sqlx::query_as::<_, UserStatsSummary>(
+            r"
+            SELECT
+                COUNT(*) AS total_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS active_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS admin_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS deactivated_users,
+                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS guest_users
+            FROM users
+            ",
+        )
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    pub async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(*)
+            FROM events
+            WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false
+            ",
+        )
+        .bind(user_id)
+        .fetch_one(&*self.pool)
+        .await
     }
 
     pub async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
@@ -379,12 +455,18 @@ impl UserStorage {
         Ok(())
     }
 
-    pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        tracing::info!(user_id = %user_id, "Deactivating user");
-        sqlx::query(r"UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
+    pub async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
+        tracing::info!(user_id = %user_id, is_deactivated, "Updating user deactivation status");
+        let result = sqlx::query(r"UPDATE users SET is_deactivated = $1 WHERE user_id = $2")
+            .bind(is_deactivated)
             .bind(user_id)
             .execute(&*self.pool)
             .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn deactivate_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let _ = self.set_deactivation_status(user_id, true).await?;
         Ok(())
     }
 

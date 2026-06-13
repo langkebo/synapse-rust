@@ -1,11 +1,9 @@
-use sqlx::{PgPool, QueryBuilder, Row};
+use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::crypto::{hash_password, random_string};
 use synapse_common::error::ApiError;
 use synapse_storage::{DeviceStorage, RoomMemberStorage, RoomStorage, User, UserStorage};
 use tracing::instrument;
-
-pub use synapse_storage::User as AdminUserRecord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminUserCursor {
@@ -25,18 +23,6 @@ pub fn decode_user_cursor(cursor: Option<&str>) -> Option<AdminUserCursor> {
 
 pub fn encode_user_cursor(cursor: &AdminUserCursor) -> String {
     format!("{}|{}", cursor.created_ts, cursor.user_id)
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct AdminUserListRow {
-    user_id: String,
-    created_ts: i64,
-    is_admin: bool,
-    is_guest: bool,
-    user_type: Option<String>,
-    is_deactivated: bool,
-    displayname: Option<String>,
-    avatar_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,8 +53,37 @@ pub struct AdminUsersPage {
 }
 
 #[derive(Debug, Clone)]
+pub struct AdminUserProfile {
+    pub user_id: String,
+    pub username: String,
+    pub is_admin: bool,
+    pub is_guest: bool,
+    pub is_deactivated: bool,
+    pub created_ts: i64,
+    pub displayname: Option<String>,
+    pub avatar_url: Option<String>,
+    pub user_type: Option<String>,
+}
+
+impl From<&User> for AdminUserProfile {
+    fn from(user: &User) -> Self {
+        Self {
+            user_id: user.user_id.clone(),
+            username: user.username.clone(),
+            is_admin: user.is_admin,
+            is_guest: user.is_guest,
+            is_deactivated: user.is_deactivated,
+            created_ts: user.created_ts,
+            displayname: user.displayname.clone(),
+            avatar_url: user.avatar_url.clone(),
+            user_type: user.user_type.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct AdminUserDetails {
-    pub user: User,
+    pub user: AdminUserProfile,
     pub devices: Vec<AdminUserDeviceInfo>,
 }
 
@@ -84,7 +99,7 @@ pub struct AdminUserStats {
 
 #[derive(Debug, Clone)]
 pub struct AdminSingleUserStats {
-    pub user: User,
+    pub user: AdminUserProfile,
     pub rooms_joined: i64,
     pub messages_sent: i64,
     pub last_seen_ts: Option<i64>,
@@ -97,7 +112,6 @@ pub struct BatchUsersResult {
 }
 
 pub struct AdminUserService {
-    pool: Arc<PgPool>,
     user_storage: UserStorage,
     device_storage: DeviceStorage,
     room_storage: RoomStorage,
@@ -107,14 +121,14 @@ pub struct AdminUserService {
 
 impl AdminUserService {
     pub fn new(
-        pool: Arc<PgPool>,
+        _pool: Arc<PgPool>,
         user_storage: UserStorage,
         device_storage: DeviceStorage,
         room_storage: RoomStorage,
         member_storage: RoomMemberStorage,
         server_name: String,
     ) -> Self {
-        Self { pool, user_storage, device_storage, room_storage, member_storage, server_name }
+        Self { user_storage, device_storage, room_storage, member_storage, server_name }
     }
 
     #[instrument(skip(self))]
@@ -124,34 +138,14 @@ impl AdminUserService {
         cursor: Option<AdminUserCursor>,
         name_filter: Option<&str>,
     ) -> Result<AdminUsersPage, ApiError> {
-        let mut query = QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT user_id, created_ts, COALESCE(is_admin, FALSE) AS is_admin, \
-             COALESCE(is_guest, FALSE) AS is_guest, user_type, \
-             COALESCE(is_deactivated, FALSE) AS is_deactivated, displayname, avatar_url \
-             FROM users WHERE 1=1",
-        );
-
-        if let Some(name) = name_filter {
-            query.push(" AND username LIKE ");
-            query.push_bind(format!("%{name}%"));
-        }
-
-        if let Some(cursor) = cursor.as_ref() {
-            query.push(" AND (created_ts < ");
-            query.push_bind(cursor.created_ts);
-            query.push(" OR (created_ts = ");
-            query.push_bind(cursor.created_ts);
-            query.push(" AND user_id < ");
-            query.push_bind(&cursor.user_id);
-            query.push("))");
-        }
-
-        query.push(" ORDER BY created_ts DESC, user_id DESC LIMIT ");
-        query.push_bind(limit);
-
-        let rows = query
-            .build_query_as::<AdminUserListRow>()
-            .fetch_all(&*self.pool)
+        let rows = self
+            .user_storage
+            .list_users(
+                limit,
+                cursor.as_ref().map(|cursor| cursor.created_ts),
+                cursor.as_ref().map(|cursor| cursor.user_id.as_str()),
+                name_filter,
+            )
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -202,7 +196,7 @@ impl AdminUserService {
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(Some(AdminUserDetails {
-            user,
+            user: AdminUserProfile::from(&user),
             devices: devices
                 .into_iter()
                 .map(|device| AdminUserDeviceInfo {
@@ -256,19 +250,15 @@ impl AdminUserService {
             }
 
             if let Some(is_deactivated) = is_deactivated {
-                sqlx::query("UPDATE users SET is_deactivated = $1 WHERE user_id = $2")
-                    .bind(is_deactivated)
-                    .bind(&existing_user.user_id)
-                    .execute(&*self.pool)
+                self.user_storage
+                    .set_deactivation_status(&existing_user.user_id, is_deactivated)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to update user deactivation status", &e))?;
             }
 
             if let Some(user_type) = user_type {
-                sqlx::query("UPDATE users SET user_type = $1 WHERE user_id = $2")
-                    .bind(user_type)
-                    .bind(&existing_user.user_id)
-                    .execute(&*self.pool)
+                self.user_storage
+                    .set_user_type(&existing_user.user_id, Some(user_type))
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to update user type", &e))?;
             }
@@ -319,18 +309,15 @@ impl AdminUserService {
         }
 
         if is_deactivated.unwrap_or(false) {
-            sqlx::query("UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
-                .bind(&created.user_id)
-                .execute(&*self.pool)
+            self.user_storage
+                .set_deactivation_status(&created.user_id, true)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to deactivate created user", &e))?;
         }
 
         if let Some(user_type) = user_type {
-            sqlx::query("UPDATE users SET user_type = $1 WHERE user_id = $2")
-                .bind(user_type)
-                .bind(&created.user_id)
-                .execute(&*self.pool)
+            self.user_storage
+                .set_user_type(&created.user_id, Some(user_type))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to set user type", &e))?;
         }
@@ -340,40 +327,26 @@ impl AdminUserService {
 
     #[instrument(skip(self))]
     pub async fn get_user_stats(&self) -> Result<AdminUserStats, ApiError> {
-        let stats = sqlx::query(
-            r#"
-            SELECT
-                COUNT(*) AS total_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = FALSE) AS active_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_admin, FALSE) = TRUE) AS admin_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_deactivated, FALSE) = TRUE) AS deactivated_users,
-                COUNT(*) FILTER (WHERE COALESCE(is_guest, FALSE) = TRUE) AS guest_users
-            FROM users
-            "#,
-        )
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get user stats", &e))?;
+        let stats = self
+            .user_storage
+            .get_user_stats_summary()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user stats", &e))?;
 
         let room_count = self
             .room_storage
             .get_room_count()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get room count", &e))?;
-        let total_users = stats.get::<i64, _>("total_users");
-        let active_users = stats.get::<i64, _>("active_users");
-        let admin_users = stats.get::<i64, _>("admin_users");
-        let deactivated_users = stats.get::<i64, _>("deactivated_users");
-        let guest_users = stats.get::<i64, _>("guest_users");
         let average_rooms_per_user =
-            if total_users > 0 { (room_count as f64 / total_users as f64).round() } else { 0.0 };
+            if stats.total_users > 0 { (room_count as f64 / stats.total_users as f64).round() } else { 0.0 };
 
         Ok(AdminUserStats {
-            total_users,
-            active_users,
-            admin_users,
-            deactivated_users,
-            guest_users,
+            total_users: stats.total_users,
+            active_users: stats.active_users,
+            admin_users: stats.admin_users,
+            deactivated_users: stats.deactivated_users,
+            guest_users: stats.guest_users,
             average_rooms_per_user,
         })
     }
@@ -392,13 +365,11 @@ impl AdminUserService {
             .get_joined_room_count(&user.user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to count rooms", &e))?;
-        let messages_sent = sqlx::query_scalar::<_, i64>(
-            r#"SELECT COUNT(*) FROM events WHERE sender = $1 AND event_type = 'm.room.message' AND is_redacted = false"#,
-        )
-        .bind(&user.user_id)
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
+        let messages_sent = self
+            .user_storage
+            .count_sent_messages(&user.user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to count messages", &e))?;
         let last_seen_ts = self
             .device_storage
             .get_user_devices(&user.user_id)
@@ -408,7 +379,12 @@ impl AdminUserService {
             .filter_map(|device| device.last_seen_ts)
             .max();
 
-        Ok(AdminSingleUserStats { user, rooms_joined, messages_sent, last_seen_ts })
+        Ok(AdminSingleUserStats {
+            user: AdminUserProfile::from(&user),
+            rooms_joined,
+            messages_sent,
+            last_seen_ts,
+        })
     }
 
     #[instrument(skip(self))]
@@ -452,12 +428,8 @@ impl AdminUserService {
                 continue;
             }
 
-            match sqlx::query("UPDATE users SET is_deactivated = TRUE WHERE user_id = $1")
-                .bind(user_id)
-                .execute(&*self.pool)
-                .await
-            {
-                Ok(result) if result.rows_affected() > 0 => succeeded.push(user_id.clone()),
+            match self.user_storage.set_deactivation_status(user_id, true).await {
+                Ok(true) => succeeded.push(user_id.clone()),
                 _ => failed.push(user_id.clone()),
             }
         }

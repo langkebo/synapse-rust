@@ -37,9 +37,9 @@ pub(crate) async fn sync(
 
     let file_config = state.sync_rate_limit_override();
     let fail_open_on_error =
-        file_config.as_ref().map_or(state.services.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
+        file_config.as_ref().map_or(state.services.core.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
     let sync_rate_limit_enabled =
-        file_config.as_ref().map_or(state.services.config.rate_limit.sync.enabled, |c| c.sync.enabled);
+        file_config.as_ref().map_or(state.services.core.config.rate_limit.sync.enabled, |c| c.sync.enabled);
     if sync_rate_limit_enabled {
         let is_initial = since.is_none();
         let (per_second, burst_size) = match &file_config {
@@ -51,7 +51,7 @@ pub(crate) async fn sync(
                 }
             }
             _ => {
-                let c = &state.services.config.rate_limit.sync;
+                let c = &state.services.core.config.rate_limit.sync;
                 if is_initial {
                     (c.initial.per_second, c.initial.burst_size)
                 } else {

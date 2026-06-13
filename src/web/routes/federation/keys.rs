@@ -7,7 +7,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    if state.services.config.federation.signing_key.is_none() {
+    if state.services.core.config.federation.signing_key.is_none() {
         state
             .services
             .federation
@@ -24,7 +24,9 @@ pub(super) async fn key_query(
     State(state): State<AppState>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name == state.services.core.server_name || server_name == state.services.config.federation.server_name {
+    if server_name == state.services.core.server_name
+        || server_name == state.services.core.config.federation.server_name
+    {
         return server_key(State(state)).await;
     }
 
@@ -175,7 +177,7 @@ pub(super) async fn event_auth(State(_state): State<AppState>) -> Result<Json<Va
 }
 
 async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
-    let config = &state.services.config.federation;
+    let config = &state.services.core.config.federation;
     if !config.enabled {
         return Err(ApiError::not_found("Federation disabled".to_string()));
     }
@@ -286,7 +288,7 @@ async fn fetch_remote_server_keys_response(
         .await
         .map_err(|_| ApiError::internal("Federation key fetch semaphore closed".to_string()))?;
 
-    let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
+    let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
@@ -338,7 +340,7 @@ async fn fetch_remote_server_keys_response(
                 .unwrap_or_else(|| json!({}))
         });
 
-        let ttl = state.services.config.federation.key_cache_ttl.max(60);
+        let ttl = state.services.core.config.federation.key_cache_ttl.max(60);
         if let Err(e) = state.cache.set(&cache_key, &canonical_response, ttl).await {
             ::tracing::debug!("Failed to cache federation key response: {}", e);
         }

@@ -55,12 +55,9 @@ pub async fn set_typing(
         });
         let _ = state
             .services
+            .core
             .event_broadcaster
-            .broadcast_edu_to_room(
-                &room_id,
-                &edu,
-                state.services.config.server.server_name.as_deref().unwrap_or("localhost"),
-            )
+            .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
             .await;
 
         Ok(Json(json!({})))
@@ -78,12 +75,9 @@ pub async fn set_typing(
         });
         let _ = state
             .services
+            .core
             .event_broadcaster
-            .broadcast_edu_to_room(
-                &room_id,
-                &edu,
-                state.services.config.server.server_name.as_deref().unwrap_or("localhost"),
-            )
+            .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
             .await;
 
         Ok(Json(json!({})))

@@ -1,7 +1,1 @@
-pub mod models;
-pub mod service;
-pub mod storage;
-
-pub use models::*;
-pub use service::IdentityService;
-pub use storage::IdentityStorage;
+pub use synapse_services::identity::*;

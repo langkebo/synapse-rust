@@ -53,6 +53,23 @@ pub struct MetricsSummaryResponse {
     pub total_histograms: usize,
     pub rendered_bytes: usize,
     pub snapshot_ts: i64,
+    pub appservice_scheduler: AppserviceSchedulerTelemetrySummary,
+}
+
+#[derive(Debug, Serialize, Default, PartialEq, Eq)]
+pub struct AppserviceSchedulerTelemetrySummary {
+    pub total_services: usize,
+    pub scheduler_available_services: usize,
+    pub services_in_backoff: usize,
+    pub services_capacity_limited: usize,
+    pub services_with_pending_transactions: usize,
+    pub total_pending_events: i64,
+    pub total_pending_transactions: i64,
+    pub total_success_count: i64,
+    pub total_failure_count: i64,
+    pub total_backoff_count: i64,
+    pub total_capacity_limited_count: i64,
+    pub total_in_flight_count: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,8 +85,8 @@ pub struct TelemetryAlertQuery {
 }
 
 pub async fn get_status(State(state): State<AppState>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.config.telemetry;
-    let prometheus = &state.services.config.prometheus;
+    let config = &state.services.core.config.telemetry;
+    let prometheus = &state.services.core.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
@@ -90,8 +107,8 @@ pub async fn get_resource_attributes(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.config.telemetry;
-    let prometheus = &state.services.config.prometheus;
+    let config = &state.services.core.config.telemetry;
+    let prometheus = &state.services.core.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
@@ -104,9 +121,10 @@ pub async fn get_metrics_summary(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let inventory = state.services.metrics.inventory();
-    let metrics = state.services.metrics.collect_metrics();
-    let rendered = state.services.metrics.to_prometheus_format();
+    let inventory = state.services.core.metrics.inventory();
+    let metrics = state.services.core.metrics.collect_metrics();
+    let rendered = state.services.core.metrics.to_prometheus_format();
+    let appservice_statistics = state.services.admin.app_service_manager.get_statistics().await?;
 
     Ok(Json(MetricsSummaryResponse {
         total_metrics: metrics.len(),
@@ -115,15 +133,69 @@ pub async fn get_metrics_summary(
         total_histograms: inventory.total_histograms,
         rendered_bytes: rendered.len(),
         snapshot_ts: chrono::Utc::now().timestamp_millis(),
+        appservice_scheduler: summarize_appservice_scheduler_metrics(&appservice_statistics),
     }))
+}
+
+pub(crate) fn summarize_appservice_scheduler_metrics(
+    appservice_statistics: &[serde_json::Value],
+) -> AppserviceSchedulerTelemetrySummary {
+    let mut summary = AppserviceSchedulerTelemetrySummary {
+        total_services: appservice_statistics.len(),
+        ..AppserviceSchedulerTelemetrySummary::default()
+    };
+
+    for entry in appservice_statistics {
+        let Some(scheduler) = entry.get("scheduler") else {
+            continue;
+        };
+
+        if scheduler.get("available").and_then(|value| value.as_bool()).unwrap_or(false) {
+            summary.scheduler_available_services += 1;
+        }
+
+        match scheduler.get("last_result").and_then(|value| value.as_str()) {
+            Some("backoff") => summary.services_in_backoff += 1,
+            Some("capacity_limited") => summary.services_capacity_limited += 1,
+            _ => {}
+        }
+
+        let pending_transactions = scheduler
+            .get("pending_transaction_count")
+            .and_then(|value| value.as_i64())
+            .unwrap_or_else(|| entry.get("pending_transaction_count").and_then(|value| value.as_i64()).unwrap_or(0));
+        let pending_events = scheduler
+            .get("pending_event_count")
+            .and_then(|value| value.as_i64())
+            .unwrap_or_else(|| entry.get("pending_event_count").and_then(|value| value.as_i64()).unwrap_or(0));
+
+        if pending_transactions > 0 {
+            summary.services_with_pending_transactions += 1;
+        }
+
+        summary.total_pending_events += pending_events;
+        summary.total_pending_transactions += pending_transactions;
+        summary.total_success_count +=
+            scheduler.get("total_success_count").and_then(|value| value.as_i64()).unwrap_or_default();
+        summary.total_failure_count +=
+            scheduler.get("total_failure_count").and_then(|value| value.as_i64()).unwrap_or_default();
+        summary.total_backoff_count +=
+            scheduler.get("total_backoff_count").and_then(|value| value.as_i64()).unwrap_or_default();
+        summary.total_capacity_limited_count +=
+            scheduler.get("total_capacity_limited_count").and_then(|value| value.as_i64()).unwrap_or_default();
+        summary.total_in_flight_count +=
+            scheduler.get("total_in_flight_count").and_then(|value| value.as_i64()).unwrap_or_default();
+    }
+
+    summary
 }
 
 pub async fn health_check(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.config.telemetry;
-    let prometheus = &state.services.config.prometheus;
+    let config = &state.services.core.config.telemetry;
+    let prometheus = &state.services.core.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
@@ -220,4 +292,67 @@ pub fn telemetry_route_manifest() -> Vec<crate::web::routes::route_ledger::Route
 
 fn request_id(headers: &HeaderMap) -> String {
     crate::web::utils::auth::resolve_request_id(headers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarize_appservice_scheduler_metrics_aggregates_scheduler_state() {
+        let statistics = vec![
+            serde_json::json!({
+                "as_id": "as-1",
+                "pending_event_count": 0,
+                "pending_transaction_count": 0,
+                "scheduler": {
+                    "available": true,
+                    "last_result": "backoff",
+                    "pending_event_count": 3,
+                    "pending_transaction_count": 1,
+                    "total_success_count": 5,
+                    "total_failure_count": 2,
+                    "total_backoff_count": 1,
+                    "total_capacity_limited_count": 0,
+                    "total_in_flight_count": 0
+                }
+            }),
+            serde_json::json!({
+                "as_id": "as-2",
+                "pending_event_count": 4,
+                "pending_transaction_count": 0,
+                "scheduler": {
+                    "available": true,
+                    "last_result": "capacity_limited",
+                    "pending_event_count": 4,
+                    "pending_transaction_count": 0,
+                    "total_success_count": 7,
+                    "total_failure_count": 0,
+                    "total_backoff_count": 0,
+                    "total_capacity_limited_count": 2,
+                    "total_in_flight_count": 1
+                }
+            }),
+        ];
+
+        let summary = summarize_appservice_scheduler_metrics(&statistics);
+
+        assert_eq!(
+            summary,
+            AppserviceSchedulerTelemetrySummary {
+                total_services: 2,
+                scheduler_available_services: 2,
+                services_in_backoff: 1,
+                services_capacity_limited: 1,
+                services_with_pending_transactions: 1,
+                total_pending_events: 7,
+                total_pending_transactions: 1,
+                total_success_count: 12,
+                total_failure_count: 2,
+                total_backoff_count: 1,
+                total_capacity_limited_count: 2,
+                total_in_flight_count: 1,
+            }
+        );
+    }
 }

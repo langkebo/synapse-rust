@@ -525,7 +525,7 @@ impl DeviceKeyStorage {
             FROM device_keys
             WHERE user_id = $1 AND device_id = $2
               AND (is_fallback = FALSE OR is_fallback IS NULL)
-              AND algorithm NOT IN ('ed25519', 'curve25519')
+              AND NOT (key_id = algorithm || ':' || $2)
             GROUP BY algorithm
             "#,
             user_id,

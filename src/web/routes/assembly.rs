@@ -287,7 +287,7 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
 }
 
 async fn get_client_config(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let config = &state.services.config;
+    let config = &state.services.core.config;
     let base_url = config.server.get_public_baseurl();
 
     Ok(Json(json!({

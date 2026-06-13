@@ -19,7 +19,7 @@ pub struct FederationRequestAuth {
 }
 
 pub async fn federation_auth_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    if !state.services.config.federation.enabled || !state.services.config.federation.allow_ingress {
+    if !state.services.core.config.federation.enabled || !state.services.core.config.federation.allow_ingress {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
@@ -53,9 +53,9 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
         }
     }
 
-    let destination = state.services.server_name.as_str();
+    let destination = state.services.core.server_name.as_str();
 
-    let body_limit = state.services.config.federation.max_transaction_payload.max(64 * 1024) as usize;
+    let body_limit = state.services.core.config.federation.max_transaction_payload.max(64 * 1024) as usize;
 
     let body_bytes = match axum::body::to_bytes(body, body_limit).await {
         Ok(b) => b,
@@ -109,7 +109,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 
     let origin_server = &params.origin;
 
-    if state.services.config.federation.admission_mode {
+    if state.services.core.config.federation.admission_mode {
         let server_status =
             sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1", origin_server)
                 .fetch_optional(&*state.services.account.user_storage.pool)
@@ -155,12 +155,12 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 }
 
 fn is_local_federation_destination(state: &AppState, destination: &str) -> bool {
-    let server_config = &state.services.config.server;
+    let server_config = &state.services.core.config.server;
     [
-        state.services.server_name.as_str(),
+        state.services.core.server_name.as_str(),
         server_config.name.as_str(),
         server_config.get_server_name(),
-        state.services.config.federation.server_name.as_str(),
+        state.services.core.config.federation.server_name.as_str(),
     ]
     .into_iter()
     .any(|local_name| !local_name.is_empty() && local_name == destination)
@@ -171,12 +171,12 @@ pub async fn replication_http_auth_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    if !state.services.config.worker.replication.http.enabled {
+    if !state.services.core.config.worker.replication.http.enabled {
         return next.run(request).await;
     }
-    let secret = if let Some(s) = &state.services.config.worker.replication.http.secret {
+    let secret = if let Some(s) = &state.services.core.config.worker.replication.http.secret {
         s.clone()
-    } else if let Some(p) = &state.services.config.worker.replication.http.secret_path {
+    } else if let Some(p) = &state.services.core.config.worker.replication.http.secret_path {
         match fs::read_to_string(PathBuf::from(p)) {
             Ok(s) => s.trim().to_string(),
             Err(_) => return ApiError::unauthorized("Replication secret not available".to_string()).into_response(),
@@ -337,7 +337,7 @@ async fn get_federation_verify_key(
         }
     }
 
-    if origin == state.services.server_name || origin == state.services.config.federation.server_name {
+    if origin == state.services.core.server_name || origin == state.services.core.config.federation.server_name {
         if let Some(key) = get_local_verify_key(state, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
             let ttl = 3600u64;
@@ -353,7 +353,7 @@ async fn get_federation_verify_key(
 }
 
 async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]> {
-    let config = &state.services.config.federation;
+    let config = &state.services.core.config.federation;
 
     if !config.enabled {
         return None;
@@ -416,7 +416,7 @@ async fn fetch_federation_verify_key(
         .await
         .map_err(|_| ApiError::internal("Rate limit semaphore closed".to_string()))?;
 
-    let timeout_ms = state.services.config.federation.key_fetch_timeout_ms.max(1);
+    let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .build()
@@ -630,12 +630,12 @@ mod tests {
         let uri = "/_matrix/federation/v1/exchange_third_party_invite/!room:test.example.com";
 
         let mut services = ServiceContainer::new_test().await;
-        services.config.federation.enabled = true;
-        services.config.federation.allow_ingress = true;
-        services.config.federation.server_name = origin.clone();
-        services.config.federation.key_id = Some(key_id.clone());
-        services.config.federation.signing_key = Some(signing_key_b64);
-        services.server_name = origin.clone();
+        services.core.config.federation.enabled = true;
+        services.core.config.federation.allow_ingress = true;
+        services.core.config.federation.server_name = origin.clone();
+        services.core.config.federation.key_id = Some(key_id.clone());
+        services.core.config.federation.signing_key = Some(signing_key_b64);
+        services.core.server_name = origin.clone();
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);

@@ -224,10 +224,10 @@ pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppStat
     Ok(Json(json!({
         "server_policy_enabled": status.server_policy_enabled,
         "rooms_with_custom_policy": status.rooms_with_custom_policy,
-        "lifecycle_cleanup_enabled": state.services.config.retention.lifecycle_cleanup_enabled,
-        "cleanup_batch_size": state.services.config.retention.cleanup_batch_size,
-        "audit_retention_days": state.services.config.retention.audit_retention_days,
-        "queue_retention_days": state.services.config.retention.queue_retention_days,
+        "lifecycle_cleanup_enabled": state.services.core.config.retention.lifecycle_cleanup_enabled,
+        "cleanup_batch_size": state.services.core.config.retention.cleanup_batch_size,
+        "audit_retention_days": state.services.core.config.retention.audit_retention_days,
+        "queue_retention_days": state.services.core.config.retention.queue_retention_days,
         "last_run": last_run
     })))
 }

@@ -2,6 +2,7 @@ use crate::services::database_initializer::{DatabaseInitMode, DatabaseInitServic
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;
+use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
@@ -22,7 +23,9 @@ const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 180;
 const DEFAULT_TEST_DB_IDLE_TIMEOUT_SECS: u64 = 60;
 const DEFAULT_TEST_DB_MAX_LIFETIME_SECS: u64 = 300;
 const DEFAULT_TEST_DB_INIT_TIMEOUT_SECS: u64 = 300;
-const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 2;
+const DEFAULT_TEST_DB_SHARED_CLONE_CONCURRENCY: usize = 4;
+const TEST_TEMPLATE_SCHEMA_REVISION: u32 = 2;
+const TEST_TEMPLATE_READY_MARKER_PREFIX: &str = "synapse_test_template_ready";
 
 pub struct EnvLockGuard {
     _guard: tokio::sync::MutexGuard<'static, ()>,
@@ -237,7 +240,10 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
         ensure_template_schema_exists(&database_url, &schema_name).await?;
         schema_name
     } else {
-        TEMPLATE_SCHEMA_NAME.get_or_try_init(|| async { init_template_schema(&database_url).await }).await?.clone()
+        TEMPLATE_SCHEMA_NAME
+            .get_or_try_init(|| async { get_or_create_default_template_schema(&database_url).await })
+            .await?
+            .clone()
     };
 
     // Step 2: Clone template into a fresh per-test schema
@@ -247,8 +253,19 @@ pub async fn prepare_shared_test_pool() -> Result<Arc<PgPool>, String> {
     Ok(pool)
 }
 
-async fn init_template_schema(database_url: &str) -> Result<String, String> {
-    let template_name = format!("test_template_{}", std::process::id());
+async fn get_or_create_default_template_schema(database_url: &str) -> Result<String, String> {
+    let template_name = default_template_schema_name();
+    if template_schema_is_ready(database_url, &template_name).await? {
+        tracing::debug!("Reusing existing test template schema: {}", template_name);
+        return Ok(template_name);
+    }
+
+    tracing::debug!("Creating new test template schema: {}", template_name);
+    init_template_schema(database_url, &template_name).await?;
+    Ok(template_name)
+}
+
+async fn init_template_schema(database_url: &str, template_name: &str) -> Result<(), String> {
     let connect_timeout = configured_test_pool_connect_timeout();
 
     let admin_pool = tokio::time::timeout(
@@ -312,10 +329,13 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
         return Err(format!("template schema initialization errors: {}", report.errors.join(" | ")));
     }
 
+    ensure_test_schema_contract(&pool).await?;
+    mark_template_schema_ready(template_name)?;
+
     // Close the template pool — we only need it for initialization
     pool.close().await;
 
-    Ok(template_name)
+    Ok(())
 }
 
 async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) -> Result<(), String> {
@@ -349,6 +369,110 @@ async fn ensure_template_schema_exists(database_url: &str, schema_name: &str) ->
     Ok(())
 }
 
+fn template_ready_marker_path(schema_name: &str) -> std::path::PathBuf {
+    let dir = std::env::var("CARGO_TARGET_TMPDIR")
+        .ok()
+        .map_or_else(
+            || std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("tmp"),
+            std::path::PathBuf::from,
+        )
+        .join("synapse_test_templates");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join(format!("{TEST_TEMPLATE_READY_MARKER_PREFIX}_{schema_name}"))
+}
+
+async fn template_schema_is_ready(database_url: &str, schema_name: &str) -> Result<bool, String> {
+    let marker_path = template_ready_marker_path(schema_name);
+    if !marker_path.exists() {
+        return Ok(false);
+    }
+
+    // Also verify the schema still exists (in case someone dropped it manually)
+    let connect_timeout = configured_test_pool_connect_timeout();
+    let admin_pool = tokio::time::timeout(
+        connect_timeout,
+        PgPoolOptions::new().max_connections(1).acquire_timeout(Duration::from_secs(5)).connect(database_url),
+    )
+    .await
+    .map_err(|_| format!("failed to connect admin pool: timed out after {connect_timeout:?}"))?
+    .map_err(|error| format!("failed to connect admin pool: {error}"))?;
+
+    let exists = sqlx::query_scalar::<_, bool>(
+        r"
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.schemata
+            WHERE schema_name = $1
+        )
+        ",
+    )
+    .bind(schema_name)
+    .fetch_one(&admin_pool)
+    .await
+    .map_err(|error| format!("failed to verify template schema existence for {schema_name}: {error}"))?;
+
+    if !exists {
+        // Schema disappeared, remove stale marker
+        let _ = std::fs::remove_file(marker_path);
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
+fn default_template_schema_name() -> String {
+    format!("test_template_v{}_{}", TEST_TEMPLATE_SCHEMA_REVISION, template_schema_fingerprint())
+}
+
+fn template_schema_fingerprint() -> String {
+    let mut manifest =
+        format!("schema-rev:{TEST_TEMPLATE_SCHEMA_REVISION};contract-sql:{};", ensure_test_schema_contract_sql());
+    let migrations_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations");
+
+    let mut migration_entries = match fs::read_dir(&migrations_dir) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok()?;
+                if !file_type.is_file() {
+                    return None;
+                }
+                let file_name = entry.file_name();
+                let file_name = file_name.to_str()?;
+                let metadata = entry.metadata().ok()?;
+                let modified =
+                    metadata.modified().ok().and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())?;
+                Some(format!("{file_name}:{}:{};", metadata.len(), modified.as_secs()))
+            })
+            .collect::<Vec<_>>(),
+        Err(_) => vec!["migrations-dir-missing".to_string()],
+    };
+    migration_entries.sort();
+    for entry in migration_entries {
+        manifest.push_str(&entry);
+    }
+
+    format!("{:016x}", fnv1a64(manifest.as_bytes()))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn mark_template_schema_ready(schema_name: &str) -> Result<(), String> {
+    let marker_path = template_ready_marker_path(schema_name);
+    let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+    std::fs::write(&marker_path, timestamp)
+        .map_err(|error| format!("failed to write template ready marker to {:?}: {error}", marker_path))?;
+
+    Ok(())
+}
+
 async fn clone_schema_from_template(database_url: &str, template_name: &str) -> Result<Arc<PgPool>, String> {
     let schema_name = next_test_schema_name();
     let connect_timeout = configured_test_pool_connect_timeout();
@@ -361,7 +485,8 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .map_err(|_| "failed to connect admin pool for clone: timed out".to_string())?
     .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
 
-    // Clone: create schema + copy all tables from template using DDL generation
+    // Clone: create schema + copy all tables from template using DDL generation.
+    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters.
     let clone_sql = format!(
         r"
         DO $$
@@ -377,7 +502,7 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     '{schema_name}', r.tablename, '{template_name}', r.tablename
                 );
             END LOOP;
-            -- Copy sequences
+            -- Copy sequences with current values
             FOR r IN
                 SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
             LOOP
@@ -418,7 +543,9 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .map_err(|error| format!("failed to connect cloned pool for {schema_name}: {error}"))?;
 
     let pool = Arc::new(pool);
-    ensure_test_schema_contract(&pool).await?;
+    // Note: ensure_test_schema_contract is NOT called here — it is called once in
+    // prepare_shared_test_pool after cloning, and the template schema already has the
+    // contract applied (so cloned tables already include the contract columns).
     Ok(pool)
 }
 
@@ -530,8 +657,16 @@ fn next_test_schema_name() -> String {
 }
 
 async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {
-    sqlx::raw_sql(
-        r"
+    sqlx::raw_sql(ensure_test_schema_contract_sql())
+        .execute(&**pool)
+        .await
+        .map_err(|error| format!("failed to ensure test schema contract: {error}"))?;
+
+    Ok(())
+}
+
+fn ensure_test_schema_contract_sql() -> &'static str {
+    r"
         ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS generation BIGINT DEFAULT 0;
@@ -565,11 +700,5 @@ async fn ensure_test_schema_contract(pool: &Arc<PgPool>) -> Result<(), String> {
         ALTER TABLE events ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'self';
         ALTER TABLE events ADD COLUMN IF NOT EXISTS user_id TEXT;
         ALTER TABLE events ADD COLUMN IF NOT EXISTS stream_ordering BIGINT;
-        ",
-    )
-    .execute(&**pool)
-    .await
-    .map_err(|error| format!("failed to ensure test schema contract: {error}"))?;
-
-    Ok(())
+        "
 }

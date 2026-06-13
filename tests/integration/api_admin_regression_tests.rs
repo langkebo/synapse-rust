@@ -1428,6 +1428,54 @@ async fn test_user_admin_cannot_assign_admin_fields_via_user_update_v2() {
 }
 
 #[tokio::test]
+async fn test_super_admin_can_update_user_v2_deactivation_and_role_fields() {
+    let _guard = test_mutex().lock().await;
+    let Some((app, pool, cache)) = setup_test_app().await else {
+        return;
+    };
+
+    let (super_admin_token, super_admin_id) =
+        register_user(&app, &format!("user_admin_v2_super_{}", rand::random::<u32>()))
+            .await
+            .expect("failed to register super admin");
+    promote_to_admin_with_role(&pool, &super_admin_id, "super_admin").await;
+    invalidate_admin_cache(&cache, &super_admin_id).await;
+    let (_, target_user_id) = register_user(&app, &format!("target_v2_update_{}", rand::random::<u32>()))
+        .await
+        .expect("failed to register target user");
+
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_synapse/admin/v2/users/{}", target_user_id))
+        .header("Authorization", format!("Bearer {}", super_admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "displayname": "updated by super admin",
+                "deactivated": true,
+                "user_type": "support_admin"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request)
+        .await
+        .expect("create_or_update_user_v2 request failed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let row = sqlx::query("SELECT is_deactivated, user_type, displayname FROM users WHERE user_id = $1")
+        .bind(&target_user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("failed to query updated user");
+    assert!(row.get::<bool, _>("is_deactivated"));
+    assert_eq!(row.get::<Option<String>, _>("user_type"), Some("support_admin".to_string()));
+    assert_eq!(row.get::<Option<String>, _>("displayname"), Some("updated by super admin".to_string()));
+}
+
+#[tokio::test]
 async fn test_super_admin_can_grant_admin_via_set_admin() {
     let _guard = test_mutex().lock().await;
     let Some((app, pool, cache)) = setup_test_app().await else {

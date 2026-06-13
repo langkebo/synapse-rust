@@ -445,7 +445,7 @@ pub async fn select_worker(
 
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
     let admin = create_worker_admin_router(state.clone());
-    if state.services.config.worker.enabled {
+    if state.services.core.config.worker.enabled {
         admin.merge(create_worker_body_router(state.clone())).with_state(state)
     } else {
         admin.with_state(state)
@@ -473,7 +473,7 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
 }
 
 /// Conditional worker-body surface, only merged when
-/// `state.services.config.worker.enabled` is true. Backed by
+/// `state.services.core.config.worker.enabled` is true. Backed by
 /// `worker_body_route_manifest()` and aggregated via
 /// `route_module::WorkerBodyModule`.
 pub fn create_worker_body_router(state: AppState) -> Router<AppState> {

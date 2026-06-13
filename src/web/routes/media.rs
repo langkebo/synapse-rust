@@ -255,10 +255,10 @@ async fn upload_media_with_id_common(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name != state.services.server_name {
+    if server_name != state.services.core.server_name {
         return Err(ApiError::bad_request(format!(
             "server_name must match local server: {}",
-            state.services.server_name
+            state.services.core.server_name
         )));
     }
 
@@ -286,7 +286,7 @@ async fn upload_media_with_id_common(
 }
 
 fn ensure_local_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
-    if server_name != state.services.server_name {
+    if server_name != state.services.core.server_name {
         return Err(ApiError::not_found("Media not found".to_string()));
     }
 
@@ -375,7 +375,7 @@ async fn upload_media_v3(
 
 pub async fn media_config(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
-        "m.upload.size": state.services.config.server.max_upload_size
+        "m.upload.size": state.services.core.config.server.max_upload_size
     }))
 }
 
@@ -605,7 +605,7 @@ async fn preview_url(
     let url =
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
-    let blacklist = &state.services.config.url_preview.ip_range_blacklist;
+    let blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
     if let Err(e) = crate::common::security::check_url_against_blacklist(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }

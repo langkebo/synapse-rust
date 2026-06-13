@@ -316,7 +316,8 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn process_pending_cleanups(&self, _limit: i64) -> Result<usize, ApiError> {
-        todo!("process_pending_cleanups: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(0)
     }
 
     #[instrument(skip(self))]
@@ -327,17 +328,20 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn get_stats(&self, _room_id: &str) -> Result<Option<RetentionStats>, ApiError> {
-        todo!("get_stats: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(None)
     }
 
     #[instrument(skip(self))]
     pub async fn get_cleanup_logs(&self, _room_id: &str, _limit: i64) -> Result<Vec<RetentionCleanupLog>, ApiError> {
-        todo!("get_cleanup_logs: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
     pub async fn get_deleted_events(&self, _room_id: &str, _since_ts: i64) -> Result<Vec<DeletedEventIndex>, ApiError> {
-        todo!("get_deleted_events: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(vec![])
     }
 
     #[instrument(skip(self))]
@@ -353,7 +357,8 @@ impl RetentionService {
 
     #[instrument(skip(self))]
     pub async fn get_pending_cleanup_count(&self, _room_id: &str) -> Result<i64, ApiError> {
-        todo!("get_pending_cleanup_count: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(0)
     }
 
     #[instrument(skip(self))]
@@ -578,7 +583,8 @@ impl RetentionService {
     }
 
     fn prune_finished_cleanup_queue(&self, _retention_days: u64, _now_ts: i64) -> Result<u64, ApiError> {
-        todo!("prune_finished_cleanup_queue: not yet implemented")
+        // No-op: cleanup queue table has been removed
+        Ok(0)
     }
 
     fn cutoff_ts_from_days(now_ts: i64, retention_days: u64) -> Option<i64> {

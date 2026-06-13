@@ -256,6 +256,7 @@ pub(super) async fn get_user_devices(
 
     let devices = state
         .services
+        .account
         .device_storage
         .get_user_devices(&user_id)
         .await
@@ -263,6 +264,7 @@ pub(super) async fn get_user_devices(
 
     let stream_id = state
         .services
+        .account
         .device_storage
         .get_max_device_list_stream_id_for_user(&user_id)
         .await
@@ -370,7 +372,7 @@ pub(super) async fn make_join(
     super::increment_gauge(&state, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
         state.federation_join_semaphore.clone(),
-        state.services.config.federation.join_acquire_timeout_ms,
+        state.services.core.config.federation.join_acquire_timeout_ms,
     )
     .await
     {
@@ -486,7 +488,7 @@ pub(super) async fn send_join(
     super::increment_gauge(&state, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
         state.federation_join_semaphore.clone(),
-        state.services.config.federation.join_acquire_timeout_ms,
+        state.services.core.config.federation.join_acquire_timeout_ms,
     )
     .await
     {
@@ -653,7 +655,7 @@ pub(super) async fn send_join_v2(
     super::increment_gauge(&state, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
         state.federation_join_semaphore.clone(),
-        state.services.config.federation.join_acquire_timeout_ms,
+        state.services.core.config.federation.join_acquire_timeout_ms,
     )
     .await
     {

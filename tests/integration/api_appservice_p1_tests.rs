@@ -28,7 +28,12 @@ async fn test_appservice_transaction_push() {
                 "url": "http://localhost:8080",
                 "as_token": format!("test_as_token_{}", rand::random::<u32>()),
                 "hs_token": format!("test_hs_token_{}", rand::random::<u32>()),
-                "sender_localpart": "bot_txn"
+                "sender_localpart": "bot_txn",
+                "namespaces": {
+                    "users": [{"regex": "^@user:localhost$", "exclusive": false}],
+                    "aliases": [],
+                    "rooms": []
+                }
             })
             .to_string(),
         ))
@@ -211,7 +216,8 @@ async fn test_appservice_namespace_exclusivity() {
 
     // 1. Register first AppService with exclusive namespace
     let as_id_1 = format!("test_as_ns1_{}", rand::random::<u32>());
-    let namespace_pattern = format!("@bot_exclusive_{}.*:localhost", rand::random::<u32>());
+    let exclusive_prefix = rand::random::<u32>();
+    let namespace_pattern = format!("@bot_exclusive_{}.*:localhost", exclusive_prefix);
     let register_request_1 = Request::builder()
         .method("POST")
         .uri("/_synapse/admin/v1/appservices")
@@ -235,6 +241,30 @@ async fn test_appservice_namespace_exclusivity() {
     let response = app.clone().oneshot(register_request_1).await.unwrap();
     assert_eq!(response.status(), StatusCode::CREATED, "First AppService with exclusive namespace should be created");
 
+    let as_id_2 = format!("test_as_ns2_{}", rand::random::<u32>());
+    let register_request_2 = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &as_id_2,
+                "url": "http://localhost:8081",
+                "as_token": format!("test_as_token_{}", rand::random::<u32>()),
+                "hs_token": format!("test_hs_token_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_ns2",
+                "namespaces": {
+                    "users": [{"regex": &namespace_pattern, "exclusive": true}]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(register_request_2).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT, "Duplicate exclusive namespace should be rejected");
+
     // 2. Query namespaces to verify exclusive flag
     let query_ns_request = Request::builder()
         .method("GET")
@@ -251,11 +281,11 @@ async fn test_appservice_namespace_exclusivity() {
     assert!(ns_json["users"].is_array());
     let users_ns = ns_json["users"].as_array().unwrap();
     assert!(!users_ns.is_empty(), "Should have user namespace");
-    assert_eq!(users_ns[0]["exclusive"], true, "Namespace should be marked as exclusive");
+    assert_eq!(users_ns[0]["is_exclusive"], true, "Namespace should be marked as exclusive");
     assert_eq!(users_ns[0]["namespace_pattern"], namespace_pattern);
 
     // 3. Register virtual user within exclusive namespace
-    let virtual_user_id = format!("@bot_exclusive_{}_test:localhost", rand::random::<u32>());
+    let virtual_user_id = format!("@bot_exclusive_{}_test:localhost", exclusive_prefix);
     let register_user_request = Request::builder()
         .method("POST")
         .uri(format!("/_synapse/admin/v1/appservices/{}/users", as_id_1))
@@ -291,6 +321,240 @@ async fn test_appservice_namespace_exclusivity() {
     if let Some(as_id_value) = query_json["application_service"].as_str() {
         assert_eq!(as_id_value, as_id_1, "User should belong to the first AppService");
     }
+}
+
+/// P1-4b: virtual user 注册必须落在本地 exclusive user namespace 内
+#[tokio::test]
+async fn test_appservice_virtual_user_requires_exclusive_local_namespace() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let as_id = format!("test_as_virtual_guard_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &as_id,
+                "url": "http://localhost:8080",
+                "as_token": format!("test_as_token_{}", rand::random::<u32>()),
+                "hs_token": format!("test_hs_token_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_guard",
+                "namespaces": {
+                    "users": [{"regex": "^@guarded_bot_[0-9]+:localhost$", "exclusive": true}],
+                    "aliases": [],
+                    "rooms": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let outside_namespace_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/appservices/{}/users", as_id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "user_id": format!("@outside_bot_{}:localhost", rand::random::<u32>()),
+                "displayname": "Outside Bot"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(outside_namespace_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "Virtual user outside exclusive namespace should be rejected");
+
+    let foreign_domain_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/appservices/{}/users", as_id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "user_id": format!("@guarded_bot_{}:example.com", rand::random::<u32>()),
+                "displayname": "Foreign Bot"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(foreign_domain_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST, "Foreign-domain virtual user should be rejected");
+}
+
+/// P1-4c: 管理面显式写入事件必须落在 AppService namespace 内
+#[tokio::test]
+async fn test_appservice_admin_push_event_requires_namespace_ownership() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let as_id = format!("test_as_push_guard_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &as_id,
+                "url": "http://localhost:8080",
+                "as_token": format!("test_as_token_{}", rand::random::<u32>()),
+                "hs_token": format!("test_hs_token_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_push_guard",
+                "namespaces": {
+                    "users": [{"regex": "^@owned_sender:localhost$", "exclusive": false}],
+                    "aliases": [],
+                    "rooms": [{"regex": "^!owned_room:localhost$", "exclusive": true}]
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let forbidden_push_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/appservices/{}/events", as_id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "room_id": "!foreign_room:localhost",
+                "event_type": "m.room.message",
+                "sender": "@foreign_sender:localhost",
+                "content": {
+                    "msgtype": "m.text",
+                    "body": "out of namespace"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(forbidden_push_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN, "Admin push_event should reject out-of-namespace writes");
+
+    let allowed_push_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/appservices/{}/events", as_id))
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "room_id": "!owned_room:localhost",
+                "event_type": "m.room.message",
+                "sender": "@foreign_sender:localhost",
+                "content": {
+                    "msgtype": "m.text",
+                    "body": "owned room write"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(allowed_push_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED, "Admin push_event should still allow owned namespace writes");
+}
+
+/// P0-02: 管理面统计接口需要显式暴露 scheduler 聚合状态
+#[tokio::test]
+async fn test_appservice_statistics_expose_scheduler_summary() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = get_admin_token(&app).await;
+    let as_id = format!("test_as_scheduler_stats_{}", rand::random::<u32>());
+    let register_request = Request::builder()
+        .method("POST")
+        .uri("/_synapse/admin/v1/appservices")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::from(
+            json!({
+                "id": &as_id,
+                "url": "http://localhost:8080",
+                "as_token": format!("test_as_token_{}", rand::random::<u32>()),
+                "hs_token": format!("test_hs_token_{}", rand::random::<u32>()),
+                "sender_localpart": "bot_scheduler_stats",
+                "namespaces": {
+                    "users": [{"regex": "^@sched_stats:localhost$", "exclusive": false}],
+                    "aliases": [],
+                    "rooms": []
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(register_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    for (state_key, state_value) in [
+        ("scheduler_last_result", "backoff"),
+        ("scheduler_transaction_state", "retry_backoff"),
+        ("scheduler_total_backoff_count", "1"),
+        ("scheduler_last_elapsed_ms", "42"),
+    ] {
+        let set_state_request = Request::builder()
+            .method("POST")
+            .uri(format!("/_synapse/admin/v1/appservices/{}/state", as_id))
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", admin_token))
+            .body(Body::from(
+                json!({
+                    "state_key": state_key,
+                    "state_value": state_value
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let response = app.clone().oneshot(set_state_request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let statistics_request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/admin/v1/appservices/statistics")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(statistics_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let statistics_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let statistics = statistics_json.as_array().expect("statistics should be an array");
+    let service = statistics
+        .iter()
+        .find(|entry| entry["as_id"] == as_id)
+        .expect("registered appservice should be present in statistics");
+
+    assert_eq!(service["pending_event_count"], 0);
+    assert_eq!(service["pending_transaction_count"], 0);
+    assert_eq!(service["scheduler"]["available"], true);
+    assert_eq!(service["scheduler"]["last_result"], "backoff");
+    assert_eq!(service["scheduler"]["transaction_state"], "retry_backoff");
+    assert_eq!(service["scheduler"]["total_backoff_count"], 1);
+    assert_eq!(service["scheduler"]["last_elapsed_ms"], 42);
+    assert!(service["scheduler"]["total_success_count"].is_null());
 }
 
 /// P1-5: Namespace 查询闭环

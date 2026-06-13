@@ -179,6 +179,7 @@ run_rust_checks() {
     export RUST_LOG=info
 
     cd "$ROOT_DIR"
+    python3 scripts/ci/check_root_canonical_ledger.py
     cargo fmt --all -- --check
     cargo check --locked
     TEST_THREADS="${TEST_THREADS:-4}" TEST_RETRIES="${TEST_RETRIES:-2}" bash scripts/run_ci_tests.sh

@@ -233,18 +233,18 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     checksum TEXT,
     applied_ts BIGINT,
     execution_time_ms BIGINT,
-    success BOOLEAN NOT NULL DEFAULT TRUE,
+    is_success BOOLEAN NOT NULL DEFAULT TRUE,
     description TEXT,
-    executed_at TIMESTAMPTZ DEFAULT NOW(),
+    executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
     CONSTRAINT uq_schema_migrations_version UNIQUE (version)
 );
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS name TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS checksum TEXT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS applied_ts BIGINT;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS execution_time_ms BIGINT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS success BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS is_success BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at TIMESTAMPTZ DEFAULT NOW();
+ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS executed_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_schema_migrations_version ON schema_migrations(version);
 SQL
 }
@@ -286,7 +286,7 @@ record_migration() {
         -v dur="$duration_ms" \
         -v ok="$success" \
         <<'SQL' >/dev/null
-INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, success, description, executed_at)
+INSERT INTO schema_migrations (version, name, checksum, applied_ts, execution_time_ms, is_success, description, executed_at)
 VALUES (
     :'ver',
     :'fname',
@@ -295,14 +295,14 @@ VALUES (
     :'dur'::BIGINT,
     :'ok'::BOOLEAN,
     :'fname',
-    NOW()
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
 )
 ON CONFLICT (version) DO UPDATE SET
     name = EXCLUDED.name,
     checksum = EXCLUDED.checksum,
     applied_ts = EXCLUDED.applied_ts,
     execution_time_ms = EXCLUDED.execution_time_ms,
-    success = EXCLUDED.success,
+    is_success = EXCLUDED.is_success,
     description = EXCLUDED.description,
     executed_at = EXCLUDED.executed_at;
 SQL
@@ -311,7 +311,7 @@ SQL
 is_migration_applied() {
     local version="$1"
     psql_db -v ON_ERROR_STOP=1 -v ver="$version" -tA <<'SQL' 2>/dev/null | grep -q '^t$'
-SELECT COALESCE(bool_and(success), FALSE) FROM schema_migrations WHERE version = :'ver';
+SELECT COALESCE(bool_and(is_success), FALSE) FROM schema_migrations WHERE version = :'ver';
 SQL
 }
 
@@ -387,7 +387,7 @@ list_applied_migrations() {
     ensure_schema_migrations_table
     log_info "已应用的迁移:"
     psql_db -c "
-        SELECT version, COALESCE(name, description, version) AS name, success, applied_ts
+        SELECT version, COALESCE(name, description, version) AS name, is_success, applied_ts
         FROM schema_migrations
         ORDER BY COALESCE(applied_ts, 0) DESC, version DESC
     "

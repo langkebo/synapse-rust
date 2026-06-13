@@ -241,7 +241,8 @@ pub async fn configure_key_rotation(
 
     Ok(Json(json!({
         "enabled": status.get("rotation_enabled"),
-        "interval_ms": persisted_interval_ms.unwrap_or(state.services.config.federation.key_rotation_grace_period_ms as i64),
+        "interval_ms": persisted_interval_ms
+            .unwrap_or(state.services.core.config.federation.key_rotation_grace_period_ms as i64),
         "rotation_interval_days": status.get("rotation_interval_days"),
         "rotation_threshold_days": status.get("rotation_threshold_days"),
         "grace_period_minutes": status.get("grace_period_minutes"),
@@ -290,7 +291,7 @@ pub async fn check_needs_rotation(
     };
 
     let now = Utc::now().timestamp_millis();
-    let interval_ms = state.services.config.federation.key_rotation_grace_period_ms;
+    let interval_ms = state.services.core.config.federation.key_rotation_grace_period_ms;
 
     let needs_rotation = match last_rotation {
         Some(last) => now - last > interval_ms as i64,
