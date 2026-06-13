@@ -7,7 +7,7 @@ use axum::{
 use serde_json::Value;
 
 fn validate_federation_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
-    if server_name != state.services.server_name {
+    if server_name != state.services.core.server_name {
         return Err(ApiError::not_found("Media is not hosted on this server".to_string()));
     }
 

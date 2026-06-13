@@ -311,7 +311,7 @@ async fn build_profile_query_response(
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
-    let profile = state.services.registration_service.get_profile(user_id).await?;
+    let profile = state.services.core.registration_service.get_profile(user_id).await?;
 
     super::validate_federation_origin_shares_user_room(state, user_id, origin).await?;
 

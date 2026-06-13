@@ -45,9 +45,9 @@ impl AppState {
 
         let federation_signature_cache =
             Arc::new(FederationSignatureCache::new(SignatureCacheConfig::from_federation_config(
-                services.config.federation.signature_cache_ttl,
-                services.config.federation.key_cache_ttl,
-                services.config.federation.key_rotation_grace_period_ms,
+                services.core.config.federation.signature_cache_ttl,
+                services.core.config.federation.key_cache_ttl,
+                services.core.config.federation.key_rotation_grace_period_ms,
             )));
 
         // Wire federation signature cache to key rotation manager so that
@@ -60,16 +60,16 @@ impl AppState {
         let openclaw_service = {
             let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));
             let encryption_key = crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
-                services.config.server.macaroon_secret_key.as_deref(),
-                &services.config.security.secret,
+                services.core.config.server.macaroon_secret_key.as_deref(),
+                &services.core.config.security.secret,
             );
             Arc::new(crate::services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
         };
-        let key_fetch_max_concurrency = services.config.federation.key_fetch_max_concurrency.max(1);
+        let key_fetch_max_concurrency = services.core.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency =
             if key_fetch_max_concurrency <= 1 { 1 } else { (key_fetch_max_concurrency - 1).max(1) };
-        let inbound_edu_max_concurrency = services.config.federation.inbound_edu_max_concurrency.max(1);
-        let join_max_concurrency = services.config.federation.join_max_concurrency.max(1);
+        let inbound_edu_max_concurrency = services.core.config.federation.inbound_edu_max_concurrency.max(1);
+        let join_max_concurrency = services.core.config.federation.join_max_concurrency.max(1);
 
         Self {
             services,

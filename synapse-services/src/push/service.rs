@@ -1,6 +1,6 @@
 use super::gateway::PushGateway;
 use super::providers::{
-    ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushProvider, PushResult,
+    send_with_retry, ApnsProvider, FcmProvider, NotificationCounts, NotificationPayload as ProviderPayload, PushResult,
     WebPushProvider,
 };
 use super::queue::{PushQueue, QueueConfig};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct PushNotificationService {
@@ -258,21 +258,21 @@ impl PushNotificationService {
         let result = match push_type {
             "fcm" => {
                 if let Some(provider) = &self.fcm_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_fcm_fallback(&push_token, &content).await?
                 }
             }
             "apns" => {
                 if let Some(provider) = &self.apns_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_apns_fallback(&push_token, &content).await?
                 }
             }
             "webpush" => {
                 if let Some(provider) = &self.webpush_provider {
-                    provider.send(&push_token, &provider_payload).await
+                    send_with_retry(provider.as_ref(), &push_token, &provider_payload).await
                 } else {
                     self.send_webpush_fallback(&push_token, &content).await?
                 }
@@ -519,17 +519,14 @@ impl PushNotificationService {
     }
 
     fn matches_contains_display_name(_event: &JsonValue) -> bool {
-        warn!("matches_contains_display_name: stub called, returning default");
         false
     }
 
     fn matches_room_member_count(_condition: &JsonValue, _event: &JsonValue) -> bool {
-        warn!("matches_room_member_count: stub called, returning default");
         true
     }
 
     fn matches_sender_notification_permission(_condition: &JsonValue, _event: &JsonValue) -> bool {
-        warn!("matches_sender_notification_permission: stub called, returning default");
         true
     }
 

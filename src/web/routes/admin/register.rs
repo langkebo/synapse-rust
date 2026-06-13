@@ -317,7 +317,7 @@ async fn verify_additional_registration_controls(
     state: &AppState,
     payload: &RegisterRequest,
 ) -> Result<(), Response<Body>> {
-    if state.services.config.admin_registration.require_captcha {
+    if state.services.core.config.admin_registration.require_captcha {
         let captcha_id = payload
             .captcha_id
             .as_ref()
@@ -340,13 +340,13 @@ async fn verify_additional_registration_controls(
         }
     }
 
-    if state.services.config.admin_registration.require_manual_approval {
+    if state.services.core.config.admin_registration.require_manual_approval {
         let approval_token = payload
             .approval_token
             .as_ref()
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "approval_token is required"))?;
 
-        if !state.services.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
+        if !state.services.core.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
             return Err(register_error_response(403, "M_FORBIDDEN", "Manual approval token is invalid"));
         }
     }
@@ -360,7 +360,7 @@ async fn get_nonce(
     headers: HeaderMap,
     connect_info: ConnectInfo<SocketAddr>,
 ) -> Result<Json<NonceResponse>, Response<Body>> {
-    let config = &state.services.config;
+    let config = &state.services.core.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
@@ -404,7 +404,7 @@ async fn register(
         return Err(register_error_response(400, "M_INVALID_PARAM", format!("Validation error: {e}")));
     }
 
-    let config = &state.services.config;
+    let config = &state.services.core.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {

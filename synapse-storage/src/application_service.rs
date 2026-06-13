@@ -53,7 +53,8 @@ pub struct ApplicationServiceEvent {
 pub struct ApplicationServiceTransaction {
     pub id: i64,
     pub as_id: String,
-    pub transaction_id: String,
+    pub txn_id: String,
+    pub transaction_id: Option<String>,
     pub events: serde_json::Value,
     pub sent_ts: i64,
     pub completed_ts: Option<i64>,
@@ -451,16 +452,22 @@ impl ApplicationServiceStorage {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceState>(
             r"
-            INSERT INTO application_service_state (as_id, state_key, state_value, updated_ts)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO application_service_state (as_id, state_key, value, state_value, updated_ts)
+            VALUES ($1, $2, $3, $4, $5)
             ON CONFLICT (as_id, state_key) DO UPDATE SET
+                value = EXCLUDED.value,
                 state_value = EXCLUDED.state_value,
                 updated_ts = EXCLUDED.updated_ts
-            RETURNING *
+            RETURNING
+                as_id,
+                state_key,
+                COALESCE(state_value, value #>> '{}') AS state_value,
+                updated_ts
             ",
         )
         .bind(as_id)
         .bind(state_key)
+        .bind(serde_json::json!(state_value))
         .bind(state_value)
         .bind(now)
         .fetch_one(&*self.pool)
@@ -473,7 +480,15 @@ impl ApplicationServiceStorage {
         state_key: &str,
     ) -> Result<Option<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r"SELECT as_id, state_key, state_value, updated_ts FROM application_service_state WHERE as_id = $1 AND state_key = $2",
+            r"
+            SELECT
+                as_id,
+                state_key,
+                COALESCE(state_value, value #>> '{}') AS state_value,
+                updated_ts
+            FROM application_service_state
+            WHERE as_id = $1 AND state_key = $2
+            ",
         )
         .bind(as_id)
         .bind(state_key)
@@ -483,7 +498,15 @@ impl ApplicationServiceStorage {
 
     pub async fn get_all_states(&self, as_id: &str) -> Result<Vec<ApplicationServiceState>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceState>(
-            r"SELECT as_id, state_key, state_value, updated_ts FROM application_service_state WHERE as_id = $1",
+            r"
+            SELECT
+                as_id,
+                state_key,
+                COALESCE(state_value, value #>> '{}') AS state_value,
+                updated_ts
+            FROM application_service_state
+            WHERE as_id = $1
+            ",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
@@ -564,6 +587,19 @@ impl ApplicationServiceStorage {
         .await
     }
 
+    pub async fn count_pending_events(&self, as_id: &str) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(*)
+            FROM application_service_events
+            WHERE as_id = $1 AND is_processed = FALSE
+            ",
+        )
+        .bind(as_id)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
     pub async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
@@ -585,14 +621,16 @@ impl ApplicationServiceStorage {
         let now = Utc::now().timestamp_millis();
         sqlx::query_as::<_, ApplicationServiceTransaction>(
             r"
-            INSERT INTO application_service_transactions (as_id, transaction_id, events, sent_ts)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO application_service_transactions (as_id, txn_id, transaction_id, events, sent_ts, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             ",
         )
         .bind(as_id)
         .bind(transaction_id)
+        .bind(Some(transaction_id))
         .bind(serde_json::json!(events))
+        .bind(now)
         .bind(now)
         .fetch_one(&*self.pool)
         .await
@@ -601,7 +639,7 @@ impl ApplicationServiceStorage {
     pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r"UPDATE application_service_transactions SET completed_ts = $3 WHERE as_id = $1 AND transaction_id = $2",
+            r"UPDATE application_service_transactions SET completed_ts = $3, is_processed = TRUE, processed_ts = $3 WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2)",
         )
         .bind(as_id)
         .bind(transaction_id)
@@ -622,8 +660,8 @@ impl ApplicationServiceStorage {
             r"
             UPDATE application_service_transactions
             SET retry_count = retry_count + 1, last_error = $3, sent_ts = $4
-            WHERE as_id = $1 AND transaction_id = $2
-            RETURNING id, as_id, transaction_id, events, sent_ts, completed_ts, retry_count, last_error
+            WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2)
+            RETURNING *
             ",
         )
         .bind(as_id)
@@ -639,10 +677,23 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r"SELECT id, as_id, transaction_id, events, sent_ts, completed_ts, retry_count, last_error FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"
+            r"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn count_pending_transactions(&self, as_id: &str) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(*)
+            FROM application_service_transactions
+            WHERE as_id = $1 AND completed_ts IS NULL
+            ",
+        )
+        .bind(as_id)
+        .fetch_one(&*self.pool)
         .await
     }
 
@@ -680,29 +731,141 @@ impl ApplicationServiceStorage {
             .await
     }
 
+    pub async fn has_exclusive_user_namespace_match(&self, as_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        let matched = sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT 1
+            FROM application_service_user_namespaces
+            WHERE as_id = $1
+              AND is_exclusive = TRUE
+              AND $2 ~ namespace
+            LIMIT 1
+            ",
+        )
+        .bind(as_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(matched.is_some())
+    }
+
+    pub async fn find_user_namespace_conflict(
+        &self,
+        as_id: &str,
+        namespace_pattern: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_user_namespaces
+            WHERE namespace = $1
+              AND is_exclusive = TRUE
+              AND as_id <> $2
+            LIMIT 1
+            ",
+        )
+        .bind(namespace_pattern)
+        .bind(as_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(result.map(|row| row.get("as_id")))
+    }
+
+    pub async fn find_room_alias_namespace_conflict(
+        &self,
+        as_id: &str,
+        namespace_pattern: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_room_alias_namespaces
+            WHERE namespace = $1
+              AND is_exclusive = TRUE
+              AND as_id <> $2
+            LIMIT 1
+            ",
+        )
+        .bind(namespace_pattern)
+        .bind(as_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(result.map(|row| row.get("as_id")))
+    }
+
+    pub async fn find_room_namespace_conflict(
+        &self,
+        as_id: &str,
+        namespace_pattern: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_room_namespaces
+            WHERE namespace = $1
+              AND is_exclusive = TRUE
+              AND as_id <> $2
+            LIMIT 1
+            ",
+        )
+        .bind(namespace_pattern)
+        .bind(as_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(result.map(|row| row.get("as_id")))
+    }
+
     pub async fn is_user_in_namespace(&self, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_user_namespaces WHERE $1 ~ namespace")
-            .bind(user_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_user_namespaces
+            WHERE $1 ~ namespace
+            ORDER BY is_exclusive DESC, created_ts ASC
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(result.map(|row| row.get("as_id")))
     }
 
     pub async fn is_room_alias_in_namespace(&self, alias: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_room_alias_namespaces WHERE $1 ~ namespace")
-            .bind(alias)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_room_alias_namespaces
+            WHERE $1 ~ namespace
+            ORDER BY is_exclusive DESC, created_ts ASC
+            LIMIT 1
+            ",
+        )
+        .bind(alias)
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(result.map(|row| row.get("as_id")))
     }
 
     pub async fn is_room_id_in_namespace(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
-        let result = sqlx::query(r"SELECT as_id FROM application_service_room_namespaces WHERE $1 ~ namespace")
-            .bind(room_id)
-            .fetch_optional(&*self.pool)
-            .await?;
+        let result = sqlx::query(
+            r"
+            SELECT as_id
+            FROM application_service_room_namespaces
+            WHERE $1 ~ namespace
+            ORDER BY is_exclusive DESC, created_ts ASC
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await?;
 
         Ok(result.map(|row| row.get("as_id")))
     }
@@ -768,7 +931,51 @@ impl ApplicationServiceStorage {
     }
 
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r"SELECT id, as_id, name, is_enabled, is_rate_limited, virtual_user_count, pending_event_count, pending_transaction_count, last_seen_ts, created_ts FROM application_service_statistics").fetch_all(&*self.pool).await.map(|rows| {
+        sqlx::query(
+            r#"
+            WITH user_counts AS (
+                SELECT as_id, COUNT(*) AS virtual_user_count
+                FROM application_service_users
+                GROUP BY as_id
+            ),
+            pending_event_counts AS (
+                SELECT as_id, COUNT(*) AS pending_event_count
+                FROM application_service_events
+                WHERE is_processed = FALSE
+                GROUP BY as_id
+            ),
+            pending_transaction_counts AS (
+                SELECT as_id, COUNT(*) AS pending_transaction_count
+                FROM application_service_transactions
+                WHERE completed_ts IS NULL
+                GROUP BY as_id
+            )
+            SELECT
+                svc.id,
+                svc.as_id,
+                COALESCE(stats.name, svc.description) AS name,
+                svc.is_enabled,
+                svc.is_rate_limited,
+                COALESCE(users.virtual_user_count, 0) AS virtual_user_count,
+                COALESCE(events.pending_event_count, 0) AS pending_event_count,
+                COALESCE(txns.pending_transaction_count, 0) AS pending_transaction_count,
+                stats.last_seen_ts,
+                svc.created_ts
+            FROM application_services svc
+            LEFT JOIN application_service_statistics stats
+              ON stats.as_id = svc.as_id
+            LEFT JOIN user_counts users
+              ON users.as_id = svc.as_id
+            LEFT JOIN pending_event_counts events
+              ON events.as_id = svc.as_id
+            LEFT JOIN pending_transaction_counts txns
+              ON txns.as_id = svc.as_id
+            ORDER BY svc.created_ts DESC
+            "#,
+        )
+        .fetch_all(&*self.pool)
+        .await
+        .map(|rows| {
             rows.into_iter()
                 .map(|row| {
                     serde_json::json!({
@@ -793,9 +1000,34 @@ impl ApplicationServiceStorage {
 
         sqlx::query(
             r"
-            UPDATE application_service_statistics
-            SET last_seen_ts = $2
-            WHERE as_id = $1
+            INSERT INTO application_service_statistics (
+                as_id,
+                name,
+                is_enabled,
+                is_rate_limited,
+                virtual_user_count,
+                pending_event_count,
+                pending_transaction_count,
+                last_seen_ts,
+                created_ts
+            )
+            SELECT
+                svc.as_id,
+                svc.description,
+                svc.is_enabled,
+                svc.is_rate_limited,
+                0,
+                0,
+                0,
+                $2,
+                svc.created_ts
+            FROM application_services svc
+            WHERE svc.as_id = $1
+            ON CONFLICT (as_id) DO UPDATE
+            SET last_seen_ts = EXCLUDED.last_seen_ts,
+                is_enabled = EXCLUDED.is_enabled,
+                is_rate_limited = EXCLUDED.is_rate_limited,
+                name = COALESCE(application_service_statistics.name, EXCLUDED.name)
             ",
         )
         .bind(as_id)

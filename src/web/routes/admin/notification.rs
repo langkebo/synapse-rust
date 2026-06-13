@@ -209,7 +209,7 @@ pub async fn create_notification(
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
     ensure_target_users_exist(&state, &requested_target_user_ids).await?;
 
-    let notification = state.services.server_notification_storage.create_notification(body).await?;
+    let notification = state.services.extensions.server_notification_storage.create_notification(body).await?;
 
     Ok(Json(json!(notification)))
 }
@@ -247,7 +247,7 @@ pub async fn get_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notification = state.services.server_notification_storage.get_notification(notification_id).await?;
+    let notification = state.services.extensions.server_notification_storage.get_notification(notification_id).await?;
 
     match notification {
         Some(n) => Ok(Json(json!(n))),
@@ -263,7 +263,7 @@ pub async fn update_notification(
     Path(notification_id): Path<i64>,
     Json(body): Json<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state.services.server_notification_storage.get_notification(notification_id).await?;
+    let existing = state.services.extensions.server_notification_storage.get_notification(notification_id).await?;
 
     let existing = match existing {
         Some(n) => n,
@@ -288,8 +288,12 @@ pub async fn update_notification(
         created_by: existing.created_by,
     };
 
-    let notification =
-        state.services.server_notification_storage.update_notification(notification_id, update_request).await?;
+    let notification = state
+        .services
+        .extensions
+        .server_notification_storage
+        .update_notification(notification_id, update_request)
+        .await?;
 
     Ok(Json(json!(notification)))
 }
@@ -301,7 +305,7 @@ pub async fn delete_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deleted = state.services.server_notification_storage.delete_notification(notification_id).await?;
+    let deleted = state.services.extensions.server_notification_storage.delete_notification(notification_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -317,7 +321,8 @@ pub async fn deactivate_notification(
     State(state): State<AppState>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deactivated = state.services.server_notification_storage.deactivate_notification(notification_id).await?;
+    let deactivated =
+        state.services.extensions.server_notification_storage.deactivate_notification(notification_id).await?;
 
     if !deactivated {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -332,7 +337,7 @@ pub async fn list_active_notifications(
     _admin: AdminUser,
     State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    let notifications = state.services.server_notification_storage.list_active_notifications().await?;
+    let notifications = state.services.extensions.server_notification_storage.list_active_notifications().await?;
 
     Ok(Json(json!(notifications)))
 }
@@ -352,15 +357,16 @@ pub async fn send_server_notice(
         return Err(ApiError::not_found("User not found".to_string()));
     };
 
-    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
+    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
-    let server_user = format!("@server:{}", state.services.config.server.name);
-    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
-    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
-    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.config.server.name);
+    let server_user = format!("@server:{}", state.services.core.server_name);
+    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
+    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
+    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
 
     let notice_id = state
         .services
+        .extensions
         .server_notification_storage
         .send_server_notice(
             &room_id,
@@ -391,7 +397,7 @@ pub async fn get_server_notices(
     let cursor = decode_notice_cursor(query.from.as_deref());
 
     let (notice_list, total, next_batch) =
-        state.services.server_notification_storage.get_server_notices_paginated(cursor, limit).await?;
+        state.services.extensions.server_notification_storage.get_server_notices_paginated(cursor, limit).await?;
 
     Ok(Json(json!({
         "notices": notice_list,
@@ -413,7 +419,7 @@ pub async fn get_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice = state.services.server_notification_storage.get_server_notice_by_id(notice_id).await?;
+    let notice = state.services.extensions.server_notification_storage.get_server_notice_by_id(notice_id).await?;
 
     match notice {
         Some(notice) => Ok(Json(notice)),
@@ -428,18 +434,19 @@ pub async fn delete_server_notice(
     State(state): State<AppState>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice_info = state.services.server_notification_storage.get_server_notice_with_room(notice_id).await?;
+    let notice_info =
+        state.services.extensions.server_notification_storage.get_server_notice_with_room(notice_id).await?;
 
     let Some((event_id, room_id)) = notice_info else {
         return Err(ApiError::not_found("Server notice not found".to_string()));
     };
 
-    state.services.server_notification_storage.delete_server_notice_by_id(notice_id).await?;
+    state.services.extensions.server_notification_storage.delete_server_notice_by_id(notice_id).await?;
 
     if let Some(rid) = room_id {
-        state.services.server_notification_storage.delete_room_cascade(&rid).await?;
+        state.services.extensions.server_notification_storage.delete_room_cascade(&rid).await?;
     } else if let Some(eid) = event_id {
-        state.services.server_notification_storage.delete_event_by_id(&eid).await?;
+        state.services.extensions.server_notification_storage.delete_event_by_id(&eid).await?;
     }
 
     Ok(Json(json!({})))
@@ -454,7 +461,7 @@ pub async fn get_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let setting = state.services.server_notification_storage.get_user_notification_setting(&user_id).await?;
+    let setting = state.services.extensions.server_notification_storage.get_user_notification_setting(&user_id).await?;
 
     match setting {
         Some(enabled) => Ok(Json(json!({ "enabled": enabled }))),
@@ -472,7 +479,12 @@ pub async fn update_user_notification(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.server_notification_storage.upsert_user_notification_setting(&user_id, body.is_enabled).await?;
+    state
+        .services
+        .extensions
+        .server_notification_storage
+        .upsert_user_notification_setting(&user_id, body.is_enabled)
+        .await?;
 
     Ok(Json(json!({ "is_enabled": body.is_enabled })))
 }
@@ -486,7 +498,7 @@ pub async fn get_user_pushers(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let pusher_list = state.services.server_notification_storage.get_user_pushers(&user_id).await?;
+    let pusher_list = state.services.extensions.server_notification_storage.get_user_pushers(&user_id).await?;
 
     Ok(Json(json!({ "pushers": pusher_list, "total": pusher_list.len() })))
 }
@@ -500,7 +512,7 @@ pub async fn delete_user_pusher(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let deleted = state.services.server_notification_storage.delete_user_pusher(&user_id, &pushkey).await?;
+    let deleted = state.services.extensions.server_notification_storage.delete_user_pusher(&user_id, &pushkey).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Pusher not found".to_string()));

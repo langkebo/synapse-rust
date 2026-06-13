@@ -501,7 +501,7 @@ pub async fn reset_user_password(
         "Admin reset user password operation"
     );
 
-    state.services.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
+    state.services.core.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
 
     Ok(Json(json!({})))
 }
@@ -811,7 +811,7 @@ pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) ->
         "deactivated_users": stats.deactivated_users,
         "guest_users": stats.guest_users,
         "average_rooms_per_user": stats.average_rooms_per_user,
-        "user_registration_enabled": state.services.config.server.enable_registration
+        "user_registration_enabled": state.services.core.config.server.enable_registration
     })))
 }
 

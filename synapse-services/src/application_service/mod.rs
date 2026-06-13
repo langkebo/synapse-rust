@@ -14,6 +14,13 @@ use url::Url;
 
 pub mod scheduler;
 pub use scheduler::ApplicationServiceScheduler;
+use scheduler::{
+    SCHEDULER_STATE_BACKLOG_STATE, SCHEDULER_STATE_LAST_DISPATCHED_EVENTS, SCHEDULER_STATE_LAST_ELAPSED_MS,
+    SCHEDULER_STATE_LAST_RESULT, SCHEDULER_STATE_LAST_TICK_TS, SCHEDULER_STATE_PENDING_EVENT_COUNT,
+    SCHEDULER_STATE_PENDING_TRANSACTION_COUNT, SCHEDULER_STATE_TOTAL_BACKOFF_COUNT,
+    SCHEDULER_STATE_TOTAL_CAPACITY_LIMITED_COUNT, SCHEDULER_STATE_TOTAL_FAILURE_COUNT,
+    SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT, SCHEDULER_STATE_TOTAL_SUCCESS_COUNT, SCHEDULER_STATE_TRANSACTION_STATE,
+};
 
 const APPSERVICE_RETRY_BACKOFF_BASE_MS: i64 = 5_000;
 const APPSERVICE_RETRY_BACKOFF_MAX_MS: i64 = 5 * 60 * 1_000;
@@ -24,6 +31,21 @@ const APPSERVICE_STATE_DELIVERY_LAST_ERROR: &str = "delivery_last_error";
 const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_KIND: &str = "delivery_last_failure_kind";
 const APPSERVICE_STATE_DELIVERY_LAST_FAILURE_TS: &str = "delivery_last_failure_ts";
 const APPSERVICE_STATE_DELIVERY_DISABLED_REASON: &str = "delivery_disabled_reason";
+const APPSERVICE_SCHEDULER_STATE_KEYS: [&str; 13] = [
+    SCHEDULER_STATE_LAST_TICK_TS,
+    SCHEDULER_STATE_LAST_RESULT,
+    SCHEDULER_STATE_PENDING_EVENT_COUNT,
+    SCHEDULER_STATE_PENDING_TRANSACTION_COUNT,
+    SCHEDULER_STATE_BACKLOG_STATE,
+    SCHEDULER_STATE_TRANSACTION_STATE,
+    SCHEDULER_STATE_LAST_DISPATCHED_EVENTS,
+    SCHEDULER_STATE_LAST_ELAPSED_MS,
+    SCHEDULER_STATE_TOTAL_SUCCESS_COUNT,
+    SCHEDULER_STATE_TOTAL_FAILURE_COUNT,
+    SCHEDULER_STATE_TOTAL_BACKOFF_COUNT,
+    SCHEDULER_STATE_TOTAL_CAPACITY_LIMITED_COUNT,
+    SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TransactionFailureKind {
@@ -120,6 +142,7 @@ impl ApplicationServiceManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to read application service config", &e))?;
         let request = self.parse_config_file_contents(&raw_config, &config_display)?;
+        self.validate_namespace_exclusivity(&request.as_id, request.namespaces.as_ref()).await?;
         let service = self
             .storage
             .upsert_registration(request)
@@ -142,6 +165,8 @@ impl ApplicationServiceManager {
         {
             return Err(ApiError::bad_request(format!("Application service '{}' already exists", existing.as_id)));
         }
+
+        self.validate_namespace_exclusivity(&request.as_id, request.namespaces.as_ref()).await?;
 
         let service = self
             .storage
@@ -258,6 +283,19 @@ impl ApplicationServiceManager {
         content: serde_json::Value,
         state_key: Option<&str>,
     ) -> Result<ApplicationServiceEvent, ApiError> {
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))?
+            .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+
+        if !self.service_matches_event(&service, room_id, sender, state_key) {
+            return Err(ApiError::forbidden(
+                "Explicitly pushed events must target a room, sender, or state_key owned by the application service",
+            ));
+        }
+
         let event_id = format!("${}:{}", uuid::Uuid::new_v4(), self.server_name);
 
         let event = self
@@ -308,6 +346,22 @@ impl ApplicationServiceManager {
     }
 
     #[instrument(skip(self))]
+    pub async fn count_pending_events(&self, as_id: &str) -> Result<i64, ApiError> {
+        self.storage
+            .count_pending_events(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to count pending events", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn count_pending_transactions(&self, as_id: &str) -> Result<i64, ApiError> {
+        self.storage
+            .count_pending_transactions(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to count pending transactions", &e))
+    }
+
+    #[instrument(skip(self))]
     pub async fn send_transaction(&self, as_id: &str, events: Vec<serde_json::Value>) -> Result<(), ApiError> {
         let service = self
             .storage
@@ -348,7 +402,8 @@ impl ApplicationServiceManager {
             let events: Vec<serde_json::Value> = serde_json::from_value(transaction.events.clone()).map_err(|e| {
                 ApiError::internal_with_log("Failed to decode pending application service transaction", &e)
             })?;
-            self.deliver_transaction(&service, &transaction.transaction_id, &events).await?;
+            let txn_id = transaction.txn_id.as_str();
+            self.deliver_transaction(&service, txn_id, &events).await?;
             return Ok(0);
         }
 
@@ -384,21 +439,12 @@ impl ApplicationServiceManager {
     }
 
     pub async fn start_sender(self: Arc<Self>, batch_limit: i64, flush_interval_secs: u64) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(flush_interval_secs.max(1)));
-            loop {
-                interval.tick().await;
-                match self.process_pending_queues(batch_limit).await {
-                    Ok(dispatched) if dispatched > 0 => {
-                        info!(dispatched, batch_limit, "Dispatched application service pending events");
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        warn!(error = %error, "Failed to process application service pending queues");
-                    }
-                }
-            }
-        });
+        let scheduler = Arc::new(ApplicationServiceScheduler::with_options(
+            self,
+            batch_limit.max(1) as usize,
+            flush_interval_secs.max(1).saturating_mul(1_000),
+        ));
+        scheduler.start();
     }
 
     async fn deliver_transaction(
@@ -498,6 +544,26 @@ impl ApplicationServiceManager {
     ) -> Result<ApplicationServiceUser, ApiError> {
         info!(as_id = %as_id, user_id = %user_id, "Registering virtual user");
 
+        let service = self
+            .storage
+            .get_by_id(as_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get application service", &e))?
+            .ok_or_else(|| ApiError::not_found("Application service not found"))?;
+
+        if !Self::is_local_user_id(user_id, &self.server_name) {
+            return Err(ApiError::bad_request(format!(
+                "Virtual user '{}' must belong to the local server '{}'",
+                user_id, self.server_name
+            )));
+        }
+
+        if !Self::namespace_matches(&service.namespaces, "users", user_id, true) {
+            return Err(ApiError::forbidden(
+                "Virtual user must match an exclusive user namespace owned by the application service",
+            ));
+        }
+
         let user = self
             .storage
             .register_virtual_user(as_id, user_id, displayname, avatar_url)
@@ -539,7 +605,32 @@ impl ApplicationServiceManager {
 
     #[instrument(skip(self))]
     pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        self.storage.get_statistics().await.map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+        let statistics = self
+            .storage
+            .get_statistics()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))?;
+        let mut enriched = Vec::with_capacity(statistics.len());
+
+        for mut entry in statistics {
+            let as_id = entry
+                .get("as_id")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| ApiError::internal("Application service statistics entry missing as_id"))?;
+            let states = self
+                .storage
+                .get_all_states(as_id)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to get scheduler states", &e))?;
+
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("scheduler".to_string(), Self::scheduler_statistics_from_states(&states));
+            }
+
+            enriched.push(entry);
+        }
+
+        Ok(enriched)
     }
 
     pub async fn ping(&self, as_id: &str) -> Result<bool, ApiError> {
@@ -771,19 +862,93 @@ impl ApplicationServiceManager {
         sender: &str,
         state_key: Option<&str>,
     ) -> bool {
-        self.namespace_matches(&service.namespaces, "rooms", room_id)
-            || self.namespace_matches(&service.namespaces, "users", sender)
-            || state_key.is_some_and(|key| self.namespace_matches(&service.namespaces, "users", key))
+        Self::namespace_matches(&service.namespaces, "rooms", room_id, false)
+            || Self::namespace_matches(&service.namespaces, "users", sender, false)
+            || state_key.is_some_and(|key| Self::namespace_matches(&service.namespaces, "users", key, false))
     }
 
-    fn namespace_matches(&self, namespaces: &serde_json::Value, namespace_kind: &str, candidate: &str) -> bool {
+    fn namespace_matches(
+        namespaces: &serde_json::Value,
+        namespace_kind: &str,
+        candidate: &str,
+        exclusive_only: bool,
+    ) -> bool {
         namespaces
             .get(namespace_kind)
             .and_then(|value| value.as_array())
             .into_iter()
             .flatten()
+            .filter(|rule| !exclusive_only || rule.get("exclusive").and_then(|value| value.as_bool()) == Some(true))
             .filter_map(|rule| rule.get("regex").and_then(|value| value.as_str()))
             .any(|pattern| Regex::new(pattern).is_ok_and(|regex| regex.is_match(candidate)))
+    }
+
+    async fn validate_namespace_exclusivity(
+        &self,
+        as_id: &str,
+        namespaces: Option<&serde_json::Value>,
+    ) -> Result<(), ApiError> {
+        for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "users") {
+            if let Some(conflicting_as_id) =
+                self.storage.find_user_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
+                    ApiError::internal_with_log("Failed to validate appservice user namespace ownership", &e)
+                })?
+            {
+                return Err(ApiError::conflict(format!(
+                    "Exclusive user namespace '{}' is already owned by application service '{}'",
+                    namespace_pattern, conflicting_as_id
+                )));
+            }
+        }
+
+        for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "aliases") {
+            if let Some(conflicting_as_id) =
+                self.storage.find_room_alias_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
+                    ApiError::internal_with_log("Failed to validate appservice room alias namespace ownership", &e)
+                })?
+            {
+                return Err(ApiError::conflict(format!(
+                    "Exclusive room alias namespace '{}' is already owned by application service '{}'",
+                    namespace_pattern, conflicting_as_id
+                )));
+            }
+        }
+
+        for namespace_pattern in Self::exclusive_namespace_patterns(namespaces, "rooms") {
+            if let Some(conflicting_as_id) =
+                self.storage.find_room_namespace_conflict(as_id, &namespace_pattern).await.map_err(|e| {
+                    ApiError::internal_with_log("Failed to validate appservice room namespace ownership", &e)
+                })?
+            {
+                return Err(ApiError::conflict(format!(
+                    "Exclusive room namespace '{}' is already owned by application service '{}'",
+                    namespace_pattern, conflicting_as_id
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn exclusive_namespace_patterns(namespaces: Option<&serde_json::Value>, namespace_kind: &str) -> Vec<String> {
+        namespaces
+            .and_then(|value| value.get(namespace_kind))
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter(|rule| rule.get("exclusive").and_then(|value| value.as_bool()) == Some(true))
+            .filter_map(|rule| rule.get("regex").and_then(|value| value.as_str()))
+            .map(str::trim)
+            .filter(|pattern| !pattern.is_empty())
+            .map(ToOwned::to_owned)
+            .collect()
+    }
+
+    fn is_local_user_id(user_id: &str, server_name: &str) -> bool {
+        user_id
+            .strip_prefix('@')
+            .and_then(|stripped| stripped.split_once(':'))
+            .is_some_and(|(localpart, user_server_name)| !localpart.is_empty() && user_server_name == server_name)
     }
 
     async fn build_transaction_events(
@@ -909,7 +1074,7 @@ impl ApplicationServiceManager {
                     .await;
                 warn!(
                     as_id = %service.as_id,
-                    transaction_id = %failed_transaction.transaction_id,
+                    transaction_id = %failed_transaction.txn_id,
                     retry_count = failed_transaction.retry_count,
                     failure_kind = failure_kind.as_str(),
                     failure_reason = %failure_reason,
@@ -920,7 +1085,7 @@ impl ApplicationServiceManager {
                 error!(
                     %e,
                     as_id = %service.as_id,
-                    transaction_id = %failed_transaction.transaction_id,
+                    transaction_id = %failed_transaction.txn_id,
                     "Failed to disable application service after repeated delivery failures"
                 );
             }
@@ -961,6 +1126,41 @@ impl ApplicationServiceManager {
             TransactionFailureKind::Fatal => retry_count >= APPSERVICE_FATAL_FAILURE_THRESHOLD,
             TransactionFailureKind::Retryable => retry_count >= APPSERVICE_RETRYABLE_FAILURE_THRESHOLD,
         }
+    }
+
+    fn scheduler_statistics_from_states(states: &[ApplicationServiceState]) -> serde_json::Value {
+        let has_scheduler_state = APPSERVICE_SCHEDULER_STATE_KEYS
+            .iter()
+            .any(|state_key| Self::scheduler_state_value(states, state_key).is_some());
+
+        serde_json::json!({
+            "available": has_scheduler_state,
+            "last_result": Self::scheduler_state_value(states, SCHEDULER_STATE_LAST_RESULT),
+            "transaction_state": Self::scheduler_state_value(states, SCHEDULER_STATE_TRANSACTION_STATE),
+            "backlog_state": Self::scheduler_state_value(states, SCHEDULER_STATE_BACKLOG_STATE),
+            "pending_event_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_PENDING_EVENT_COUNT),
+            "pending_transaction_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_PENDING_TRANSACTION_COUNT),
+            "last_tick_ts": Self::scheduler_state_i64(states, SCHEDULER_STATE_LAST_TICK_TS),
+            "last_dispatched_events": Self::scheduler_state_i64(states, SCHEDULER_STATE_LAST_DISPATCHED_EVENTS),
+            "last_elapsed_ms": Self::scheduler_state_i64(states, SCHEDULER_STATE_LAST_ELAPSED_MS),
+            "total_success_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_TOTAL_SUCCESS_COUNT),
+            "total_failure_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_TOTAL_FAILURE_COUNT),
+            "total_backoff_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_TOTAL_BACKOFF_COUNT),
+            "total_capacity_limited_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_TOTAL_CAPACITY_LIMITED_COUNT),
+            "total_in_flight_count": Self::scheduler_state_i64(states, SCHEDULER_STATE_TOTAL_IN_FLIGHT_COUNT),
+        })
+    }
+
+    fn scheduler_state_value<'a>(states: &'a [ApplicationServiceState], state_key: &str) -> Option<&'a str> {
+        states
+            .iter()
+            .find(|state| state.state_key == state_key)
+            .map(|state| state.state_value.trim())
+            .filter(|state_value| !state_value.is_empty())
+    }
+
+    fn scheduler_state_i64(states: &[ApplicationServiceState], state_key: &str) -> Option<i64> {
+        Self::scheduler_state_value(states, state_key).and_then(|state_value| state_value.parse::<i64>().ok())
     }
 }
 
@@ -1193,6 +1393,96 @@ namespaces:
     }
 
     #[test]
+    fn test_namespace_matches_can_require_exclusive_rules() {
+        let namespaces = serde_json::json!({
+            "users": [
+                {"exclusive": false, "regex": "^@shared:example\\.com$"},
+                {"exclusive": true, "regex": "^@owned:example\\.com$"}
+            ]
+        });
+
+        assert!(ApplicationServiceManager::namespace_matches(&namespaces, "users", "@shared:example.com", false));
+        assert!(!ApplicationServiceManager::namespace_matches(&namespaces, "users", "@shared:example.com", true));
+        assert!(ApplicationServiceManager::namespace_matches(&namespaces, "users", "@owned:example.com", true));
+    }
+
+    #[test]
+    fn test_scheduler_statistics_from_states_parses_scheduler_fields() {
+        let states = vec![
+            ApplicationServiceState {
+                as_id: "as-1".to_string(),
+                state_key: SCHEDULER_STATE_LAST_RESULT.to_string(),
+                state_value: "backoff".to_string(),
+                updated_ts: 1,
+            },
+            ApplicationServiceState {
+                as_id: "as-1".to_string(),
+                state_key: SCHEDULER_STATE_TRANSACTION_STATE.to_string(),
+                state_value: "retry_backoff".to_string(),
+                updated_ts: 2,
+            },
+            ApplicationServiceState {
+                as_id: "as-1".to_string(),
+                state_key: SCHEDULER_STATE_TOTAL_BACKOFF_COUNT.to_string(),
+                state_value: "3".to_string(),
+                updated_ts: 3,
+            },
+            ApplicationServiceState {
+                as_id: "as-1".to_string(),
+                state_key: SCHEDULER_STATE_LAST_ELAPSED_MS.to_string(),
+                state_value: "42".to_string(),
+                updated_ts: 4,
+            },
+        ];
+
+        let scheduler = ApplicationServiceManager::scheduler_statistics_from_states(&states);
+
+        assert_eq!(scheduler["available"], true);
+        assert_eq!(scheduler["last_result"], "backoff");
+        assert_eq!(scheduler["transaction_state"], "retry_backoff");
+        assert_eq!(scheduler["total_backoff_count"], 3);
+        assert_eq!(scheduler["last_elapsed_ms"], 42);
+        assert!(scheduler["total_success_count"].is_null());
+    }
+
+    #[test]
+    fn test_scheduler_statistics_from_states_is_unavailable_without_scheduler_keys() {
+        let states = vec![ApplicationServiceState {
+            as_id: "as-1".to_string(),
+            state_key: APPSERVICE_STATE_DELIVERY_STATUS.to_string(),
+            state_value: "up".to_string(),
+            updated_ts: 1,
+        }];
+
+        let scheduler = ApplicationServiceManager::scheduler_statistics_from_states(&states);
+
+        assert_eq!(scheduler["available"], false);
+        assert!(scheduler["last_result"].is_null());
+        assert!(scheduler["pending_event_count"].is_null());
+    }
+
+    #[test]
+    fn test_exclusive_namespace_patterns_extracts_only_exclusive_rules() {
+        let namespaces = serde_json::json!({
+            "users": [
+                {"exclusive": false, "regex": "^@shared:example\\.com$"},
+                {"exclusive": true, "regex": "^@owned:example\\.com$"},
+                {"exclusive": true, "regex": "   ^@other:example\\.com$   "}
+            ]
+        });
+
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&namespaces), "users");
+        assert_eq!(patterns, vec!["^@owned:example\\.com$", "^@other:example\\.com$"]);
+    }
+
+    #[test]
+    fn test_is_local_user_id_requires_matching_server_name() {
+        assert!(ApplicationServiceManager::is_local_user_id("@bot:example.com", "example.com"));
+        assert!(!ApplicationServiceManager::is_local_user_id("@bot:other.com", "example.com"));
+        assert!(!ApplicationServiceManager::is_local_user_id("bot:example.com", "example.com"));
+    }
+
+    #[test]
     fn test_service_matches_event_for_user_and_room_namespaces() {
         let manager = test_manager();
         let service = ApplicationService {
@@ -1251,7 +1541,8 @@ namespaces:
         let transaction = ApplicationServiceTransaction {
             id: 1,
             as_id: "bridge".to_string(),
-            transaction_id: "txn".to_string(),
+            txn_id: "txn".to_string(),
+            transaction_id: Some("txn".to_string()),
             events: serde_json::json!([]),
             sent_ts: 1_000,
             completed_ts: None,

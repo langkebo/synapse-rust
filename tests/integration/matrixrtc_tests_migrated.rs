@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use synapse_rust::services::rtc::MatrixRTCService;
-use synapse_rust::storage::matrixrtc::MatrixRTCStorage;
+use synapse_rust::services::rtc::{to_matrix_event, MatrixRTCService};
+use synapse_rust::storage::matrixrtc::{
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
+    SessionWithMemberships,
+};
 
 fn create_test_storage(pool: sqlx::PgPool) -> MatrixRTCStorage {
     MatrixRTCStorage::new(std::sync::Arc::new(pool))
@@ -44,7 +47,7 @@ async fn test_rtc_membership_struct() {
         call_id: Some("call456".to_string()),
         created_ts: 1234567890000,
         updated_ts: 1234567890000,
-        expires_ts: Some(1234571490000),
+        expires_at: Some(1234571490000),
         foci_active: Some("livekit".to_string()),
         foci_preferred: Some(serde_json::json!(["livekit", "native-webrtc"])),
         application_data: Some(serde_json::json!({"muted": false})),
@@ -65,7 +68,7 @@ async fn test_rtc_encryption_key_struct() {
         key_index: 1,
         key: "base64_encoded_key".to_string(),
         created_ts: 1234567890000,
-        expires_ts: Some(1234654290000),
+        expires_at: Some(1234654290000),
         sender_user_id: "@alice:example.com".to_string(),
         sender_device_id: "DEVICE123".to_string(),
     };
@@ -134,7 +137,7 @@ async fn test_session_with_memberships() {
         call_id: None,
         created_ts: 1234567890000,
         updated_ts: 1234567890000,
-        expires_ts: None,
+        expires_at: None,
         foci_active: None,
         foci_preferred: None,
         application_data: None,

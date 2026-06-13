@@ -127,3 +127,142 @@ pub async fn initialize_database(pool: &PgPool) -> Result<(), String> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_environment_from_string_development() {
+        assert_eq!(Environment::from("development".to_string()), Environment::Development);
+        assert_eq!(Environment::from("dev".to_string()), Environment::Development);
+        assert_eq!(Environment::from("".to_string()), Environment::Development);
+        assert_eq!(Environment::from("unknown".to_string()), Environment::Development);
+    }
+
+    #[test]
+    fn test_environment_from_string_production() {
+        assert_eq!(Environment::from("production".to_string()), Environment::Production);
+        assert_eq!(Environment::from("prod".to_string()), Environment::Production);
+        assert_eq!(Environment::from("release".to_string()), Environment::Production);
+    }
+
+    #[test]
+    fn test_environment_is_development() {
+        assert!(Environment::Development.is_development());
+        assert!(!Environment::Production.is_development());
+    }
+
+    #[test]
+    fn test_environment_from_env_default() {
+        std::env::remove_var("RUST_ENV");
+        assert_eq!(Environment::from_env(), Environment::Development);
+    }
+
+    #[test]
+    fn test_environment_from_env_production() {
+        std::env::set_var("RUST_ENV", "production");
+        assert_eq!(Environment::from_env(), Environment::Production);
+        std::env::remove_var("RUST_ENV");
+    }
+
+    #[test]
+    fn test_environment_clone() {
+        let env = Environment::Production;
+        assert_eq!(env.clone(), Environment::Production);
+    }
+
+    #[test]
+    fn test_database_init_mode_equality() {
+        assert_eq!(DatabaseInitMode::Auto, DatabaseInitMode::Auto);
+        assert_ne!(DatabaseInitMode::Auto, DatabaseInitMode::Strict);
+        assert_ne!(DatabaseInitMode::Strict, DatabaseInitMode::Compatible);
+    }
+
+    #[test]
+    fn test_database_init_mode_copy() {
+        let mode = DatabaseInitMode::Strict;
+        let copied = mode;
+        assert_eq!(mode, copied);
+    }
+
+    #[test]
+    fn test_initialization_report_success_summary() {
+        let report = InitializationReport {
+            is_success: true,
+            steps: vec!["Step 1".to_string(), "Step 2".to_string()],
+            errors: vec![],
+            schema_status: None,
+            repairs_performed: vec![],
+            skipped: false,
+        };
+        let summary = report.summary();
+        assert!(summary.contains("success=true"));
+        assert!(summary.contains("Step 1"));
+        assert!(summary.contains("Step 2"));
+    }
+
+    #[test]
+    fn test_initialization_report_failure_with_errors() {
+        let report = InitializationReport {
+            is_success: false,
+            steps: vec!["Step 1".to_string()],
+            errors: vec!["Connection failed".to_string(), "Timeout".to_string()],
+            schema_status: None,
+            repairs_performed: vec![],
+            skipped: false,
+        };
+        let summary = report.summary();
+        assert!(summary.contains("success=false"));
+        assert!(summary.contains("Connection failed"));
+        assert!(summary.contains("Timeout"));
+        assert!(summary.contains("错误 (2)"));
+    }
+
+    #[test]
+    fn test_initialization_report_skipped() {
+        let report = InitializationReport {
+            is_success: true,
+            steps: vec![],
+            errors: vec![],
+            schema_status: None,
+            repairs_performed: vec![],
+            skipped: true,
+        };
+        let summary = report.summary();
+        assert!(summary.contains("使用缓存"));
+        assert!(summary.contains("success=true"));
+    }
+
+    #[test]
+    fn test_initialization_report_with_repairs() {
+        let report = InitializationReport {
+            is_success: true,
+            steps: vec!["Init complete".to_string()],
+            errors: vec![],
+            schema_status: None,
+            repairs_performed: vec!["Fixed index".to_string(), "Added column".to_string()],
+            skipped: false,
+        };
+        let summary = report.summary();
+        assert!(summary.contains("已修复 (2)"));
+        assert!(summary.contains("Fixed index"));
+        assert!(summary.contains("Added column"));
+    }
+
+    #[test]
+    fn test_initialization_report_empty() {
+        let report = InitializationReport {
+            is_success: true,
+            steps: vec![],
+            errors: vec![],
+            schema_status: None,
+            repairs_performed: vec![],
+            skipped: false,
+        };
+        let summary = report.summary();
+        assert!(summary.contains("success=true"));
+        assert!(!summary.contains("已完成步骤"));
+        assert!(!summary.contains("错误"));
+    }
+}

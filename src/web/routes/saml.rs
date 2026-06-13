@@ -55,11 +55,11 @@ pub async fn saml_login(
     State(state): State<AppState>,
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
+    let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
 
     Ok(Json(SamlLoginResponse { redirect_url: auth_request.redirect_url }))
 }
@@ -68,11 +68,11 @@ pub async fn saml_login_redirect(
     State(state): State<AppState>,
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
+    let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
 
     Ok(Redirect::temporary(&auth_request.redirect_url))
 }
@@ -96,13 +96,14 @@ async fn handle_saml_callback(
     saml_response: Option<&str>,
     relay_state: Option<&str>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
     let saml_response = saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    let auth_result = state.services.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
+    let auth_result =
+        state.services.sso.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
 
     let user = state
         .services
@@ -129,18 +130,22 @@ pub async fn saml_logout(
     State(state): State<AppState>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let mapping = state.services.saml_service.get_user_mapping(&_auth_user.user_id).await?;
+    let mapping = state.services.sso.saml_service.get_user_mapping(&_auth_user.user_id).await?;
 
     if let Some(_mapping) = mapping {
-        let sessions = state.services.saml_storage.get_session_by_user(&_auth_user.user_id).await?;
+        let sessions = state.services.sso.saml_storage.get_session_by_user(&_auth_user.user_id).await?;
 
         if let Some(session) = sessions {
-            let redirect_url =
-                state.services.saml_service.initiate_logout(&session.session_id, Some("User initiated logout")).await?;
+            let redirect_url = state
+                .services
+                .sso
+                .saml_service
+                .initiate_logout(&session.session_id, Some("User initiated logout"))
+                .await?;
 
             return Ok(Json(serde_json::json!({
                 "redirect_url": redirect_url
@@ -157,13 +162,13 @@ pub async fn saml_logout_callback(
     State(state): State<AppState>,
     Query(query): Query<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
     let saml_response = query.saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    state.services.saml_service.process_logout_response(&saml_response).await?;
+    state.services.sso.saml_service.process_logout_response(&saml_response).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Logout successful"
@@ -171,11 +176,11 @@ pub async fn saml_logout_callback(
 }
 
 pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let metadata = state.services.saml_service.get_idp_metadata().await?;
+    let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
 
     Ok(Json(SamlMetadataResponse {
         entity_id: metadata.entity_id,
@@ -186,11 +191,11 @@ pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl Int
 }
 
 pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let config = state.services.saml_service.get_config();
+    let config = state.services.sso.saml_service.get_config();
     let server_name = &state.services.core.server_name;
 
     let sp_entity_id = &config.sp_entity_id;
@@ -222,11 +227,11 @@ pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoR
 }
 
 pub async fn refresh_idp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let metadata = state.services.saml_service.get_idp_metadata().await?;
+    let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
 
     Ok(Json(SamlMetadataResponse {
         entity_id: metadata.entity_id,
@@ -302,7 +307,7 @@ pub async fn list_saml_mappings_admin(
     Query(query): Query<SamlMappingListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
-    let rows = state.services.saml_storage.list_user_mappings(limit, query.from.as_deref()).await?;
+    let rows = state.services.sso.saml_storage.list_user_mappings(limit, query.from.as_deref()).await?;
 
     let next_token = if rows.len() as i64 == limit { rows.last().map(|r| r.name_id.clone()) } else { None };
 
@@ -315,6 +320,7 @@ pub async fn get_saml_mapping_admin(
 ) -> Result<impl IntoResponse, ApiError> {
     let row = state
         .services
+        .sso
         .saml_storage
         .get_user_mapping_any_issuer(&name_id)
         .await?
@@ -332,6 +338,7 @@ pub async fn update_saml_mapping_admin(
     }
     let row = state
         .services
+        .sso
         .saml_storage
         .update_user_mapping_by_name_id(&name_id, body.user_id.as_deref(), body.attributes.as_ref())
         .await?
@@ -343,7 +350,7 @@ pub async fn delete_saml_mapping_admin(
     State(state): State<AppState>,
     Path(name_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let removed = state.services.saml_storage.delete_user_mapping_by_name_id(&name_id).await?;
+    let removed = state.services.sso.saml_storage.delete_user_mapping_by_name_id(&name_id).await?;
     if removed == 0 {
         return Err(ApiError::not_found("SAML user mapping not found"));
     }
@@ -357,11 +364,11 @@ pub async fn saml_logout_admin(
     if body.user_id.is_empty() {
         return Err(ApiError::bad_request("user_id is required"));
     }
-    if !state.services.saml_service.is_enabled() {
+    if !state.services.sso.saml_service.is_enabled() {
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let session = state.services.saml_storage.get_session_by_user(&body.user_id).await?;
+    let session = state.services.sso.saml_storage.get_session_by_user(&body.user_id).await?;
 
     let Some(session) = session else {
         return Ok(Json(SamlLogoutAdminResponse {
@@ -372,20 +379,20 @@ pub async fn saml_logout_admin(
     };
 
     let redirect_url =
-        state.services.saml_service.initiate_logout(&session.session_id, Some("Admin initiated logout")).await.ok();
+        state.services.sso.saml_service.initiate_logout(&session.session_id, Some("Admin initiated logout")).await.ok();
 
     Ok(Json(SamlLogoutAdminResponse { user_id: body.user_id, redirect_url, sessions_invalidated: 1 }))
 }
 
 pub async fn get_saml_admin_config(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(state.services.saml_service.effective_config()))
+    Ok(Json(state.services.sso.saml_service.effective_config()))
 }
 
 pub async fn update_saml_admin_config(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let merged = state.services.saml_service.apply_runtime_overrides(body).await?;
+    let merged = state.services.sso.saml_service.apply_runtime_overrides(body).await?;
     Ok(Json(merged))
 }
 

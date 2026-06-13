@@ -332,7 +332,7 @@ async fn show_qr_code(State(state): State<AppState>, auth_user: AuthenticatedUse
     let device_id: String =
         auth_user.device_id.ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
 
-    let server_name: String = state.services.config.federation.server_name.clone();
+    let server_name: String = state.services.core.config.federation.server_name.clone();
 
     let qr_data: crate::e2ee::verification::QrCodeData =
         state.services.e2ee.verification_service.generate_qr_code(&auth_user.user_id, &device_id, &server_name).await?;

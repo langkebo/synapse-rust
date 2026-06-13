@@ -148,6 +148,7 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     let body = axum::body::to_bytes(capabilities_response.into_body(), 4096).await.unwrap();
     let capabilities_json: Value = serde_json::from_slice(&body).unwrap();
     let capabilities = capabilities_json["capabilities"].as_object().expect("capabilities should be an object");
+    let unstable = capabilities_json["unstable_features"].as_object().expect("unstable_features should be an object");
     let room_versions = capabilities["m.room_versions"].as_object().expect("m.room_versions should be an object");
     let available = room_versions["available"].as_object().expect("available should be an object");
 
@@ -155,6 +156,11 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(capabilities["m.set_displayname"]["enabled"], true);
     assert_eq!(capabilities["m.set_avatar_url"]["enabled"], true);
     assert_eq!(capabilities["m.3pid_changes"]["enabled"], true);
+    assert_eq!(capabilities["m.room.summary"]["enabled"], true);
+    assert_eq!(capabilities["m.room.suggested"]["enabled"], true);
+    assert_eq!(capabilities["m.voice"]["enabled"], true);
+    assert_eq!(capabilities["m.thread"]["enabled"], true);
+    assert_eq!(capabilities["io.hula.sliding_sync"]["enabled"], true);
     assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
     assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
     for supported in SUPPORTED_ROOM_VERSIONS {
@@ -165,6 +171,12 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
             supported.version
         );
     }
+    assert_eq!(unstable["org.matrix.msc3245.voice"], true);
+    assert_eq!(unstable["org.matrix.msc3983.thread"], true);
+    assert_eq!(unstable["org.matrix.msc3886.sliding_sync"], true);
+    assert_eq!(unstable["org.matrix.msc4261.widget"], cfg!(feature = "widgets"));
+    assert_eq!(unstable["io.hula.friends"], cfg!(feature = "friends"));
+    assert_eq!(unstable["io.hula.burn_after_read"], cfg!(feature = "burn-after-read"));
 
     assert!(!capabilities.contains_key("m.sso"));
     assert!(!capabilities.contains_key("io.hula.friends"));

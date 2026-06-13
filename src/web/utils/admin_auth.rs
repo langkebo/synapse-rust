@@ -50,7 +50,7 @@ pub(crate) async fn authorize_admin_request(
     let role = normalize_admin_role(user.user_type.as_deref());
     let allowed = is_role_allowed(&role, method, &normalized_path);
 
-    let rbac_enabled = state.services.config.security.admin_rbac_enabled;
+    let rbac_enabled = state.services.core.config.security.admin_rbac_enabled;
     let rbac_allowed = !rbac_enabled || allowed;
 
     ::tracing::info!(
@@ -89,7 +89,7 @@ pub(crate) async fn authorize_admin_request(
         return Err(ApiError::forbidden(format!("Admin role '{role}' is not allowed to access this resource")));
     }
 
-    if should_require_admin_mfa(&state.services.config.security, method, &normalized_path) {
+    if should_require_admin_mfa(&state.services.core.config.security, method, &normalized_path) {
         let mfa_code = headers
             .get("x-admin-mfa-code")
             .and_then(|value| value.to_str().ok())
@@ -97,7 +97,7 @@ pub(crate) async fn authorize_admin_request(
             .filter(|value| !value.is_empty())
             .ok_or_else(|| ApiError::forbidden("Sensitive admin operation requires MFA code".to_string()))?;
 
-        verify_totp_code(&state.services.config.security, mfa_code, Some(&user))?;
+        verify_totp_code(&state.services.core.config.security, mfa_code, Some(&user))?;
     }
 
     Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
@@ -120,7 +120,7 @@ pub(crate) async fn enforce_admin_login_mfa(
     username: &str,
     mfa_code: Option<&str>,
 ) -> Result<(), ApiError> {
-    if !state.services.config.security.admin_mfa_required {
+    if !state.services.core.config.security.admin_mfa_required {
         return Ok(());
     }
 
@@ -144,7 +144,7 @@ pub(crate) async fn enforce_admin_login_mfa(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::forbidden("Admin login requires MFA code".to_string()))?;
 
-    verify_totp_code(&state.services.config.security, mfa_code, Some(&user))
+    verify_totp_code(&state.services.core.config.security, mfa_code, Some(&user))
 }
 
 pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {
