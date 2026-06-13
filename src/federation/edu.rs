@@ -88,8 +88,8 @@ fn increment_counter_by(state: &AppState, name: &str, delta: u64) {
 }
 
 async fn set_presence_backoff(state: &AppState, origin: &str) {
-    let until =
-        chrono::Utc::now().timestamp_millis() + state.services.config.federation.inbound_presence_backoff_ms as i64;
+    let until = chrono::Utc::now().timestamp_millis()
+        + state.services.core.config.federation.inbound_presence_backoff_ms as i64;
     let mut guard = state.federation_presence_backoff_until.write().await;
     guard.insert(origin.to_string(), until);
 }
@@ -243,7 +243,7 @@ async fn handle_device_list_update_edu(
     let change_type =
         if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
 
-    let pool = &*state.services.device_storage.pool;
+    let pool = &*state.services.account.device_storage.pool;
     let result = sqlx::query!(
         r#"
         INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)

@@ -158,9 +158,9 @@ pub async fn make_room_admin(
     }
 
     let now = chrono::Utc::now().timestamp_millis();
-    let event_id = crate::common::crypto::generate_event_id(&state.services.config.server.name);
+    let event_id = crate::common::crypto::generate_event_id(&state.services.core.config.server.name);
     let user_id = body.user_id.clone();
-    let admin_user = "@admin:".to_string() + &state.services.config.server.name;
+    let admin_user = "@admin:".to_string() + &state.services.core.config.server.name;
     let power_levels = json!({
         "users": {
             user_id.clone(): 100

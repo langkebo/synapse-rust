@@ -4,6 +4,6 @@ pub mod queue;
 pub mod service;
 
 pub use gateway::PushGateway;
-pub use providers::{ApnsProvider, FcmProvider, PushGatewayType, PushProvider, WebPushProvider};
+pub use providers::{send_with_retry, ApnsProvider, FcmProvider, PushGatewayType, PushProvider, WebPushProvider};
 pub use queue::PushQueue;
 pub use service::*;

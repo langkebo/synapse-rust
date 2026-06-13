@@ -20,7 +20,7 @@ fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
 }
 
 pub async fn rate_limit_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let config = state.services.config.rate_limit.clone();
+    let config = state.services.core.config.rate_limit.clone();
     let file_config = state.rate_limit_config();
 
     let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
@@ -53,7 +53,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         }
     };
 
-    let redis_prefix = state.services.config.redis.key_prefix.as_str();
+    let redis_prefix = state.services.core.config.redis.key_prefix.as_str();
     let cache_key = format!("{}{}", redis_prefix, CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str()));
 
     let fail_open = file_config.as_ref().map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
@@ -226,7 +226,7 @@ mod tests {
         }
 
         let mut services = ServiceContainer::new_test().await;
-        services.config.rate_limit = RateLimitConfig {
+        services.core.config.rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {
@@ -282,7 +282,7 @@ mod tests {
         }
 
         let mut services = ServiceContainer::new_test().await;
-        services.config.rate_limit = RateLimitConfig {
+        services.core.config.rate_limit = RateLimitConfig {
             enabled: true,
             default: RateLimitRule { per_second: 1, burst_size: 1 },
             endpoints: vec![RateLimitEndpointRule {

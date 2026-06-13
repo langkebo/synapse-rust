@@ -654,9 +654,8 @@ fn assemble_admin_support(
         Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned())),
         config.server.get_server_name().to_owned(),
     ));
-    let app_service_scheduler = Arc::new(crate::services::application_service::ApplicationServiceScheduler::new(
-        app_service_manager.clone(),
-    ));
+    let app_service_scheduler =
+        Arc::new(crate::services::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
     app_service_scheduler.clone().start();
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
@@ -882,7 +881,7 @@ impl ServiceContainer {
         #[cfg(feature = "voip-tracking")]
         let rtc_call = Arc::new(crate::services::rtc::CallOrchestrationService::new(Arc::new(call_session_storage)));
         #[cfg(feature = "voip-tracking")]
-        let rtc_session = Arc::new(crate::services::rtc::RtcSessionService::new(matrixrtc_storage, cache.clone()));
+        let rtc_session = Arc::new(crate::services::rtc::RtcSessionService::new(matrixrtc_storage, Arc::new(cache.as_ref().to_synapse_cache_manager())));
         #[cfg(feature = "voip-tracking")]
         let rtc_sfu = Arc::new(crate::services::rtc::LivekitClient::new(config.livekit.clone()));
         let rtc_domain_service = Arc::new(crate::services::rtc::RtcDomainService::new(
@@ -1075,6 +1074,7 @@ impl ServiceContainer {
             #[cfg(feature = "cas-sso")]
             cas_service: cas_service.clone(),
             oidc_service: oidc_service.clone(),
+            #[allow(clippy::clone_on_copy)]
             builtin_oidc_provider: builtin_oidc_provider.clone(),
         };
 

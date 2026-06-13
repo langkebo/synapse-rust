@@ -21,11 +21,18 @@ use crate::web::middleware::{
     set_bind_address, set_config_allowed_origins, set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
 };
 use crate::web::routes::create_router;
+use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
 use crate::web::AppState;
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
+
+#[derive(Clone)]
+struct PrometheusMetricsState {
+    metrics: Arc<crate::common::metrics::MetricsCollector>,
+    app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
+}
 
 fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration {
     Duration::from_secs(configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS))
@@ -297,12 +304,12 @@ impl SynapseServer {
         ::tracing::info!("Server name: {}", self.app_state.services.core.server_name);
         ::tracing::info!("Listening on (Client API): {}", self.address);
         ::tracing::info!("Listening on (Federation): {}", self.federation_address);
-        if self.app_state.services.config.prometheus.enabled {
+        if self.app_state.services.core.config.prometheus.enabled {
             ::tracing::info!(
                 "Listening on (Prometheus): {}:{}{}",
-                self.app_state.services.config.server.host,
-                self.app_state.services.config.prometheus.port,
-                self.app_state.services.config.prometheus.path
+                self.app_state.services.core.config.server.host,
+                self.app_state.services.core.config.prometheus.port,
+                self.app_state.services.core.config.prometheus.path
             );
         }
         ::tracing::info!("Media storage: {}", self.media_path.display());
@@ -310,14 +317,6 @@ impl SynapseServer {
         if let Err(e) = self.warmup().await {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
-
-        self.app_state
-            .services
-            .admin
-            .app_service_manager
-            .clone()
-            .start_sender(50, self.app_state.services.config.server.background_tasks_interval.max(10))
-            .await;
 
         self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
 
@@ -327,11 +326,11 @@ impl SynapseServer {
         #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.rooms.beacon_service.clone();
         let retention_service = self.app_state.services.admin.retention_service.clone();
-        let retention_config = self.app_state.services.config.retention.clone();
+        let retention_config = self.app_state.services.core.config.retention.clone();
         let megolm_service = self.app_state.services.e2ee.megolm_service.clone();
-        let background_tasks_interval = self.app_state.services.config.server.background_tasks_interval.max(10);
+        let background_tasks_interval = self.app_state.services.core.config.server.background_tasks_interval.max(10);
         let dehydrated_cleanup_interval_secs =
-            self.app_state.services.config.server.dehydrated_device_cleanup_interval_secs;
+            self.app_state.services.core.config.server.dehydrated_device_cleanup_interval_secs;
         let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
             retention_config.lifecycle_cleanup_interval_secs.max(background_tasks_interval)
         } else {
@@ -385,12 +384,12 @@ impl SynapseServer {
 
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
-        let prometheus_config = self.app_state.services.config.prometheus.clone();
+        let prometheus_config = self.app_state.services.core.config.prometheus.clone();
         let prometheus_listener = if prometheus_config.enabled {
             Some(
                 tokio::net::TcpListener::bind(format!(
                     "{}:{}",
-                    self.app_state.services.config.server.host, prometheus_config.port
+                    self.app_state.services.core.config.server.host, prometheus_config.port
                 ))
                 .await?,
             )
@@ -412,10 +411,10 @@ impl SynapseServer {
         {
             let bg_service = self.app_state.services.admin.background_update_service.clone();
             let retention_service = self.app_state.services.admin.retention_service.clone();
-            let media_service = self.app_state.services.media_service.clone();
-            let event_broadcaster = self.app_state.services.event_broadcaster.clone();
-            let remote_media_lifetime = self.app_state.services.config.server.remote_media_lifetime;
-            let local_media_lifetime = self.app_state.services.config.server.local_media_lifetime;
+            let media_service = self.app_state.services.core.media_service.clone();
+            let event_broadcaster = self.app_state.services.core.event_broadcaster.clone();
+            let remote_media_lifetime = self.app_state.services.core.config.server.remote_media_lifetime;
+            let local_media_lifetime = self.app_state.services.core.config.server.local_media_lifetime;
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
@@ -472,7 +471,7 @@ impl SynapseServer {
         {
             let dehydrated_service = self.app_state.services.e2ee.dehydrated_device_service.clone();
             let cleanup_interval = dehydrated_device_cleanup_interval(dehydrated_cleanup_interval_secs);
-            let server_metrics = self.app_state.services.server_metrics.clone();
+            let server_metrics = self.app_state.services.core.server_metrics.clone();
             tokio::spawn(async move {
                 let mut interval_timer = tokio::time::interval(cleanup_interval);
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -576,10 +575,13 @@ impl SynapseServer {
         });
 
         if let Some(prometheus_listener) = prometheus_listener {
-            let metrics = self.app_state.services.metrics.clone();
+            let metrics_state = PrometheusMetricsState {
+                metrics: self.app_state.services.core.metrics.clone(),
+                app_service_manager: self.app_state.services.admin.app_service_manager.clone(),
+            };
             let prometheus_path = prometheus_config.path.clone();
             let prometheus_router =
-                Router::new().route(&prometheus_path, get(render_prometheus_metrics)).with_state(metrics);
+                Router::new().route(&prometheus_path, get(render_prometheus_metrics)).with_state(metrics_state);
 
             tokio::spawn(async move {
                 axum::serve(prometheus_listener, prometheus_router.into_make_service())
@@ -615,7 +617,7 @@ impl SynapseServer {
 
         #[cfg(feature = "saml-sso")]
         {
-            if let Err(e) = self.app_state.services.saml_service.hydrate_runtime_overrides().await {
+            if let Err(e) = self.app_state.services.sso.saml_service.hydrate_runtime_overrides().await {
                 ::tracing::warn!(
                     "Failed to hydrate SAML runtime config overrides: {}. Continuing with base config.",
                     e
@@ -633,14 +635,112 @@ impl SynapseServer {
 }
 
 async fn render_prometheus_metrics(
-    axum::extract::State(metrics): axum::extract::State<Arc<crate::common::metrics::MetricsCollector>>,
+    axum::extract::State(state): axum::extract::State<PrometheusMetricsState>,
 ) -> impl IntoResponse {
-    ([(http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")], metrics.to_prometheus_format())
+    let mut rendered = state.metrics.to_prometheus_format();
+
+    match state.app_service_manager.get_statistics().await {
+        Ok(appservice_statistics) => {
+            let summary = summarize_appservice_scheduler_metrics(&appservice_statistics);
+            rendered.push_str(&render_appservice_scheduler_prometheus_metrics(&summary));
+        }
+        Err(error) => {
+            ::tracing::warn!(error = %error, "Failed to collect appservice scheduler metrics for Prometheus output");
+        }
+    }
+
+    ([(http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")], rendered)
+}
+
+fn render_appservice_scheduler_prometheus_metrics(summary: &AppserviceSchedulerTelemetrySummary) -> String {
+    let mut output = String::new();
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_total_services",
+        "Number of registered application services included in scheduler telemetry",
+        summary.total_services as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_available_services",
+        "Number of application services with scheduler state available",
+        summary.scheduler_available_services as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_backoff_services",
+        "Number of application services currently observed in retry backoff",
+        summary.services_in_backoff as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_capacity_limited_services",
+        "Number of application services most recently limited by scheduler capacity",
+        summary.services_capacity_limited as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_services_with_pending_transactions",
+        "Number of application services with pending transactions",
+        summary.services_with_pending_transactions as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_pending_events",
+        "Aggregated pending event count across application services",
+        summary.total_pending_events as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_pending_transactions",
+        "Aggregated pending transaction count across application services",
+        summary.total_pending_transactions as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_success_count",
+        "Aggregated scheduler success count across application services",
+        summary.total_success_count as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_failure_count",
+        "Aggregated scheduler failure count across application services",
+        summary.total_failure_count as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_backoff_count",
+        "Aggregated scheduler backoff count across application services",
+        summary.total_backoff_count as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_capacity_limited_count",
+        "Aggregated scheduler capacity-limited count across application services",
+        summary.total_capacity_limited_count as f64,
+    );
+    append_prometheus_gauge(
+        &mut output,
+        "synapse_appservice_scheduler_in_flight_count",
+        "Aggregated scheduler in-flight count across application services",
+        summary.total_in_flight_count as f64,
+    );
+    output
+}
+
+fn append_prometheus_gauge(output: &mut String, name: &str, help: &str, value: f64) {
+    output.push_str(&format!("# HELP {name} {help}\n"));
+    output.push_str(&format!("# TYPE {name} gauge\n"));
+    output.push_str(&format!("{name} {value}\n"));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
+    use crate::test_utils::prepare_shared_test_pool;
+    use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn dehydrated_device_cleanup_uses_minimum_interval() {
@@ -653,5 +753,177 @@ mod tests {
     #[test]
     fn dehydrated_device_cleanup_uses_background_interval_when_larger() {
         assert_eq!(dehydrated_device_cleanup_interval(900), Duration::from_secs(900));
+    }
+
+    #[test]
+    fn render_appservice_scheduler_prometheus_metrics_includes_expected_series() {
+        let summary = AppserviceSchedulerTelemetrySummary {
+            total_services: 2,
+            scheduler_available_services: 2,
+            services_in_backoff: 1,
+            services_capacity_limited: 1,
+            services_with_pending_transactions: 1,
+            total_pending_events: 7,
+            total_pending_transactions: 3,
+            total_success_count: 9,
+            total_failure_count: 2,
+            total_backoff_count: 1,
+            total_capacity_limited_count: 4,
+            total_in_flight_count: 5,
+        };
+
+        let rendered = render_appservice_scheduler_prometheus_metrics(&summary);
+
+        assert!(rendered.contains("synapse_appservice_scheduler_total_services 2"));
+        assert!(rendered.contains("synapse_appservice_scheduler_backoff_services 1"));
+        assert!(rendered.contains("synapse_appservice_scheduler_pending_events 7"));
+        assert!(rendered.contains("synapse_appservice_scheduler_in_flight_count 5"));
+    }
+
+    #[tokio::test]
+    async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
+        let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");
+        let container = crate::services::ServiceContainer::new_test_with_pool(pool.clone()).await;
+        let manager = container.admin.app_service_manager.clone();
+        let scheduler = container.admin.app_service_scheduler.clone();
+        let storage = ApplicationServiceStorage::new(&pool);
+
+        let failing_server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_server).await;
+        Mock::given(method("PUT"))
+            .respond_with(ResponseTemplate::new(503))
+            .up_to_n_times(1)
+            .mount(&failing_server)
+            .await;
+
+        let healthy_txn_server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_txn_server).await;
+
+        let healthy_event_server = MockServer::start().await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_event_server).await;
+
+        let scenario_id = chrono::Utc::now().timestamp_millis();
+        let failing_as_id = format!("prometheus-recovery-failing-{scenario_id}");
+        let healthy_txn_as_id = format!("prometheus-recovery-txn-{scenario_id}");
+        let healthy_event_as_id = format!("prometheus-recovery-event-{scenario_id}");
+        let healthy_event_room_id = format!("!prometheus-recovery-event-{scenario_id}:localhost");
+
+        manager
+            .register(RegisterApplicationServiceRequest {
+                as_id: failing_as_id.clone(),
+                url: failing_server.uri(),
+                as_token: format!("as_token_{failing_as_id}"),
+                hs_token: format!("hs_token_{failing_as_id}"),
+                sender: "@bridge:localhost".to_string(),
+                description: Some("prometheus transient failing bridge".to_string()),
+                is_rate_limited: Some(false),
+                protocols: None,
+                namespaces: Some(serde_json::json!({
+                    "users": [],
+                    "aliases": [],
+                    "rooms": [{"exclusive": true, "regex": format!("^!prometheus-recovery-failing-{scenario_id}.*:localhost$")}]
+                })),
+                api_key: None,
+                config: None,
+            })
+            .await
+            .expect("failing appservice registration should succeed");
+
+        manager
+            .register(RegisterApplicationServiceRequest {
+                as_id: healthy_txn_as_id.clone(),
+                url: healthy_txn_server.uri(),
+                as_token: format!("as_token_{healthy_txn_as_id}"),
+                hs_token: format!("hs_token_{healthy_txn_as_id}"),
+                sender: "@bridge:localhost".to_string(),
+                description: Some("prometheus healthy txn bridge".to_string()),
+                is_rate_limited: Some(false),
+                protocols: None,
+                namespaces: Some(serde_json::json!({
+                    "users": [],
+                    "aliases": [],
+                    "rooms": [{"exclusive": true, "regex": format!("^!prometheus-recovery-txn-{scenario_id}.*:localhost$")}]
+                })),
+                api_key: None,
+                config: None,
+            })
+            .await
+            .expect("healthy transaction appservice registration should succeed");
+
+        manager
+            .register(RegisterApplicationServiceRequest {
+                as_id: healthy_event_as_id.clone(),
+                url: healthy_event_server.uri(),
+                as_token: format!("as_token_{healthy_event_as_id}"),
+                hs_token: format!("hs_token_{healthy_event_as_id}"),
+                sender: "@bridge:localhost".to_string(),
+                description: Some("prometheus healthy event bridge".to_string()),
+                is_rate_limited: Some(false),
+                protocols: None,
+                namespaces: Some(serde_json::json!({
+                    "users": [],
+                    "aliases": [],
+                    "rooms": [{"exclusive": true, "regex": format!("^!prometheus-recovery-event-{scenario_id}.*:localhost$")}]
+                })),
+                api_key: None,
+                config: None,
+            })
+            .await
+            .expect("healthy event appservice registration should succeed");
+
+        storage
+            .create_transaction(
+                &failing_as_id,
+                &format!("prometheus-recovery-failing-{scenario_id}"),
+                &[serde_json::json!({"type": "m.room.message", "content": {"body": "fail once"}})],
+            )
+            .await
+            .expect("failing pending transaction should be created");
+        storage
+            .create_transaction(
+                &healthy_txn_as_id,
+                &format!("prometheus-recovery-healthy-{scenario_id}"),
+                &[serde_json::json!({"type": "m.room.message", "content": {"body": "healthy"}})],
+            )
+            .await
+            .expect("healthy pending transaction should be created");
+
+        for event_index in 0..60 {
+            manager
+                .push_event(
+                    &healthy_event_as_id,
+                    &healthy_event_room_id,
+                    "m.room.message",
+                    "@bridge:localhost",
+                    serde_json::json!({"msgtype": "m.text", "body": format!("prometheus-event-{event_index}")}),
+                    None,
+                )
+                .await
+                .expect("healthy event enqueue should succeed");
+        }
+
+        scheduler.run_once().await.expect("prometheus recovery tick one should complete");
+        scheduler.run_once().await.expect("prometheus recovery tick two should complete");
+        tokio::time::sleep(std::time::Duration::from_millis(4_200)).await;
+        scheduler.run_once().await.expect("prometheus recovery tick three should complete");
+
+        let appservice_statistics = manager.get_statistics().await.expect("scheduler statistics should load");
+        let summary = summarize_appservice_scheduler_metrics(&appservice_statistics);
+        let rendered = render_appservice_scheduler_prometheus_metrics(&summary);
+
+        assert_eq!(summary.total_services, 3);
+        assert_eq!(summary.scheduler_available_services, 3);
+        assert_eq!(summary.services_in_backoff, 0);
+        assert_eq!(summary.services_with_pending_transactions, 0);
+        assert_eq!(summary.total_pending_events, 0);
+        assert_eq!(summary.total_pending_transactions, 0);
+        assert_eq!(summary.total_success_count, 3);
+
+        assert!(rendered.contains("synapse_appservice_scheduler_total_services 3"));
+        assert!(rendered.contains("synapse_appservice_scheduler_available_services 3"));
+        assert!(rendered.contains("synapse_appservice_scheduler_backoff_services 0"));
+        assert!(rendered.contains("synapse_appservice_scheduler_pending_events 0"));
+        assert!(rendered.contains("synapse_appservice_scheduler_pending_transactions 0"));
+        assert!(rendered.contains("synapse_appservice_scheduler_success_count 3"));
     }
 }

@@ -260,7 +260,7 @@ async fn get_openid_token(
     Ok(Json(json!({
         "access_token": token,
         "token_type": "Bearer",
-        "matrix_server_name": state.services.config.server.name,
+        "matrix_server_name": state.services.core.server_name,
         "expires_in": expires_in
     })))
 }

@@ -68,7 +68,7 @@ pub async fn get_admin_info(admin: AdminUser, State(state): State<AppState>) -> 
     }
 
     Ok(Json(json!({
-        "server_name": state.services.config.server.name,
+        "server_name": state.services.core.server_name,
         "server_version": env!("CARGO_PKG_VERSION"),
         "implementation": "synapse-rust"
     })))
@@ -78,7 +78,7 @@ pub async fn get_admin_info(admin: AdminUser, State(state): State<AppState>) -> 
 pub async fn get_admin_whoami(admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
         "user_id": admin.user_id,
-        "name": format!("@{}:{}", admin.user_id, state.services.config.server.name),
+        "name": format!("@{}:{}", admin.user_id, state.services.core.server_name),
         "is_admin": admin.role == "super_admin" || admin.role == "admin",
         "role": admin.role
     })))
@@ -102,7 +102,7 @@ pub async fn get_server_version(_admin: AdminUser, State(state): State<AppState>
     Ok(Json(json!({
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
-        "server_name": state.services.config.server.name
+        "server_name": state.services.core.server_name
     })))
 }
 
@@ -119,6 +119,7 @@ pub async fn purge_media_cache(
 
     let deleted = state
         .services
+        .core
         .media_service
         .purge_media_cache(before_ts)
         .await
@@ -156,10 +157,10 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     // Update Prometheus metrics directly using the collector
-    if let Some(gauge) = state.services.metrics.get_gauge("synapse_total_users") {
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
         gauge.set(total_users as f64);
     }
-    if let Some(gauge) = state.services.metrics.get_gauge("synapse_total_rooms") {
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_rooms") {
         gauge.set(total_rooms as f64);
     }
 
@@ -201,6 +202,7 @@ pub async fn whois(
 
     let devices = state
         .services
+        .account
         .device_storage
         .get_user_devices(&user.user_id)
         .await
@@ -241,6 +243,7 @@ pub async fn whois_device(
 
     let device = state
         .services
+        .account
         .device_storage
         .get_user_device(&user.user_id, &device_id)
         .await
@@ -271,10 +274,10 @@ pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Res
 #[allow(clippy::unused_async)]
 pub async fn get_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
-        "server_name": state.services.config.server.name,
-        "public_baseurl": state.services.config.server.public_baseurl,
-        "registration_enabled": state.services.config.server.enable_registration,
-        "max_upload_size": state.services.config.server.max_upload_size
+        "server_name": state.services.core.config.server.name,
+        "public_baseurl": state.services.core.config.server.public_baseurl,
+        "registration_enabled": state.services.core.config.server.enable_registration,
+        "max_upload_size": state.services.core.config.server.max_upload_size
     })))
 }
 
@@ -294,7 +297,7 @@ pub async fn get_jitsi_config(_admin: AdminUser, State(state): State<AppState>) 
         "jwt_enabled": false,
         "jwt_asap_enabled": false,
         "jwt_auth_type": "none",
-        "server_name": state.services.config.server.name
+        "server_name": state.services.core.server_name
     })))
 }
 
@@ -305,6 +308,7 @@ pub async fn get_invite_blocklist_admin(
 ) -> Result<Json<Value>, ApiError> {
     let blocklist = state
         .services
+        .account
         .invite_blocklist_storage
         .get_global_invite_blocklist()
         .await
@@ -322,6 +326,7 @@ pub async fn get_invite_allowlist_admin(
 ) -> Result<Json<Value>, ApiError> {
     let allowlist = state
         .services
+        .account
         .invite_blocklist_storage
         .get_global_invite_allowlist()
         .await

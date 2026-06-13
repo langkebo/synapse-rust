@@ -49,10 +49,11 @@ pub(super) async fn send_transaction(
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
     let edus = body.get("edus").and_then(|v| v.as_array());
-    let process_inbound_edus = state.services.config.federation.process_inbound_edus;
-    let process_inbound_presence_edus = state.services.config.federation.process_inbound_presence_edus;
-    let inbound_edus_max_per_txn = state.services.config.federation.inbound_edus_max_per_txn;
-    let inbound_presence_updates_max_per_txn = state.services.config.federation.inbound_presence_updates_max_per_txn;
+    let process_inbound_edus = state.services.core.config.federation.process_inbound_edus;
+    let process_inbound_presence_edus = state.services.core.config.federation.process_inbound_presence_edus;
+    let inbound_edus_max_per_txn = state.services.core.config.federation.inbound_edus_max_per_txn;
+    let inbound_presence_updates_max_per_txn =
+        state.services.core.config.federation.inbound_presence_updates_max_per_txn;
 
     if process_inbound_edus {
         if let Some(edus) = edus {
@@ -66,7 +67,7 @@ pub(super) async fn send_transaction(
             let edu_processing = async {
                 let (_global_permit, wait_ms) = super::acquire_with_timeout(
                     state.federation_inbound_edu_semaphore.clone(),
-                    state.services.config.federation.inbound_edu_acquire_timeout_ms,
+                    state.services.core.config.federation.inbound_edu_acquire_timeout_ms,
                 )
                 .await?;
                 super::observe_histogram(&state, "federation_inbound_edu_wait_ms", wait_ms as f64);
@@ -250,7 +251,7 @@ pub(super) async fn send_transaction(
         let content = pdu.get("content").cloned().unwrap_or(json!({}));
         let origin_server_ts = pdu.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        if origin != state.services.config.server.name {
+        if origin != state.services.core.config.server.name {
             if let Ok(create_events) =
                 state.services.rooms.event_storage.get_state_events_by_type(room_id, "m.room.create").await
             {
@@ -452,13 +453,13 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
 }
 
 async fn acquire_origin_edu_permit(state: &AppState, origin: &str) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
-    let per_origin_limit = state.services.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
+    let per_origin_limit = state.services.core.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
     let semaphore = {
         let mut guard = state.federation_inbound_edu_origin_semaphores.lock().await;
         guard.entry(origin.to_string()).or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit))).clone()
     };
 
-    super::acquire_with_timeout(semaphore, state.services.config.federation.inbound_edu_acquire_timeout_ms).await
+    super::acquire_with_timeout(semaphore, state.services.core.config.federation.inbound_edu_acquire_timeout_ms).await
 }
 
 async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Option<u64> {

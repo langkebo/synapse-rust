@@ -1,5 +1,6 @@
 mod account;
 mod login;
+pub mod password_policy;
 mod power_levels;
 mod register;
 mod session;
@@ -18,6 +19,7 @@ use synapse_storage::*;
 
 // Re-export shared claims types from synapse-common for backward compatibility.
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
+pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 
 const TOKEN_CACHE_TTL_SECS: u64 = 3600;
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;

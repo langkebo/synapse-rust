@@ -61,9 +61,9 @@ impl IdentityStorage {
     pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, ApiError> {
         let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
             r"
-            SELECT address, medium, user_id, validated_ts, added_ts
+            SELECT address, medium, user_id, validated_at, added_ts
             FROM user_threepids
-            WHERE validated_ts < added_ts
+            WHERE validated_at < added_ts
             ORDER BY added_ts DESC
             LIMIT 100
             ",
@@ -79,7 +79,7 @@ impl IdentityStorage {
                     "address": r.get::<Option<String>, _>("address"),
                     "medium": r.get::<String, _>("medium"),
                     "user_id": r.get::<String, _>("user_id"),
-                    "validated_ts": r.get::<Option<i64>, _>("validated_ts"),
+                    "validated_ts": r.get::<Option<i64>, _>("validated_at"),
                     "added_ts": r.get::<i64, _>("added_ts")
                 })
             })

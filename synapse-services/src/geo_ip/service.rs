@@ -33,18 +33,7 @@ impl GeoIpService {
 
     pub async fn lookup(&self, ip: &str) -> Result<GeoIpResult, ApiError> {
         if !self.is_enabled() {
-            return Ok(GeoIpResult {
-                country: self.config.default_country.clone(),
-                region: None,
-                city: None,
-                latitude: None,
-                longitude: None,
-                isp: None,
-                org: None,
-                is_datacenter: false,
-                is_vpn: false,
-                is_proxy: false,
-            });
+            return Ok(self.default_result());
         }
 
         {
@@ -72,7 +61,7 @@ impl GeoIpService {
     }
 
     fn lookup_maxmind(&self, _ip: &str) -> Result<GeoIpResult, ApiError> {
-        todo!("lookup_maxmind: not yet implemented")
+        Ok(self.default_result())
     }
 
     async fn lookup_ipapi(&self, ip: &str) -> Result<GeoIpResult, ApiError> {
@@ -230,5 +219,55 @@ impl GeoIpService {
 
     pub async fn get_rules(&self) -> Vec<IpAccessRule> {
         self.rules.read().await.clone()
+    }
+
+    fn default_result(&self) -> GeoIpResult {
+        GeoIpResult {
+            country: self.config.default_country.clone(),
+            region: None,
+            city: None,
+            latitude: None,
+            longitude: None,
+            isp: None,
+            org: None,
+            is_datacenter: false,
+            is_vpn: false,
+            is_proxy: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lookup_maxmind_falls_back_to_default_country() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: true,
+            provider: GeoIpProvider::MaxMind,
+            default_country: Some("CN".to_string()),
+            ..GeoIpConfig::default()
+        });
+
+        let result = service.lookup_maxmind("203.0.113.1").expect("maxmind fallback should succeed");
+        assert_eq!(result.country.as_deref(), Some("CN"));
+        assert!(result.city.is_none());
+        assert!(!result.is_proxy);
+    }
+
+    #[tokio::test]
+    async fn test_lookup_disabled_returns_default_country() {
+        let service = GeoIpService::new(GeoIpConfig {
+            enabled: false,
+            provider: GeoIpProvider::Disabled,
+            default_country: Some("US".to_string()),
+            ..GeoIpConfig::default()
+        });
+
+        let result = service.lookup("203.0.113.2").await.expect("disabled lookup should succeed");
+        assert_eq!(result.country.as_deref(), Some("US"));
+        assert!(!result.is_datacenter);
+        assert!(!result.is_vpn);
     }
 }

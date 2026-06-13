@@ -131,12 +131,12 @@ fn is_safe_redirect_url(url: &str) -> bool {
 
 fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> String {
     let url = query.redirect_url.clone().or_else(|| query.redirect_url_compat.clone()).unwrap_or_else(|| {
-        format!("{}/_matrix/client/v3/oidc/callback", state.services.config.server.get_public_baseurl())
+        format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl())
     });
 
     if !url.is_empty() && !is_safe_redirect_url(&url) {
         tracing::warn!("Blocked unsafe SSO redirect URL: {}", &url[..url.len().min(64)]);
-        return format!("{}/_matrix/client/v3/oidc/callback", state.services.config.server.get_public_baseurl());
+        return format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl());
     }
 
     url
@@ -148,7 +148,7 @@ async fn sso_redirect(
 ) -> Result<Redirect, ApiError> {
     let redirect_uri: String = resolve_sso_redirect_url(&state, &query);
 
-    if let Some(oidc_service) = state.services.oidc_service.as_ref() {
+    if let Some(oidc_service) = state.services.sso.oidc_service.as_ref() {
         let state_value: String = OidcService::generate_state();
         let nonce_value: String = OidcService::generate_state();
         let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
@@ -163,9 +163,9 @@ async fn sso_redirect(
     }
 
     #[cfg(feature = "saml-sso")]
-    if state.services.saml_service.is_enabled() {
+    if state.services.sso.saml_service.is_enabled() {
         let auth_request: crate::services::saml_service::SamlAuthRequest =
-            state.services.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
+            state.services.sso.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
 
@@ -207,11 +207,11 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
 
 pub fn oidc_enabled(state: &AppState) -> bool {
     #[cfg(feature = "saml-sso")]
-    let saml_enabled = state.services.saml_service.is_enabled();
+    let saml_enabled = state.services.sso.saml_service.is_enabled();
     #[cfg(not(feature = "saml-sso"))]
     let saml_enabled = false;
 
-    state.services.oidc_service.is_some() || state.services.builtin_oidc_provider.is_some() || saml_enabled
+    state.services.sso.oidc_service.is_some() || state.services.sso.builtin_oidc_provider.is_some() || saml_enabled
 }
 
 pub fn create_oidc_fallback_router() -> Router<AppState> {
@@ -291,6 +291,7 @@ async fn builtin_oidc_login(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let provider = state
         .services
+        .sso
         .builtin_oidc_provider
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))?;
@@ -323,7 +324,7 @@ async fn builtin_oidc_login(
 
 #[cfg(feature = "builtin-oidc")]
 async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    if let Some(provider) = &state.services.builtin_oidc_provider {
+    if let Some(provider) = &state.services.sso.builtin_oidc_provider {
         let jwks = provider.get_jwks();
         return Ok(Json(
             serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_log("Failed to serialize JWKS", &e))?,
@@ -366,7 +367,7 @@ async fn oidc_userinfo(
 
     // 获取用户 profile 信息
     let profile_res: Result<serde_json::Value, ApiError> =
-        state.services.registration_service.get_profile(user_id).await;
+        state.services.core.registration_service.get_profile(user_id).await;
     let profile_val = profile_res?;
     let profile = profile_val.as_object().ok_or_else(|| ApiError::internal("Profile is not an object"))?;
 
@@ -431,7 +432,7 @@ async fn oidc_token(
 
     // 优先使用内置 OIDC Provider
     #[cfg(feature = "builtin-oidc")]
-    if let Some(builtin_provider) = &state.services.builtin_oidc_provider {
+    if let Some(builtin_provider) = &state.services.sso.builtin_oidc_provider {
         let request = BuiltinOidcTokenRequest {
             grant_type: body.grant_type.clone(),
             code: body.code.clone(),
@@ -459,8 +460,12 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService =
-        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &crate::services::oidc_service::OidcService = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcTokenRequest { grant_type, code, redirect_uri, refresh_token, scope, code_verifier, .. } = body;
 
@@ -489,7 +494,7 @@ async fn oidc_token(
             let issuer: String = oidc_service.get_config().issuer.clone();
             let subject: String = oidc_user.subject.clone();
             let server_name: String =
-                state.services.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+                state.services.core.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
             let matrix_user_id: String = format!("@{localpart}:{server_name}");
             let displayname: String = oidc_user.displayname.clone().unwrap_or(localpart.clone());
             let now_ts: i64 = current_unix_ts() as i64;
@@ -524,6 +529,7 @@ async fn oidc_token(
                 let random_password: String = uuid::Uuid::new_v4().to_string();
                 state
                     .services
+                    .core
                     .registration_service
                     .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
@@ -542,6 +548,7 @@ async fn oidc_token(
             // 注册设备
             state
                 .services
+                .account
                 .device_storage
                 .create_device(&device_id, &matrix_user_id, Some("OIDC Device"))
                 .await
@@ -638,8 +645,12 @@ async fn oidc_authorize(
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService =
-        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &crate::services::oidc_service::OidcService = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
         query.0;
@@ -715,6 +726,7 @@ async fn oidc_logout(
     if let Some(device_id) = body.device_id {
         state
             .services
+            .account
             .device_storage
             .delete_device(&device_id)
             .await
@@ -765,7 +777,7 @@ pub struct OpenIdDiscovery {
 pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<OpenIdDiscovery>, ApiError> {
     // 如果启用了内置 OIDC Provider，直接使用其发现文档
     #[cfg(feature = "builtin-oidc")]
-    if let Some(provider) = &state.services.builtin_oidc_provider {
+    if let Some(provider) = &state.services.sso.builtin_oidc_provider {
         let doc = provider.get_discovery_document();
         return Ok(Json(OpenIdDiscovery {
             issuer: doc.issuer,
@@ -789,7 +801,7 @@ pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<Open
         }));
     }
 
-    let issuer = state.services.config.server.get_public_baseurl();
+    let issuer = state.services.core.config.server.get_public_baseurl();
 
     Ok(Json(OpenIdDiscovery {
         issuer: issuer.clone(),
@@ -828,8 +840,12 @@ async fn oidc_callback(
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService =
-        state.services.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &crate::services::oidc_service::OidcService = state
+        .services
+        .sso
+        .oidc_service
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcCallbackRequest { code, state: callback_state, error, error_description } = query.0;
 
