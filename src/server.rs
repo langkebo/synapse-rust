@@ -218,6 +218,21 @@ impl SynapseServer {
         };
 
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
+
+        // P1-12: startup topology validation
+        {
+            let enabled_workers = crate::worker::types::WorkerTopologySummary::baseline_preset("monolith")
+                .map(|preset| preset.worker_types())
+                .unwrap_or_else(|| vec![crate::worker::types::WorkerType::Master]);
+            let validation = crate::worker::topology_validator::validate_topology(&enabled_workers);
+            validation.log();
+            if !validation.valid {
+                ::tracing::warn!(
+                    "Topology validation failed — check worker configuration. \
+                     The server will continue to start, but the worker topology may be misconfigured."
+                );
+            }
+        }
         if !config.server.app_service_config_files.is_empty() {
             let imported_services = services
                 .admin
