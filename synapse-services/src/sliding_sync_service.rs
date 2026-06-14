@@ -54,6 +54,7 @@ struct SlidingListRangeSnapshot {
 }
 
 impl SlidingSyncService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
@@ -899,7 +900,9 @@ impl SlidingSyncService {
             .unwrap_or(100);
 
         let (events, next_batch) =
-            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit).await.map_err(|e| sqlx::Error::Boxed(e.to_string().into()))?;
+            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit)
+                .await
+                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
         Ok(json!({
             "events": events,
