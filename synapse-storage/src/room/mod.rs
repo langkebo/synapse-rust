@@ -426,6 +426,39 @@ impl RoomStorage {
         Ok(rows)
     }
 
+    pub async fn search_rooms_for_user(
+        &self,
+        user_id: &str,
+        search_pattern: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, Option<String>, Option<String>, Option<String>, bool)>, sqlx::Error> {
+        sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, bool)>(
+            r"
+            SELECT room_id, name, topic, avatar_url, is_public
+            FROM rooms
+            WHERE
+                (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)
+                AND (
+                    is_public = true
+                    OR EXISTS (
+                        SELECT 1
+                        FROM room_memberships
+                        WHERE room_memberships.room_id = rooms.room_id
+                          AND room_memberships.user_id = $2
+                          AND room_memberships.membership = 'join'
+                    )
+                )
+            ORDER BY name
+            LIMIT $3
+            ",
+        )
+        .bind(search_pattern)
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn get_user_rooms_paginated(
         &self,
         user_id: &str,

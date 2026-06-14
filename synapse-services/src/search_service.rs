@@ -2,7 +2,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::{Postgres, QueryBuilder, Row};
+use sqlx::{Postgres, Row};
 use std::sync::Arc;
 use synapse_common::*;
 use synapse_storage::{EventStorage, RoomStorage};
@@ -213,25 +213,6 @@ pub struct SearchService {
     postgres_pool: Option<sqlx::Pool<Postgres>>,
     /// 搜索服务提供商: "elasticsearch" | "postgres"
     provider: String,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct SearchRoomEventRecord {
-    event_id: String,
-    room_id: String,
-    sender: String,
-    event_type: String,
-    content: Value,
-    origin_server_ts: i64,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct SearchRoomSummaryRecord {
-    room_id: String,
-    name: Option<String>,
-    topic: Option<String>,
-    avatar_url: Option<String>,
-    is_public: bool,
 }
 
 impl SearchService {
@@ -870,8 +851,8 @@ impl SearchService {
         limit: i64,
         next_batch: Option<&str>,
     ) -> ApiResult<SearchRoomEventsPage> {
-        let pool = self.postgres_pool()?;
         let room_storage = self.room_storage()?;
+        let event_storage = self.event_storage()?;
         let cursor = decode_room_events_cursor(next_batch);
 
         if next_batch.is_some() && cursor.is_none() {
@@ -888,98 +869,17 @@ impl SearchService {
         }
 
         let search_pattern = format!("%{}%", search_term.to_lowercase());
-        let mut query_builder = QueryBuilder::<Postgres>::new(
-            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
-        );
-
-        query_builder.push("(LOWER(content::text) LIKE ");
-        query_builder.push_bind(&search_pattern);
-        query_builder.push(" OR LOWER(sender) LIKE ");
-        query_builder.push_bind(&search_pattern);
-        query_builder.push(")");
-
-        query_builder.push(" AND room_id IN (");
-        {
-            let mut separated = query_builder.separated(", ");
-            for room in &joined_rooms {
-                separated.push_bind(room);
-            }
-        }
-        query_builder.push(")");
-
-        let has_explicit_types = filter.and_then(|value| value.types.as_ref()).is_some_and(|types| !types.is_empty());
-        if !has_explicit_types {
-            query_builder.push(" AND event_type = 'm.room.message'");
-        }
-
-        if let Some(filter) = filter {
-            if let Some(rooms) = &filter.rooms {
-                if !rooms.is_empty() {
-                    query_builder.push(" AND room_id IN (");
-                    {
-                        let mut separated = query_builder.separated(", ");
-                        for room in rooms {
-                            separated.push_bind(room);
-                        }
-                    }
-                    query_builder.push(")");
-                }
-            }
-
-            if let Some(not_rooms) = &filter.not_rooms {
-                if !not_rooms.is_empty() {
-                    query_builder.push(" AND room_id NOT IN (");
-                    {
-                        let mut separated = query_builder.separated(", ");
-                        for room in not_rooms {
-                            separated.push_bind(room);
-                        }
-                    }
-                    query_builder.push(")");
-                }
-            }
-
-            if let Some(types) = &filter.types {
-                if !types.is_empty() {
-                    query_builder.push(" AND event_type IN (");
-                    {
-                        let mut separated = query_builder.separated(", ");
-                        for event_type in types {
-                            separated.push_bind(event_type);
-                        }
-                    }
-                    query_builder.push(")");
-                }
-            }
-
-            if let Some(senders) = &filter.senders {
-                if !senders.is_empty() {
-                    query_builder.push(" AND sender IN (");
-                    {
-                        let mut separated = query_builder.separated(", ");
-                        for sender in senders {
-                            separated.push_bind(sender);
-                        }
-                    }
-                    query_builder.push(")");
-                }
-            }
-        }
-
-        if let Some(cursor) = cursor {
-            query_builder.push(" AND (origin_server_ts, event_id) < (");
-            query_builder.push_bind(cursor.origin_server_ts);
-            query_builder.push(", ");
-            query_builder.push_bind(cursor.event_id);
-            query_builder.push(")");
-        }
-
-        query_builder.push(" ORDER BY origin_server_ts DESC, event_id DESC LIMIT ");
-        query_builder.push_bind(limit + 1);
-
-        let rows: Vec<SearchRoomEventRecord> = query_builder
-            .build_query_as()
-            .fetch_all(pool)
+        let rows = event_storage
+            .search_joined_room_events(
+                &joined_rooms,
+                &search_pattern,
+                filter.and_then(|value| value.rooms.as_deref()),
+                filter.and_then(|value| value.not_rooms.as_deref()),
+                filter.and_then(|value| value.types.as_deref()),
+                filter.and_then(|value| value.senders.as_deref()),
+                cursor.as_ref().map(|cursor| (cursor.event_id.as_str(), cursor.origin_server_ts)),
+                limit + 1,
+            )
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -987,20 +887,20 @@ impl SearchService {
         let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
         let results = visible_rows
             .iter()
-            .map(|row| SearchRoomEvent {
-                event_id: row.event_id.clone(),
-                room_id: row.room_id.clone(),
-                sender: row.sender.clone(),
-                event_type: row.event_type.clone(),
-                content: row.content.clone(),
-                origin_server_ts: row.origin_server_ts,
+            .map(|(event_id, room_id, sender, event_type, content, origin_server_ts)| SearchRoomEvent {
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                sender: sender.clone(),
+                event_type: event_type.clone(),
+                content: content.clone(),
+                origin_server_ts: *origin_server_ts,
             })
             .collect();
         let next_batch = if has_more {
-            visible_rows.last().map(|row| {
+            visible_rows.last().map(|(event_id, _room_id, _sender, _event_type, _content, origin_server_ts)| {
                 encode_room_events_cursor(&RoomEventsCursor {
-                    origin_server_ts: row.origin_server_ts,
-                    event_id: row.event_id.clone(),
+                    origin_server_ts: *origin_server_ts,
+                    event_id: event_id.clone(),
                 })
             })
         } else {
@@ -1058,44 +958,22 @@ impl SearchService {
         search_term: &str,
         limit: i64,
     ) -> ApiResult<Vec<SearchRoomSummary>> {
-        let pool = self.postgres_pool()?;
+        let room_storage = self.room_storage()?;
         let search_pattern = format!("%{}%", search_term.to_lowercase());
 
-        let rows = sqlx::query_as::<_, SearchRoomSummaryRecord>(
-            r#"
-            SELECT room_id, name, topic, avatar_url, is_public
-            FROM rooms
-            WHERE
-                (LOWER(name) LIKE $1 OR LOWER(topic) LIKE $1)
-                AND (
-                    is_public = true
-                    OR EXISTS (
-                        SELECT 1
-                        FROM room_memberships
-                        WHERE room_memberships.room_id = rooms.room_id
-                          AND room_memberships.user_id = $2
-                          AND room_memberships.membership = 'join'
-                    )
-                )
-            ORDER BY name
-            LIMIT $3
-            "#,
-        )
-        .bind(search_pattern)
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+        let rows = room_storage
+            .search_rooms_for_user(user_id, &search_pattern, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
         Ok(rows
             .into_iter()
-            .map(|row| SearchRoomSummary {
-                room_id: row.room_id,
-                name: row.name,
-                topic: row.topic,
-                avatar_url: row.avatar_url,
-                is_public: row.is_public,
+            .map(|(room_id, name, topic, avatar_url, is_public)| SearchRoomSummary {
+                room_id,
+                name,
+                topic,
+                avatar_url,
+                is_public,
             })
             .collect())
     }

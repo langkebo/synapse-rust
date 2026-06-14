@@ -7,7 +7,7 @@ pub use models::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, QueryBuilder};
 
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
@@ -771,6 +771,104 @@ impl EventStorage {
                 })
             })
             .collect())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn search_joined_room_events(
+        &self,
+        joined_rooms: &[String],
+        search_pattern: &str,
+        rooms: Option<&[String]>,
+        not_rooms: Option<&[String]>,
+        event_types: Option<&[String]>,
+        senders: Option<&[String]>,
+        cursor: Option<(&str, i64)>,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String, String, serde_json::Value, i64)>, sqlx::Error> {
+        if joined_rooms.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut query_builder = QueryBuilder::<Postgres>::new(
+            "SELECT event_id, room_id, sender, event_type, content, origin_server_ts FROM events WHERE ",
+        );
+
+        query_builder.push("(LOWER(content::text) LIKE ");
+        query_builder.push_bind(search_pattern);
+        query_builder.push(" OR LOWER(sender) LIKE ");
+        query_builder.push_bind(search_pattern);
+        query_builder.push(")");
+
+        query_builder.push(" AND room_id IN (");
+        {
+            let mut separated = query_builder.separated(", ");
+            for room in joined_rooms {
+                separated.push_bind(room);
+            }
+        }
+        query_builder.push(")");
+
+        let has_explicit_types = event_types.is_some_and(|types| !types.is_empty());
+        if !has_explicit_types {
+            query_builder.push(" AND event_type = 'm.room.message'");
+        }
+
+        if let Some(rooms) = rooms.filter(|rooms| !rooms.is_empty()) {
+            query_builder.push(" AND room_id IN (");
+            {
+                let mut separated = query_builder.separated(", ");
+                for room in rooms {
+                    separated.push_bind(room);
+                }
+            }
+            query_builder.push(")");
+        }
+
+        if let Some(not_rooms) = not_rooms.filter(|rooms| !rooms.is_empty()) {
+            query_builder.push(" AND room_id NOT IN (");
+            {
+                let mut separated = query_builder.separated(", ");
+                for room in not_rooms {
+                    separated.push_bind(room);
+                }
+            }
+            query_builder.push(")");
+        }
+
+        if let Some(event_types) = event_types.filter(|types| !types.is_empty()) {
+            query_builder.push(" AND event_type IN (");
+            {
+                let mut separated = query_builder.separated(", ");
+                for event_type in event_types {
+                    separated.push_bind(event_type);
+                }
+            }
+            query_builder.push(")");
+        }
+
+        if let Some(senders) = senders.filter(|senders| !senders.is_empty()) {
+            query_builder.push(" AND sender IN (");
+            {
+                let mut separated = query_builder.separated(", ");
+                for sender in senders {
+                    separated.push_bind(sender);
+                }
+            }
+            query_builder.push(")");
+        }
+
+        if let Some((event_id, origin_server_ts)) = cursor {
+            query_builder.push(" AND (origin_server_ts, event_id) < (");
+            query_builder.push_bind(origin_server_ts);
+            query_builder.push(", ");
+            query_builder.push_bind(event_id);
+            query_builder.push(")");
+        }
+
+        query_builder.push(" ORDER BY origin_server_ts DESC, event_id DESC LIMIT ");
+        query_builder.push_bind(limit);
+
+        query_builder.build_query_as().fetch_all(&*self.pool).await
     }
 
     // -----------------------------------------------------------------------

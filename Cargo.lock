@@ -4447,6 +4447,8 @@ dependencies = [
  "subtle",
  "synapse-cache",
  "synapse-common",
+ "synapse-e2ee",
+ "synapse-federation",
  "synapse-services",
  "synapse-storage",
  "tempfile",
