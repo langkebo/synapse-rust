@@ -110,6 +110,22 @@ impl WorkerType {
             Self::AppService => &["appservice_worker"],
         }
     }
+
+    /// All worker types, for validation and enumeration.
+    pub fn all() -> Vec<Self> {
+        vec![
+            Self::Master,
+            Self::Frontend,
+            Self::Background,
+            Self::EventPersister,
+            Self::Synchrotron,
+            Self::FederationSender,
+            Self::FederationReader,
+            Self::MediaRepository,
+            Self::Pusher,
+            Self::AppService,
+        ]
+    }
 }
 
 impl FromStr for WorkerType {
@@ -559,6 +575,12 @@ pub struct WorkerTopologyPreset {
     pub instances: Vec<WorkerTopologyPresetInstance>,
 }
 
+impl WorkerTopologyPreset {
+    pub fn worker_types(&self) -> Vec<WorkerType> {
+        self.instances.iter().map(|instance| instance.worker_type).collect()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerTopologySummary {
     pub workers: Vec<WorkerTopologyEntry>,
@@ -661,6 +683,13 @@ impl WorkerTopologySummary {
 
         Self { workers, deployment_presets }
     }
+
+    pub fn baseline_preset(name: &str) -> Option<WorkerTopologyPreset> {
+        Self::baseline()
+            .deployment_presets
+            .into_iter()
+            .find(|preset| preset.name == name)
+    }
 }
 
 #[cfg(test)]
@@ -721,6 +750,12 @@ mod tests {
         let summary = WorkerTopologySummary::baseline();
         assert!(summary.workers.iter().any(|entry| entry.worker_type == WorkerType::MediaRepository));
         assert!(summary.deployment_presets.iter().any(|preset| preset.name == "split_minimal"));
+    }
+
+    #[test]
+    fn test_worker_topology_preset_worker_types() {
+        let preset = WorkerTopologySummary::baseline_preset("monolith").expect("monolith preset");
+        assert_eq!(preset.worker_types(), vec![WorkerType::Master]);
     }
 
     #[test]
