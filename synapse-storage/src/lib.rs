@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
 pub mod account_data;
+pub mod admin_federation;
 pub mod admin_media;
 pub mod application_service;
 pub mod audit;
@@ -112,6 +113,7 @@ pub use self::user::*;
 pub mod test_utils;
 
 pub use self::account_data::*;
+pub use self::admin_federation::*;
 pub use self::admin_media::*;
 pub use self::application_service::*;
 pub use self::audit::*;

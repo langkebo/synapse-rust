@@ -871,6 +871,99 @@ impl EventStorage {
         query_builder.build_query_as().fetch_all(&*self.pool).await
     }
 
+    pub async fn search_postgres_messages(
+        &self,
+        user_id: &str,
+        query: &str,
+        rank_cursor: Option<f64>,
+        origin_server_ts_cursor: Option<i64>,
+        event_id_cursor: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String, String, serde_json::Value, i64, f64)>, sqlx::Error> {
+        if let (Some(rank), Some(origin_server_ts), Some(event_id)) =
+            (rank_cursor, origin_server_ts_cursor, event_id_cursor)
+        {
+            sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
+                r"
+                SELECT
+                    e.event_id,
+                    e.room_id,
+                    e.sender,
+                    e.event_type,
+                    e.content,
+                    e.origin_server_ts,
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) as rank
+                FROM events e
+                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
+                WHERE e.event_type = 'm.room.message'
+                    AND e.stream_ordering > 0
+                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
+                    AND (
+                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) < $3
+                        OR (
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3
+                            AND e.origin_server_ts < $4
+                        )
+                        OR (
+                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) = $3
+                            AND e.origin_server_ts = $4
+                            AND e.event_id < $5
+                        )
+                    )
+                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                LIMIT $6
+                ",
+            )
+            .bind(user_id)
+            .bind(query)
+            .bind(rank)
+            .bind(origin_server_ts)
+            .bind(event_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, (String, String, String, String, serde_json::Value, i64, f64)>(
+                r"
+                SELECT
+                    e.event_id,
+                    e.room_id,
+                    e.sender,
+                    e.event_type,
+                    e.content,
+                    e.origin_server_ts,
+                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $2)) as rank
+                FROM events e
+                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
+                WHERE e.event_type = 'm.room.message'
+                    AND e.stream_ordering > 0
+                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $2)
+                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
+                LIMIT $3
+                ",
+            )
+            .bind(user_id)
+            .bind(query)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+    }
+
+    pub async fn create_postgres_fts_index(&self) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            CREATE INDEX IF NOT EXISTS events_fts_idx
+            ON events
+            USING GIN (to_tsvector('english', content))
+            WHERE event_type = 'm.room.message' AND stream_ordering > 0
+            ",
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Extremities
     // -----------------------------------------------------------------------

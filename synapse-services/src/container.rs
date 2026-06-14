@@ -529,8 +529,9 @@ fn assemble_admin_support(
     let federation_blacklist_service = Arc::new(crate::federation_blacklist_service::FederationBlacklistService::new(
         Arc::new(federation_blacklist_storage.clone()),
     ));
+    let admin_federation_storage = synapse_storage::admin_federation::AdminFederationStorage::new(pool);
     let admin_federation_service = Arc::new(crate::admin_federation_service::AdminFederationService::new(
-        pool.clone(),
+        admin_federation_storage,
         Arc::new(federation_blacklist_storage.clone()),
         federation_blacklist_service.clone(),
     ));

@@ -247,105 +247,33 @@ impl SearchService {
         limit: i64,
         next_batch: Option<&str>,
     ) -> ApiResult<SearchResult> {
-        let pool = self
-            .postgres_pool
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))?;
+        let event_storage = self.event_storage()?;
         let cursor = decode_postgres_search_cursor(next_batch);
 
         // 构建 FTS 查询
-        let search_query = format!("{}:*", query.replace(' ', " & "));
-
-        let rows = if let Some(cursor) = cursor {
-            sqlx::query(
-                r"
-                SELECT
-                    e.event_id,
-                    e.room_id,
-                    e.sender,
-                    e.event_type,
-                    e.message_type,
-                    e.content,
-                    e.origin_server_ts,
-                    e.indexed_at,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
-                FROM events e
-                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
-                WHERE e.event_type = 'm.room.message'
-                    AND e.stream_ordering > 0
-                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
-                    AND (
-                        ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) < $4
-                        OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) = $4
-                            AND e.origin_server_ts < $5
-                        )
-                        OR (
-                            ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) = $4
-                            AND e.origin_server_ts = $5
-                            AND e.event_id < $6
-                        )
-                    )
-                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
-                LIMIT $7
-                ",
+        let rows = event_storage
+            .search_postgres_messages(
+                user_id,
+                query,
+                cursor.as_ref().map(|cursor| cursor.rank),
+                cursor.as_ref().map(|cursor| cursor.origin_server_ts),
+                cursor.as_ref().map(|cursor| cursor.event_id.as_str()),
+                limit + 1,
             )
-            .bind(user_id)
-            .bind(&search_query)
-            .bind(query)
-            .bind(cursor.rank)
-            .bind(cursor.origin_server_ts)
-            .bind(&cursor.event_id)
-            .bind(limit + 1)
-            .fetch_all(pool)
             .await
-        } else {
-            sqlx::query(
-                r"
-                SELECT
-                    e.event_id,
-                    e.room_id,
-                    e.sender,
-                    e.event_type,
-                    e.message_type,
-                    e.content,
-                    e.origin_server_ts,
-                    e.indexed_at,
-                    ts_rank(to_tsvector('english', e.content), plainto_tsquery('english', $3)) as rank
-                FROM events e
-                INNER JOIN room_memberships rm ON e.room_id = rm.room_id AND rm.user_id = $1 AND rm.membership = 'join'
-                WHERE e.event_type = 'm.room.message'
-                    AND e.stream_ordering > 0
-                    AND to_tsvector('english', e.content) @@ plainto_tsquery('english', $3)
-                ORDER BY rank DESC, e.origin_server_ts DESC, e.event_id DESC
-                LIMIT $4
-                ",
-            )
-            .bind(user_id)
-            .bind(&search_query)
-            .bind(query)
-            .bind(limit + 1)
-            .fetch_all(pool)
-            .await
-        }
-        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+            .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
 
         let has_more = rows.len() > limit as usize;
         let visible_rows = if has_more { &rows[..limit as usize] } else { &rows[..] };
         let mut results = Vec::new();
-        for row in visible_rows {
-            let content: serde_json::Value =
-                row.try_get::<serde_json::Value, _>("content").unwrap_or(serde_json::Value::Null);
-
+        for (event_id, room_id, sender, event_type, content, origin_server_ts, _rank) in visible_rows {
             results.push(SearchResultItem {
-                event_id: row.try_get::<String, _>("event_id").map_err(|e| ApiError::internal(e.to_string()))?,
-                room_id: row.try_get::<String, _>("room_id").map_err(|e| ApiError::internal(e.to_string()))?,
-                sender: row.try_get::<String, _>("sender").map_err(|e| ApiError::internal(e.to_string()))?,
-                event_type: row.try_get::<String, _>("event_type").map_err(|e| ApiError::internal(e.to_string()))?,
+                event_id: event_id.clone(),
+                room_id: room_id.clone(),
+                sender: sender.clone(),
+                event_type: event_type.clone(),
                 content: content.as_str().unwrap_or("").to_string(),
-                origin_server_ts: row
-                    .try_get::<i64, _>("origin_server_ts")
-                    .map_err(|e| ApiError::internal(e.to_string()))?,
+                origin_server_ts: *origin_server_ts,
                 highlights: None,
                 room_name: None,
             });
@@ -353,11 +281,11 @@ impl SearchService {
 
         let total_count = results.len();
         let next_batch = if has_more {
-            visible_rows.last().map(|row| {
+            visible_rows.last().map(|(event_id, _room_id, _sender, _event_type, _content, origin_server_ts, rank)| {
                 encode_postgres_search_cursor(&PostgresSearchCursor {
-                    rank: row.try_get::<f64, _>("rank").unwrap_or_default(),
-                    origin_server_ts: row.try_get::<i64, _>("origin_server_ts").unwrap_or_default(),
-                    event_id: row.try_get::<String, _>("event_id").unwrap_or_default(),
+                    rank: *rank,
+                    origin_server_ts: *origin_server_ts,
+                    event_id: event_id.clone(),
                 })
             })
         } else {
@@ -369,19 +297,9 @@ impl SearchService {
 
     /// 创建 PostgreSQL 全文搜索索引
     pub async fn create_fts_index(&self) -> ApiResult<()> {
-        let pool =
-            self.postgres_pool.as_ref().ok_or_else(|| ApiError::internal("PostgreSQL not configured".to_string()))?;
-
-        // 创建 GIN 索引（如果不存在）
-        let sql = r"
-            CREATE INDEX IF NOT EXISTS events_fts_idx
-            ON events
-            USING GIN (to_tsvector('english', content))
-            WHERE event_type = 'm.room.message' AND stream_ordering > 0
-        ";
-
-        sqlx::query(sql)
-            .execute(pool)
+        let event_storage = self.event_storage()?;
+        event_storage
+            .create_postgres_fts_index()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create FTS index", &e))?;
 
