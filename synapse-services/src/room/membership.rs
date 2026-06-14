@@ -106,14 +106,8 @@ impl RoomService {
     }
 
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
-        let count = sqlx::query_scalar::<_, i64>(
-            r#"SELECT COALESCE(COUNT(*), 0) FROM room_memberships WHERE room_id = $1 AND membership = 'invite'"#,
-        )
-        .bind(room_id)
-        .fetch_one(&*self.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get invited members count", &e))?;
-        Ok(count)
+        let summary = self.room_summary_service.get_summary(room_id).await?;
+        Ok(summary.map(|summary| summary.invited_member_count).unwrap_or(0))
     }
 
     pub async fn add_member(

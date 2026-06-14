@@ -18,29 +18,13 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get room", &e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-        let is_encrypted_res = sqlx::query_scalar::<sqlx::Postgres, i32>(
-            r#"SELECT 1 FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL LIMIT 1"#,
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.room_storage.pool)
-        .await;
-
-        let is_encrypted = match is_encrypted_res {
-            Ok(res) => res.is_some(),
-            Err(e) => return Err(ApiError::internal_with_log("Failed to check room encryption", &e)),
-        };
-
-        let encryption_content_res = sqlx::query_scalar::<sqlx::Postgres, serde_json::Value>(
-            r#"SELECT content FROM events WHERE room_id = $1 AND event_type = 'm.room.encryption' AND state_key IS NOT NULL ORDER BY origin_server_ts DESC LIMIT 1"#,
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.room_storage.pool)
-        .await;
-
-        let encryption_content = match encryption_content_res {
-            Ok(content) => content,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get encryption event content", &e)),
-        };
+        let encryption_events = self
+            .event_storage
+            .get_state_events_by_type(room_id, "m.room.encryption")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get encryption event content", &e))?;
+        let encryption_content = encryption_events.first().map(|event| event.content.clone());
+        let is_encrypted = encryption_content.is_some();
 
         Ok(synapse_storage::room::RoomEncryptionStatus::from_encryption_event(
             is_encrypted,

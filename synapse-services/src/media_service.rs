@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use synapse_storage::admin_media::AdminMediaStorage;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThumbnailMethod {
@@ -270,22 +271,18 @@ impl MediaService {
 
         if let Some(pool) = &self.pool {
             let now = chrono::Utc::now().timestamp_millis();
-            if let Err(e) = sqlx::query(
-                r"
-                INSERT INTO media_metadata (media_id, server_name, content_type, file_name, size, uploader_user_id, created_ts)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (media_id) DO UPDATE SET content_type = EXCLUDED.content_type, file_name = EXCLUDED.file_name, size = EXCLUDED.size
-                ",
-            )
-            .bind(media_id)
-            .bind(&self.server_name)
-            .bind(content_type)
-            .bind(filename.unwrap_or(&file_name))
-            .bind(content.len() as i64)
-            .bind(user_id)
-            .bind(now)
-            .execute(pool.as_ref())
-            .await
+            let storage = AdminMediaStorage::new(pool.as_ref());
+            if let Err(e) = storage
+                .upsert_media_metadata(
+                    media_id,
+                    &self.server_name,
+                    content_type,
+                    filename.unwrap_or(&file_name),
+                    content.len() as i64,
+                    user_id,
+                    now,
+                )
+                .await
             {
                 ::tracing::warn!(
                     media_id = %media_id,
@@ -537,20 +534,14 @@ impl MediaService {
         }
 
         if let Some(pool) = &self.pool {
-            if let Ok(Some((content_type, file_name, size, uploader_user_id))) =
-                sqlx::query_as::<_, (String, Option<String>, i64, Option<String>)>(
-                    r"SELECT content_type, file_name, size, uploader_user_id FROM media_metadata WHERE media_id = $1",
-                )
-                .bind(media_id)
-                .fetch_optional(pool.as_ref())
-                .await
-            {
+            let storage = AdminMediaStorage::new(pool.as_ref());
+            if let Ok(Some(media)) = storage.get_media_info(media_id).await {
                 return Some(serde_json::json!({
                     "media_id": media_id,
-                    "content_type": content_type,
-                    "filename": file_name,
-                    "size": size,
-                    "uploader_user_id": uploader_user_id
+                    "content_type": media.content_type,
+                    "filename": media.file_name,
+                    "size": media.size,
+                    "uploader_user_id": media.uploader_user_id
                 }));
             }
         }

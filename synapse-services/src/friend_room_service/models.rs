@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_storage::{CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage};
+use synapse_storage::{AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage};
 use synapse_common::ApiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +201,7 @@ pub struct FriendRoomService {
     pub(crate) room_service: Arc<dyn FriendRoomRoomOps>,
     pub(crate) user_storage: UserStorage,
     pub(crate) presence_storage: PresenceStorage,
+    pub(crate) account_data_storage: AccountDataStorage,
     pub(crate) cache: Arc<CacheManager>,
     pub(crate) server_name: String,
     pub(crate) federation_client: Arc<dyn FriendFederationSender>,

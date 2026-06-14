@@ -8,6 +8,19 @@ pub struct FriendDmLink {
     pub content: serde_json::Value,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DirectRoomFallbackLink {
+    pub other_user_id: String,
+    pub room_id: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DmPartnerRecord {
+    pub user_id: String,
+    pub display_name: String,
+    pub avatar_url: String,
+}
+
 /// 创建好友分组的参数
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CreateFriendGroupParams {
@@ -120,6 +133,89 @@ impl FriendRoomStorage {
         )
         .bind(dm_room_id)
         .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_effective_direct_links_fallback(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<DirectRoomFallbackLink>, sqlx::Error> {
+        sqlx::query_as::<_, DirectRoomFallbackLink>(
+            r"
+            SELECT rm_other.user_id AS other_user_id, rm_user.room_id
+            FROM room_memberships rm_user
+            JOIN room_summaries rs
+              ON rs.room_id = rm_user.room_id
+             AND rs.is_direct = TRUE
+            JOIN room_memberships rm_other
+              ON rm_other.room_id = rm_user.room_id
+             AND rm_other.user_id <> $1
+             AND rm_other.membership IN ('join', 'invite')
+            WHERE rm_user.user_id = $1
+              AND rm_user.membership IN ('join', 'invite')
+              AND (
+                SELECT COUNT(*)
+                FROM room_memberships rm_count
+                WHERE rm_count.room_id = rm_user.room_id
+                  AND rm_count.membership IN ('join', 'invite')
+              ) = 2
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
+    pub async fn get_existing_direct_room_id(
+        &self,
+        user_id: &str,
+        friend_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        let row = sqlx::query(
+            r"
+            SELECT m1.room_id
+            FROM room_memberships m1
+            JOIN room_memberships m2 ON m1.room_id = m2.room_id
+            JOIN room_summaries rs ON m1.room_id = rs.room_id
+            WHERE m1.user_id = $1
+              AND m2.user_id = $2
+              AND m1.membership IN ('join', 'invite')
+              AND m2.membership IN ('join', 'invite')
+              AND rs.is_direct = true
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(friend_id)
+        .fetch_optional(&*self.pool)
+        .await?;
+
+        Ok(row.map(|value| value.get::<String, _>("room_id")))
+    }
+
+    pub async fn get_dm_partner_for_room(
+        &self,
+        room_id: &str,
+        user_id: &str,
+    ) -> Result<Option<DmPartnerRecord>, sqlx::Error> {
+        sqlx::query_as::<_, DmPartnerRecord>(
+            r"
+            SELECT
+                rm.user_id,
+                COALESCE(rm.display_name, u.displayname, u.username, '') AS display_name,
+                COALESCE(rm.avatar_url, u.avatar_url, '') AS avatar_url
+            FROM room_memberships rm
+            LEFT JOIN users u ON u.user_id = rm.user_id
+            WHERE rm.room_id = $1
+              AND rm.user_id <> $2
+              AND rm.membership IN ('join', 'invite')
+            ORDER BY CASE WHEN rm.membership = 'join' THEN 0 ELSE 1 END, rm.updated_ts DESC NULLS LAST
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&*self.pool)
         .await
     }
 

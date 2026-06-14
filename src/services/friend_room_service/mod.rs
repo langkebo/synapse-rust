@@ -9,7 +9,7 @@ use crate::common::traits::FriendRoomProvider;
 use crate::common::ApiError;
 use crate::federation::friend::FriendFederationClient;
 use crate::services::RoomService;
-use crate::storage::{FriendRoomStorage, PresenceStorage, UserStorage};
+use crate::storage::{AccountDataStorage, FriendRoomStorage, PresenceStorage, UserStorage};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -24,6 +24,7 @@ impl FriendRoomService {
         room_service: Arc<RoomService>,
         user_storage: UserStorage,
         presence_storage: PresenceStorage,
+        account_data_storage: AccountDataStorage,
         cache: &Arc<CacheManager>,
         server_name: String,
         key_rotation_manager: Arc<synapse_services::federation::KeyRotationManager>,
@@ -34,6 +35,7 @@ impl FriendRoomService {
             room_service,
             user_storage,
             presence_storage,
+            account_data_storage,
             Arc::new(cache.to_synapse_cache_manager()),
             server_name,
             federation_client,

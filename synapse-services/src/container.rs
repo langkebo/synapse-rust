@@ -318,6 +318,7 @@ fn assemble_room_and_sync(
     let typing_service = Arc::new(crate::typing_service::TypingService::new(cache.clone()));
 
     let sliding_sync_storage = synapse_storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
+    let device_storage = synapse_storage::device::DeviceStorage::new(pool);
     let sliding_sync_service = Arc::new(crate::sliding_sync_service::SlidingSyncService::new(
         sliding_sync_storage,
         cache.clone(),
@@ -325,6 +326,8 @@ fn assemble_room_and_sync(
         typing_service.clone(),
         presence_storage.clone(),
         member_storage.clone(),
+        device_storage,
+        to_device_storage.clone(),
     ));
 
     let space_storage = SpaceStorage::new(pool);
@@ -515,10 +518,11 @@ fn assemble_admin_support(
     ));
 
     let captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service = Arc::new(crate::captcha_service::CaptchaService::with_delivery(
+    let captcha_service = Arc::new(crate::captcha_service::CaptchaService::with_sms_config(
         Arc::new(captcha_storage.clone()),
         task_queue.clone(),
         config.smtp.enabled,
+        &config.sms,
     ));
 
     let federation_blacklist_storage = synapse_storage::federation_blacklist::FederationBlacklistStorage::new(pool);
@@ -734,11 +738,14 @@ impl ServiceContainer {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
+        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(&pool);
+        #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
             presence_storage.clone(),
+            account_data_storage,
             cache.clone(),
             config.server.name.clone(),
             Arc::new(federation.key_rotation_manager.clone()),
@@ -1180,6 +1187,7 @@ fn build_test_config() -> Config {
         worker: WorkerConfig::default(),
         cors: CorsConfig::default(),
         smtp: SmtpConfig::default(),
+        sms: synapse_common::config::SmsConfig::default(),
         voip: synapse_common::config::VoipConfig::default(),
         livekit: synapse_common::config::LivekitConfig::default(),
         push: synapse_common::config::PushConfig::default(),
