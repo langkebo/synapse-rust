@@ -1,6 +1,7 @@
 use super::AuthService;
 use super::DEFAULT_POWER_LEVEL;
 use synapse_common::*;
+use synapse_storage::EventStorage;
 
 impl AuthService {
     pub async fn get_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
@@ -14,21 +15,7 @@ impl AuthService {
             return Ok(-1);
         }
 
-        let power_levels_content: Option<serde_json::Value> = sqlx::query_scalar(
-            r"
-            SELECT content
-            FROM events
-            WHERE room_id = $1
-              AND event_type = 'm.room.power_levels'
-              AND state_key = ''
-            ORDER BY origin_server_ts DESC
-            LIMIT 1
-            ",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let power_levels_content = self.get_room_power_levels_content(room_id).await?;
 
         if let Some(content) = power_levels_content {
             if let Some(level) =
@@ -71,21 +58,12 @@ impl AuthService {
     }
 
     pub(crate) async fn get_room_power_levels_content(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
-        sqlx::query_scalar(
-            r"
-            SELECT content
-            FROM events
-            WHERE room_id = $1
-              AND event_type = 'm.room.power_levels'
-              AND state_key = ''
-            ORDER BY origin_server_ts DESC
-            LIMIT 1
-            ",
-        )
-        .bind(room_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))
+        let event_storage = EventStorage::new(&self.user_storage.pool, self.server_name.clone());
+        let events = event_storage
+            .get_state_events_by_type(room_id, "m.room.power_levels")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        Ok(events.first().map(|event| event.content.clone()))
     }
 
     pub async fn get_required_state_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {

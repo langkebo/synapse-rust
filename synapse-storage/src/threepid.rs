@@ -48,8 +48,8 @@ pub struct ThreepidStorage {
 }
 
 impl ThreepidStorage {
-    pub fn new(pool: impl AsRef<PgPool>) -> Self {
-        Self { pool: Arc::new(pool.as_ref().clone()) }
+    pub fn new(pool: &PgPool) -> Self {
+        Self { pool: Arc::new(pool.clone()) }
     }
 
     pub async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
@@ -138,6 +138,33 @@ impl ThreepidStorage {
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get threepids", &e))?;
+
+        Ok(threepids)
+    }
+
+    pub async fn get_pending_threepids(&self, limit: i64) -> Result<Vec<UserThreepid>, ApiError> {
+        let threepids = sqlx::query_as::<_, UserThreepid>(
+            r"
+            SELECT
+                id,
+                user_id,
+                medium,
+                address,
+                validated_at,
+                added_ts,
+                is_verified,
+                verification_token,
+                verification_expires_at
+            FROM user_threepids
+            WHERE validated_at < added_ts
+            ORDER BY added_ts DESC
+            LIMIT $1
+            ",
+        )
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get pending threepids", &e))?;
 
         Ok(threepids)
     }

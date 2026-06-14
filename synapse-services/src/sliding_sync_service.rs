@@ -5,6 +5,8 @@ use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::error::ApiError;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::to_device::ToDeviceStorage;
+use synapse_storage::device::DeviceStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::presence::PresenceStorage;
 use synapse_storage::sliding_sync::{
@@ -27,6 +29,8 @@ pub struct SlidingSyncService {
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: PresenceStorage,
     member_storage: RoomMemberStorage,
+    device_storage: DeviceStorage,
+    to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
 }
@@ -57,6 +61,8 @@ impl SlidingSyncService {
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
+        device_storage: DeviceStorage,
+        to_device_storage: ToDeviceStorage,
     ) -> Self {
         let connection_tracker = moka::sync::Cache::builder()
             .max_capacity(MAX_TRACKED_CONNECTIONS)
@@ -69,6 +75,8 @@ impl SlidingSyncService {
             typing_service,
             presence_storage,
             member_storage,
+            device_storage,
+            to_device_storage,
             connection_tracker: Arc::new(connection_tracker),
         }
     }
@@ -891,7 +899,7 @@ impl SlidingSyncService {
             .unwrap_or(100);
 
         let (events, next_batch) =
-            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit).await?;
+            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit).await.map_err(|e| sqlx::Error::Boxed(e.to_string().into()))?;
 
         Ok(json!({
             "events": events,
@@ -1144,69 +1152,13 @@ impl SlidingSyncService {
     }
 
     async fn get_current_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COALESCE(MAX(stream_id), 0)
-            FROM device_lists_stream
-            ",
-        )
-        .fetch_one(&*self.event_storage.pool)
-        .await
+        self.device_storage.get_max_device_list_stream_id().await
     }
 
     async fn get_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Value, sqlx::Error> {
-        let changed_rows = sqlx::query(
-            r"
-            SELECT DISTINCT dls.user_id
-            FROM device_lists_stream dls
-            INNER JOIN room_memberships rm1 ON rm1.user_id = dls.user_id AND rm1.membership = 'join'
-            INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
-            WHERE dls.stream_id > $1
-              AND dls.user_id != $2
-            ORDER BY dls.user_id
-            LIMIT 100
-            ",
-        )
-        .bind(since_stream_id)
-        .bind(user_id)
-        .fetch_all(&*self.event_storage.pool)
-        .await?;
-
-        let changed: Vec<String> = changed_rows
-            .into_iter()
-            .map(|row| {
-                use sqlx::Row;
-                row.get("user_id")
-            })
-            .collect();
-
-        let left_rows = sqlx::query(
-            r"
-            SELECT DISTINCT dls.user_id
-            FROM device_lists_stream dls
-            WHERE dls.stream_id > $1
-              AND dls.user_id != $2
-              AND NOT EXISTS (
-                SELECT 1 FROM room_memberships rm1
-                INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
-                WHERE rm1.user_id = dls.user_id AND rm1.membership = 'join'
-              )
-            ORDER BY dls.user_id
-            LIMIT 100
-            ",
-        )
-        .bind(since_stream_id)
-        .bind(user_id)
-        .fetch_all(&*self.event_storage.pool)
-        .await?;
-
-        let left: Vec<String> = left_rows
-            .into_iter()
-            .map(|row| {
-                use sqlx::Row;
-                row.get("user_id")
-            })
-            .collect();
+        let (changed, left) = self.device_storage
+            .get_device_lists_since_with_shared_rooms(since_stream_id, user_id)
+            .await?;
 
         Ok(json!({
             "changed": changed,
@@ -1220,74 +1172,18 @@ impl SlidingSyncService {
         device_id: &str,
         since_stream_id: i64,
         limit: i64,
-    ) -> Result<(Vec<Value>, Option<String>), sqlx::Error> {
-        let rows = sqlx::query(
-            r"
-            SELECT stream_id, sender_user_id, sender_device_id, event_type, content, message_id
-            FROM to_device_messages
-            WHERE recipient_user_id = $1
-              AND recipient_device_id = $2
-              AND stream_id > $3
-            ORDER BY stream_id ASC
-            LIMIT $4
-            ",
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(since_stream_id)
-        .bind(limit)
-        .fetch_all(&*self.event_storage.pool)
-        .await?;
-
-        let mut last_stream_id = since_stream_id;
-        let events: Vec<Value> = rows
-            .into_iter()
-            .map(|row| {
-                use sqlx::Row;
-                let stream_id: i64 = row.get("stream_id");
-                let sender: String = row.get("sender_user_id");
-                let _sender_device: String = row.get("sender_device_id");
-                let event_type: String = row.get("event_type");
-                let content: Value = row.get("content");
-                let message_id: Option<String> = row.get("message_id");
-                last_stream_id = stream_id;
-
-                let mut obj = json!({
-                    "type": event_type,
-                    "sender": sender,
-                    "content": content,
-                });
-
-                if let Some(mid) = message_id {
-                    obj["message_id"] = json!(mid);
-                }
-
-                obj
-            })
-            .collect();
+    ) -> Result<(Vec<Value>, Option<String>), ApiError> {
+        let (events, last_stream_id) = self.to_device_storage
+            .get_messages_since(user_id, device_id, since_stream_id, limit)
+            .await?;
 
         let next_batch = if events.is_empty() {
-            Some(self.get_current_to_device_stream_id(user_id, device_id).await?.to_string())
+            Some(self.to_device_storage.get_current_stream_id(user_id, device_id).await?.to_string())
         } else {
             Some(last_stream_id.to_string())
         };
 
         Ok((events, next_batch))
-    }
-
-    async fn get_current_to_device_stream_id(&self, user_id: &str, device_id: &str) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>(
-            r"
-            SELECT COALESCE(MAX(stream_id), 0)
-            FROM to_device_messages
-            WHERE recipient_user_id = $1
-              AND recipient_device_id = $2
-            ",
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .fetch_one(&*self.event_storage.pool)
-        .await
     }
 }
 

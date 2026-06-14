@@ -614,7 +614,7 @@ fn assemble_admin_support(
         federation_blacklist_service.clone(),
     ));
     let admin_media_service = Arc::new(crate::services::admin_media_service::AdminMediaService::new(
-        pool.clone(),
+        pool,
         UserStorage::new(pool, canonical_user_cache.clone()),
     ));
     let admin_security_service = Arc::new(crate::services::admin_security_service::AdminSecurityService::new(
@@ -623,7 +623,6 @@ fn assemble_admin_support(
     ));
     let admin_server_service = Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
     let admin_token_service = Arc::new(crate::services::admin_token_service::AdminTokenService::new(
-        pool.clone(),
         AccessTokenStorage::new(pool),
         Arc::new(refresh_token_storage.clone()),
         registration_token_service.clone(),
@@ -880,11 +879,14 @@ impl ServiceContainer {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
+        let account_data_storage = crate::storage::account_data::AccountDataStorage::new(pool);
+        #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::services::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
             presence_storage.clone(),
+            account_data_storage,
             &cache,
             config.server.name.clone(),
             Arc::new(canonical_key_rotation_manager.clone()),

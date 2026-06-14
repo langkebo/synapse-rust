@@ -4,7 +4,7 @@ pub use models::*;
 
 use crate::RoomService;
 use serde_json::{json, Map, Value};
-use sqlx::Row;
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use synapse_storage::{CreateEventParams, FriendRoomStorage, PresenceStorage, UserStorage};
+use synapse_storage::{AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, UserStorage};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
@@ -66,6 +66,7 @@ impl FriendRoomService {
         room_service: Arc<RoomService>,
         user_storage: UserStorage,
         presence_storage: PresenceStorage,
+        account_data_storage: AccountDataStorage,
         cache: Arc<CacheManager>,
         server_name: String,
         key_rotation_manager: Arc<KeyRotationManager>,
@@ -76,6 +77,7 @@ impl FriendRoomService {
             room_service,
             user_storage,
             presence_storage,
+            account_data_storage,
             cache,
             server_name,
             federation_client,
@@ -88,6 +90,7 @@ impl FriendRoomService {
         room_service: Arc<dyn FriendRoomRoomOps>,
         user_storage: UserStorage,
         presence_storage: PresenceStorage,
+        account_data_storage: AccountDataStorage,
         cache: Arc<CacheManager>,
         server_name: String,
         federation_client: Arc<dyn FriendFederationSender>,
@@ -97,6 +100,7 @@ impl FriendRoomService {
             room_service,
             user_storage,
             presence_storage,
+            account_data_storage,
             cache,
             server_name,
             federation_client,
@@ -527,38 +531,24 @@ impl FriendRoomService {
     }
 
     pub async fn load_direct_map(&self, user_id: &str) -> ApiResult<Map<String, Value>> {
-        let row = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.direct'")
-            .bind(user_id)
-            .fetch_optional(&*self.user_storage.pool)
+        let content = self
+            .account_data_storage
+            .get_account_data_content(user_id, "m.direct")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to load m.direct account data", &e))?;
 
-        match row {
-            Some(row) => match row.get::<Option<Value>, _>("content") {
-                Some(Value::Object(map)) => Ok(map),
-                Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
-                None => Ok(Map::new()),
-            },
+        match content {
+            Some(Value::Object(map)) => Ok(map),
+            Some(_) => Err(ApiError::internal("Invalid m.direct account data format")),
             None => Ok(Map::new()),
         }
     }
 
     pub async fn save_direct_map(&self, user_id: &str, direct_map: &Map<String, Value>) -> ApiResult<()> {
-        let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
-            VALUES ($1, 'm.direct', $2, $3, $3)
-            ON CONFLICT (user_id, data_type) DO UPDATE
-            SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
-            ",
-        )
-        .bind(user_id)
-        .bind(Value::Object(direct_map.clone()))
-        .bind(now)
-        .execute(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
+        self.account_data_storage
+            .upsert_account_data(user_id, "m.direct", Value::Object(direct_map.clone()))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
 
         Ok(())
     }
@@ -568,38 +558,14 @@ impl FriendRoomService {
         merge_direct_links(&mut direct_map, self.get_direct_message_links(user_id).await?);
 
         if direct_map.is_empty() {
-            let rows = sqlx::query(
-                r"
-                SELECT rm_other.user_id AS other_user_id, rm_user.room_id
-                FROM room_memberships rm_user
-                JOIN room_summaries rs
-                  ON rs.room_id = rm_user.room_id
-                 AND rs.is_direct = TRUE
-                JOIN room_memberships rm_other
-                  ON rm_other.room_id = rm_user.room_id
-                 AND rm_other.user_id <> $1
-                 AND rm_other.membership IN ('join', 'invite')
-                WHERE rm_user.user_id = $1
-                  AND rm_user.membership IN ('join', 'invite')
-                  AND (
-                    SELECT COUNT(*)
-                    FROM room_memberships rm_count
-                    WHERE rm_count.room_id = rm_user.room_id
-                      AND rm_count.membership IN ('join', 'invite')
-                  ) = 2
-                ",
-            )
-            .bind(user_id)
-            .fetch_all(&*self.user_storage.pool)
-            .await
-            .map_err(|e| ApiError::database_with_log("Failed to build effective direct map", &e))?;
+            let rows = self
+                .friend_storage
+                .get_effective_direct_links_fallback(user_id)
+                .await
+                .map_err(|e| ApiError::database_with_log("Failed to build effective direct map", &e))?;
 
             for row in rows {
-                ensure_room_in_direct_map(
-                    &mut direct_map,
-                    &row.get::<String, _>("other_user_id"),
-                    &row.get::<String, _>("room_id"),
-                );
+                ensure_room_in_direct_map(&mut direct_map, &row.other_user_id, &row.room_id);
             }
         }
 
@@ -720,27 +686,10 @@ impl FriendRoomService {
             }
         }
 
-        let row = sqlx::query(
-            r"
-            SELECT m1.room_id
-            FROM room_memberships m1
-            JOIN room_memberships m2 ON m1.room_id = m2.room_id
-            JOIN room_summaries rs ON m1.room_id = rs.room_id
-            WHERE m1.user_id = $1
-              AND m2.user_id = $2
-              AND m1.membership IN ('join', 'invite')
-              AND m2.membership IN ('join', 'invite')
-              AND rs.is_direct = true
-            LIMIT 1
-            ",
-        )
-        .bind(user_id)
-        .bind(friend_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::database_with_log("Failed to query existing DM room", &e))?;
-
-        Ok(row.map(|value| value.get::<String, _>("room_id")))
+        self.friend_storage
+            .get_existing_direct_room_id(user_id, friend_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to query existing DM room", &e))
     }
 
     pub async fn get_dm_partner_for_room(&self, user_id: &str, room_id: &str) -> ApiResult<Option<DmPartnerInfo>> {
@@ -767,31 +716,16 @@ impl FriendRoomService {
             }));
         }
 
-        let row = sqlx::query(
-            r"
-            SELECT
-                rm.user_id,
-                COALESCE(rm.display_name, u.displayname, u.username, '') AS display_name,
-                COALESCE(rm.avatar_url, u.avatar_url, '') AS avatar_url
-            FROM room_memberships rm
-            LEFT JOIN users u ON u.user_id = rm.user_id
-            WHERE rm.room_id = $1
-              AND rm.user_id <> $2
-              AND rm.membership IN ('join', 'invite')
-            ORDER BY CASE WHEN rm.membership = 'join' THEN 0 ELSE 1 END, rm.updated_ts DESC NULLS LAST
-            LIMIT 1
-            ",
-        )
-        .bind(room_id)
-        .bind(user_id)
-        .fetch_optional(&*self.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::database_with_log("Failed to load DM partner from membership", &e))?;
+        let partner = self
+            .friend_storage
+            .get_dm_partner_for_room(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to load DM partner from membership", &e))?;
 
-        Ok(row.map(|row| DmPartnerInfo {
-            user_id: row.get::<String, _>("user_id"),
-            display_name: row.get::<String, _>("display_name"),
-            avatar_url: row.get::<String, _>("avatar_url"),
+        Ok(partner.map(|row| DmPartnerInfo {
+            user_id: row.user_id,
+            display_name: row.display_name,
+            avatar_url: row.avatar_url,
         }))
     }
 

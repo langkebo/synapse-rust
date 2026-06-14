@@ -660,6 +660,122 @@ impl DeviceStorage {
         Ok(max_id)
     }
 
+    pub async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
+        Ok(self.get_max_device_list_stream_id().await? > since_stream_id)
+    }
+
+    pub async fn get_device_list_changed_users_since(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, i64), sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT user_id, MAX(stream_id) AS max_id
+            FROM device_lists_stream
+            WHERE stream_id > $1
+              AND user_id != $2
+            GROUP BY user_id
+            ORDER BY max_id ASC
+            LIMIT 100
+            ",
+        )
+        .bind(since_stream_id)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut max_stream_id = since_stream_id;
+        let changed = rows
+            .iter()
+            .map(|row| {
+                let user_id: String = row.get("user_id");
+                let stream_id: i64 = row.get("max_id");
+                if stream_id > max_stream_id {
+                    max_stream_id = stream_id;
+                }
+                user_id
+            })
+            .collect();
+
+        Ok((changed, max_stream_id))
+    }
+
+    pub async fn get_device_list_left_users_since(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT dl.user_id
+            FROM device_lists_stream dl
+            LEFT JOIN room_memberships rm ON rm.user_id = dl.user_id
+            WHERE dl.stream_id > $1
+              AND dl.user_id != $2
+              AND rm.user_id IS NULL
+            ORDER BY dl.user_id
+            LIMIT 100
+            ",
+        )
+        .bind(since_stream_id)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|row| row.get("user_id")).collect())
+    }
+
+    /// Get device lists changes with shared room permission checks
+    pub async fn get_device_lists_since_with_shared_rooms(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
+        let changed_rows = sqlx::query(
+            r"
+            SELECT DISTINCT dls.user_id
+            FROM device_lists_stream dls
+            INNER JOIN room_memberships rm1 ON rm1.user_id = dls.user_id AND rm1.membership = 'join'
+            INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
+            WHERE dls.stream_id > $1
+              AND dls.user_id != $2
+            ORDER BY dls.user_id
+            LIMIT 100
+            ",
+        )
+        .bind(since_stream_id)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
+
+        let left_rows = sqlx::query(
+            r"
+            SELECT DISTINCT dls.user_id
+            FROM device_lists_stream dls
+            WHERE dls.stream_id > $1
+              AND dls.user_id != $2
+              AND NOT EXISTS (
+                SELECT 1 FROM room_memberships rm1
+                INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
+                WHERE rm1.user_id = dls.user_id AND rm1.membership = 'join'
+              )
+            ORDER BY dls.user_id
+            LIMIT 100
+            ",
+        )
+        .bind(since_stream_id)
+        .bind(exclude_user_id)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let left: Vec<String> = left_rows.iter().map(|row| row.get("user_id")).collect();
+
+        Ok((changed, left))
+    }
+
     pub async fn get_device_list_changes(
         &self,
         since: i64,

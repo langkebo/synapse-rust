@@ -357,12 +357,7 @@ impl RoomService {
         }
 
         if let Some(ref jr) = initial_join_rule {
-            if let Err(e) = sqlx::query("UPDATE rooms SET join_rules = $1 WHERE room_id = $2")
-                .bind(jr)
-                .bind(&room_id)
-                .execute(&mut *tx)
-                .await
-            {
+            if let Err(e) = self.room_storage.update_join_rule_in_tx(&mut tx, &room_id, jr).await {
                 ::tracing::warn!(error = %e, room_id = %room_id, join_rule = %jr, "Failed to update join_rules on rooms table");
             }
             join_rule = jr.as_str();

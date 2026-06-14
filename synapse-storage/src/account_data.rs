@@ -48,4 +48,24 @@ impl AccountDataStorage {
             .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
         Ok(result.rows_affected() > 0)
     }
+
+    pub async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            INSERT INTO account_data (user_id, data_type, content, created_ts, updated_ts)
+            VALUES ($1, $2, $3, $4, $4)
+            ON CONFLICT (user_id, data_type) DO UPDATE
+            SET content = EXCLUDED.content, updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(user_id)
+        .bind(data_type)
+        .bind(content)
+        .bind(now)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to upsert account data", &e))?;
+        Ok(())
+    }
 }
