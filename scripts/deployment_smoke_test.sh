@@ -32,8 +32,11 @@ REPLICATION_SECRET="${REPLICATION_SECRET:-}"
 SMOKE_WORKER_ID="${SMOKE_WORKER_ID:-smoke-worker-$$-$(date +%s)}"
 SMOKE_PEER_WORKER_ID="${SMOKE_PEER_WORKER_ID:-${SMOKE_WORKER_ID}-peer}"
 SMOKE_WORKER_NAME="${SMOKE_WORKER_NAME:-Deployment Smoke Worker}"
+SMOKE_PEER_WORKER_NAME="${SMOKE_PEER_WORKER_NAME:-Deployment Smoke Peer Worker}"
 SMOKE_WORKER_HOST="${SMOKE_WORKER_HOST:-127.0.0.1}"
+SMOKE_PEER_WORKER_HOST="${SMOKE_PEER_WORKER_HOST:-127.0.0.1}"
 SMOKE_WORKER_PORT="${SMOKE_WORKER_PORT:-19001}"
+SMOKE_PEER_WORKER_PORT="${SMOKE_PEER_WORKER_PORT:-19002}"
 SMOKE_STREAM_NAME="${SMOKE_STREAM_NAME:-events}"
 SMOKE_STREAM_POSITION="${SMOKE_STREAM_POSITION:-424242}"
 SMOKE_TASK_TYPE="${SMOKE_TASK_TYPE:-smoke_test}"
@@ -239,9 +242,14 @@ if [ "$SKIP_WORKER_LIFECYCLE" = "0" ]; then
     else
         REPLICATION_AUTH_HEADER="x-synapse-worker-secret: $REPLICATION_SECRET"
         worker_created=0
+        peer_worker_created=0
+        primary_unregistered=0
         task_id=""
         next_task_id=""
         failed_task_id=""
+        backlog_task_one=""
+        backlog_task_two=""
+        backlog_task_three=""
 
         register_body=$(cat <<EOF
 {"worker_id":"$SMOKE_WORKER_ID","worker_name":"$SMOKE_WORKER_NAME","worker_type":"background","host":"$SMOKE_WORKER_HOST","port":$SMOKE_WORKER_PORT,"config":{},"metadata":{"smoke_test":true},"version":"smoke-test"}
@@ -258,6 +266,23 @@ EOF
             fi
         else
             fail_note "register smoke worker failed (HTTP $REQUEST_STATUS)"
+        fi
+
+        peer_register_body=$(cat <<EOF
+{"worker_id":"$SMOKE_PEER_WORKER_ID","worker_name":"$SMOKE_PEER_WORKER_NAME","worker_type":"background","host":"$SMOKE_PEER_WORKER_HOST","port":$SMOKE_PEER_WORKER_PORT,"config":{},"metadata":{"smoke_test":true,"peer":true},"version":"smoke-test"}
+EOF
+)
+        request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/register" "$ADMIN_AUTH_HEADER" "$peer_register_body"
+        if [ "$REQUEST_STATUS" = "201" ]; then
+            peer_worker_created=1
+            registered_peer_worker_id=$(json_extract "$REQUEST_BODY" "data.get('worker_id', '')")
+            if [ "$registered_peer_worker_id" = "$SMOKE_PEER_WORKER_ID" ]; then
+                pass_note "registered peer smoke worker $SMOKE_PEER_WORKER_ID"
+            else
+                fail_note "register peer smoke worker returned unexpected worker_id '${registered_peer_worker_id}'"
+            fi
+        else
+            fail_note "register peer smoke worker failed (HTTP $REQUEST_STATUS)"
         fi
 
         if [ "$worker_created" = "1" ]; then
@@ -280,6 +305,28 @@ EOF
                 fi
             else
                 fail_note "get worker after heartbeat failed (HTTP $REQUEST_STATUS)"
+            fi
+
+            if [ "$peer_worker_created" = "1" ]; then
+                request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_PEER_WORKER_ID/heartbeat" "$REPLICATION_AUTH_HEADER" "$heartbeat_body"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    pass_note "heartbeat accepted for $SMOKE_PEER_WORKER_ID"
+                else
+                    fail_note "heartbeat failed for $SMOKE_PEER_WORKER_ID (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    peer_worker_status=$(json_extract "$REQUEST_BODY" "data.get('status', '')")
+                    peer_last_heartbeat_ts=$(json_extract "$REQUEST_BODY" "data.get('last_heartbeat_ts', '')")
+                    if [ "$peer_worker_status" = "running" ] && [ -n "$peer_last_heartbeat_ts" ] && [ "$peer_last_heartbeat_ts" != "None" ]; then
+                        pass_note "peer worker detail reflects heartbeat and running status"
+                    else
+                        fail_note "peer worker detail missing running heartbeat state"
+                    fi
+                else
+                    fail_note "get peer worker after heartbeat failed (HTTP $REQUEST_STATUS)"
+                fi
             fi
 
             replication_body=$(cat <<EOF
@@ -468,14 +515,132 @@ EOF
                     else
                         fail_note "peer claim_next_task after fail-task expected HTTP 404, got $REQUEST_STATUS"
                     fi
+
+                    backlog_assign_one=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_one","worker_id":"$SMOKE_WORKER_ID"},"priority":100003}
+EOF
+)
+                    backlog_assign_two=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_two","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100002}
+EOF
+)
+                    backlog_assign_three=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"backlog_three","worker_id":"$SMOKE_WORKER_ID"},"priority":100001}
+EOF
+)
+
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$backlog_assign_one"
+                    if [ "$REQUEST_STATUS" = "201" ]; then
+                        backlog_task_one=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                    fi
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$backlog_assign_two"
+                    if [ "$REQUEST_STATUS" = "201" ]; then
+                        backlog_task_two=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                    fi
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$backlog_assign_three"
+                    if [ "$REQUEST_STATUS" = "201" ]; then
+                        backlog_task_three=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                    fi
+
+                    if [ -n "$backlog_task_one" ] && [ -n "$backlog_task_two" ] && [ -n "$backlog_task_three" ]; then
+                        pass_note "assigned three backlog smoke tasks"
+
+                        request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                        backlog_claim_one=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                        request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                        backlog_claim_two=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                        request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                        backlog_claim_three=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+
+                        if [ "$backlog_claim_one" = "$backlog_task_one" ] && [ "$backlog_claim_two" = "$backlog_task_two" ] && [ "$backlog_claim_three" = "$backlog_task_three" ]; then
+                            pass_note "two workers drain backlog in priority order without duplicate claims"
+                        else
+                            fail_note "backlog drain returned unexpected claim order or duplicate tasks"
+                        fi
+
+                        request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$backlog_task_one/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                        if [ "$REQUEST_STATUS" = "200" ]; then
+                            pass_note "completed backlog task $backlog_task_one"
+                        else
+                            fail_note "complete backlog task failed for $backlog_task_one (HTTP $REQUEST_STATUS)"
+                        fi
+                        request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$backlog_task_two/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                        if [ "$REQUEST_STATUS" = "200" ]; then
+                            pass_note "completed backlog task $backlog_task_two"
+                        else
+                            fail_note "complete backlog task failed for $backlog_task_two (HTTP $REQUEST_STATUS)"
+                        fi
+                        request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$backlog_task_three/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                        if [ "$REQUEST_STATUS" = "200" ]; then
+                            pass_note "completed backlog task $backlog_task_three"
+                        else
+                            fail_note "complete backlog task failed for $backlog_task_three (HTTP $REQUEST_STATUS)"
+                        fi
+                    else
+                        fail_note "assign backlog smoke tasks did not return three task ids"
+                    fi
+
+                    request "DELETE" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                    if [ "$REQUEST_STATUS" = "204" ]; then
+                        primary_unregistered=1
+                        pass_note "primary worker unregister succeeded before recovery test"
+                    else
+                        fail_note "primary worker unregister failed before recovery test (HTTP $REQUEST_STATUS)"
+                    fi
+
+                    recovery_assign_body=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"recovery_path","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100000}
+EOF
+)
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$recovery_assign_body"
+                    if [ "$REQUEST_STATUS" = "201" ]; then
+                        recovery_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                        if [ -n "$recovery_task_id" ]; then
+                            pass_note "assigned recovery smoke task $recovery_task_id"
+                            request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                            if [ "$REQUEST_STATUS" = "200" ]; then
+                                claimed_recovery_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                                claimed_recovery_worker_id=$(json_extract "$REQUEST_BODY" "data.get('assigned_worker_id', '')")
+                                if [ "$claimed_recovery_task_id" = "$recovery_task_id" ] && [ "$claimed_recovery_worker_id" = "$SMOKE_PEER_WORKER_ID" ]; then
+                                    pass_note "peer worker claims recovery task after primary unregister"
+                                else
+                                    fail_note "peer worker recovery claim returned unexpected task or worker"
+                                fi
+                            else
+                                fail_note "peer worker recovery claim failed (HTTP $REQUEST_STATUS)"
+                            fi
+
+                            request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$recovery_task_id/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                            if [ "$REQUEST_STATUS" = "200" ]; then
+                                pass_note "peer worker completed recovery task $recovery_task_id"
+                            else
+                                fail_note "peer worker recovery completion failed for $recovery_task_id (HTTP $REQUEST_STATUS)"
+                            fi
+                        else
+                            fail_note "assign recovery smoke task returned empty task_id"
+                        fi
+                    else
+                        fail_note "assign recovery smoke task failed (HTTP $REQUEST_STATUS)"
+                    fi
                 fi
             fi
 
-            request "DELETE" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER"
-            if [ "$REQUEST_STATUS" = "204" ]; then
-                pass_note "cleanup unregister succeeded for $SMOKE_WORKER_ID"
-            else
-                warn_note "cleanup unregister returned HTTP $REQUEST_STATUS for $SMOKE_WORKER_ID"
+            if [ "$primary_unregistered" = "0" ]; then
+                request "DELETE" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "204" ]; then
+                    pass_note "cleanup unregister succeeded for $SMOKE_WORKER_ID"
+                else
+                    warn_note "cleanup unregister returned HTTP $REQUEST_STATUS for $SMOKE_WORKER_ID"
+                fi
+            fi
+
+            if [ "$peer_worker_created" = "1" ]; then
+                request "DELETE" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "204" ]; then
+                    pass_note "cleanup unregister succeeded for $SMOKE_PEER_WORKER_ID"
+                else
+                    warn_note "cleanup unregister returned HTTP $REQUEST_STATUS for $SMOKE_PEER_WORKER_ID"
+                fi
             fi
         fi
     fi

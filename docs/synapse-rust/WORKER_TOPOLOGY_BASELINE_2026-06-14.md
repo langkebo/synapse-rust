@@ -205,7 +205,7 @@ server {
 | federation route ownership | 反向代理分流 | `/_matrix/federation/*` 命中 `federation_reader` |
 | replication protection | 内网安全边界 | 公网入口不可直接访问 `/_synapse/worker/v1/replication/*` |
 | replication position | worker 协调 | smoke worker 的 stream position 可写入并回读一致 |
-| task claim | background/pusher | smoke task 同时覆盖显式 claim、`claim_next_task` 原子领取与 `fail_task` 不回队列语义；复抢返回冲突或空队列；claim 后从 pending 列表消失，随后可完成或失败收口 |
+| task claim | background/pusher | smoke task 同时覆盖显式 claim、`claim_next_task` 原子领取、`fail_task` 不回队列、双 worker backlog drain 与主 worker 下线后的 peer 恢复领取；复抢返回冲突或空队列；claim 后从 pending 列表消失，随后可完成或失败收口 |
 
 当前仍未自动覆盖的检查：
 
