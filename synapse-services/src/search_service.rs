@@ -3,7 +3,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{Postgres, QueryBuilder, Row};
+use std::sync::Arc;
 use synapse_common::*;
+use synapse_storage::{EventStorage, RoomStorage};
 
 #[derive(Debug, Clone, Default)]
 pub struct SearchFilters {
@@ -217,21 +219,6 @@ pub struct SearchService {
 struct SearchRoomEventRecord {
     event_id: String,
     room_id: String,
-    sender: String,
-    event_type: String,
-    content: Value,
-    origin_server_ts: i64,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct TimestampEventMatchRecord {
-    event_id: String,
-    origin_server_ts: i64,
-}
-
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct EventContextEntryRecord {
-    event_id: String,
     sender: String,
     event_type: String,
     content: Value,
@@ -832,6 +819,38 @@ impl SearchService {
         self.postgres_pool.as_ref().ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))
     }
 
+    fn room_storage(&self) -> ApiResult<RoomStorage> {
+        let pool = Arc::new(self.postgres_pool()?.clone());
+        Ok(RoomStorage::new(&pool))
+    }
+
+    fn event_storage(&self) -> ApiResult<EventStorage> {
+        let pool = Arc::new(self.postgres_pool()?.clone());
+        Ok(EventStorage::new(&pool, String::new()))
+    }
+
+    fn context_entry_from_value(value: Value) -> EventContextEntry {
+        EventContextEntry {
+            event_id: value
+                .get("event_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            sender: value
+                .get("sender")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            event_type: value
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            content: value.get("content").cloned().unwrap_or(Value::Null),
+            origin_server_ts: value.get("origin_server_ts").and_then(|value| value.as_i64()).unwrap_or_default(),
+        }
+    }
+
     /// 使用 PostgreSQL 全文搜索搜索房间事件
     #[::tracing::instrument(
         skip_all,
@@ -852,23 +871,17 @@ impl SearchService {
         next_batch: Option<&str>,
     ) -> ApiResult<SearchRoomEventsPage> {
         let pool = self.postgres_pool()?;
+        let room_storage = self.room_storage()?;
         let cursor = decode_room_events_cursor(next_batch);
 
         if next_batch.is_some() && cursor.is_none() {
             return Err(ApiError::bad_request("Invalid next_batch cursor"));
         }
 
-        let joined_rooms: Vec<String> = sqlx::query_scalar::<_, String>(
-            r#"
-            SELECT room_id
-            FROM room_memberships
-            WHERE user_id = $1 AND membership = 'join'
-            "#,
-        )
-        .bind(user_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))?;
+        let joined_rooms = room_storage
+            .get_user_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))?;
 
         if joined_rooms.is_empty() {
             return Ok(SearchRoomEventsPage { results: Vec::new(), next_batch: None });
@@ -1004,42 +1017,13 @@ impl SearchService {
         ts: i64,
         direction: TimestampDirection,
     ) -> ApiResult<Option<TimestampEventMatch>> {
-        let pool = self.postgres_pool()?;
-        let row = match direction {
-            TimestampDirection::Backward => {
-                sqlx::query_as::<_, TimestampEventMatchRecord>(
-                    r#"
-                    SELECT event_id, origin_server_ts
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts <= $2
-                    ORDER BY origin_server_ts DESC
-                    LIMIT 1
-                    "#,
-                )
-                .bind(room_id)
-                .bind(ts)
-                .fetch_optional(pool)
-                .await
-            }
-            TimestampDirection::Forward => {
-                sqlx::query_as::<_, TimestampEventMatchRecord>(
-                    r#"
-                    SELECT event_id, origin_server_ts
-                    FROM events
-                    WHERE room_id = $1 AND origin_server_ts >= $2
-                    ORDER BY origin_server_ts ASC
-                    LIMIT 1
-                    "#,
-                )
-                .bind(room_id)
-                .bind(ts)
-                .fetch_optional(pool)
-                .await
-            }
-        }
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let event_storage = self.event_storage()?;
+        let row = event_storage
+            .find_event_id_by_timestamp(room_id, ts, matches!(direction, TimestampDirection::Forward))
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        Ok(row.map(|row| TimestampEventMatch { event_id: row.event_id, origin_server_ts: row.origin_server_ts }))
+        Ok(row.map(|(event_id, origin_server_ts)| TimestampEventMatch { event_id, origin_server_ts }))
     }
 
     #[::tracing::instrument(skip_all, fields(room_id = %room_id, target_ts = target_ts, limit = limit))]
@@ -1049,61 +1033,21 @@ impl SearchService {
         target_ts: i64,
         limit: i64,
     ) -> ApiResult<EventContextWindow> {
-        let pool = self.postgres_pool()?;
+        let event_storage = self.event_storage()?;
 
-        let events_before = sqlx::query_as::<_, EventContextEntryRecord>(
-            r#"
-            SELECT event_id, sender, event_type, content, origin_server_ts
-            FROM events
-            WHERE room_id = $1 AND origin_server_ts < $2
-            ORDER BY origin_server_ts DESC
-            LIMIT $3
-            "#,
-        )
-        .bind(room_id)
-        .bind(target_ts)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let events_before = event_storage
+            .get_events_before_context(room_id, target_ts, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        let events_after = sqlx::query_as::<_, EventContextEntryRecord>(
-            r#"
-            SELECT event_id, sender, event_type, content, origin_server_ts
-            FROM events
-            WHERE room_id = $1 AND origin_server_ts > $2
-            ORDER BY origin_server_ts ASC
-            LIMIT $3
-            "#,
-        )
-        .bind(room_id)
-        .bind(target_ts)
-        .bind(limit)
-        .fetch_all(pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let events_after = event_storage
+            .get_events_after_context(room_id, target_ts, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(EventContextWindow {
-            events_before: events_before
-                .into_iter()
-                .map(|row| EventContextEntry {
-                    event_id: row.event_id,
-                    sender: row.sender,
-                    event_type: row.event_type,
-                    content: row.content,
-                    origin_server_ts: row.origin_server_ts,
-                })
-                .collect(),
-            events_after: events_after
-                .into_iter()
-                .map(|row| EventContextEntry {
-                    event_id: row.event_id,
-                    sender: row.sender,
-                    event_type: row.event_type,
-                    content: row.content,
-                    origin_server_ts: row.origin_server_ts,
-                })
-                .collect(),
+            events_before: events_before.into_iter().map(Self::context_entry_from_value).collect(),
+            events_after: events_after.into_iter().map(Self::context_entry_from_value).collect(),
         })
     }
 
@@ -1163,42 +1107,30 @@ impl SearchService {
         search_term: &str,
         limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let pool = self
-            .postgres_pool
-            .as_ref()
-            .ok_or_else(|| ApiError::internal("PostgreSQL search not configured".to_string()))?;
-
+        let event_storage = self.event_storage()?;
         let search_pattern = format!("%{}%", search_term.to_lowercase());
-        let rows = sqlx::query!(
-            r#"
-            SELECT event_id AS "event_id!", room_id AS "room_id!", sender AS "sender!", event_type AS "event_type!", content AS "content!", origin_server_ts AS "origin_server_ts!"
-            FROM events
-            WHERE room_id = $1
-              AND event_type = 'm.room.message'
-              AND LOWER(content::text) LIKE $2
-            ORDER BY origin_server_ts DESC
-            LIMIT $3
-            "#,
-            room_id,
-            search_pattern,
-            limit,
-        )
-        .fetch_all(pool)
-        .await
+        let rows = event_storage
+            .search_room_messages_admin(room_id, &search_pattern, limit)
+            .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(rows
             .into_iter()
             .map(|row| {
+                let event_id = row.get("event_id").cloned().unwrap_or(Value::Null);
+                let sender = row.get("sender").cloned().unwrap_or(Value::Null);
+                let event_type = row.get("type").cloned().unwrap_or(Value::Null);
+                let content = row.get("content").cloned().unwrap_or(Value::Null);
+                let origin_server_ts = row.get("origin_server_ts").cloned().unwrap_or(Value::Null);
                 json!({
                     "rank": 1.0,
                     "result": {
-                        "event_id": row.event_id,
-                        "room_id": row.room_id,
-                        "sender": row.sender,
-                        "type": row.event_type,
-                        "content": row.content,
-                        "origin_server_ts": row.origin_server_ts
+                        "event_id": event_id,
+                        "room_id": room_id,
+                        "sender": sender,
+                        "type": event_type,
+                        "content": content,
+                        "origin_server_ts": origin_server_ts
                     }
                 })
             })

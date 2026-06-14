@@ -384,6 +384,8 @@ fn assemble_room_and_sync(
     )));
 
     let sliding_sync_storage = crate::storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
+    let sliding_sync_device_storage = DeviceStorage::new(pool);
+    let sliding_sync_to_device_storage = synapse_e2ee::to_device::ToDeviceStorage::new(pool);
     let sliding_sync_service = Arc::new(crate::services::sliding_sync_service::SlidingSyncService::new(
         sliding_sync_storage,
         Arc::new(cache.as_ref().to_synapse_cache_manager()),
@@ -391,6 +393,8 @@ fn assemble_room_and_sync(
         typing_service.clone(),
         presence_storage.clone(),
         member_storage.clone(),
+        sliding_sync_device_storage,
+        sliding_sync_to_device_storage,
     ));
 
     let space_storage = SpaceStorage::new(pool);
