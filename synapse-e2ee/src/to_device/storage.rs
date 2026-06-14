@@ -209,6 +209,117 @@ impl ToDeviceStorage {
         Ok(messages)
     }
 
+    pub async fn get_messages_since(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<(Vec<Value>, i64), ApiError> {
+        let rows = sqlx::query(
+            r"
+            SELECT sender_user_id, event_type, content, message_id, stream_id
+            FROM to_device_messages
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+              AND stream_id > $3
+            ORDER BY stream_id ASC
+            LIMIT $4
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(since_stream_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        let mut max_stream_id = since_stream_id;
+        let mut messages = Vec::with_capacity(rows.len());
+        for row in rows {
+            let sender_user_id: String = row.get("sender_user_id");
+            let event_type: String = row.get("event_type");
+            let content: Value = row.get("content");
+            let message_id: Option<String> = row.get("message_id");
+            let stream_id: i64 = row.get("stream_id");
+            if stream_id > max_stream_id {
+                max_stream_id = stream_id;
+            }
+
+            let mut msg = serde_json::json!({
+                "type": event_type,
+                "sender": sender_user_id,
+                "content": content
+            });
+            if let Some(mid) = message_id {
+                if let Some(obj) = msg.as_object_mut() {
+                    obj.insert("message_id".to_string(), serde_json::json!(mid));
+                }
+            }
+            messages.push(msg);
+        }
+
+        Ok((messages, max_stream_id))
+    }
+
+    pub async fn get_current_stream_id(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<i64, ApiError> {
+        let max_id: Option<i64> = sqlx::query_scalar(
+            r"
+            SELECT COALESCE(MAX(stream_id), 0)
+            FROM to_device_messages
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(max_id.unwrap_or(0))
+    }
+
+    pub async fn has_messages_since(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        since_stream_id: i64,
+    ) -> Result<bool, ApiError> {
+        let row = sqlx::query(
+            r"
+            SELECT 1
+            FROM to_device_messages
+            WHERE recipient_user_id = $1
+              AND recipient_device_id = $2
+              AND stream_id > $3
+            LIMIT 1
+            ",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(since_stream_id)
+        .fetch_optional(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(row.is_some())
+    }
+
     pub async fn get_and_delete_messages(&self, user_id: &str, device_id: &str) -> Result<Vec<Value>, ApiError> {
         let rows = sqlx::query(
             r"

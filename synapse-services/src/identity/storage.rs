@@ -1,21 +1,17 @@
 use super::models::ThirdPartyId;
-use sqlx::{PgPool, Row};
-use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::{CreateThreepidRequest, ThreepidStorage};
 
 #[derive(Clone)]
 pub struct IdentityStorage {
-    pool: PgPool,
     threepid_storage: ThreepidStorage,
 }
 
 impl IdentityStorage {
-    pub fn new(pool: &PgPool) -> Self {
-        let pool = pool.clone();
-        let threepid_storage = ThreepidStorage::new(Arc::new(pool.clone()));
+    pub fn new(pool: &sqlx::PgPool) -> Self {
+        let threepid_storage = ThreepidStorage::new(pool);
 
-        Self { pool, threepid_storage }
+        Self { threepid_storage }
     }
 
     pub async fn get_user_three_pids(&self, user_id: &str) -> Result<Vec<ThirdPartyId>, ApiError> {
@@ -59,28 +55,17 @@ impl IdentityStorage {
     }
 
     pub async fn get_pending_three_pid_validations(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        let rows: Vec<sqlx::postgres::PgRow> = sqlx::query(
-            r"
-            SELECT address, medium, user_id, validated_at, added_ts
-            FROM user_threepids
-            WHERE validated_at < added_ts
-            ORDER BY added_ts DESC
-            LIMIT 100
-            ",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get pending 3PID validations", &e))?;
+        let rows = self.threepid_storage.get_pending_threepids(100).await?;
 
         Ok(rows
             .into_iter()
-            .map(|r| {
+            .map(|threepid| {
                 serde_json::json!({
-                    "address": r.get::<Option<String>, _>("address"),
-                    "medium": r.get::<String, _>("medium"),
-                    "user_id": r.get::<String, _>("user_id"),
-                    "validated_ts": r.get::<Option<i64>, _>("validated_at"),
-                    "added_ts": r.get::<i64, _>("added_ts")
+                    "address": threepid.address,
+                    "medium": threepid.medium,
+                    "user_id": threepid.user_id,
+                    "validated_ts": threepid.validated_at,
+                    "added_ts": threepid.added_ts
                 })
             })
             .collect())
