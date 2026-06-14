@@ -2,7 +2,7 @@
 
 use crate::common::{ApiError, ApiResult};
 
-/// Validate room alias format: #alias:server
+/// Validate room alias format: `#alias:server`.
 pub(crate) fn validate_room_alias_input(alias: &str) -> ApiResult<()> {
     if alias.is_empty() {
         return Err(ApiError::bad_request("room_alias is required".to_string()));
@@ -57,7 +57,6 @@ mod tests {
 
     #[test]
     fn test_alias_max_length() {
-        // 255 - 1 (for #) - 13 (for :example.com) = 241 chars for localpart
         let alias = format!("#{}:example.com", "a".repeat(241));
         assert!(validate_room_alias_input(&alias).is_ok());
     }
@@ -82,7 +81,6 @@ mod tests {
 
     #[test]
     fn test_alias_multiple_colons() {
-        // rsplit_once should handle multiple colons
         assert!(validate_room_alias_input("#test:sub.example.com").is_ok());
     }
 

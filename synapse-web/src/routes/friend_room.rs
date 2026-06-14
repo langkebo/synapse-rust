@@ -341,6 +341,8 @@ pub struct FriendListQueryParams {
     #[serde(default)]
     pub offset: Option<usize>,
     #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
     pub sort_by: Option<String>,
 }
 
@@ -393,6 +395,18 @@ async fn get_friends(
     auth_user: AuthenticatedUser,
     Query(params): Query<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
+    let cursor = synapse_services::friend_room_service::decode_friend_list_cursor(params.from.as_deref());
+    let legacy_offset = match (params.from.as_deref(), cursor.as_ref(), params.offset) {
+        (_, Some(_), offset) => offset,
+        (Some(from), None, offset) => from.parse::<usize>().ok().or(offset),
+        (None, None, offset) => offset,
+    };
+    if params.offset.unwrap_or(0) > 0 && cursor.is_none() {
+        return Err(ApiError::bad_request("Legacy offset pagination is no longer supported; use from cursor"));
+    }
+    if params.from.is_some() && cursor.is_none() && legacy_offset.is_none() {
+        return Err(ApiError::bad_request("Invalid friend list pagination cursor"));
+    }
     let page = state
         .services
         .extensions
@@ -401,7 +415,8 @@ async fn get_friends(
             &auth_user.user_id,
             synapse_services::friend_room_service::FriendListRequest {
                 limit: params.limit.unwrap_or(50).clamp(1, 200),
-                offset: params.offset.unwrap_or(0).clamp(0, 10000),
+                offset: legacy_offset.map(|offset| offset.clamp(0, 10000)),
+                from: cursor,
                 sort_by: params.sort_by.unwrap_or_else(|| "alphabet".to_string()),
             },
         )
@@ -950,7 +965,7 @@ async fn create_friend_dm(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let config = synapse_services::room::service::CreateRoomConfig {
+    let config = synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
         visibility: Some("private".to_string()),
         room_alias_name: None,
         name: None,

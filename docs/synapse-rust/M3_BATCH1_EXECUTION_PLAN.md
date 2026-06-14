@@ -290,6 +290,8 @@
 - `.sqlx/` 目录保持空（与新基线一致）
 - 阶段 B 启动前置条件 ✅ 已就绪
 
+> 2026-06-13 更新：仓库现行策略已正式统一为 **live-schema / DB-enabled compile gate 为主，`.sqlx/` 为可选 offline accelerator**。因此 `scripts/ci/check_sqlx_offline_cache.sh` 已调整为“有缓存就校验、无缓存就显式 SKIP”，不再把空 `.sqlx/` 视为失败。
+
 ### 7.5 验收清单
 
 - [x] `cargo check --bin synapse-rust` 退出码 0

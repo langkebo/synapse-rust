@@ -105,7 +105,7 @@ pub struct ServiceContainer {
     pub builtin_oidc_provider: Option<()>,
     pub identity_service: Arc<crate::services::identity::IdentityService>,
     pub uia_service: Arc<crate::services::uia_service::UiaService>,
-    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub event_broadcaster: Arc<synapse_services::federation::event_broadcaster::EventBroadcaster>,
     pub account_data_service: Arc<crate::services::account_data_service::AccountDataService>,
     pub client_push_service: Arc<crate::services::client_push_service::ClientPushService>,
     pub room_tag_service: Arc<crate::services::room_tag_service::RoomTagService>,
@@ -128,7 +128,7 @@ pub struct CoreServices {
     pub server_name: String,
     pub config: Config,
     pub key_rotation_storage: KeyRotationStorage,
-    pub event_broadcaster: Arc<crate::federation::event_broadcaster::EventBroadcaster>,
+    pub event_broadcaster: Arc<synapse_services::federation::event_broadcaster::EventBroadcaster>,
     pub event_notifier: crate::services::event_notifier::EventNotifier,
 }
 
@@ -530,6 +530,7 @@ fn assemble_admin_support(
     pool: &Arc<sqlx::PgPool>,
     cache: &Arc<CacheManager>,
     config: &Config,
+    task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
 ) -> AdminServices {
@@ -596,8 +597,11 @@ fn assemble_admin_support(
 
     let captcha_storage = crate::storage::captcha::CaptchaStorage::new(pool);
     let canonical_captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service =
-        Arc::new(crate::services::captcha_service::CaptchaService::new(Arc::new(canonical_captcha_storage)));
+    let captcha_service = Arc::new(crate::services::captcha_service::CaptchaService::with_delivery(
+        Arc::new(canonical_captcha_storage),
+        task_queue.clone(),
+        config.smtp.enabled,
+    ));
 
     let federation_blacklist_storage = crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
     let federation_blacklist_service =
@@ -611,10 +615,12 @@ fn assemble_admin_support(
     ));
     let admin_media_service = Arc::new(crate::services::admin_media_service::AdminMediaService::new(
         pool.clone(),
-        UserStorage::new(pool, canonical_user_cache),
+        UserStorage::new(pool, canonical_user_cache.clone()),
     ));
-    let admin_security_service =
-        Arc::new(crate::services::admin_security_service::AdminSecurityService::new(pool.clone(), cache.clone()));
+    let admin_security_service = Arc::new(crate::services::admin_security_service::AdminSecurityService::new(
+        UserStorage::new(pool, canonical_user_cache),
+        cache.clone(),
+    ));
     let admin_server_service = Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
     let admin_token_service = Arc::new(crate::services::admin_token_service::AdminTokenService::new(
         pool.clone(),
@@ -785,11 +791,21 @@ impl ServiceContainer {
         let federation = assemble_federation(pool, &cache, &config, &task_queue);
 
         // Event broadcaster (federation)
-        let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_origin = config.server.get_server_name().to_string();
         let broadcaster_member_storage = RoomMemberStorage::new(pool, &broadcaster_origin);
+        let canonical_key_rotation_manager =
+            synapse_services::federation::KeyRotationManager::with_key_path_and_master_key(
+                pool,
+                &broadcaster_server_name,
+                config.server.signing_key_path.clone(),
+                config.federation.signing_key_master_key.as_ref().map(|k| k.as_bytes().to_vec()),
+            );
+        let broadcaster_federation_client = Arc::new(synapse_services::federation::FederationClient::new(
+            broadcaster_server_name.clone(),
+            Arc::new(canonical_key_rotation_manager.clone()),
+        ));
         let event_broadcaster = Arc::new(
-            crate::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name.clone())
+            synapse_services::federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name.clone())
                 .with_client(broadcaster_federation_client)
                 .with_pool(pool.as_ref().clone())
                 .with_membership_storage(Arc::new(broadcaster_member_storage)),
@@ -831,13 +847,18 @@ impl ServiceContainer {
         );
 
         // Admin & support services — domain assembly
-        let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service);
+        let admin = assemble_admin_support(pool, &cache, &config, &task_queue, &metrics, &auth_service);
         rooms.room_service.set_app_service_manager(admin.app_service_manager.clone()).await;
-        let media_domain_service = Arc::new(crate::services::media::MediaDomainService::new(
-            media_service.clone(),
-            admin.media_quota_service.clone(),
-            chunked_upload_service.clone(),
-        ));
+        let media_domain_service = {
+            let svc = crate::services::media::MediaDomainService::new(
+                media_service.clone(),
+                admin.media_quota_service.clone(),
+                chunked_upload_service.clone(),
+            );
+            let quarantine_storage = Arc::new(synapse_storage::media::QuarantinedMediaChangeStorage::new(pool));
+            svc.with_quarantine_stream(quarantine_storage, None)
+        };
+        let media_domain_service = Arc::new(media_domain_service);
 
         // Registration service
         let registration_service = Arc::new(crate::services::registration_service::RegistrationService::new(
@@ -864,9 +885,9 @@ impl ServiceContainer {
             rooms.room_service.clone(),
             user_storage.clone(),
             presence_storage.clone(),
-            cache.clone(),
+            &cache,
             config.server.name.clone(),
-            Arc::new(federation.key_rotation_manager.clone()),
+            Arc::new(canonical_key_rotation_manager.clone()),
         ));
         #[cfg(feature = "friends")]
         let friend_federation = Arc::new(FriendFederation::new(friend_room_service.clone()));
@@ -881,7 +902,10 @@ impl ServiceContainer {
         #[cfg(feature = "voip-tracking")]
         let rtc_call = Arc::new(crate::services::rtc::CallOrchestrationService::new(Arc::new(call_session_storage)));
         #[cfg(feature = "voip-tracking")]
-        let rtc_session = Arc::new(crate::services::rtc::RtcSessionService::new(matrixrtc_storage, Arc::new(cache.as_ref().to_synapse_cache_manager())));
+        let rtc_session = Arc::new(crate::services::rtc::RtcSessionService::new(
+            matrixrtc_storage,
+            Arc::new(cache.as_ref().to_synapse_cache_manager()),
+        ));
         #[cfg(feature = "voip-tracking")]
         let rtc_sfu = Arc::new(crate::services::rtc::LivekitClient::new(config.livekit.clone()));
         let rtc_domain_service = Arc::new(crate::services::rtc::RtcDomainService::new(
@@ -1018,7 +1042,7 @@ impl ServiceContainer {
 
         // Account data & Push services
         let account_data_service = Arc::new(crate::services::account_data_service::AccountDataService::new(
-            pool.clone(),
+            pool,
             user_storage.clone(),
             rooms.room_storage.clone(),
             crate::storage::filter::FilterStorage::new(pool),

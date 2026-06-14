@@ -5,6 +5,7 @@ pub use models::*;
 use crate::RoomService;
 use serde_json::{json, Map, Value};
 use sqlx::Row;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
@@ -12,17 +13,57 @@ use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use synapse_storage::{CreateEventParams, EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use synapse_storage::{CreateEventParams, FriendRoomStorage, PresenceStorage, UserStorage};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
+
+#[async_trait::async_trait]
+impl FriendRoomRoomOps for RoomService {
+    async fn create_room(&self, user_id: &str, config: FriendRoomCreateRoomConfig) -> ApiResult<serde_json::Value> {
+        self.create_room(
+            user_id,
+            crate::room_service::CreateRoomConfig {
+                visibility: config.visibility,
+                room_alias_name: config.room_alias_name,
+                name: config.name,
+                topic: config.topic,
+                invite_list: config.invite_list,
+                preset: config.preset,
+                encryption: config.encryption,
+                history_visibility: config.history_visibility,
+                is_direct: config.is_direct,
+                room_type: config.room_type,
+                initial_state: config.initial_state,
+                creation_content: config.creation_content,
+                room_version: config.room_version,
+                power_level_content_override: config.power_level_content_override,
+            },
+        )
+        .await
+    }
+
+    async fn create_event(&self, params: CreateEventParams) -> ApiResult<synapse_storage::RoomEvent> {
+        self.create_event(params, None).await
+    }
+}
+
+#[async_trait::async_trait]
+impl FriendFederationSender for FriendFederationClient {
+    async fn send_invite(&self, destination: &str, room_id: &str, content: &Value) -> ApiResult<()> {
+        self.send_invite(destination, room_id, content).await
+    }
+
+    async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>> {
+        self.query_remote_friends(destination, user_id).await
+    }
+}
 
 impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         friend_storage: FriendRoomStorage,
         room_service: Arc<RoomService>,
-        event_storage: EventStorage,
         user_storage: UserStorage,
         presence_storage: PresenceStorage,
         cache: Arc<CacheManager>,
@@ -30,10 +71,30 @@ impl FriendRoomService {
         key_rotation_manager: Arc<KeyRotationManager>,
     ) -> Self {
         let federation_client = Arc::new(FriendFederationClient::new(server_name.clone(), Some(key_rotation_manager)));
+        Self::new_with_dependencies(
+            friend_storage,
+            room_service,
+            user_storage,
+            presence_storage,
+            cache,
+            server_name,
+            federation_client,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_dependencies(
+        friend_storage: FriendRoomStorage,
+        room_service: Arc<dyn FriendRoomRoomOps>,
+        user_storage: UserStorage,
+        presence_storage: PresenceStorage,
+        cache: Arc<CacheManager>,
+        server_name: String,
+        federation_client: Arc<dyn FriendFederationSender>,
+    ) -> Self {
         Self {
             friend_storage,
             room_service,
-            event_storage,
             user_storage,
             presence_storage,
             cache,
@@ -55,7 +116,7 @@ impl FriendRoomService {
             return Ok(room_id);
         }
 
-        let config = crate::room_service::CreateRoomConfig {
+        let config = FriendRoomCreateRoomConfig {
             name: Some("Friends".to_string()),
             visibility: Some("private".to_string()),
             preset: Some("private_chat".to_string()),
@@ -738,7 +799,7 @@ impl FriendRoomService {
         &self,
         owner_user_id: &str,
         friend_user_id: &str,
-        config: crate::room::service::CreateRoomConfig,
+        config: FriendRoomCreateRoomConfig,
         actor_user_id: Option<&str>,
     ) -> ApiResult<EnsureDirectRoomResult> {
         if let Some(room_id) = self.get_existing_dm_room_id(owner_user_id, friend_user_id).await? {
@@ -780,7 +841,7 @@ impl FriendRoomService {
         &self,
         owner_user_id: &str,
         target_user_ids: &[String],
-        config: crate::room::service::CreateRoomConfig,
+        config: FriendRoomCreateRoomConfig,
         actor_user_id: Option<&str>,
     ) -> ApiResult<EnsureDirectRoomResult> {
         if target_user_ids.len() == 1 {
@@ -817,10 +878,16 @@ impl FriendRoomService {
 
         let version = content.get("version").and_then(|v| v.as_i64()).unwrap_or(1);
         let safe_limit = request.limit.clamp(1, 100);
-        let cache_key = format!(
-            "friends:list:v2:{}:{}:{}:{}:{}:{}",
-            user_id, room_id, version, request.sort_by, request.offset, safe_limit
+        if let Some(cursor) = request.from.as_ref() {
+            if cursor.sort_by != request.sort_by {
+                return Err(ApiError::bad_request("Friend list cursor sort order does not match request"));
+            }
+        }
+        let page_key = request.from.as_ref().map_or_else(
+            || format!("offset:{}", request.offset.unwrap_or(0)),
+            |cursor| format!("cursor:{}", encode_friend_list_cursor(cursor)),
         );
+        let cache_key = format!("friends:list:v3:{}:{}:{}:{}:{}", user_id, room_id, version, request.sort_by, page_key);
 
         if let Ok(Some(mut cached)) = self.cache.get::<FriendListPage>(&cache_key).await {
             cached.cached = true;
@@ -848,17 +915,36 @@ impl FriendRoomService {
         Self::sort_friend_entries(&mut items, &request.sort_by);
 
         let total = items.len();
-        let offset = request.offset.min(total);
-        let paged_items = items.into_iter().skip(offset).take(safe_limit).collect::<Vec<_>>();
-        let next_offset = (offset + paged_items.len() < total).then_some(offset + paged_items.len());
+        let offset = request.offset.unwrap_or(0).min(total);
+        let start_index = if let Some(cursor) = request.from.as_ref() {
+            items
+                .iter()
+                .position(|item| {
+                    Self::compare_friend_entry_to_cursor(item, cursor, &request.sort_by) == Ordering::Greater
+                })
+                .unwrap_or(total)
+        } else {
+            offset
+        };
+        let paged_items = items.iter().skip(start_index).take(safe_limit).cloned().collect::<Vec<_>>();
+        let next_offset =
+            request.from.is_none().then_some(start_index + paged_items.len()).filter(|next| *next < total);
+        let next_batch = if start_index + paged_items.len() < total {
+            paged_items
+                .last()
+                .map(|item| encode_friend_list_cursor(&Self::cursor_from_friend_entry(item, &request.sort_by)))
+        } else {
+            None
+        };
 
         let page = FriendListPage {
             room_id,
             items: paged_items,
             total,
             limit: safe_limit,
-            offset,
+            offset: request.from.is_none().then_some(start_index),
             next_offset,
+            next_batch,
             version,
             cached: false,
             generated_ts: chrono::Utc::now().timestamp_millis(),
@@ -970,19 +1056,16 @@ impl FriendRoomService {
         content: serde_json::Value,
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
-        self.event_storage
-            .create_event(
-                CreateEventParams {
-                    event_id: generate_event_id(&self.server_name),
-                    room_id: room_id.to_string(),
-                    user_id: user_id.to_string(),
-                    event_type: event_type.to_string(),
-                    content,
-                    state_key: Some(state_key.to_string()),
-                    origin_server_ts: now,
-                },
-                None,
-            )
+        self.room_service
+            .create_event(CreateEventParams {
+                event_id: generate_event_id(&self.server_name),
+                room_id: room_id.to_string(),
+                user_id: user_id.to_string(),
+                event_type: event_type.to_string(),
+                content,
+                state_key: Some(state_key.to_string()),
+                origin_server_ts: now,
+            })
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();
@@ -1113,7 +1196,7 @@ impl FriendRoomService {
     }
 
     async fn create_friend_dm_room(&self, user_id: &str, friend_id: &str) -> ApiResult<String> {
-        let config = crate::room_service::CreateRoomConfig {
+        let config = FriendRoomCreateRoomConfig {
             visibility: Some("private".to_string()),
             preset: Some("trusted_private_chat".to_string()),
             invite_list: Some(vec![friend_id.to_string()]),
@@ -1184,37 +1267,65 @@ impl FriendRoomService {
     }
 
     fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
+        items.sort_by(|left, right| Self::compare_friend_entries(left, right, sort_by));
+    }
+
+    fn compare_friend_entries(left: &FriendListEntry, right: &FriendListEntry, sort_by: &str) -> Ordering {
         match sort_by {
-            "activity" => items.sort_by(|left, right| {
-                right
-                    .online
-                    .cmp(&left.online)
-                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
-                    .then_with(|| right.added_ts.cmp(&left.added_ts))
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
-            "recent" => items.sort_by(|left, right| {
-                right
-                    .added_ts
-                    .cmp(&left.added_ts)
-                    .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
-            _ => items.sort_by(|left, right| {
-                left.sort_letter
-                    .cmp(&right.sort_letter)
-                    .then_with(|| {
-                        left.display_name.as_deref().or(left.username.as_deref()).unwrap_or(left.user_id.as_str()).cmp(
-                            right
-                                .display_name
-                                .as_deref()
-                                .or(right.username.as_deref())
-                                .unwrap_or(right.user_id.as_str()),
-                        )
-                    })
-                    .then_with(|| left.user_id.cmp(&right.user_id))
-            }),
+            "activity" => right
+                .online
+                .cmp(&left.online)
+                .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                .then_with(|| right.added_ts.cmp(&left.added_ts))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
+            "recent" => right
+                .added_ts
+                .cmp(&left.added_ts)
+                .then_with(|| right.last_active_ts.cmp(&left.last_active_ts))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
+            _ => left
+                .sort_letter
+                .cmp(&right.sort_letter)
+                .then_with(|| Self::friend_display_key(left).cmp(Self::friend_display_key(right)))
+                .then_with(|| left.user_id.cmp(&right.user_id)),
         }
+    }
+
+    fn compare_friend_entry_to_cursor(item: &FriendListEntry, cursor: &FriendListCursor, sort_by: &str) -> Ordering {
+        match sort_by {
+            "activity" => cursor
+                .online
+                .cmp(&item.online)
+                .then_with(|| cursor.last_active_ts.cmp(&item.last_active_ts))
+                .then_with(|| cursor.added_ts.cmp(&item.added_ts))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+            "recent" => cursor
+                .added_ts
+                .cmp(&item.added_ts)
+                .then_with(|| cursor.last_active_ts.cmp(&item.last_active_ts))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+            _ => item
+                .sort_letter
+                .cmp(&cursor.sort_letter)
+                .then_with(|| Self::friend_display_key(item).cmp(cursor.display_key.as_str()))
+                .then_with(|| item.user_id.cmp(&cursor.user_id)),
+        }
+    }
+
+    fn cursor_from_friend_entry(item: &FriendListEntry, sort_by: &str) -> FriendListCursor {
+        FriendListCursor {
+            sort_by: sort_by.to_string(),
+            sort_letter: item.sort_letter.clone(),
+            display_key: Self::friend_display_key(item).to_string(),
+            online: item.online,
+            last_active_ts: item.last_active_ts,
+            added_ts: item.added_ts,
+            user_id: item.user_id.clone(),
+        }
+    }
+
+    fn friend_display_key(item: &FriendListEntry) -> &str {
+        item.display_name.as_deref().or(item.username.as_deref()).unwrap_or(item.user_id.as_str())
     }
 
     fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {

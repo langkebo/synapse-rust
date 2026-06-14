@@ -70,6 +70,8 @@ pub struct RoomService {
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
+    #[cfg(not(feature = "beacons"))]
+    pub(crate) beacon_service: Option<()>,
 }
 
 impl RoomService {
@@ -90,6 +92,8 @@ impl RoomService {
             app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
+            #[cfg(not(feature = "beacons"))]
+            beacon_service: None,
         }
     }
 
@@ -157,7 +161,7 @@ impl RoomService {
         *self.app_service_manager.write().await = Some(app_service_manager);
     }
 
-    pub(crate) async fn dispatch_appservice_event(
+    pub async fn dispatch_appservice_event(
         &self,
         event_id: &str,
         room_id: &str,
@@ -262,6 +266,27 @@ impl RoomService {
             .collect();
 
         Ok(json!(rooms))
+    }
+}
+
+impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoomConfig {
+    fn from(config: crate::friend_room_service::FriendRoomCreateRoomConfig) -> Self {
+        Self {
+            visibility: config.visibility,
+            room_alias_name: config.room_alias_name,
+            name: config.name,
+            topic: config.topic,
+            invite_list: config.invite_list,
+            preset: config.preset,
+            encryption: config.encryption,
+            history_visibility: config.history_visibility,
+            is_direct: config.is_direct,
+            room_type: config.room_type,
+            initial_state: config.initial_state,
+            creation_content: config.creation_content,
+            room_version: config.room_version,
+            power_level_content_override: config.power_level_content_override,
+        }
     }
 }
 
