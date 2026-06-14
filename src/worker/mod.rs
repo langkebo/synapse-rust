@@ -6,6 +6,7 @@ pub mod protocol;
 pub mod storage;
 pub mod stream;
 pub mod tcp;
+pub mod topology_validator;
 pub mod types;
 
 pub use bus::{BusMessage, RedisBusConfig, WorkerBus};
