@@ -1,11 +1,14 @@
 # synapse-rust Worker Topology Baseline
 
-> 版本: v0.1
+> 版本: v0.2
 > 日期: 2026-06-14
+> 最后更新: P1-12 topology validator 落地 + P1-13 运维文档基线对齐
 > 对应代码:
 > - `src/worker/types.rs`
+> - `src/worker/topology_validator.rs`（新增）
 > - `src/web/routes/worker.rs`
 > - `/_synapse/worker/v1/topology`
+> - `scripts/deployment_smoke_test.sh`（新增）
 
 ---
 
@@ -54,7 +57,7 @@ admin worker API 已新增：
 
 说明：
 
-- `owned_route_prefixes` 当前是“归属声明基线”，还不是启动时强校验的 route owner validator。
+- `owned_route_prefixes` 当前是"归属声明基线"，启动期 topology validator（`src/worker/topology_validator.rs`）会校验 instance_map_keys 唯一性与 Master 存在性，但 route prefix 冲突目前仅做 warning 级别报告（不阻塞启动）。
 - `replication_streams` 当前是“最小预期消费/写入流”基线，还不是完整的 HTTP replication listener 拓扑实现。
 - `instance_map_keys` 当前用于对齐 Synapse 风格配置心智模型，后续仍需把真实配置文件、反向代理和 listener 绑定起来。
 
@@ -184,25 +187,38 @@ server {
 
 ## 七、Smoke Test 基线
 
-为避免 topology 只停留在静态文档层，后续 deployment smoke test 至少应覆盖以下检查：
+当前仓库已提供 `scripts/deployment_smoke_test.sh`，并支持通过以下环境变量执行带鉴权的 smoke test：
+
+- `ADMIN_ENDPOINT`
+- `REPLICATION_ENDPOINT`
+- `ADMIN_AUTH_HEADER="Authorization: Bearer <admin_access_token>"`
+- `REPLICATION_SECRET="<worker_replication_secret>"`
+
+当前脚本已覆盖以下检查：
 
 | 检查项 | 目标 | 通过标准 |
 |---|---|---|
-| topology API | `GET /_synapse/worker/v1/topology` | 返回 `split_minimal`，且 worker 类型矩阵完整 |
-| worker register/heartbeat | worker 管理面 | `client_reader` / `sync_worker` / `event_persister` / `background_worker` 均可注册并持续 heartbeat |
+| topology API | `GET /_synapse/worker/v1/topology` | 返回基线拓扑 JSON，且 worker 类型矩阵完整 |
+| worker register/heartbeat | worker 管理面 | smoke worker 可注册，heartbeat 后 `GET /workers/{id}` 可见 `status=running` 且 `last_heartbeat_ts` 已推进 |
 | client route ownership | 反向代理分流 | `/sync` 命中 `sync_worker`，普通 client API 命中 `client_reader` |
 | media route ownership | 反向代理分流 | `/_matrix/media/*` 命中 `media_repository` |
 | federation route ownership | 反向代理分流 | `/_matrix/federation/*` 命中 `federation_reader` |
 | replication protection | 内网安全边界 | 公网入口不可直接访问 `/_synapse/worker/v1/replication/*` |
-| replication position | worker 协调 | `event_persister` / `background_worker` 等实例的 stream position 可读写并持续推进 |
-| task claim | background/pusher | `worker_tasks` 可被 background / pusher 消费，且不会出现双重 claim |
+| replication position | worker 协调 | smoke worker 的 stream position 可写入并回读一致 |
+| task claim | background/pusher | smoke task 同时覆盖显式 claim、`claim_next_task` 原子领取与 `fail_task` 不回队列语义；复抢返回冲突或空队列；claim 后从 pending 列表消失，随后可完成或失败收口 |
+
+当前仍未自动覆盖的检查：
+
+- `/sync` / media / federation 的真实反向代理命中验证
+- 多 worker 高并发 backlog / 恢复场景下的 claim 公平性与恢复观测
+- topology API 输出与实际 listener 绑定的一致性比对
 
 建议最小执行顺序：
 
 1. 启动 `split_minimal` 预设中的全部 worker
 2. 通过 admin API 校验 worker 注册与 topology 输出
-3. 通过反向代理访问 `/sync`、普通 client API、media API、federation API
-4. 校验 replication position 与 worker task claim
+3. 执行 `ADMIN_AUTH_HEADER=... REPLICATION_SECRET=... bash scripts/deployment_smoke_test.sh`
+4. 通过反向代理访问 `/sync`、普通 client API、media API、federation API
 5. 验证 replication 路径仅在内网可达
 
 ---
@@ -222,9 +238,9 @@ server {
 相对上游 Synapse worker 模型，当前仍缺：
 
 - 真实 `instance_map -> listener -> reverse proxy` 闭环
-- 启动期 topology validator
+- ~~启动期 topology validator~~ ✅ 已落地（`src/worker/topology_validator.rs`），启动时校验 instance_map_keys 唯一性、Master 必须存在、route prefix 冲突
 - route owner / stream writer / background owner 的强校验
-- 多实例状态同步 smoke test
+- ~~多实例状态同步 smoke test~~ ✅ 已落地首版（heartbeat / replication position / task claim）
 - 反向代理样例配置
 - 运维手册与故障定位手册
 
@@ -235,6 +251,6 @@ server {
 按优先级建议继续：
 
 1. 把本文的 listener / reverse proxy / smoke test 样例转成可执行部署工件
-2. 增加 topology validator，启动时校验 route owner / stream writer / background owner
-3. 增加 deployment smoke test，验证多实例下 heartbeat、replication position、task claim、topology API 一致性
-4. 将本文件链接进综合审计报告与后续部署文档
+2. ~~增加 topology validator，启动时校验 route owner / stream writer / background owner~~ ✅ 已落地（P1-12）
+3. ~~增加 deployment smoke test，验证多实例下 heartbeat、replication position、task claim、topology API 一致性~~ ✅ 已落地首版
+4. 继续补强 route ownership 与多 worker 并发恢复类 smoke test
