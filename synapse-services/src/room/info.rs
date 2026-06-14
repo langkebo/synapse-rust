@@ -2,7 +2,6 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
-use sqlx::Row;
 
 use super::service::RoomService;
 
@@ -72,35 +71,20 @@ impl RoomService {
     }
 
     pub async fn get_user_room_list(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let rooms_res = sqlx::query(
-            r#"
-            SELECT rm.room_id, rm.membership,
-                   COALESCE(r.name, '') AS name,
-                   COALESCE(r.avatar_url, '') AS avatar_url,
-                   rm.updated_ts
-            FROM room_memberships rm
-            LEFT JOIN rooms r ON rm.room_id = r.room_id
-            WHERE rm.user_id = $1
-            ORDER BY rm.updated_ts DESC
-            "#,
-        )
-        .bind(user_id)
-        .fetch_all(&*self.room_storage.pool)
-        .await;
-
-        let rooms = match rooms_res {
-            Ok(r) => r,
-            Err(e) => return Err(ApiError::internal_with_log("Failed to get user rooms", &e)),
-        };
+        let rooms = self
+            .room_storage
+            .get_user_room_list_summary(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user rooms", &e))?;
 
         Ok(rooms
             .into_iter()
-            .map(|row| {
+            .map(|(room_id, membership, name, avatar_url)| {
                 json!({
-                    "room_id": row.get::<String, _>("room_id"),
-                    "membership": row.get::<String, _>("membership"),
-                    "name": row.get::<String, _>("name"),
-                    "avatar_url": row.get::<String, _>("avatar_url")
+                    "room_id": room_id,
+                    "membership": membership,
+                    "name": name,
+                    "avatar_url": avatar_url
                 })
             })
             .collect())
