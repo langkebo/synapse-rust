@@ -4,6 +4,7 @@ pub mod state;
 
 pub use models::*;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use sqlx::{Pool, Postgres};
@@ -156,6 +157,56 @@ impl EventStorage {
         .bind(limit)
         .fetch_all(&*self.pool)
         .await
+    }
+
+    pub async fn get_ephemeral_events_batch(
+        &self,
+        room_ids: &[String],
+        now: i64,
+        limit: i64,
+    ) -> Result<HashMap<String, Vec<RoomEphemeralEvent>>, sqlx::Error> {
+        let mut result: HashMap<String, Vec<RoomEphemeralEvent>> =
+            room_ids.iter().cloned().map(|room_id| (room_id, Vec::new())).collect();
+        if room_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let rows = sqlx::query_as::<_, (String, String, String, serde_json::Value, i64, i64)>(
+            r"
+            SELECT room_id, event_type, user_id, content, stream_id, created_ts
+            FROM (
+                SELECT
+                    room_id,
+                    event_type,
+                    user_id,
+                    content,
+                    stream_id,
+                    created_ts,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY room_id
+                        ORDER BY stream_id DESC
+                    ) AS rn
+                FROM room_ephemeral
+                WHERE room_id = ANY($1)
+                  AND (expires_at IS NULL OR expires_at > $2)
+            ) ranked
+            WHERE rn <= $3
+            ORDER BY room_id, stream_id DESC
+            ",
+        )
+        .bind(room_ids)
+        .bind(now)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        for (room_id, event_type, user_id, content, stream_id, created_ts) in rows {
+            if let Some(events) = result.get_mut(&room_id) {
+                events.push(RoomEphemeralEvent { event_type, user_id, content, stream_id, created_ts });
+            }
+        }
+
+        Ok(result)
     }
 
     pub async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
@@ -322,6 +373,47 @@ impl EventStorage {
         }
 
         Ok(None)
+    }
+
+    pub async fn find_event_id_by_timestamp(
+        &self,
+        room_id: &str,
+        ts: i64,
+        forward: bool,
+    ) -> Result<Option<(String, i64)>, sqlx::Error> {
+        if forward {
+            sqlx::query_as::<_, (String, i64)>(
+                r"
+                SELECT event_id, origin_server_ts
+                FROM events
+                WHERE room_id = $1
+                  AND origin_server_ts IS NOT NULL
+                  AND origin_server_ts >= $2
+                ORDER BY origin_server_ts ASC
+                LIMIT 1
+                ",
+            )
+            .bind(room_id)
+            .bind(ts)
+            .fetch_optional(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, (String, i64)>(
+                r"
+                SELECT event_id, origin_server_ts
+                FROM events
+                WHERE room_id = $1
+                  AND origin_server_ts IS NOT NULL
+                  AND origin_server_ts <= $2
+                ORDER BY origin_server_ts DESC
+                LIMIT 1
+                ",
+            )
+            .bind(room_id)
+            .bind(ts)
+            .fetch_optional(&*self.pool)
+            .await
+        }
     }
 
     pub async fn get_room_events_by_type(
