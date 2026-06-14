@@ -459,6 +459,26 @@ impl RoomStorage {
         .await
     }
 
+    pub async fn get_user_room_list_summary(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<(String, String, String, String)>, sqlx::Error> {
+        sqlx::query_as::<_, (String, String, String, String)>(
+            r"
+            SELECT rm.room_id, rm.membership,
+                   COALESCE(r.name, '') AS name,
+                   COALESCE(r.avatar_url, '') AS avatar_url
+            FROM room_memberships rm
+            LEFT JOIN rooms r ON rm.room_id = r.room_id
+            WHERE rm.user_id = $1
+            ORDER BY rm.updated_ts DESC
+            ",
+        )
+        .bind(user_id)
+        .fetch_all(&*self.pool)
+        .await
+    }
+
     pub async fn get_user_rooms_paginated(
         &self,
         user_id: &str,
