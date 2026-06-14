@@ -6,6 +6,7 @@ use tokio::sync::RwLock;
 // =============================================================================
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
+pub mod account_data;
 pub mod application_service;
 pub mod audit;
 pub mod background_update;
@@ -26,17 +27,21 @@ pub mod membership;
 pub mod moderation;
 pub mod module;
 pub mod monitoring;
+pub mod oidc_user_mapping;
 pub mod openid_token;
 pub mod performance;
 pub mod presence;
+pub mod push;
 pub mod push_notification;
 pub mod qr_login;
+pub mod rate_limit;
 pub mod refresh_token;
 pub mod registration_token;
 pub mod relations;
 pub mod rendezvous;
 pub mod retention;
 pub mod room;
+pub mod room_account_data;
 pub mod room_summary;
 pub mod room_tag;
 pub mod schema_health_check;
@@ -97,6 +102,7 @@ pub mod captcha;
 pub use self::threepid::UserThreepid;
 pub use self::user::*;
 
+pub use self::account_data::*;
 pub use self::application_service::*;
 pub use self::audit::*;
 pub use self::captcha::*;
@@ -115,13 +121,17 @@ pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
+pub use self::oidc_user_mapping::*;
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::presence::*;
+pub use self::push::*;
 pub use self::push_notification::*;
 pub use self::qr_login::*;
+pub use self::rate_limit::*;
 pub use self::rendezvous::*;
 pub use self::room::*;
+pub use self::room_account_data::*;
 pub use self::schema_validator::*;
 pub use self::search_index::*;
 pub use self::sliding_sync::*;

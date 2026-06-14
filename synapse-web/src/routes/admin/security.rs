@@ -8,8 +8,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use synapse_common::ApiError;
+use synapse_storage::RateLimitStorage;
 
 pub fn create_security_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -70,13 +70,15 @@ pub async fn shadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("UPDATE users SET is_shadow_banned = true WHERE user_id = $1")
-        .bind(&user_id)
-        .execute(&*state.services.account.user_storage.pool)
+    let updated = state
+        .services
+        .account
+        .user_storage
+        .set_shadow_ban(&user_id, true)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    if result.rows_affected() == 0 {
+    if !updated {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -103,13 +105,15 @@ pub async fn unshadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("UPDATE users SET is_shadow_banned = false WHERE user_id = $1")
-        .bind(&user_id)
-        .execute(&*state.services.account.user_storage.pool)
+    let updated = state
+        .services
+        .account
+        .user_storage
+        .set_shadow_ban(&user_id, false)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    if result.rows_affected() == 0 {
+    if !updated {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -137,20 +141,20 @@ pub async fn get_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let limit = sqlx::query("SELECT messages_per_second, burst_count FROM rate_limits WHERE user_id = $1")
-        .bind(&user_id)
-        .fetch_optional(&*state.services.account.user_storage.pool)
+    let rate_limit_storage = RateLimitStorage::new();
+    let limit = rate_limit_storage
+        .get_user_rate_limit(&state.services.account.user_storage.pool, &user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     match limit {
         Some(row) => Ok(Json(json!({
-            "messages_per_second": row.get::<Option<f64>, _>("messages_per_second").unwrap_or(5.0),
-            "burst_count": row.get::<Option<i32>, _>("burst_count").unwrap_or(10)
+            "messages_per_second": row.messages_per_second.unwrap_or(5.0_f64),
+            "burst_count": row.burst_count.unwrap_or(10_i32)
         }))),
         None => Ok(Json(json!({
-            "messages_per_second": 5.0,
-            "burst_count": 10
+            "messages_per_second": 5.0_f64,
+            "burst_count": 10_i32
         }))),
     }
 }
@@ -168,15 +172,11 @@ pub async fn set_user_rate_limit(
     let messages_per_second = body.messages_per_second.unwrap_or(5.0);
     let burst_count = body.burst_count.unwrap_or(10);
 
-    sqlx::query(
-        "INSERT INTO rate_limits (user_id, messages_per_second, burst_count) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET messages_per_second = $2, burst_count = $3"
-    )
-    .bind(&user_id)
-    .bind(messages_per_second)
-    .bind(burst_count)
-    .execute(&*state.services.account.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let rate_limit_storage = RateLimitStorage::new();
+    rate_limit_storage
+        .upsert_user_rate_limit(&state.services.account.user_storage.pool, &user_id, messages_per_second, burst_count)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
     record_audit_event(
         &state,
@@ -207,9 +207,9 @@ pub async fn delete_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    sqlx::query("DELETE FROM rate_limits WHERE user_id = $1")
-        .bind(&user_id)
-        .execute(&*state.services.account.user_storage.pool)
+    let rate_limit_storage = RateLimitStorage::new();
+    rate_limit_storage
+        .delete_user_rate_limit(&state.services.account.user_storage.pool, &user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 

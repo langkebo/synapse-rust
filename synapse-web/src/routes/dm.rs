@@ -9,7 +9,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use synapse_services::room_service::CreateRoomConfig;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]
@@ -366,7 +365,7 @@ async fn create_dm_room_via_service(
     invitee_user_ids: &[String],
     body: &CreateDmRequest,
 ) -> Result<String, ApiError> {
-    let config = CreateRoomConfig {
+    let config = synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
         name: body.name.clone(),
         topic: body.topic.clone(),
         invite_list: Some(invitee_user_ids.to_vec()),

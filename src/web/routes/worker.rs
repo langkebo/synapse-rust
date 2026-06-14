@@ -125,6 +125,11 @@ pub struct WorkerResponse {
     pub worker_id: String,
     pub worker_name: String,
     pub worker_type: String,
+    pub instance_map_keys: Vec<String>,
+    pub responsibility_domains: Vec<String>,
+    pub owned_route_prefixes: Vec<String>,
+    pub replication_streams: Vec<String>,
+    pub capabilities: WorkerCapabilities,
     pub host: String,
     pub port: i32,
     pub status: String,
@@ -134,11 +139,28 @@ pub struct WorkerResponse {
 
 impl From<WorkerInfo> for WorkerResponse {
     fn from(w: WorkerInfo) -> Self {
+        let worker_type = WorkerType::from_str(&w.worker_type).ok();
+
         Self {
             id: w.id,
             worker_id: w.worker_id,
             worker_name: w.worker_name,
             worker_type: w.worker_type,
+            instance_map_keys: worker_type
+                .map(|worker_type| worker_type.instance_map_keys().iter().map(|value| (*value).to_string()).collect())
+                .unwrap_or_default(),
+            responsibility_domains: worker_type
+                .map(|worker_type| {
+                    worker_type.responsibility_domains().iter().map(|value| (*value).to_string()).collect()
+                })
+                .unwrap_or_default(),
+            owned_route_prefixes: worker_type
+                .map(|worker_type| worker_type.owned_route_prefixes().iter().map(|value| (*value).to_string()).collect())
+                .unwrap_or_default(),
+            replication_streams: worker_type
+                .map(|worker_type| worker_type.replication_streams().iter().map(|value| (*value).to_string()).collect())
+                .unwrap_or_default(),
+            capabilities: worker_type.map(|worker_type| WorkerCapabilities::for_type(&worker_type)).unwrap_or_default(),
             host: w.host,
             port: w.port,
             status: w.status,
@@ -420,6 +442,13 @@ pub async fn get_statistics(
     Ok(Json(stats))
 }
 
+pub async fn get_topology(
+    _state: State<AppState>,
+    _admin_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(WorkerTopologySummary::baseline()))
+}
+
 pub async fn get_type_statistics(
     State(state): State<AppState>,
     _admin_user: AdminUser,
@@ -466,6 +495,7 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/tasks", get(get_pending_tasks))
         .route("/_synapse/worker/v1/tasks/claim/{worker_id}", post(claim_next_task))
         .route("/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}", post(claim_task))
+        .route("/_synapse/worker/v1/topology", get(get_topology))
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
@@ -512,6 +542,7 @@ pub fn worker_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::GET, "/_synapse/worker/v1/tasks"),
         (Method::POST, "/_synapse/worker/v1/tasks/claim/{worker_id}"),
         (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}"),
+        (Method::GET, "/_synapse/worker/v1/topology"),
         (Method::GET, "/_synapse/worker/v1/statistics"),
         (Method::GET, "/_synapse/worker/v1/statistics/types"),
         (Method::GET, "/_synapse/worker/v1/select/{task_type}"),
@@ -622,5 +653,36 @@ mod tests {
         assert_eq!(request.task_type, "http");
         assert_eq!(request.priority, Some(10));
         assert_eq!(request.preferred_worker_id.as_deref(), Some("worker-b"));
+    }
+
+    #[test]
+    fn test_worker_response_from_worker_info_includes_topology_metadata() {
+        let response = WorkerResponse::from(WorkerInfo {
+            id: 1,
+            worker_id: "worker-1".to_string(),
+            worker_name: "Worker One".to_string(),
+            worker_type: "event_persister".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 9000,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(123),
+            started_ts: 456,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        });
+
+        assert_eq!(response.instance_map_keys, vec!["event_persister".to_string()]);
+        assert_eq!(response.responsibility_domains, vec!["event_persistence".to_string()]);
+        assert_eq!(response.owned_route_prefixes, vec!["/_synapse/worker/v1/replication/*".to_string()]);
+        assert_eq!(response.replication_streams, vec!["events".to_string()]);
+        assert!(response.capabilities.can_persist_events);
+    }
+
+    #[test]
+    fn test_worker_route_manifest_contains_topology_endpoint() {
+        let manifest = worker_route_manifest();
+        assert!(manifest.iter().any(|entry| entry.path == "/_synapse/worker/v1/topology"));
     }
 }

@@ -116,6 +116,20 @@ impl SpaceService {
             .map_err(|e| ApiError::internal_with_log("Failed to get space children", &e))
     }
 
+    #[instrument(skip(self))]
+    pub async fn get_space_children_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_added_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<SpaceChild>, ApiError> {
+        self.space_storage
+            .get_space_children_paginated(space_id, limit, from_added_ts, from_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get paginated space children", &e))
+    }
+
     // ── Hierarchy ──
 
     #[instrument(skip(self))]

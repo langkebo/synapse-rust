@@ -479,6 +479,15 @@ impl UserStorage {
         Ok(())
     }
 
+    pub async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(r"UPDATE users SET is_shadow_banned = $1 WHERE user_id = $2")
+            .bind(is_shadow_banned)
+            .bind(user_id)
+            .execute(&*self.pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn set_account_data(
         &self,
         user_id: &str,

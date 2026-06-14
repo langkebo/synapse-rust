@@ -1,17 +1,18 @@
 use crate::common::ApiError;
+use crate::storage::account_data::AccountDataStorage;
 use crate::storage::filter::{CreateFilterRequest, FilterStorage};
 use crate::storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
+use crate::storage::room_account_data::RoomAccountDataStorage;
 use crate::storage::room::RoomStorage;
 use crate::storage::user::UserStorage;
 use serde_json::Value;
-use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
-    pool: Arc<PgPool>,
+    account_data_storage: AccountDataStorage,
     user_storage: UserStorage,
     room_storage: RoomStorage,
     filter_storage: FilterStorage,
@@ -20,25 +21,24 @@ pub struct AccountDataService {
 
 impl AccountDataService {
     pub fn new(
-        pool: Arc<PgPool>,
+        pool: &Arc<sqlx::PgPool>,
         user_storage: UserStorage,
         room_storage: RoomStorage,
         filter_storage: FilterStorage,
         openid_token_storage: OpenIdTokenStorage,
     ) -> Self {
-        Self { pool, user_storage, room_storage, filter_storage, openid_token_storage }
+        Self {
+            account_data_storage: AccountDataStorage::new(pool),
+            user_storage,
+            room_storage,
+            filter_storage,
+            openid_token_storage,
+        }
     }
 
     #[instrument(skip(self))]
     pub async fn list_account_data(&self, user_id: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
-        let result = sqlx::query!(
-            r#"SELECT data_type AS "data_type!", content AS "content!" FROM account_data WHERE user_id = $1"#,
-            user_id,
-        )
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
+        let result = self.account_data_storage.list_account_data(user_id).await?;
         Ok(result.into_iter().map(|row| (row.data_type, row.content)).collect())
     }
 
@@ -61,11 +61,7 @@ impl AccountDataService {
 
     #[instrument(skip(self))]
     pub async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query!("DELETE FROM account_data WHERE user_id = $1 AND data_type = $2", user_id, data_type)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))?;
-        Ok(result.rows_affected() > 0)
+        self.account_data_storage.delete_account_data(user_id, data_type).await
     }
 
     #[instrument(skip(self, body))]
@@ -90,16 +86,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        let result = sqlx::query_scalar::<_, Value>(
-            r#"SELECT data FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-        )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(data_type)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-        Ok(result)
+        RoomAccountDataStorage::get_room_account_data_content(&self.room_storage.pool, user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self))]
@@ -109,20 +96,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<AccountDataWithTimestamp>, ApiError> {
-        let result = sqlx::query(
-            r#"SELECT data, updated_ts FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3"#,
-        )
-        .bind(user_id)
-        .bind(room_id)
-        .bind(data_type)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-        Ok(result.map(|row| {
-            let data = row.get::<Value, _>("data");
-            let updated_ts = row.try_get::<Option<i64>, _>("updated_ts").ok().flatten();
-            (data, updated_ts)
-        }))
+        RoomAccountDataStorage::get_room_account_data_with_ts(&self.room_storage.pool, user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self))]
@@ -132,16 +106,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<bool, ApiError> {
-        let result = sqlx::query!(
-            "DELETE FROM room_account_data WHERE user_id = $1 AND room_id = $2 AND data_type = $3",
-            user_id,
-            room_id,
-            data_type,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
-        Ok(result.rows_affected() > 0)
+        RoomAccountDataStorage::delete_room_account_data(&self.room_storage.pool, user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self, content))]

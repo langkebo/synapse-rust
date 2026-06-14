@@ -8,13 +8,15 @@ impl PushStorage {
     pub async fn get_pushers(
         pool: &sqlx::PgPool,
         user_id: &str,
+        device_id: Option<&str>,
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
         sqlx::query(
             "SELECT pushkey, kind, app_id, app_display_name, device_display_name, \
              profile_tag, lang, data, device_id \
-             FROM pushers WHERE user_id = $1 ORDER BY created_ts DESC",
+             FROM pushers WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2 ORDER BY created_ts DESC",
         )
         .bind(user_id)
+        .bind(device_id)
         .fetch_all(pool)
         .await
     }
@@ -63,11 +65,13 @@ impl PushStorage {
     pub async fn delete_pusher(
         pool: &sqlx::PgPool,
         user_id: &str,
+        device_id: &str,
         pushkey: &str,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2")
+        sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3")
             .bind(user_id)
             .bind(pushkey)
+            .bind(device_id)
             .execute(pool)
             .await?;
         Ok(())
@@ -114,15 +118,14 @@ impl PushStorage {
         kind: &str,
         rule_id: &str,
     ) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
-        )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(rule_id)
-        .execute(pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4")
+                .bind(user_id)
+                .bind(scope)
+                .bind(kind)
+                .bind(rule_id)
+                .execute(pool)
+                .await?;
         Ok(result.rows_affected())
     }
 
@@ -153,8 +156,8 @@ impl PushStorage {
         scope: &str,
         kind: &str,
         rule_id: &str,
-    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
-        sqlx::query(
+    ) -> Result<Option<bool>, sqlx::Error> {
+        sqlx::query_scalar(
             "SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
         )
         .bind(user_id)
@@ -213,7 +216,7 @@ impl PushStorage {
         limit: i64,
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
         sqlx::query(
-            "SELECT event_id, room_id, ts, notification_type, is_read \
+            "SELECT id, event_id, room_id, ts, notification_type, is_read \
              FROM notifications WHERE user_id = $1 ORDER BY ts DESC LIMIT $2",
         )
         .bind(user_id)

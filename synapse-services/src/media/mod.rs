@@ -952,4 +952,74 @@ mod tests {
             .expect("media should remain downloadable after forbidden delete");
         assert_eq!(downloaded.content, b"private media");
     }
+
+    #[tokio::test]
+    async fn test_start_chunked_upload_rejects_negative_total_size() {
+        let (media_domain_service, _media_service, user, _temp_dir) =
+            setup_test_media_domain("negative_size_tester").await;
+
+        let error = media_domain_service
+            .start_chunked_upload(&user.user_id, Some("bad.txt"), Some("text/plain"), Some(-1), 1)
+            .await
+            .expect_err("negative total_size should be rejected");
+
+        assert_eq!(error.http_status(), axum::http::StatusCode::BAD_REQUEST);
+        assert!(error.message().contains("total_size must not be negative"));
+    }
+
+    #[test]
+    fn test_guess_content_type_prefers_detected_bytes_over_filename_extension() {
+        let png_bytes = b"\x89PNG\r\n\x1a\nrest";
+
+        assert_eq!(guess_content_type("document.txt", png_bytes), "image/png");
+    }
+
+    #[test]
+    fn test_guess_content_type_falls_back_to_filename_extension() {
+        assert_eq!(guess_content_type("notes.json", b"plain text"), "application/json");
+        assert_eq!(guess_content_type("archive.unknown", b"plain text"), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_sanitize_attachment_filename_removes_control_and_path_characters() {
+        let sanitized = sanitize_attachment_filename("..\u{0000}/bad\\name\".txt");
+
+        assert_eq!(sanitized, "..badname.txt");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_uses_inline_for_safe_media_types() {
+        let headers = build_media_response_headers("image/png".to_string(), 42, Some("photo.png"));
+
+        assert_eq!(headers.content_type, "image/png");
+        assert_eq!(headers.content_length, 42);
+        assert_eq!(headers.content_disposition, "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png");
+        assert_eq!(headers.x_content_type_options, "nosniff");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_uses_attachment_for_unsafe_types_and_encodes_filename() {
+        let headers = build_media_response_headers("text/html".to_string(), 99, Some("report 2026.html"));
+
+        assert_eq!(
+            headers.content_disposition,
+            "attachment; filename=\"report 2026.html\"; filename*=UTF-8''report%202026.html"
+        );
+        assert_eq!(headers.cross_origin_resource_policy, "cross-origin");
+        assert_eq!(headers.referrer_policy, "no-referrer");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_falls_back_to_kind_when_filename_sanitizes_empty() {
+        let headers = build_media_response_headers("text/html".to_string(), 7, Some("/\\\"\u{0000}"));
+
+        assert_eq!(headers.content_disposition, "attachment");
+    }
+
+    #[test]
+    fn test_build_media_response_headers_treats_safe_media_type_case_insensitively() {
+        let headers = build_media_response_headers("IMAGE/PNG; charset=binary".to_string(), 5, Some("photo.png"));
+
+        assert_eq!(headers.content_disposition, "inline; filename=\"photo.png\"; filename*=UTF-8''photo.png");
+    }
 }

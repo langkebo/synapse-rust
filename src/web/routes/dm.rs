@@ -1,7 +1,7 @@
 // Direct Message Routes - 直接消息路由
 // DM room creation and management
 
-use crate::services::room_service::CreateRoomConfig;
+use crate::services::friend_room_service::FriendRoomCreateRoomConfig;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -367,7 +367,7 @@ async fn create_dm_room_via_service(
     invitee_user_ids: &[String],
     body: &CreateDmRequest,
 ) -> Result<String, ApiError> {
-    let config = CreateRoomConfig {
+    let config = FriendRoomCreateRoomConfig {
         name: body.name.clone(),
         topic: body.topic.clone(),
         invite_list: Some(invitee_user_ids.to_vec()),

@@ -1,22 +1,46 @@
-use crate::RoomService;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_federation::friend::FriendFederationClient;
-use synapse_storage::{EventStorage, FriendRoomStorage, PresenceStorage, UserStorage};
+use synapse_storage::{CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage};
+use synapse_common::ApiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
     pub limit: usize,
-    pub offset: usize,
+    pub offset: Option<usize>,
+    pub from: Option<FriendListCursor>,
     pub sort_by: String,
 }
 
 impl Default for FriendListRequest {
     fn default() -> Self {
-        Self { limit: 50, offset: 0, sort_by: "alphabet".to_string() }
+        Self { limit: 50, offset: Some(0), from: None, sort_by: "alphabet".to_string() }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FriendListCursor {
+    pub sort_by: String,
+    pub sort_letter: String,
+    pub display_key: String,
+    pub online: bool,
+    pub last_active_ts: Option<i64>,
+    pub added_ts: Option<i64>,
+    pub user_id: String,
+}
+
+#[allow(clippy::expect_used)]
+pub fn encode_friend_list_cursor(cursor: &FriendListCursor) -> String {
+    let raw = serde_json::to_string(cursor).expect("friend list cursor serialization should succeed");
+    URL_SAFE_NO_PAD.encode(raw.as_bytes())
+}
+
+pub fn decode_friend_list_cursor(cursor: Option<&str>) -> Option<FriendListCursor> {
+    let cursor = cursor?;
+    let decoded = URL_SAFE_NO_PAD.decode(cursor).ok()?;
+    serde_json::from_slice::<FriendListCursor>(&decoded).ok()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +73,9 @@ pub struct FriendListPage {
     pub items: Vec<FriendListEntry>,
     pub total: usize,
     pub limit: usize,
-    pub offset: usize,
+    pub offset: Option<usize>,
     pub next_offset: Option<usize>,
+    pub next_batch: Option<String>,
     pub version: i64,
     pub cached: bool,
     pub generated_ts: i64,
@@ -67,6 +92,24 @@ pub struct DmPartnerInfo {
 pub struct EnsureDirectRoomResult {
     pub room_id: String,
     pub created: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FriendRoomCreateRoomConfig {
+    pub visibility: Option<String>,
+    pub room_alias_name: Option<String>,
+    pub name: Option<String>,
+    pub topic: Option<String>,
+    pub invite_list: Option<Vec<String>>,
+    pub preset: Option<String>,
+    pub encryption: Option<String>,
+    pub history_visibility: Option<String>,
+    pub is_direct: Option<bool>,
+    pub room_type: Option<String>,
+    pub initial_state: Option<Vec<serde_json::Value>>,
+    pub creation_content: Option<serde_json::Value>,
+    pub room_version: Option<String>,
+    pub power_level_content_override: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,13 +184,24 @@ pub(crate) fn sort_letter_for(value: &str) -> String {
     )
 }
 
+#[async_trait::async_trait]
+pub trait FriendRoomRoomOps: Send + Sync {
+    async fn create_room(&self, user_id: &str, config: FriendRoomCreateRoomConfig) -> ApiResult<serde_json::Value>;
+    async fn create_event(&self, params: CreateEventParams) -> ApiResult<RoomEvent>;
+}
+
+#[async_trait::async_trait]
+pub trait FriendFederationSender: Send + Sync {
+    async fn send_invite(&self, destination: &str, room_id: &str, content: &Value) -> ApiResult<()>;
+    async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>>;
+}
+
 pub struct FriendRoomService {
     pub(crate) friend_storage: FriendRoomStorage,
-    pub(crate) room_service: Arc<RoomService>,
-    pub(crate) event_storage: EventStorage,
+    pub(crate) room_service: Arc<dyn FriendRoomRoomOps>,
     pub(crate) user_storage: UserStorage,
     pub(crate) presence_storage: PresenceStorage,
     pub(crate) cache: Arc<CacheManager>,
     pub(crate) server_name: String,
-    pub(crate) federation_client: Arc<FriendFederationClient>,
+    pub(crate) federation_client: Arc<dyn FriendFederationSender>,
 }

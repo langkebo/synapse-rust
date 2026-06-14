@@ -1,6 +1,6 @@
-use crate::auth::AuthService;
-use crate::common::*;
-use crate::storage::User;
+use super::AuthService;
+use synapse_common::*;
+use synapse_storage::User;
 
 #[allow(async_fn_in_trait)]
 pub trait GuestAuthExt {

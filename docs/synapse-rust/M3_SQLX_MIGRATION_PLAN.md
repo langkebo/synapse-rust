@@ -2,8 +2,8 @@
 
 > 起始基线: 2026-06-03 快照
 > 现状: 1408 处 `sqlx::query` 调用（100 文件），595 处 `sqlx::query_as`，19 处 `QueryBuilder`；编译期校验调用 0 处
-> **最新状态 (2026-06-08)**: 编译期宏 857，动态 SQL 458，QueryBuilder 18；动态 SQL 占比从 99.6% 降至 ~34%
-> 目标: 把动态 SQL 调用迁移到 `sqlx::query!` / `query_as!` / `query_scalar!`，CI 强制 `.sqlx/` 入仓
+> **最新状态 (2026-06-13)**: 编译期宏调用仍大量存在；当前仓库基线已统一为 live-schema / DB-enabled 校验为主，`.sqlx/` 作为可选 offline 加速层，不再要求“必须非空入仓”
+> 目标: 把动态 SQL 调用迁移到 `sqlx::query!` / `query_as!` / `query_scalar!`，并保持 live-schema 编译门禁可信；如恢复 `.sqlx/`，则作为可选 offline accelerator 单独维护
 > 关联: [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](./COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) M-3
 > 关联: [ROUTE_STORAGE_MIGRATION_PLAN.md](./ROUTE_STORAGE_MIGRATION_PLAN.md)
 > 门禁: `scripts/ci/check_sqlx_offline_cache.sh`（新增）
@@ -13,8 +13,8 @@
 1. **优先静态**：能写 `query!` / `query_as!` 的，就不要用动态 `query()`。
 2. **可读性优先**：宏内 SQL 与结构体字段一一对应，禁止出现拼字符串。
 3. **不强求 100%**：动态 `QueryBuilder`、条件分支、复杂 IN 子句等场景可保留动态 SQL，但必须用 `#[sqlx::query(name = "...")]` 命名 query 走迁移文件。
-4. **离线缓存为准**：CI 在没有 PostgreSQL 的环境也能编译（`SQLX_OFFLINE=true`）。
-5. **缓存必须入仓**：`.sqlx/` 目录随代码一起提交，PR 必须包含 `cargo sqlx prepare` 后的差异。
+4. **live-schema 为主**：当前以 DB-enabled 编译 / migration gate 作为主校验基线；`SQLX_OFFLINE=true` 属于可选增强验证。
+5. **离线缓存可选**：仅当仓库显式维护 `.sqlx/` 时，才要求其与代码同步；未维护时脚本应显式跳过，而不是失败。
 6. **逐文件验证**：每个文件迁移后跑 `cargo check` + `cargo test --lib` 确认无误。
 
 ## 二、范围与数据
@@ -34,8 +34,8 @@
 |---|---|---|
 | 动态 SQL 占比 | ~34%（458/(857+458)） | ≤ 30% |
 | 编译期宏占比 | ~66%（857/(857+458)） | ≥ 70% |
-| `.sqlx/` 缓存完整性 | 已有缓存，`cargo check` 通过 | 100% 入仓 |
-| `cargo sqlx prepare --check` 通过率 | `cargo check` 零错误 | 100% |
+| `.sqlx/` 缓存完整性 | 当前可为空 | 若启用则通过 offline compile |
+| live-schema 编译校验 | `cargo check` 零错误 | 100% |
 
 ## 三、基础设施（Phase 0）
 
@@ -49,9 +49,9 @@
 ### 3.2 离线缓存目录
 
 1. 创建 `.sqlx/` 目录（首次 `cargo sqlx prepare` 自动生成）。
-2. 更新 `.gitignore`：允许 `.sqlx/` 入仓（`!/.sqlx` 排除规则修改为提交）。
-3. 在 CI 中加入 `cargo sqlx prepare --check` 步骤（在 `db-migration-gate.yml` 之后）。
-4. 本地开发：使用 `SQLX_OFFLINE=true` 编译。
+2. 若决定维护 `.sqlx/`，则更新 `.gitignore` 允许其入仓；否则保持目录可空且不作为硬门禁。
+3. CI 主线继续依赖 DB-enabled compile / migration gate；`.sqlx` 校验仅在缓存存在时执行。
+4. 本地开发可选使用 `SQLX_OFFLINE=true` 编译，但不再假定仓库必须自带非空 `.sqlx/`。
 
 ### 3.3 新增 CI 门禁脚本
 
@@ -63,18 +63,23 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-# 1) 必须存在 .sqlx 目录
-test -d .sqlx || { echo "ERROR: .sqlx/ 缓存目录不存在"; exit 1; }
+# 1) `.sqlx/` 不再是强制非空门禁；缺失或为空时显式 SKIP
+if [[ ! -d .sqlx ]]; then
+  echo "SKIP: .sqlx/ 未启用，当前仓库使用 live-schema 校验基线"
+  exit 0
+fi
 
-# 2) 至少有一个 .json
 json_count=$(find .sqlx -name 'query-*.json' | wc -l)
-test "$json_count" -gt 0 || { echo "ERROR: .sqlx/ 为空"; exit 1; }
+if [[ "$json_count" -eq 0 ]]; then
+  echo "SKIP: .sqlx/ 为空，当前仓库未维护 offline cache"
+  exit 0
+fi
 echo "OK: $json_count 个 query 缓存"
 
-# 3) 编译期校验
+# 2) 仅在存在缓存时做 offline 编译期校验
 SQLX_OFFLINE=true cargo check --all-features --locked --quiet
 
-# 4) 禁止新增动态 query（按 PR delta 评估，初始允许存量）
+# 3) 禁止新增动态 query（按 PR delta 评估，初始允许存量）
 echo "OK: 编译期校验通过"
 ```
 
