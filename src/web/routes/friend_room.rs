@@ -936,7 +936,7 @@ async fn create_friend_dm(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let config = crate::services::room::service::CreateRoomConfig {
+    let config = crate::services::friend_room_service::FriendRoomCreateRoomConfig {
         visibility: Some("private".to_string()),
         room_alias_name: None,
         name: None,

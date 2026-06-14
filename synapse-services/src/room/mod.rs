@@ -29,4 +29,4 @@ pub mod summary;
 pub mod summary_state;
 pub mod summary_stats;
 pub mod upgrade;
-pub(crate) mod utils;
+pub mod utils;

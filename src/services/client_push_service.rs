@@ -1,4 +1,6 @@
 use crate::common::ApiError;
+use crate::storage::account_data::AccountDataStorage;
+use crate::storage::push::PushStorage;
 use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
@@ -29,29 +31,19 @@ pub struct UpsertPushRuleRequest {
 }
 
 pub struct ClientPushService {
+    account_data_storage: AccountDataStorage,
     pool: Arc<PgPool>,
 }
 
 impl ClientPushService {
     pub fn new(pool: Arc<PgPool>) -> Self {
-        Self { pool }
+        Self { account_data_storage: AccountDataStorage::new(&pool), pool }
     }
 
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
-        let pushers = sqlx::query(
-            r#"
-            SELECT pushkey, kind, app_id, app_display_name, device_display_name,
-                   profile_tag, lang, data
-            FROM pushers
-            WHERE user_id = $1 AND device_id IS NOT DISTINCT FROM $2
-            ORDER BY created_ts DESC
-            "#,
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let pushers = PushStorage::get_pushers(&self.pool, user_id, device_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(pushers
             .iter()
@@ -73,73 +65,43 @@ impl ClientPushService {
 
     pub async fn upsert_pusher(&self, request: UpsertPusherRequest) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
-            r"
-            INSERT INTO pushers (user_id, device_id, pushkey, pushkey_ts, kind, app_id, app_display_name,
-                                 device_display_name, profile_tag, lang, data, created_ts, updated_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ON CONFLICT (user_id, device_id, pushkey) DO UPDATE SET
-                pushkey_ts = $4, kind = $5, app_id = $6, app_display_name = $7,
-                device_display_name = $8, profile_tag = $9, lang = $10, data = $11, updated_ts = $13
-            ",
-            request.user_id,
-            request.device_id,
-            request.pushkey,
-            now,
-            request.kind,
-            request.app_id,
-            request.app_display_name,
-            request.device_display_name,
-            request.profile_tag,
-            request.lang,
-            request.data.as_ref(),
-            now,
+        PushStorage::upsert_pusher(
+            &self.pool,
+            &request.user_id,
+            &request.device_id,
+            &request.pushkey,
+            &request.kind,
+            &request.app_id,
+            &request.app_display_name,
+            &request.device_display_name,
+            &request.profile_tag,
+            &request.lang,
+            &request.data,
             now,
         )
-        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
         Ok(now)
     }
 
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), ApiError> {
-        sqlx::query!(
-            "DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3",
-            user_id,
-            pushkey,
-            device_id,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
+        PushStorage::delete_pusher(&self.pool, user_id, device_id, pushkey)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
         Ok(())
     }
 
     pub async fn get_push_rules_content(&self, user_id: &str) -> Result<Option<Value>, ApiError> {
-        sqlx::query_scalar::<_, Value>(
-            r#"SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'"#,
-        )
-        .bind(user_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
+        self.account_data_storage
+            .get_account_data_content(user_id, "m.push_rules")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))
     }
 
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
-        let rules = sqlx::query(
-            r#"
-            SELECT rule_id, pattern, conditions, actions, is_enabled, is_default
-            FROM push_rules
-            WHERE user_id = $1 AND scope = $2 AND kind = $3
-            ORDER BY priority DESC, created_ts ASC
-            "#,
-        )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let rules = PushStorage::get_user_push_rules(&self.pool, user_id, scope, kind)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(rules
             .iter()
@@ -159,23 +121,17 @@ impl ClientPushService {
 
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO push_rules (user_id, scope, kind, rule_id, pattern, conditions, actions, is_enabled, is_default, priority_class, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, true, false, 5, $8)
-            ON CONFLICT (user_id, scope, kind, rule_id) DO UPDATE SET
-                pattern = $5, conditions = $6, actions = $7
-            ",
+        PushStorage::upsert_push_rule(
+            &self.pool,
+            &request.user_id,
+            &request.scope,
+            &request.kind,
+            &request.rule_id,
+            &request.pattern,
+            &request.conditions,
+            &request.actions,
+            now,
         )
-        .bind(request.user_id)
-        .bind(request.scope)
-        .bind(request.kind)
-        .bind(request.rule_id)
-        .bind(request.pattern.as_deref())
-        .bind(request.conditions.as_ref())
-        .bind(&request.actions)
-        .bind(now)
-        .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
         Ok(now)
@@ -188,17 +144,10 @@ impl ClientPushService {
         kind: &str,
         rule_id: &str,
     ) -> Result<bool, ApiError> {
-        let result = sqlx::query!(
-            "DELETE FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4",
-            user_id,
-            scope,
-            kind,
-            rule_id,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
-        Ok(result.rows_affected() > 0)
+        let rows = PushStorage::delete_push_rule(&self.pool, user_id, scope, kind, rule_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
+        Ok(rows > 0)
     }
 
     pub async fn set_push_rule_actions(
@@ -209,17 +158,9 @@ impl ClientPushService {
         rule_id: &str,
         actions: &Value,
     ) -> Result<(), ApiError> {
-        sqlx::query!(
-            "UPDATE push_rules SET actions = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
-            user_id,
-            scope,
-            kind,
-            actions,
-            rule_id,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
+        PushStorage::update_push_rule_actions(&self.pool, user_id, scope, kind, rule_id, actions)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
         Ok(())
     }
 
@@ -230,17 +171,9 @@ impl ClientPushService {
         kind: &str,
         rule_id: &str,
     ) -> Result<Option<bool>, ApiError> {
-        let result = sqlx::query_scalar::<_, bool>(
-            r#"SELECT is_enabled FROM push_rules WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $4"#,
-        )
-        .bind(user_id)
-        .bind(scope)
-        .bind(kind)
-        .bind(rule_id)
-        .fetch_optional(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-        Ok(result)
+        PushStorage::get_push_rule_enabled(&self.pool, user_id, scope, kind, rule_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
     pub async fn set_push_rule_enabled(
@@ -251,35 +184,16 @@ impl ClientPushService {
         rule_id: &str,
         enabled: bool,
     ) -> Result<(), ApiError> {
-        sqlx::query!(
-            "UPDATE push_rules SET is_enabled = $4 WHERE user_id = $1 AND scope = $2 AND kind = $3 AND rule_id = $5",
-            user_id,
-            scope,
-            kind,
-            enabled,
-            rule_id,
-        )
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
+        PushStorage::set_push_rule_enabled(&self.pool, user_id, scope, kind, rule_id, enabled)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
         Ok(())
     }
 
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
-        let notifications = sqlx::query(
-            r#"
-            SELECT id, event_id, room_id, ts, notification_type, is_read
-            FROM notifications
-            WHERE user_id = $1
-            ORDER BY ts DESC
-            LIMIT $2
-            "#,
-        )
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(&*self.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let notifications = PushStorage::get_notifications(&self.pool, user_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(notifications
             .iter()
@@ -297,13 +211,12 @@ impl ClientPushService {
     }
 
     pub async fn ack_notification(&self, notification_id: i64, user_id: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query!(
-            "UPDATE notifications SET is_read = true, updated_ts = $3 WHERE id = $1 AND user_id = $2 RETURNING id AS \"id!\"",
+        let result = PushStorage::ack_notification(
+            &self.pool,
             notification_id,
             user_id,
             chrono::Utc::now().timestamp_millis(),
         )
-        .fetch_optional(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
         Ok(result.is_some())

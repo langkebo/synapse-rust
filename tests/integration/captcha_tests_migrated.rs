@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
+use sqlx::Row;
 use synapse_rust::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
 use synapse_storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
 
@@ -189,7 +190,7 @@ async fn test_captcha_service_verify() {
     let service = CaptchaService::new(storage.clone());
 
     let send_request = SendCaptchaRequest {
-        captcha_type: "email".to_string(),
+        captcha_type: "image".to_string(),
         target: "verify_test@example.com".to_string(),
         template_name: None,
     };
@@ -220,4 +221,46 @@ async fn test_captcha_service_invalid_type() {
 
     let result = service.send_captcha(request, None, None).await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_captcha_service_email_requires_configured_provider() {
+    let pool = crate::require_test_pool().await;
+
+    let storage = Arc::new(CaptchaStorage::new(&pool));
+    let service = CaptchaService::new(storage.clone());
+    let request = SendCaptchaRequest {
+        captcha_type: "email".to_string(),
+        target: "provider_missing@example.com".to_string(),
+        template_name: None,
+    };
+
+    let result = service.send_captcha(request, Some("127.0.0.1"), None).await;
+    assert!(result.is_err());
+
+    let err = result.unwrap_err();
+    assert!(err.is_not_implemented());
+    assert!(err.to_string().contains("Captcha email delivery"));
+
+    let send_log = sqlx::query(
+        r"
+        SELECT is_success, error_message
+        FROM captcha_send_log
+        WHERE target = $1 AND captcha_type = 'email'
+        ORDER BY sent_ts DESC
+        LIMIT 1
+        ",
+    )
+    .bind("provider_missing@example.com")
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+
+    assert!(!send_log.get::<Option<bool>, _>("is_success").unwrap_or(true));
+    assert!(
+        send_log
+            .get::<Option<String>, _>("error_message")
+            .unwrap_or_default()
+            .contains("Captcha email delivery")
+    );
 }

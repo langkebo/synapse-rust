@@ -1,12 +1,16 @@
 use rand::Rng;
 use std::sync::Arc;
+use synapse_common::background_job::BackgroundJob;
 use synapse_common::error::ApiError;
+use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::captcha::*;
 use tracing::{info, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CaptchaService {
     storage: Arc<CaptchaStorage>,
+    task_queue: Option<Arc<RedisTaskQueue>>,
+    smtp_enabled: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -31,7 +35,11 @@ pub struct VerifyCaptchaRequest {
 
 impl CaptchaService {
     pub fn new(storage: Arc<CaptchaStorage>) -> Self {
-        Self { storage }
+        Self::with_delivery(storage, None, false)
+    }
+
+    pub fn with_delivery(storage: Arc<CaptchaStorage>, task_queue: Option<Arc<RedisTaskQueue>>, smtp_enabled: bool) -> Self {
+        Self { storage, task_queue, smtp_enabled }
     }
 
     pub async fn send_captcha(
@@ -189,8 +197,8 @@ impl CaptchaService {
         let content = Self::render_template(&template, code, expiry_minutes);
 
         match captcha.captcha_type.as_str() {
-            "email" => Self::send_email(&captcha.target, template.subject.as_deref(), &content),
-            "sms" => Self::send_sms(&captcha.target, &content),
+            "email" => self.send_email(&captcha.target, template.subject.as_deref(), &content).await,
+            "sms" => self.send_sms(&captcha.target, &content),
             "image" => Ok(()),
             _ => Err(ApiError::bad_request("Invalid captcha type")),
         }
@@ -203,14 +211,38 @@ impl CaptchaService {
         content
     }
 
-    fn send_email(_to: &str, _subject: Option<&str>, _content: &str) -> Result<(), ApiError> {
-        warn!("send_email: stub called, not yet implemented");
-        todo!("send_email: not yet implemented")
+    async fn send_email(&self, to: &str, subject: Option<&str>, content: &str) -> Result<(), ApiError> {
+        if !self.smtp_enabled {
+            warn!(target = %to, "captcha email delivery requested but smtp is disabled");
+            return Err(ApiError::not_implemented(
+                "Captcha email delivery is not configured. Enable SMTP and the background task queue first.",
+            ));
+        }
+
+        let queue = self.task_queue.as_ref().ok_or_else(|| {
+            warn!(target = %to, "captcha email delivery requested without configured background task queue");
+            ApiError::not_implemented(
+                "Captcha email delivery queue is not configured. Enable the background worker before using email captcha.",
+            )
+        })?;
+
+        queue
+            .submit(BackgroundJob::SendEmail {
+                to: to.to_string(),
+                subject: subject.unwrap_or("Your verification code").to_string(),
+                body: content.to_string(),
+            })
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to enqueue captcha email delivery", &e))?;
+
+        Ok(())
     }
 
-    fn send_sms(_to: &str, _content: &str) -> Result<(), ApiError> {
-        warn!("send_sms: stub called, not yet implemented");
-        todo!("send_sms: not yet implemented")
+    fn send_sms(&self, to: &str, _content: &str) -> Result<(), ApiError> {
+        warn!(target = %to, "captcha sms delivery requested but no sms provider is configured");
+        Err(ApiError::not_implemented(
+            "Captcha SMS delivery is not configured. Connect an SMS provider before using sms captcha.",
+        ))
     }
 
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {

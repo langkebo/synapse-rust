@@ -17,6 +17,20 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
+    pub async fn get_space_members_paginated(
+        &self,
+        space_id: &str,
+        limit: i64,
+        from_joined_ts: Option<i64>,
+        from_user_id: Option<&str>,
+    ) -> Result<Vec<SpaceMember>, ApiError> {
+        self.space_storage
+            .get_space_members_paginated(space_id, limit, from_joined_ts, from_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get paginated space members", &e))
+    }
+
+    #[instrument(skip(self))]
     pub async fn invite_user(&self, space_id: &str, user_id: &str, inviter: &str) -> Result<SpaceMember, ApiError> {
         info!(space_id = %space_id, user_id = %user_id, inviter = %inviter, "Inviting user to space");
 

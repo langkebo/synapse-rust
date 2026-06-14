@@ -457,6 +457,7 @@ fn assemble_admin_support(
     pool: &Arc<sqlx::PgPool>,
     cache: &Arc<CacheManager>,
     config: &Config,
+    task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
     user_storage: &UserStorage,
@@ -514,7 +515,11 @@ fn assemble_admin_support(
     ));
 
     let captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service = Arc::new(crate::captcha_service::CaptchaService::new(Arc::new(captcha_storage.clone())));
+    let captcha_service = Arc::new(crate::captcha_service::CaptchaService::with_delivery(
+        Arc::new(captcha_storage.clone()),
+        task_queue.clone(),
+        config.smtp.enabled,
+    ));
 
     let federation_blacklist_storage = synapse_storage::federation_blacklist::FederationBlacklistStorage::new(pool);
     let federation_blacklist_service = Arc::new(crate::federation_blacklist_service::FederationBlacklistService::new(
@@ -692,7 +697,7 @@ impl ServiceContainer {
             crate::voice_service::VoiceService::new(media_service.clone(), voice_storage, &config.server.name);
 
         // Admin & support services — domain assembly
-        let admin = assemble_admin_support(pool, &cache, &config, &metrics, &auth_service, &user_storage);
+        let admin = assemble_admin_support(pool, &cache, &config, &task_queue, &metrics, &auth_service, &user_storage);
         rooms.room_service.set_app_service_manager(admin.app_service_manager.clone()).await;
         let media_domain_service = {
             let svc = crate::media::MediaDomainService::new(
@@ -732,7 +737,6 @@ impl ServiceContainer {
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
-            rooms.event_storage.clone(),
             user_storage.clone(),
             presence_storage.clone(),
             cache.clone(),
