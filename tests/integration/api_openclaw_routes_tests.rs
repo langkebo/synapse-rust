@@ -12,9 +12,9 @@ const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rus
 async fn setup_test_app(openclaw_enabled: bool) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.config.experimental.openclaw_routes_enabled = openclaw_enabled;
+    container.core.config.experimental.openclaw_routes_enabled = openclaw_enabled;
 
-    let cache = container.cache.clone();
+    let cache = container.core.cache.clone();
     let state = AppState::new(container, cache);
 
     Some(create_router(state))

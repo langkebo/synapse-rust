@@ -38,6 +38,23 @@ struct TransactionBatch {
     origin: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct FederationQueueIdRow {
+    pub id: i64,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+#[allow(dead_code)]
+struct FederationQueueRow {
+    pub id: i64,
+    pub destination: String,
+    pub event_id: String,
+    pub room_id: Option<String>,
+    pub content: serde_json::Value,
+    pub created_ts: i64,
+    pub retry_count: i32,
+}
+
 #[derive(Clone)]
 pub struct EventBroadcaster {
     server_name: String,
@@ -194,11 +211,11 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as::<_, FederationQueueRow>(
             r#"
-            SELECT id as "id!", destination as "destination!", event_id as "event_id!",
-                   room_id as "room_id?", content as "content!",
-                   created_ts as "created_ts!", retry_count as "retry_count!"
+            SELECT id, destination, event_id,
+                   room_id, content,
+                   created_ts, retry_count
             FROM federation_queue
             WHERE status = 'pending'
             ORDER BY created_ts ASC
@@ -224,7 +241,7 @@ impl EventBroadcaster {
                 Ok(txn) => txn,
                 Err(e) => {
                     ::tracing::warn!("Failed to deserialize persisted transaction {}: {}", db_id, e);
-                    let _ = sqlx::query!("DELETE FROM federation_queue WHERE id = $1", db_id).execute(pool).await;
+                    let _ = sqlx::query("DELETE FROM federation_queue WHERE id = $1").bind(db_id).execute(pool).await;
                     continue;
                 }
             };
@@ -442,19 +459,19 @@ impl EventBroadcaster {
             None
         };
 
-        match sqlx::query!(
+        match sqlx::query_as::<_, FederationQueueIdRow>(
             r#"
             INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
             VALUES ($1, $2, $3, $4, $5, $6, 'pending')
-            RETURNING id as "id!"
+            RETURNING id
             "#,
-            destination,
-            &event_id,
-            event_type,
-            room_id.as_deref(),
-            &content,
-            chrono::Utc::now().timestamp_millis()
         )
+        .bind(destination)
+        .bind(&event_id)
+        .bind(event_type)
+        .bind(room_id.as_deref())
+        .bind(&content)
+        .bind(chrono::Utc::now().timestamp_millis())
         .fetch_one(pool)
         .await
         {
@@ -468,30 +485,29 @@ impl EventBroadcaster {
 
     async fn update_db_status(&self, db_id: i64, status: &str) {
         if let Some(pool) = &self.pool {
-            let result = match status {
-                "sent" => {
-                    sqlx::query!(
-                        "UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1",
-                        db_id,
-                        chrono::Utc::now().timestamp_millis()
-                    )
-                    .execute(pool)
-                    .await
-                }
-                "retry" => {
-                    sqlx::query!(
+            let result =
+                match status {
+                    "sent" => {
+                        sqlx::query("UPDATE federation_queue SET status = 'sent', sent_at = $2 WHERE id = $1")
+                            .bind(db_id)
+                            .bind(chrono::Utc::now().timestamp_millis())
+                            .execute(pool)
+                            .await
+                    }
+                    "retry" => sqlx::query(
                         "UPDATE federation_queue SET retry_count = retry_count + 1, status = 'pending' WHERE id = $1",
-                        db_id
                     )
+                    .bind(db_id)
                     .execute(pool)
-                    .await
-                }
-                _ => {
-                    sqlx::query!("UPDATE federation_queue SET status = $2 WHERE id = $1", db_id, status)
-                        .execute(pool)
-                        .await
-                }
-            };
+                    .await,
+                    _ => {
+                        sqlx::query("UPDATE federation_queue SET status = $2 WHERE id = $1")
+                            .bind(db_id)
+                            .bind(status)
+                            .execute(pool)
+                            .await
+                    }
+                };
 
             if let Err(e) = result {
                 ::tracing::warn!("Failed to update federation_queue status for {}: {}", db_id, e);
@@ -596,14 +612,12 @@ impl EventBroadcaster {
             None => return Ok(0),
         };
 
-        sqlx::query!(
-            "DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1",
-            older_than_ts
-        )
-        .execute(pool)
-        .await
-        .map(|r| r.rows_affected())
-        .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
+        sqlx::query("DELETE FROM federation_queue WHERE status IN ('sent', 'failed') AND created_ts < $1")
+            .bind(older_than_ts)
+            .execute(pool)
+            .await
+            .map(|r| r.rows_affected())
+            .map_err(|e| FederationBroadcastError::SendFailed(e.to_string()))
     }
 }
 
@@ -663,17 +677,17 @@ async fn send_batch(
                 };
 
                 let event_id = format!("txn:{}", txn.transaction_id);
-                sqlx::query!(
+                sqlx::query_as::<_, FederationQueueIdRow>(
                     r#"
                     INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)
                     VALUES ($1, $2, 'm.room.event', NULL, $3, $4, 'pending')
-                    RETURNING id as "id!"
+                    RETURNING id
                     "#,
-                    destination,
-                    &event_id,
-                    &content,
-                    chrono::Utc::now().timestamp_millis()
                 )
+                .bind(destination)
+                .bind(&event_id)
+                .bind(&content)
+                .bind(chrono::Utc::now().timestamp_millis())
                 .fetch_one(pool)
                 .await
                 .ok()

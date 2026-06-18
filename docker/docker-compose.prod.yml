@@ -107,7 +107,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-      target: runtime
+      target: tools
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust
     restart: unless-stopped

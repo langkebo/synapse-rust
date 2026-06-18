@@ -23,6 +23,10 @@ DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 ENABLED_EXTENSIONS="${ENABLED_EXTENSIONS:-friends,burn-after-read}"
 EXTENSION_MAP="${MIGRATIONS_DIR}/extension_map.conf"
+DB_WAIT_ATTEMPTS="${DB_WAIT_ATTEMPTS:-30}"
+DB_WAIT_INTERVAL="${DB_WAIT_INTERVAL:-2}"
+DB_QUERY_ATTEMPTS="${DB_QUERY_ATTEMPTS:-8}"
+DB_QUERY_RETRY_INTERVAL="${DB_QUERY_RETRY_INTERVAL:-2}"
 
 if [ -n "$DB_PASSWORD" ]; then
     export PGPASSWORD="$DB_PASSWORD"
@@ -35,21 +39,97 @@ log() {
 }
 
 psql_db() {
-    psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" "$@"
+    psql_with_retry "$DB_NAME" "$@"
 }
 
 psql_admin() {
-    psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres "$@"
+    psql_with_retry postgres "$@"
+}
+
+is_retryable_psql_error() {
+    grep -Eq 'Temporary failure in name resolution|Name or service not known|could not translate host name|could not connect to server|connection refused|server closed the connection unexpectedly|the database system is starting up|the database system is in recovery mode|the database system is not yet accepting connections|Consistent recovery state has not been yet reached|terminating connection due to administrator command'
+}
+
+psql_with_retry() {
+    database="$1"
+    shift
+
+    stdin_file="$(mktemp)"
+    cat >"$stdin_file"
+
+    attempt=1
+    while [ "$attempt" -le "$DB_QUERY_ATTEMPTS" ]; do
+        output=""
+        if output="$(
+            psql -v ON_ERROR_STOP=1 -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$database" "$@" <"$stdin_file" 2>&1
+        )"; then
+            if [ -n "$output" ]; then
+                printf '%s\n' "$output"
+            fi
+            rm -f "$stdin_file"
+            return 0
+        fi
+
+        if printf '%s\n' "$output" | is_retryable_psql_error && [ "$attempt" -lt "$DB_QUERY_ATTEMPTS" ]; then
+            log WARN "psql 连接失败，将重试 (${attempt}/${DB_QUERY_ATTEMPTS}): $database@$DB_HOST:$DB_PORT"
+            sleep "$DB_QUERY_RETRY_INTERVAL"
+            attempt=$((attempt + 1))
+            continue
+        fi
+
+        if [ -n "$output" ]; then
+            printf '%s\n' "$output" >&2
+        fi
+        rm -f "$stdin_file"
+        return 1
+    done
+
+    rm -f "$stdin_file"
+    return 1
+}
+
+wait_for_postgres_admin() {
+    attempt=1
+    while [ "$attempt" -le "$DB_WAIT_ATTEMPTS" ]; do
+        if psql_admin -c "SELECT 1" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$DB_WAIT_INTERVAL"
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
+wait_for_target_database() {
+    attempt=1
+    while [ "$attempt" -le "$DB_WAIT_ATTEMPTS" ]; do
+        if psql_db -c "SELECT 1" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$DB_WAIT_INTERVAL"
+        attempt=$((attempt + 1))
+    done
+    return 1
 }
 
 ensure_database_exists() {
-    if psql_db -c "SELECT 1" >/dev/null 2>&1; then
+    if wait_for_target_database; then
         return 0
+    fi
+
+    if ! wait_for_postgres_admin; then
+        log ERROR "等待 PostgreSQL 管理连接超时: ${DB_HOST}:${DB_PORT}"
+        return 1
     fi
 
     log INFO "数据库不存在，尝试创建: $DB_NAME"
     psql_admin -c "CREATE DATABASE \"$DB_NAME\";" >/dev/null 2>&1 || true
-    psql_db -c "SELECT 1" >/dev/null 2>&1
+    if ! wait_for_target_database; then
+        log ERROR "等待目标数据库连接超时: $DB_NAME"
+        return 1
+    fi
+
+    return 0
 }
 
 ensure_schema_migrations_table() {

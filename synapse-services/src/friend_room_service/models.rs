@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_storage::{AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage};
 use synapse_common::ApiResult;
+use synapse_storage::{
+    AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {

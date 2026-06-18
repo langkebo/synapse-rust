@@ -907,7 +907,8 @@ mod tests {
             HIGH_PENDING_EVENT_THRESHOLD,
             HIGH_PENDING_TRANSACTION_THRESHOLD,
         );
-        let aggressive_event_state = ApplicationServiceScheduler::backlog_state(25, 0, 25, HIGH_PENDING_TRANSACTION_THRESHOLD);
+        let aggressive_event_state =
+            ApplicationServiceScheduler::backlog_state(25, 0, 25, HIGH_PENDING_TRANSACTION_THRESHOLD);
         assert_eq!(default_event_state, "normal");
         assert_eq!(aggressive_event_state, "high");
 
@@ -917,7 +918,8 @@ mod tests {
             HIGH_PENDING_EVENT_THRESHOLD,
             HIGH_PENDING_TRANSACTION_THRESHOLD,
         );
-        let aggressive_transaction_state = ApplicationServiceScheduler::backlog_state(0, 1, HIGH_PENDING_EVENT_THRESHOLD, 1);
+        let aggressive_transaction_state =
+            ApplicationServiceScheduler::backlog_state(0, 1, HIGH_PENDING_EVENT_THRESHOLD, 1);
         assert_eq!(default_transaction_state, "normal");
         assert_eq!(aggressive_transaction_state, "high");
     }

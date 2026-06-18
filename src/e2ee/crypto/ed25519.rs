@@ -3,7 +3,6 @@ use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
-use rand::rngs::OsRng;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -55,9 +54,8 @@ struct Ed25519SecretKey {
 impl Ed25519SecretKey {
     #[cfg(test)]
     fn generate() -> Self {
-        let mut rng = OsRng {};
         let mut key_bytes = [0u8; 32];
-        rng.fill_bytes(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         let signing_key = SigningKey::from_bytes(&key_bytes);
         Self { bytes: signing_key.to_bytes() }
     }
@@ -91,9 +89,8 @@ pub struct Ed25519KeyPair {
 
 impl Ed25519KeyPair {
     pub fn generate() -> Self {
-        let mut rng = OsRng {};
         let mut key_bytes = [0u8; 32];
-        rng.fill_bytes(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let verifying_key = signing_key.verifying_key();
         Self {

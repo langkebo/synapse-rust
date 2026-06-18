@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use synapse_common::config::PerformanceConfig;
 use synapse_common::*;
+use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::PresenceStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,7 +60,7 @@ impl SyncToken {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncFilter {
     pub limit: Option<i64>,
     pub types: Option<Vec<String>>,
@@ -110,9 +112,9 @@ pub struct SyncServiceDeps {
     pub room_storage: RoomStorage,
     pub filter_storage: FilterStorage,
     pub device_storage: DeviceStorage,
-    pub to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
+    pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,
-    pub performance: synapse_common::config::PerformanceConfig,
+    pub performance: PerformanceConfig,
 }
 
 pub struct SyncServiceRequest<'a> {
@@ -125,60 +127,60 @@ pub struct SyncServiceRequest<'a> {
     pub since: Option<&'a str>,
 }
 
-pub(crate) struct FetchEventsRequest<'a> {
-    pub(crate) user_id: &'a str,
-    pub(crate) device_id: Option<&'a str>,
-    pub(crate) room_ids: &'a [String],
-    pub(crate) since_token: Option<&'a SyncToken>,
-    pub(crate) timeout: u64,
-    pub(crate) limit: i64,
-    pub(crate) timeline_filter: Option<&'a SyncFilter>,
-    pub(crate) is_incremental: bool,
+pub struct FetchEventsRequest<'a> {
+    pub user_id: &'a str,
+    pub device_id: Option<&'a str>,
+    pub room_ids: &'a [String],
+    pub since_token: Option<&'a SyncToken>,
+    pub timeout: u64,
+    pub limit: i64,
+    pub timeline_filter: Option<&'a SyncFilter>,
+    pub is_incremental: bool,
 }
 
-pub(crate) struct BuildSyncResponseRequest<'a> {
-    pub(crate) user_id: &'a str,
-    pub(crate) device_id: Option<&'a str>,
-    pub(crate) room_ids: &'a [String],
-    pub(crate) room_sections: &'a HashMap<String, SyncRoomSection>,
-    pub(crate) room_events: HashMap<String, Vec<RoomEvent>>,
-    pub(crate) response_filter: Option<&'a SyncResponseFilter>,
-    pub(crate) timeline_limit: i64,
-    pub(crate) since_token: &'a Option<SyncToken>,
-    pub(crate) is_incremental: bool,
+pub struct BuildSyncResponseRequest<'a> {
+    pub user_id: &'a str,
+    pub device_id: Option<&'a str>,
+    pub room_ids: &'a [String],
+    pub room_sections: &'a HashMap<String, SyncRoomSection>,
+    pub room_events: HashMap<String, Vec<RoomEvent>>,
+    pub response_filter: Option<&'a SyncResponseFilter>,
+    pub timeline_limit: i64,
+    pub since_token: &'a Option<SyncToken>,
+    pub is_incremental: bool,
 }
 
-pub(crate) struct BuildRoomSyncRequest<'a> {
-    pub(crate) room_id: &'a str,
-    pub(crate) user_id: &'a str,
-    pub(crate) device_id: Option<&'a str>,
-    pub(crate) events: Vec<RoomEvent>,
-    pub(crate) since_token: Option<&'a SyncToken>,
-    pub(crate) is_incremental: bool,
-    pub(crate) room_filter: Option<&'a RoomFilter>,
+pub struct BuildRoomSyncRequest<'a> {
+    pub room_id: &'a str,
+    pub user_id: &'a str,
+    pub device_id: Option<&'a str>,
+    pub events: Vec<RoomEvent>,
+    pub since_token: Option<&'a SyncToken>,
+    pub is_incremental: bool,
+    pub room_filter: Option<&'a RoomFilter>,
 }
 
-pub(crate) struct BuildRoomSyncValueRequest<'a> {
-    pub(crate) events: Vec<RoomEvent>,
-    pub(crate) state_list: Vec<Value>,
-    pub(crate) ephemeral_events: Vec<Value>,
-    pub(crate) account_data_events: Vec<Value>,
-    pub(crate) timeline_limit: i64,
-    pub(crate) counts: RoomSyncCounts,
-    pub(crate) event_fields: Option<&'a [String]>,
-    pub(crate) event_format: SyncEventFormat,
+pub struct BuildRoomSyncValueRequest<'a> {
+    pub events: Vec<RoomEvent>,
+    pub state_list: Vec<Value>,
+    pub ephemeral_events: Vec<Value>,
+    pub account_data_events: Vec<Value>,
+    pub timeline_limit: i64,
+    pub counts: RoomSyncCounts,
+    pub event_fields: Option<&'a [String]>,
+    pub event_format: SyncEventFormat,
 }
 
-pub(crate) struct LazyLoadMembersRequest<'a> {
-    pub(crate) state_events: Vec<Value>,
-    pub(crate) timeline_events: &'a [RoomEvent],
-    pub(crate) user_id: &'a str,
-    pub(crate) device_id: Option<&'a str>,
-    pub(crate) room_id: &'a str,
-    pub(crate) room_filter: Option<&'a RoomFilter>,
-    pub(crate) changed_member_ids: Option<&'a HashSet<String>>,
-    pub(crate) timeline_limited: bool,
-    pub(crate) enabled: bool,
+pub struct LazyLoadMembersRequest<'a> {
+    pub state_events: Vec<Value>,
+    pub timeline_events: &'a [RoomEvent],
+    pub user_id: &'a str,
+    pub device_id: Option<&'a str>,
+    pub room_id: &'a str,
+    pub room_filter: Option<&'a RoomFilter>,
+    pub changed_member_ids: Option<&'a HashSet<String>>,
+    pub timeline_limited: bool,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,7 +228,7 @@ impl Default for SyncResponseFilter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SyncRoomSection {
+pub enum SyncRoomSection {
     Join,
     Leave,
 }
@@ -255,18 +257,18 @@ pub struct RoomSyncState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SyncPerformanceSnapshot<'a> {
-    pub(crate) request_kind: &'a str,
-    pub(crate) user_id: &'a str,
-    pub(crate) total_ms: f64,
-    pub(crate) room_count: usize,
-    pub(crate) event_count: usize,
-    pub(crate) is_incremental: bool,
-    pub(crate) phases: [(&'a str, f64); 3],
+pub struct SyncPerformanceSnapshot<'a> {
+    pub request_kind: &'a str,
+    pub user_id: &'a str,
+    pub total_ms: f64,
+    pub room_count: usize,
+    pub event_count: usize,
+    pub is_incremental: bool,
+    pub phases: [(&'a str, f64); 3],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IncrementalUpdate {
+pub enum IncrementalUpdate {
     Events,
     ToDevice,
     DeviceLists,
@@ -274,22 +276,22 @@ pub(crate) enum IncrementalUpdate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct LazyLoadedMembersCacheKey {
-    user_id: String,
-    device_id: Option<String>,
-    room_id: String,
+pub struct LazyLoadedMembersCacheKey {
+    pub user_id: String,
+    pub device_id: Option<String>,
+    pub room_id: String,
 }
 
 impl LazyLoadedMembersCacheKey {
-    pub(crate) fn new(user_id: &str, device_id: Option<&str>, room_id: &str) -> Self {
+    pub fn new(user_id: &str, device_id: Option<&str>, room_id: &str) -> Self {
         Self { user_id: user_id.to_string(), device_id: device_id.map(str::to_string), room_id: room_id.to_string() }
     }
 }
 
-pub(crate) struct StateEventsBatchParams<'a> {
-    pub(crate) since_ts: i64,
-    pub(crate) since_stream_ordering: Option<i64>,
-    pub(crate) is_incremental: bool,
-    pub(crate) lazy_load_members: bool,
-    pub(crate) user_id: &'a str,
+pub struct StateEventsBatchParams<'a> {
+    pub since_ts: i64,
+    pub since_stream_ordering: Option<i64>,
+    pub is_incremental: bool,
+    pub lazy_load_members: bool,
+    pub user_id: &'a str,
 }

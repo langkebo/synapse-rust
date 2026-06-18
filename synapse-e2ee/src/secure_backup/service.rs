@@ -3,7 +3,7 @@
 
 use crate::secure_backup::models::*;
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
 use argon2::{Argon2, Params, Version};
@@ -27,7 +27,7 @@ impl SecureBackupService {
     pub async fn create_backup(&self, user_id: &str, passphrase: &str) -> Result<SecureBackupResponse, ApiError> {
         // 1. Generate salt
         let mut salt_bytes = [0u8; 16];
-        OsRng.fill_bytes(&mut salt_bytes);
+        rand::rng().fill_bytes(&mut salt_bytes);
         let salt = base64::engine::general_purpose::STANDARD.encode(salt_bytes);
 
         // 2. Derive key using Argon2
@@ -423,7 +423,7 @@ impl SecureBackupService {
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         // Encrypt

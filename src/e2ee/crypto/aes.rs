@@ -4,7 +4,7 @@ use base64::Engine;
 #[cfg(test)]
 use dashmap::DashSet;
 use generic_array::GenericArray;
-use rand::Rng;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,7 +25,7 @@ pub struct Aes256GcmKey {
 impl Aes256GcmKey {
     pub fn generate() -> Self {
         let mut bytes = [0u8; 32];
-        rand::thread_rng().fill(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -56,7 +56,7 @@ impl<'de> Deserialize<'de> for Aes256GcmNonce {
 impl Aes256GcmNonce {
     fn generate() -> Self {
         let mut bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -161,7 +161,7 @@ impl SecureNonceGenerator {
         }
 
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut nonce_bytes[0..4]);
+        rand::rng().fill_bytes(&mut nonce_bytes[0..4]);
 
         nonce_bytes[4..12].copy_from_slice(&counter.to_be_bytes());
 
@@ -174,6 +174,7 @@ impl SecureNonceGenerator {
         self.counter.load(Ordering::SeqCst)
     }
 
+    #[allow(dead_code)]
     pub fn reset_counter(&self) {
         self.counter.store(0, Ordering::SeqCst);
     }

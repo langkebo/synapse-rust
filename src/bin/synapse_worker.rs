@@ -1,9 +1,11 @@
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
+use lettre::message::Mailbox;
+use lettre::{AsyncTransport, Message, Tokio1Executor};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use synapse_rust::common::background_job::BackgroundJob;
-use synapse_rust::common::config::Config;
-use synapse_rust::common::task_queue::RedisTaskQueue;
+use synapse_rust::common::BackgroundJob;
+use synapse_rust::common::config::{Config, SmtpConfig};
+use synapse_rust::common::RedisTaskQueue;
 use synapse_rust::storage::event::EventStorage;
 use tokio::signal;
 
@@ -29,6 +31,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_name = config.server.name.clone();
     let event_storage = Arc::new(EventStorage::new(&Arc::new(pool), server_name));
 
+    // Build SMTP transport if SMTP is enabled
+    let smtp_config = config.smtp.clone();
+    let smtp_mailer: Option<Arc<lettre::AsyncSmtpTransport<Tokio1Executor>>> =
+        if smtp_config.enabled && !smtp_config.host.is_empty() {
+            match build_smtp_mailer(&smtp_config) {
+                Ok(mailer) => {
+                    tracing::info!(
+                        "SMTP enabled: {}:{} (from={}, tls={})",
+                        smtp_config.host,
+                        smtp_config.port,
+                        smtp_config.from,
+                        smtp_config.tls
+                    );
+                    Some(Arc::new(mailer))
+                }
+                Err(e) => {
+                    tracing::error!("Failed to build SMTP transport: {}. Email sending will be disabled.", e);
+                    None
+                }
+            }
+        } else {
+            tracing::info!("SMTP not configured; email sending disabled");
+            None
+        };
+
     let worker_id = uuid::Uuid::new_v4().to_string();
     let consumer_name = format!("worker-{worker_id}");
     let group_name = "synapse_workers";
@@ -36,16 +63,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Worker {} started. Joining group {}", consumer_name, group_name);
 
     let event_storage_clone = event_storage.clone();
+    let smtp_mailer_clone = smtp_mailer.clone();
+    let smtp_from = smtp_config.from.clone();
     let job_handler = move |job: BackgroundJob| {
         let event_storage = event_storage_clone.clone();
+        let smtp_mailer = smtp_mailer_clone.clone();
+        let smtp_from = smtp_from.clone();
         async move {
             match job {
-                BackgroundJob::SendEmail { to, subject, body: _ } => {
+                BackgroundJob::SendEmail { to, subject, body } => {
                     tracing::info!("[EMAIL] Sending email to: {}", to);
                     tracing::info!("[EMAIL] Subject: {}", subject);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    tracing::info!("[EMAIL] Sent successfully to {}", to);
-                    Ok(())
+
+                    let mailer = match smtp_mailer.as_ref() {
+                        Some(m) => m,
+                        None => {
+                            tracing::error!("[EMAIL] SMTP not configured, cannot send email to {}", to);
+                            return Err("SMTP not configured".to_string());
+                        }
+                    };
+
+                    let from: Mailbox = match smtp_from.parse() {
+                        Ok(f) => f,
+                        Err(e) => {
+                            tracing::error!("[EMAIL] Invalid from address '{}': {}", smtp_from, e);
+                            return Err(format!("Invalid from address: {}", e));
+                        }
+                    };
+
+                    let to_mailbox: Mailbox = match to.parse() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::error!("[EMAIL] Invalid to address '{}': {}", to, e);
+                            return Err(format!("Invalid to address: {}", e));
+                        }
+                    };
+
+                    let email = match Message::builder()
+                        .from(from)
+                        .to(to_mailbox.clone())
+                        .subject(subject.clone())
+                        .body(body.clone())
+                    {
+                        Ok(e) => e,
+                        Err(e) => {
+                            tracing::error!("[EMAIL] Failed to build email message: {}", e);
+                            return Err(format!("Failed to build email: {}", e));
+                        }
+                    };
+
+                    match mailer.send(email).await {
+                        Ok(_) => {
+                            tracing::info!("[EMAIL] Sent successfully to {}", to);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            tracing::error!("[EMAIL] Failed to send email to {}: {}", to, e);
+                            Err(format!("SMTP send error: {}", e))
+                        }
+                    }
                 }
                 BackgroundJob::ProcessMedia { file_id } => {
                     tracing::info!("[MEDIA] Processing media file: {}", file_id);
@@ -142,6 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let monitor_queue = queue.clone();
+    let monitor_queue_for_exit = queue.clone();
     let monitor_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(15));
         loop {
@@ -171,6 +248,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // Pre-exit log: capture worker type, queue metrics, and restart count.
+    let worker_type = std::env::var("WORKER_TYPE")
+        .or_else(|_| std::env::var("WORKER_INSTANCE_NAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
+    let restart_count = std::env::var("RESTART_COUNT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+    let queue_snapshot = monitor_queue_for_exit.get_metrics("synapse_workers").await;
+    match queue_snapshot {
+        Ok(m) => {
+            tracing::warn!(
+                target: "worker_exit",
+                worker_type = %worker_type,
+                restart_count = %restart_count,
+                queue_length = %m.queue_length,
+                consumer_lag = %m.consumer_lag,
+                "Worker exiting — check container restart policy for crash-loop evidence"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "worker_exit",
+                worker_type = %worker_type,
+                restart_count = %restart_count,
+                queue_error = %e,
+                "Worker exiting — queue metrics unavailable"
+            );
+        }
+    }
+
     handle.abort();
     if let Some(h) = metrics_handle {
         h.abort();
@@ -179,6 +284,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Synapse Worker shut down gracefully");
 
     Ok(())
+}
+
+fn build_smtp_mailer(
+    config: &SmtpConfig,
+) -> Result<lettre::AsyncSmtpTransport<Tokio1Executor>, Box<dyn std::error::Error>> {
+    let tls = if config.tls {
+        lettre::transport::smtp::client::Tls::Required(
+            lettre::transport::smtp::client::TlsParameters::new(config.host.clone())?,
+        )
+    } else {
+        lettre::transport::smtp::client::Tls::None
+    };
+
+    let mut builder = lettre::AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
+        .port(config.port)
+        .tls(tls);
+
+    if !config.username.is_empty() {
+        let credentials =
+            lettre::transport::smtp::authentication::Credentials::new(
+                config.username.clone(),
+                config.password.clone(),
+            );
+        builder = builder.credentials(credentials);
+    }
+
+    Ok(builder.build())
 }
 
 async fn get_metrics(State(state): State<MetricsState>, headers: axum::http::HeaderMap) -> impl IntoResponse {
@@ -217,5 +349,81 @@ async fn get_metrics(State(state): State<MetricsState>, headers: axum::http::Hea
             tracing::error!("Failed to get metrics: {}", e);
             (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod smtp_smoke_tests {
+    use super::*;
+
+    #[test]
+    fn test_build_smtp_mailer_with_tls() {
+        let config = SmtpConfig {
+            enabled: true,
+            host: "smtp.example.com".to_string(),
+            port: 587,
+            from: "noreply@example.com".to_string(),
+            username: "user".to_string(),
+            password: "pass".to_string(),
+            tls: true,
+            ..Default::default()
+        };
+        let result = build_smtp_mailer(&config);
+        // TLS parameters for "smtp.example.com" may fail DNS resolution,
+        // but the builder should be constructable
+        match result {
+            Ok(_) => { /* mailer built successfully */ }
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("dns") || msg.contains("TLS") || msg.contains("resolve"),
+                    "unexpected error: {msg}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_smtp_mailer_without_tls() {
+        let config = SmtpConfig {
+            enabled: true,
+            host: "localhost".to_string(),
+            port: 25,
+            from: "noreply@example.com".to_string(),
+            tls: false,
+            ..Default::default()
+        };
+        let result = build_smtp_mailer(&config);
+        // No TLS, no credentials — should succeed
+        assert!(result.is_ok(), "mailer should build without TLS: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_build_smtp_mailer_no_credentials() {
+        let config = SmtpConfig {
+            host: "localhost".to_string(),
+            port: 25,
+            from: "noreply@example.com".to_string(),
+            tls: false,
+            ..Default::default()
+        };
+        let result = build_smtp_mailer(&config);
+        assert!(result.is_ok(), "mailer should build without auth credentials");
+    }
+
+    #[test]
+    fn test_email_job_message_building() {
+        // Verify that a valid email message can be constructed
+        let from: Mailbox = "noreply@example.com".parse().expect("valid from address");
+        let to: Mailbox = "user@example.com".parse().expect("valid to address");
+        let message = Message::builder()
+            .from(from)
+            .to(to)
+            .subject("Test Subject".to_string())
+            .body("Test Body".to_string())
+            .expect("message should build");
+        // Verify message is well-formed
+        let formatted = format!("{:?}", message);
+        assert!(!formatted.is_empty(), "message debug output should not be empty");
     }
 }

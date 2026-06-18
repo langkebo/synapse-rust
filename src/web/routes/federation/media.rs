@@ -37,7 +37,7 @@ pub(super) async fn media_download(
         return Err(ApiError::bad_request("Missing media_id"));
     }
 
-    let content = state.services.media_service.download_media(&server_name, &media_id).await?;
+    let content = state.services.core.media_service.download_media(&server_name, &media_id).await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();
     let headers = federation_media_response_headers(content_type, content.len());
 
@@ -68,7 +68,7 @@ pub(super) async fn media_thumbnail(
 
     let content = state
         .services
-        .media_service
+        .core.media_service
         .get_thumbnail(&server_name, &media_id, width as u32, height as u32, method)
         .await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();

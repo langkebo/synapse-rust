@@ -1,6 +1,8 @@
 # M-3 进度报告
 
-> 最后更新: 2026-06-04
+> 最后更新: 2026-06-17
+> **当前策略 (2026-06-13 起)**: 仓库基线已统一为 **live-schema / DB-enabled compile gate 为主，`.sqlx/` 为可选 offline accelerator**。`scripts/ci/check_sqlx_offline_cache.sh` 已调整为"有缓存就校验、无缓存则显式 SKIP"。不再把空 `.sqlx/` 视为硬失败。
+> 以下历史进度数据为 M-3 迁移期间的快照，已不再反映当前门禁策略。
 
 ## 概览
 

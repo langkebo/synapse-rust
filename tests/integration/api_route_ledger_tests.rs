@@ -50,11 +50,11 @@ async fn worker_enabled_fixture() -> TestFixture {
     WORKER_ENABLED_FIXTURE
         .get_or_init(|| async {
             setup_test_app_with_config(|container| {
-                container.config.federation.allow_ingress = true;
-                container.config.worker.enabled = true;
-                container.config.worker.replication.http.enabled = true;
-                container.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
-                container.config.worker.replication.http.secret_path = None;
+                container.core.config.federation.allow_ingress = true;
+                container.core.config.worker.enabled = true;
+                container.core.config.worker.replication.http.enabled = true;
+                container.core.config.worker.replication.http.secret = Some("test_worker_secret".to_string());
+                container.core.config.worker.replication.http.secret_path = None;
             })
             .await
         })
@@ -67,8 +67,8 @@ async fn openclaw_enabled_fixture() -> TestFixture {
     OPENCLAW_ENABLED_FIXTURE
         .get_or_init(|| async {
             setup_test_app_with_config(|container| {
-                container.config.federation.allow_ingress = true;
-                container.config.experimental.openclaw_routes_enabled = true;
+                container.core.config.federation.allow_ingress = true;
+                container.core.config.experimental.openclaw_routes_enabled = true;
             })
             .await
         })

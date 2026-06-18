@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::ApiError;
-pub use synapse_storage::{KeyAuditEntry, KeyEvent};
 use synapse_e2ee::{CrossSigningStorage, DeviceTrustLevel, DeviceTrustStorage};
 use synapse_storage::{DeviceStorage, E2eeAuditStorage};
+pub use synapse_storage::{KeyAuditEntry, KeyEvent};
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -47,6 +47,16 @@ impl E2eeAuditService {
 
     pub async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
         self.storage.get_key_history(user_id).await
+    }
+
+    pub async fn get_key_history_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        self.storage.get_key_history_paginated(user_id, limit, from_ts, from_id).await
     }
 
     pub async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
@@ -199,9 +209,7 @@ impl CrossSigningVerificationService {
     pub async fn mark_device_unverified(&self, user_id: &str, device_id: &str, reason: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        self.device_trust_storage
-            .set_device_trust(user_id, device_id, DeviceTrustLevel::Unverified, None)
-            .await?;
+        self.device_trust_storage.set_device_trust(user_id, device_id, DeviceTrustLevel::Unverified, None).await?;
 
         self.audit
             .log_key_operation(KeyEvent {
@@ -245,20 +253,13 @@ impl CrossSigningVerificationService {
     }
 
     async fn verify_device_signature(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        let signatures = self
-            .cross_signing_storage
-            .get_device_signatures(&device.user_id, &device.device_id)
-            .await?;
+        let signatures = self.cross_signing_storage.get_device_signatures(&device.user_id, &device.device_id).await?;
 
         Ok(!signatures.is_empty())
     }
 
     async fn check_cross_signing(&self, device: &DeviceInfo) -> Result<bool, ApiError> {
-        Ok(self
-            .cross_signing_storage
-            .get_cross_signing_key(&device.user_id, "self_signing")
-            .await?
-            .is_some())
+        Ok(self.cross_signing_storage.get_cross_signing_key(&device.user_id, "self_signing").await?.is_some())
     }
 }
 

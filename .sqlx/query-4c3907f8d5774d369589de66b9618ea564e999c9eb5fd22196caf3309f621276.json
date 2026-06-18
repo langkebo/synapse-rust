@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO federation_queue (destination, event_id, event_type, room_id, content, created_ts, status)\n                    VALUES ($1, $2, 'm.room.event', NULL, $3, $4, 'pending')\n                    RETURNING id as \"id!\"\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4c3907f8d5774d369589de66b9618ea564e999c9eb5fd22196caf3309f621276"
+}

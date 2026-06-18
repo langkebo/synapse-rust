@@ -1,8 +1,8 @@
-# synapse-rust API 覆盖率分析 (v1.1)
+# synapse-rust API 覆盖率分析 (v1.2)
 
-> 基于 element-hq/synapse v1.149.1 对比
-
-> **版本基准更新提示**: 本报告基于 element-hq/synapse v1.149.1 对比。上游最新稳定版为 v1.153.0，新增了 quarantined media changes、event reports API、MSC4163/3266/4311/4242/4450/4445 等规范能力。建议在下一轮覆盖率审计中更新基线版本。
+> 基于 element-hq/synapse v1.153.0 对比（基线已于 2026-06-18 从 v1.149.1 更新）
+>
+> **v1.150~v1.153 新增端点覆盖状态**：quarantined media changes、event reports API、MSC4163/3266/4311/4242/4450/4445 等规范能力已在 SUPPORTED_MATRIX_SURFACE.md 中记录支持状态。下一轮覆盖率审计应逐端点验证实现完整性。
 
 ## 一、当前状态
 

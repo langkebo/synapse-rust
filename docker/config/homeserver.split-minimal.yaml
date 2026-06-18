@@ -1,0 +1,287 @@
+server:
+  name: "${SERVER_NAME:-localhost}"
+  host: "0.0.0.0"
+  port: 8008
+  public_baseurl: "${PUBLIC_BASEURL:-http://localhost:28008}"
+  signing_key_path: "/app/data/signing.key"
+  macaroon_secret_key: "${MACAROON_SECRET:?MACAROON_SECRET is required}"
+  form_secret: "${FORM_SECRET:?FORM_SECRET is required}"
+  server_name: "${SERVER_NAME:-localhost}"
+  registration_shared_secret: "${REGISTRATION_SECRET:?REGISTRATION_SECRET is required}"
+  max_upload_size: 10485760
+  max_image_resolution: 8000000
+  enable_registration: true
+  enable_registration_captcha: false
+  background_tasks_interval: 300
+  expire_access_token: true
+  expire_access_token_lifetime: 86400
+  refresh_token_lifetime: 604800
+  refresh_token_sliding_window_size: 3600
+  session_duration: 86400000
+  warmup_pool: true
+
+rate_limit:
+  enabled: true
+  default:
+    per_second: 20
+    burst_size: 40
+  endpoints: []
+  ip_header_priority:
+    - "x-forwarded-for"
+    - "x-real-ip"
+    - "forwarded"
+  include_headers: true
+  exempt_paths:
+    - "/"
+    - "/_matrix/client/versions"
+  exempt_path_prefixes: []
+  endpoint_aliases: {}
+  fail_open_on_error: false
+  sync:
+    enabled: true
+    initial:
+      per_second: 2
+      burst_size: 4
+    incremental:
+      per_second: 20
+      burst_size: 40
+
+database:
+  host: "postgres"
+  port: 5432
+  username: "${DB_USER:-synapse}"
+  password: "${DB_PASSWORD:?DB_PASSWORD is required}"
+  name: "${DB_NAME:-synapse}"
+  # Keep per-worker pools small in split-minimal deployments so the aggregate
+  # connection demand stays well below PostgreSQL's max_connections budget.
+  pool_size: 6
+  max_size: 6
+  min_idle: 1
+  connection_timeout: 60
+
+redis:
+  host: "redis"
+  port: 6379
+  password: "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+  key_prefix: "${REDIS_KEY_PREFIX:-synapse:}"
+  pool_size: 20
+  enabled: true
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+
+logging:
+  level: "${RUST_LOG:-info}"
+  format: "text"
+
+search:
+  enabled: false
+  elasticsearch_url: "http://localhost:9200"
+
+federation:
+  enabled: true
+  allow_ingress: true
+  server_name: "${SERVER_NAME:-localhost}"
+  federation_port: 8448
+  connection_pool_size: 100
+  max_transaction_payload: 10485760
+  signing_key: "${FEDERATION_SIGNING_KEY:?FEDERATION_SIGNING_KEY is required}"
+  key_id: "${FEDERATION_KEY_ID:-ed25519:local}"
+  trusted_key_servers:
+    - server_name: "matrix.org"
+  key_refresh_interval: 86400
+  suppress_key_server_warning: false
+  signature_cache_ttl: 3600
+  key_cache_ttl: 3600
+  key_rotation_grace_period_ms: 600000
+  key_fetch_max_concurrency: 32
+  key_fetch_timeout_ms: 5000
+  process_inbound_edus: true
+  inbound_edus_max_per_txn: 100
+  inbound_edu_max_concurrency: 32
+  inbound_edu_acquire_timeout_ms: 1000
+  inbound_edu_per_origin_max_concurrency: 8
+  process_inbound_presence_edus: true
+  inbound_presence_updates_max_per_txn: 50
+  inbound_presence_backoff_ms: 15000
+  join_max_concurrency: 16
+  join_acquire_timeout_ms: 2000
+
+security:
+  secret: "${SECRET_KEY:?SECRET_KEY is required}"
+  expiry_time: 86400
+  refresh_token_expiry: 604800
+  argon2_m_cost: 65536
+  argon2_t_cost: 3
+  argon2_p_cost: 4
+  allow_legacy_hashes: false
+  login_failure_lockout_threshold: 5
+  login_lockout_duration_seconds: 300
+
+registration:
+  enabled: true
+  enable_registration_captcha: false
+  session_duration: 86400000
+
+admin_registration:
+  enabled: true
+  shared_secret: "${ADMIN_SECRET:?ADMIN_SECRET is required}"
+  nonce_timeout_seconds: 60
+  allow_external_access: false
+  production_only: false
+
+worker:
+  enabled: true
+  instance_name: "${WORKER_INSTANCE_NAME:-master}"
+  instance_map:
+    master:
+      host: "master"
+      port: 8008
+      tls: false
+    client_reader-1:
+      host: "client-reader-1"
+      port: 8008
+      tls: false
+    sync_worker:
+      host: "sync-worker"
+      port: 8008
+      tls: false
+    event_persister:
+      host: "event-persister"
+      port: 8008
+      tls: false
+    federation_reader:
+      host: "federation-reader"
+      port: 8008
+      tls: false
+    federation_sender:
+      host: "federation-sender"
+      port: 8008
+      tls: false
+    media_repository:
+      host: "media-repository"
+      port: 8008
+      tls: false
+    background_worker:
+      host: "background-worker"
+      port: 8008
+      tls: false
+    pusher:
+      host: "pusher"
+      port: 8008
+      tls: false
+  stream_writers:
+    events:
+      - "event_persister"
+    typing:
+      - "master"
+    to_device:
+      - "master"
+    account_data:
+      - "master"
+    receipts:
+      - "master"
+    presence:
+      - "master"
+    push_rules:
+      - "master"
+    device_lists:
+      - "master"
+  replication:
+    enabled: true
+    server_name: "${SERVER_NAME:-localhost}"
+    http:
+      enabled: true
+      host: "0.0.0.0"
+      port: 8008
+      secret: "${WORKER_REPLICATION_SECRET:?WORKER_REPLICATION_SECRET is required}"
+
+cors:
+  allowed_origins:
+    - "${PUBLIC_BASEURL:-http://localhost:28008}"
+    - "http://localhost:28008"
+    - "http://127.0.0.1:28008"
+    - "http://localhost:6130"
+    - "http://127.0.0.1:6130"
+    - "tauri://localhost"
+    - "https://tauri.localhost"
+    - "vector://vector"
+    - "vector://riot"
+    - "file://"
+  allow_credentials: true
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allowed_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "Accept"
+    - "Origin"
+    - "X-Requested-With"
+  max_age_seconds: 3600
+
+identity_server_url: "https://vector.im"
+
+voip:
+  turn_uris:
+    - "turn:turn.example.com:3478?transport=udp"
+    - "turn:turn.example.com:3478?transport=tcp"
+  turn_shared_secret: "test_turn_shared_secret"
+  turn_user_lifetime: "1h"
+  turn_allow_guests: true
+  stun_uris:
+    - "stun:stun.example.com:3478"
+
+url_preview:
+  enabled: false
+
+push:
+  enabled: false
+
+retention:
+  enabled: true
+  default_policy:
+    min_lifetime: 86400
+    max_lifetime: 7776000
+  allowed_lifetime_min: 86400
+  allowed_lifetime_max: 7776000
+  purge_jobs:
+    - interval: 3600
+      batch_size: 500
+  lifecycle_cleanup_enabled: true
+  lifecycle_cleanup_interval_secs: 900
+  cleanup_batch_size: 500
+  audit_retention_days: 30
+  queue_retention_days: 7
+
+telemetry:
+  enabled: true
+  service_name: "synapse-rust"
+  service_version: "6.0.4"
+  service_namespace: "matrix"
+  trace_enabled: false
+  metrics_enabled: true
+  logs_enabled: false
+  otlp_endpoint: "${OTLP_ENDPOINT:-http://otel-collector:4317}"
+  otlp_headers: null
+  sampling_ratio: 0.1
+  batch_export: true
+  export_timeout_seconds: 30
+  max_queue_size: 2048
+  max_export_batch_size: 512
+  scheduled_delay_millis: 5000
+  resource_attributes:
+    deployment.environment: "split-minimal"
+    service.instance.id: "${WORKER_INSTANCE_NAME:-master}"
+
+prometheus:
+  enabled: true
+  port: 9090
+  path: "/metrics"
+  include_namespace: true
+
+app_service:
+  enabled: false
+  appservice: []

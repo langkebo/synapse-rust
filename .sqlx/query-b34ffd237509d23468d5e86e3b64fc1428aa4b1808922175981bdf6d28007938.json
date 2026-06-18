@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT r.room_id AS \"room_id!\"\n            FROM rooms r\n            INNER JOIN room_memberships rm ON r.room_id = rm.room_id\n            INNER JOIN events e ON r.room_id = e.room_id\n            WHERE rm.user_id = $1\n              AND rm.membership = 'join'\n              AND e.event_type = 'm.room.encryption'\n              AND e.state_key IS NOT NULL\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b34ffd237509d23468d5e86e3b64fc1428aa4b1808922175981bdf6d28007938"
+}

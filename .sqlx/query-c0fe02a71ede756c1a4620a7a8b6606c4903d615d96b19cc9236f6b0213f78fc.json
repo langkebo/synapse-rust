@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id,\n                event_id,\n                user_id,\n                device_id,\n                signature,\n                key_id,\n                created_ts\n            FROM event_signatures\n            WHERE event_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "event_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "signature",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c0fe02a71ede756c1a4620a7a8b6606c4903d615d96b19cc9236f6b0213f78fc"
+}

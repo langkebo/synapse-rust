@@ -4,8 +4,7 @@ use crate::e2ee::crypto::{Aes256GcmCipher, Aes256GcmKey};
 use crate::error::ApiError;
 use crate::services::dehydrated_device_service::DehydratedDeviceService;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::rngs::OsRng;
-use rand::Rng;
+use rand::RngCore;
 use std::collections::HashMap;
 use std::sync::Arc;
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -40,7 +39,7 @@ impl SecretStorageService {
     }
 
     fn create_curve25519_key(key_id: &str) -> Result<SecretStorageKeyCreationTerm, ApiError> {
-        let secret = StaticSecret::random_from_rng(OsRng);
+        let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let public = PublicKey::from(&secret);
         let private_key_bytes = secret.as_bytes();
         let public_key_bytes = public.as_bytes();
@@ -49,7 +48,7 @@ impl SecretStorageService {
         let public_key_base64 = BASE64.encode(public_key_bytes);
 
         let mut iv_bytes = [0u8; SSSS_IV_LENGTH];
-        rand::thread_rng().fill(&mut iv_bytes);
+        rand::rng().fill_bytes(&mut iv_bytes);
         let iv = BASE64.encode(iv_bytes);
 
         let key_data = format!("{private_key_base64}:{public_key_base64}");
@@ -73,11 +72,11 @@ impl SecretStorageService {
 
     fn create_aes_hmac_key(key_id: &str) -> SecretStorageKeyCreationTerm {
         let mut key_bytes = [0u8; SSSS_KEY_LENGTH];
-        rand::thread_rng().fill(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         let key_base64 = BASE64.encode(key_bytes);
 
         let mut iv_bytes = [0u8; SSSS_IV_LENGTH];
-        rand::thread_rng().fill(&mut iv_bytes);
+        rand::rng().fill_bytes(&mut iv_bytes);
         let iv_base64 = BASE64.encode(iv_bytes);
 
         let key_data = format!("{key_base64}:{iv_base64}");

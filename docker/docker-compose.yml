@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       target: tools
       args:
-        CARGO_FEATURE_ARGS: ${DOCKER_CARGO_FEATURE_ARGS:---features server,core-private-chat,openclaw,voice-extended,cas-sso,saml-sso --no-default-features}
+        CARGO_FEATURE_ARGS: ${DOCKER_CARGO_FEATURE_ARGS:---features server,core-private-chat,openclaw,voice-extended,cas-sso,saml-sso,widgets --no-default-features}
         CARGO_BUILD_JOBS: ${DOCKER_CARGO_BUILD_JOBS:-2}
     image: ${SYNAPSE_IMAGE:-synapse-rust}:${SYNAPSE_IMAGE_TAG:-latest}
     container_name: ${COMPOSE_PROJECT_NAME:-synapse}-rust

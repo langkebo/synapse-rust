@@ -9,6 +9,14 @@ TEMP_ENV_CREATED=false
 IMAGE_BUILT=false
 SERVICES_STARTED=false
 COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.dev-host-access.yml)
+RUN_APPSERVICE_GATE="${RUN_APPSERVICE_GATE:-0}"
+APPSERVICE_GATE_DAY="${APPSERVICE_GATE_DAY:-D2}"
+APPSERVICE_GATE_FAIL_ON="${APPSERVICE_GATE_FAIL_ON:-warning}"
+APPSERVICE_GATE_BASE_URL="${APPSERVICE_GATE_BASE_URL:-http://localhost:8008}"
+APPSERVICE_GATE_PROMETHEUS_URL="${APPSERVICE_GATE_PROMETHEUS_URL:-http://localhost:9090/metrics}"
+APPSERVICE_GATE_OUTPUT_DIR="${APPSERVICE_GATE_OUTPUT_DIR:-$ROOT_DIR/artifacts/appservice_gate}"
+APPSERVICE_GATE_RESOURCE_SUMMARY="${APPSERVICE_GATE_RESOURCE_SUMMARY:-ci backend validation gate; 待补 CPU/RSS/连接池摘要}"
+APPSERVICE_GATE_ADMIN_TOKEN="${APPSERVICE_GATE_ADMIN_TOKEN:-}"
 
 log() {
     printf '[ci] %s\n' "$*"
@@ -230,6 +238,29 @@ run_docker_smoke() {
     log "运行 /room_keys/* 端到端测试"
     BASE="http://localhost:${SYNAPSE_PORT}" \
         bash "$ROOT_DIR/tests/e2e/scripts/key_backup.sh"
+
+    if [ "$RUN_APPSERVICE_GATE" = "1" ]; then
+        run_appservice_gate
+    fi
+}
+
+run_appservice_gate() {
+    mkdir -p "$APPSERVICE_GATE_OUTPUT_DIR"
+
+    if [ -z "$APPSERVICE_GATE_ADMIN_TOKEN" ]; then
+        log "RUN_APPSERVICE_GATE=1 但未提供 APPSERVICE_GATE_ADMIN_TOKEN"
+        return 1
+    fi
+
+    log "运行 appservice gate (${APPSERVICE_GATE_DAY}, fail-on=${APPSERVICE_GATE_FAIL_ON})"
+    ADMIN_TOKEN="$APPSERVICE_GATE_ADMIN_TOKEN" \
+        BASE_URL="$APPSERVICE_GATE_BASE_URL" \
+        PROMETHEUS_URL="$APPSERVICE_GATE_PROMETHEUS_URL" \
+        python3 "$ROOT_DIR/scripts/appservice_daily_report.py" \
+            --day "$APPSERVICE_GATE_DAY" \
+            --fail-on "$APPSERVICE_GATE_FAIL_ON" \
+            --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
+            --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"
 }
 
 trap cleanup EXIT

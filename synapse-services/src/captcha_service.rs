@@ -1,6 +1,8 @@
+use crate::sms_provider::{create_sms_provider, SmsProvider};
 use rand::Rng;
 use std::sync::Arc;
 use synapse_common::background_job::BackgroundJob;
+use synapse_common::config::sms::SmsConfig;
 use synapse_common::error::ApiError;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::captcha::*;
@@ -11,6 +13,7 @@ pub struct CaptchaService {
     storage: Arc<CaptchaStorage>,
     task_queue: Option<Arc<RedisTaskQueue>>,
     smtp_enabled: bool,
+    sms_provider: Option<Arc<dyn SmsProvider>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -35,11 +38,36 @@ pub struct VerifyCaptchaRequest {
 
 impl CaptchaService {
     pub fn new(storage: Arc<CaptchaStorage>) -> Self {
-        Self::with_delivery(storage, None, false)
+        Self::with_sms_provider(storage, None, false, None)
     }
 
-    pub fn with_delivery(storage: Arc<CaptchaStorage>, task_queue: Option<Arc<RedisTaskQueue>>, smtp_enabled: bool) -> Self {
-        Self { storage, task_queue, smtp_enabled }
+    pub fn with_delivery(
+        storage: Arc<CaptchaStorage>,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+        smtp_enabled: bool,
+    ) -> Self {
+        Self::with_sms_provider(storage, task_queue, smtp_enabled, None)
+    }
+
+    pub fn with_sms_provider(
+        storage: Arc<CaptchaStorage>,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+        smtp_enabled: bool,
+        sms_provider: Option<Arc<dyn SmsProvider>>,
+    ) -> Self {
+        Self { storage, task_queue, smtp_enabled, sms_provider }
+    }
+
+    /// Create a CaptchaService with SMS provider built from config.
+    pub fn with_sms_config(
+        storage: Arc<CaptchaStorage>,
+        task_queue: Option<Arc<RedisTaskQueue>>,
+        smtp_enabled: bool,
+        sms_config: &SmsConfig,
+    ) -> Self {
+        let provider = create_sms_provider(sms_config);
+        let sms_provider = if sms_config.enabled { Some(Arc::from(provider)) } else { None };
+        Self { storage, task_queue, smtp_enabled, sms_provider }
     }
 
     pub async fn send_captcha(
@@ -120,7 +148,7 @@ impl CaptchaService {
                 user_agent: user_agent.map(|s| s.to_string()),
                 is_success: send_result.is_ok(),
                 error_message: send_result.as_ref().err().map(|e| e.to_string()),
-                provider: Some(captcha_type.to_string()),
+                provider: Some(self.delivery_provider_name(captcha_type)),
                 provider_response: None,
             })
             .await?;
@@ -159,14 +187,14 @@ impl CaptchaService {
     }
 
     fn generate_code(length: usize) -> String {
-        let mut rng = rand::thread_rng();
-        (0..length).map(|_| rng.gen_range(0..10).to_string()).collect()
+        let mut rng = rand::rng();
+        (0..length).map(|_| rng.random_range(0..10).to_string()).collect()
     }
 
     #[cfg(test)]
     fn generate_code_static(length: usize) -> String {
-        let mut rng = rand::thread_rng();
-        (0..length).map(|_| rng.gen_range(0..10).to_string()).collect()
+        let mut rng = rand::rng();
+        (0..length).map(|_| rng.random_range(0..10).to_string()).collect()
     }
 
     #[cfg(test)]
@@ -198,7 +226,7 @@ impl CaptchaService {
 
         match captcha.captcha_type.as_str() {
             "email" => self.send_email(&captcha.target, template.subject.as_deref(), &content).await,
-            "sms" => self.send_sms(&captcha.target, &content),
+            "sms" => self.send_sms_async(&captcha.target, &content).await,
             "image" => Ok(()),
             _ => Err(ApiError::bad_request("Invalid captcha type")),
         }
@@ -209,6 +237,25 @@ impl CaptchaService {
         content = content.replace("{{code}}", code);
         content = content.replace("{{expiry_minutes}}", &expiry_minutes.to_string());
         content
+    }
+
+    fn delivery_provider_name(&self, captcha_type: &str) -> String {
+        match captcha_type {
+            "email" => {
+                if self.smtp_enabled {
+                    "smtp".to_string()
+                } else {
+                    "email".to_string()
+                }
+            }
+            "sms" => self
+                .sms_provider
+                .as_ref()
+                .map(|provider| provider.provider_name().to_string())
+                .unwrap_or_else(|| "sms".to_string()),
+            "image" => "image".to_string(),
+            other => other.to_string(),
+        }
     }
 
     async fn send_email(&self, to: &str, subject: Option<&str>, content: &str) -> Result<(), ApiError> {
@@ -238,7 +285,11 @@ impl CaptchaService {
         Ok(())
     }
 
-    fn send_sms(&self, to: &str, _content: &str) -> Result<(), ApiError> {
+    async fn send_sms_async(&self, to: &str, content: &str) -> Result<(), ApiError> {
+        if let Some(provider) = &self.sms_provider {
+            info!(target = %to, provider = %provider.provider_name(), "Sending captcha SMS");
+            return provider.send(to, content).await;
+        }
         warn!(target = %to, "captcha sms delivery requested but no sms provider is configured");
         Err(ApiError::not_implemented(
             "Captcha SMS delivery is not configured. Connect an SMS provider before using sms captcha.",

@@ -133,13 +133,13 @@ impl KeyRotationManager {
             return Ok(());
         }
 
-        let table_exists: bool = sqlx::query_scalar!(
+        let table_exists: bool = sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS (
                 SELECT 1
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                   AND table_name = 'federation_signing_keys'
-            ) AS "exists!""#
+            )"#,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -165,13 +165,13 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let server_created_index_exists: bool = sqlx::query_scalar!(
+        let server_created_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND indexname = 'idx_federation_signing_keys_server_created'
-            ) AS "exists!""#
+            )"#,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -187,13 +187,13 @@ impl KeyRotationManager {
             .await?;
         }
 
-        let key_id_index_exists: bool = sqlx::query_scalar!(
+        let key_id_index_exists: bool = sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS (
                 SELECT 1
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND indexname = 'idx_federation_signing_keys_key_id'
-            ) AS "exists!""#
+            )"#,
         )
         .fetch_one(&*self.pool)
         .await?;
@@ -231,24 +231,24 @@ impl KeyRotationManager {
     pub async fn load_rotation_config(&self) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
-        let interval_days: i64 = sqlx::query_scalar!(
-            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'rotation_interval_days'"#,
+        let interval_days: i64 = sqlx::query_scalar::<_, String>(
+            r#"SELECT value FROM key_rotation_config WHERE key = 'rotation_interval_days'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
         .and_then(|v: String| v.parse().ok())
         .unwrap_or(DEFAULT_KEY_ROTATION_INTERVAL_DAYS);
 
-        let threshold_days: i64 = sqlx::query_scalar!(
-            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'rotation_threshold_days'"#,
+        let threshold_days: i64 = sqlx::query_scalar::<_, String>(
+            r#"SELECT value FROM key_rotation_config WHERE key = 'rotation_threshold_days'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
         .and_then(|v: String| v.parse().ok())
         .unwrap_or(DEFAULT_KEY_ROTATION_THRESHOLD_DAYS);
 
-        let grace_period_minutes: i64 = sqlx::query_scalar!(
-            r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = 'grace_period_minutes'"#,
+        let grace_period_minutes: i64 = sqlx::query_scalar::<_, String>(
+            r#"SELECT value FROM key_rotation_config WHERE key = 'grace_period_minutes'"#,
         )
         .fetch_optional(&*self.pool)
         .await?
@@ -276,15 +276,15 @@ impl KeyRotationManager {
     pub async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError> {
         self.ensure_key_rotation_config_table().await?;
 
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO key_rotation_config (key, value)
             VALUES ($1, $2)
             ON CONFLICT (key) DO UPDATE SET value = $2
             ",
-            key,
-            value,
         )
+        .bind(key)
+        .bind(value)
         .execute(&*self.pool)
         .await?;
 
@@ -326,27 +326,26 @@ impl KeyRotationManager {
     pub async fn load_or_create_key(&self) -> Result<(), ApiError> {
         self.ensure_signing_keys_table().await?;
 
-        let existing_key = sqlx::query_as!(
-            SigningKey,
+        let existing_key = sqlx::query_as::<_, SigningKey>(
             r#"
             SELECT
-                server_name as "server_name!",
-                key_id as "key_id!",
-                secret_key as "secret_key!",
-                public_key as "public_key!",
-                created_ts as "created_ts!",
-                expires_at as "expires_at!",
-                key_json as "key_json!",
-                ts_added_ms as "ts_added_ms!",
-                ts_valid_until_ms as "ts_valid_until_ms!"
+                server_name,
+                key_id,
+                secret_key,
+                public_key,
+                created_ts,
+                expires_at,
+                key_json,
+                ts_added_ms,
+                ts_valid_until_ms
             FROM federation_signing_keys
             WHERE server_name = $1 AND (expires_at = 0 OR expires_at > $2)
             ORDER BY created_ts DESC
             LIMIT 1
             "#,
-            &self.server_name,
-            Utc::now().timestamp_millis()
         )
+        .bind(&self.server_name)
+        .bind(Utc::now().timestamp_millis())
         .fetch_optional(&*self.pool)
         .await;
 
@@ -454,7 +453,7 @@ impl KeyRotationManager {
             "public_key": signing_key.public_key
         });
 
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO federation_signing_keys (server_name, key_id, secret_key, public_key, created_ts, expires_at, key_json, ts_added_ms, ts_valid_until_ms)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -467,16 +466,16 @@ impl KeyRotationManager {
                 ts_added_ms = EXCLUDED.ts_added_ms,
                 ts_valid_until_ms = EXCLUDED.ts_valid_until_ms
             ",
-            self.server_name,
-            signing_key.key_id,
-            stored_secret_key,
-            signing_key.public_key,
-            signing_key.created_ts,
-            signing_key.expires_at,
-            key_json,
-            signing_key.created_ts,
-            signing_key.expires_at,
         )
+        .bind(&self.server_name)
+        .bind(&signing_key.key_id)
+        .bind(&stored_secret_key)
+        .bind(&signing_key.public_key)
+        .bind(signing_key.created_ts)
+        .bind(signing_key.expires_at)
+        .bind(&key_json)
+        .bind(signing_key.created_ts)
+        .bind(signing_key.expires_at)
         .execute(&*self.pool)
         .await?;
 
@@ -620,12 +619,11 @@ impl KeyRotationManager {
     async fn verify_from_database(&self, key_id: &str, signature: &str, content: &[u8]) -> Result<bool, ApiError> {
         self.ensure_signing_keys_table().await?;
 
-        let key_record: Option<FederationKeyRecord> = sqlx::query_as!(
-            FederationKeyRecord,
-            r#"SELECT public_key AS "public_key!", expires_at AS "expires_at!"
+        let key_record: Option<FederationKeyRecord> = sqlx::query_as::<_, FederationKeyRecord>(
+            r#"SELECT public_key, expires_at
                FROM federation_signing_keys WHERE key_id = $1"#,
-            key_id,
         )
+        .bind(key_id)
         .fetch_optional(&*self.pool)
         .await?;
 
@@ -717,11 +715,10 @@ impl KeyRotationManager {
     }
 
     async fn get_known_federation_servers(&self) -> Result<Vec<String>, ApiError> {
-        let servers: Vec<FederationServerName> = sqlx::query_as!(
-            FederationServerName,
-            "SELECT DISTINCT server_name AS \"server_name!\" FROM federation_servers WHERE server_name != $1",
-            self.server_name,
+        let servers: Vec<FederationServerName> = sqlx::query_as::<_, FederationServerName>(
+            "SELECT DISTINCT server_name FROM federation_servers WHERE server_name != $1",
         )
+        .bind(&self.server_name)
         .fetch_all(&*self.pool)
         .await
         .unwrap_or_else(|e| {
@@ -754,16 +751,16 @@ impl KeyRotationManager {
         };
 
         // Mark the key as expired and add revocation metadata
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"UPDATE federation_signing_keys
                SET expires_at = $1,
                    key_json = COALESCE(key_json, '{}'::jsonb) || $2::jsonb
                WHERE key_id = $3 AND server_name = $4 AND (expires_at = 0 OR expires_at > $1)"#,
-            now,
-            &key_json_update,
-            key_id,
-            &self.server_name,
         )
+        .bind(now)
+        .bind(&key_json_update)
+        .bind(key_id)
+        .bind(&self.server_name)
         .execute(&*self.pool)
         .await?;
 
@@ -1069,7 +1066,7 @@ mod tests {
             "public_key": test_public
         });
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO federation_signing_keys (
                 server_name,
@@ -1084,16 +1081,16 @@ mod tests {
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
-            "test.example.com",
-            "ed25519:test",
-            &test_secret,
-            &test_public,
-            now,
-            expires_at,
-            key_json.clone(),
-            now,
-            expires_at,
         )
+        .bind("test.example.com")
+        .bind("ed25519:test")
+        .bind(&test_secret)
+        .bind(&test_public)
+        .bind(now)
+        .bind(expires_at)
+        .bind(key_json.clone())
+        .bind(now)
+        .bind(expires_at)
         .execute(&*pool)
         .await
         .expect("Failed to insert test federation signing key");

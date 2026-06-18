@@ -38,9 +38,7 @@ impl AdminFederationStorage {
     }
 
     pub async fn count_destinations(&self) -> Result<i64, sqlx::Error> {
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers")
-            .fetch_one(&*self.pool)
-            .await
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_servers").fetch_one(&*self.pool).await
     }
 
     pub async fn list_destinations(
@@ -77,10 +75,7 @@ impl AdminFederationStorage {
         }
     }
 
-    pub async fn get_destination(
-        &self,
-        server_name: &str,
-    ) -> Result<Option<FederationDestinationRecord>, sqlx::Error> {
+    pub async fn get_destination(&self, server_name: &str) -> Result<Option<FederationDestinationRecord>, sqlx::Error> {
         sqlx::query_as::<_, FederationDestinationRecord>(
             r"
             SELECT server_name, last_failed_connect_at, last_successful_connect_at, failure_count, status, updated_ts
@@ -154,14 +149,12 @@ impl AdminFederationStorage {
         status: &str,
         updated_ts: i64,
     ) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3",
-        )
-        .bind(status)
-        .bind(updated_ts)
-        .bind(server_name)
-        .execute(&*self.pool)
-        .await?;
+        let result = sqlx::query("UPDATE federation_servers SET status = $1, updated_ts = $2 WHERE server_name = $3")
+            .bind(status)
+            .bind(updated_ts)
+            .bind(server_name)
+            .execute(&*self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 
@@ -209,10 +202,7 @@ impl AdminFederationStorage {
     }
 
     pub async fn delete_federation_cache_entry(&self, key: &str) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1")
-            .bind(key)
-            .execute(&*self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM federation_cache WHERE key = $1").bind(key).execute(&*self.pool).await?;
         Ok(result.rows_affected())
     }
 

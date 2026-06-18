@@ -17,10 +17,10 @@ async fn setup_test_app_with_sync_isolation_rate_limit(
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.config.rate_limit.enabled = false;
-    container.config.rate_limit.sync.enabled = true;
-    container.config.rate_limit.sync.initial = initial;
-    container.config.rate_limit.sync.incremental = incremental;
+    container.core.config.rate_limit.enabled = false;
+    container.core.config.rate_limit.sync.enabled = true;
+    container.core.config.rate_limit.sync.initial = initial;
+    container.core.config.rate_limit.sync.incremental = incremental;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
@@ -39,11 +39,11 @@ async fn setup_test_app_with_broken_sync_rate_limit_backend(
         Arc::new(CacheManager::with_redis_pool_and_url(redis_pool, &CacheConfig::default(), "redis://127.0.0.1:1"));
 
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
-    container.config.rate_limit.enabled = false;
-    container.config.rate_limit.fail_open_on_error = true;
-    container.config.rate_limit.sync.enabled = true;
-    container.config.rate_limit.sync.initial = initial;
-    container.config.rate_limit.sync.incremental = incremental;
+    container.core.config.rate_limit.enabled = false;
+    container.core.config.rate_limit.fail_open_on_error = true;
+    container.core.config.rate_limit.sync.enabled = true;
+    container.core.config.rate_limit.sync.initial = initial;
+    container.core.config.rate_limit.sync.incremental = incremental;
 
     let state = AppState::new(container, cache);
     Some(synapse_rust::web::create_router(state))

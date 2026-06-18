@@ -730,21 +730,9 @@ impl SearchService {
 
     fn context_entry_from_value(value: Value) -> EventContextEntry {
         EventContextEntry {
-            event_id: value
-                .get("event_id")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            sender: value
-                .get("sender")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            event_type: value
-                .get("type")
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_string(),
+            event_id: value.get("event_id").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+            sender: value.get("sender").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
+            event_type: value.get("type").and_then(|value| value.as_str()).unwrap_or_default().to_string(),
             content: value.get("content").cloned().unwrap_or(Value::Null),
             origin_server_ts: value.get("origin_server_ts").and_then(|value| value.as_i64()).unwrap_or_default(),
         }
@@ -908,7 +896,7 @@ impl SearchService {
         let rows = event_storage
             .search_room_messages_admin(room_id, &search_pattern, limit)
             .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(rows
             .into_iter()

@@ -19,7 +19,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
         None => {
             let session = state
                 .services
-                .uia_service
+                .extensions.uia_service
                 .create_session(&auth_user.user_id, crate::services::uia_service::UiaService::get_delete_device_flows())
                 .await;
             return Err((
@@ -35,7 +35,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
         Some(auth_val) => {
             let result = state
                 .services
-                .uia_service
+                .extensions.uia_service
                 .validate_auth(
                     auth_val,
                     &auth_user.user_id,
@@ -55,13 +55,13 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 "m.login.password" => {
                     if let Err(e) = state
                         .services
-                        .uia_service
+                        .extensions.uia_service
                         .verify_password_stage(auth_val, &auth_user.user_id, &core.auth_service)
                         .await
                     {
                         let session = state
                             .services
-                            .uia_service
+                            .extensions.uia_service
                             .create_session(
                                 &auth_user.user_id,
                                 crate::services::uia_service::UiaService::get_delete_device_flows(),
@@ -77,13 +77,13 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 "m.login.token" => {
                     if let Err(e) = state
                         .services
-                        .uia_service
+                        .extensions.uia_service
                         .verify_token_stage(auth_val, &auth_user.user_id, &core.auth_service)
                         .await
                     {
                         let session = state
                             .services
-                            .uia_service
+                            .extensions.uia_service
                             .create_session(
                                 &auth_user.user_id,
                                 crate::services::uia_service::UiaService::get_delete_device_flows(),
@@ -99,7 +99,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 _ => {
                     let session = state
                         .services
-                        .uia_service
+                        .extensions.uia_service
                         .create_session(
                             &auth_user.user_id,
                             crate::services::uia_service::UiaService::get_delete_device_flows(),

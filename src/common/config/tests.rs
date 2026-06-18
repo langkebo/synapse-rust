@@ -146,6 +146,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
@@ -154,8 +155,8 @@ mod tests {
             builtin_oidc: BuiltinOidcConfig::default(),
             saml: SamlConfig::default(),
             retention: RetentionConfig::default(),
-            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
+            prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
@@ -300,6 +301,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
@@ -307,8 +309,8 @@ mod tests {
             oidc: OidcConfig::default(),
             saml: SamlConfig::default(),
             retention: RetentionConfig::default(),
-            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
+            prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
@@ -568,6 +570,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
@@ -576,8 +579,8 @@ mod tests {
             builtin_oidc: BuiltinOidcConfig::default(),
             saml: SamlConfig::default(),
             retention: RetentionConfig::default(),
-            telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-            prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
+            telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
+            prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
             performance: PerformanceConfig::default(),
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
@@ -681,5 +684,49 @@ mod tests {
 
         assert!(config.secret.len() > 16);
         assert_eq!(config.argon2_m_cost, 4096);
+    }
+
+    #[test]
+    fn test_resolve_env_variables_resolves_worker_replication_config() -> Result<(), String> {
+        unsafe {
+            std::env::set_var("TEST_WORKER_INSTANCE", "sync_worker");
+            std::env::set_var("TEST_WORKER_HOST", "sync-worker");
+            std::env::set_var("TEST_REPLICATION_SECRET", "worker_replication_secret_2026");
+        }
+
+        let mut config = Config::default();
+        config.worker.enabled = true;
+        config.worker.instance_name = "${TEST_WORKER_INSTANCE:-master}".to_string();
+        config.worker.instance_map.insert(
+            "sync_worker".to_string(),
+            InstanceLocationConfig { host: "${TEST_WORKER_HOST:?missing}".to_string(), port: 8008, tls: false },
+        );
+        config.worker.replication.enabled = true;
+        config.worker.replication.server_name = "${TEST_WORKER_HOST:-matrix.test}".to_string();
+        config.worker.replication.http.enabled = true;
+        config.worker.replication.http.host = "${TEST_WORKER_HOST:-0.0.0.0}".to_string();
+        config.worker.replication.http.secret = Some("${TEST_REPLICATION_SECRET:?missing}".to_string());
+        config.worker.replication.http.secret_path =
+            Some("${TEST_WORKER_SECRET_PATH:-/tmp/replication.secret}".to_string());
+
+        config.resolve_env_variables()?;
+
+        assert_eq!(config.worker.instance_name, "sync_worker");
+        assert_eq!(
+            config.worker.instance_map.get("sync_worker").map(|instance| instance.host.as_str()),
+            Some("sync-worker")
+        );
+        assert_eq!(config.worker.replication.server_name, "sync-worker");
+        assert_eq!(config.worker.replication.http.host, "sync-worker");
+        assert_eq!(config.worker.replication.http.secret.as_deref(), Some("worker_replication_secret_2026"));
+        assert_eq!(config.worker.replication.http.secret_path.as_deref(), Some("/tmp/replication.secret"));
+
+        unsafe {
+            std::env::remove_var("TEST_WORKER_INSTANCE");
+            std::env::remove_var("TEST_WORKER_HOST");
+            std::env::remove_var("TEST_REPLICATION_SECRET");
+        }
+
+        Ok(())
     }
 }

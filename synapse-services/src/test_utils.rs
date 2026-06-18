@@ -10,12 +10,12 @@ use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 
 static PREPARED_TEST_POOLS: LazyLock<Mutex<VecDeque<Arc<PgPool>>>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
-static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
+pub static TEST_ENV_LOCK: LazyLock<TokioMutex<()>> = LazyLock::new(|| TokioMutex::new(()));
 static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
 static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
     LazyLock::new(|| Semaphore::new(configured_shared_clone_concurrency()));
-const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 16;
+const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 64;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 180;
@@ -279,7 +279,7 @@ async fn init_template_schema(database_url: &str) -> Result<String, String> {
     let pool = tokio::time::timeout(
         connect_timeout,
         PgPoolOptions::new()
-            .max_connections(4)
+            .max_connections(configured_test_pool_max_connections())
             .min_connections(0)
             .acquire_timeout(Duration::from_secs(30))
             .idle_timeout(Some(Duration::from_secs(300)))

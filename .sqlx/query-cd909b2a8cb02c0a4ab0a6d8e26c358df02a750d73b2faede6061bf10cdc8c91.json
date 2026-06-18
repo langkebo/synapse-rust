@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT server_name AS \"server_name!\" FROM federation_servers WHERE server_name != $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_name!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cd909b2a8cb02c0a4ab0a6d8e26c358df02a750d73b2faede6061bf10cdc8c91"
+}

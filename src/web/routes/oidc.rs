@@ -501,11 +501,11 @@ async fn oidc_token(
 
             // 检查 OIDC 绑定记录
             let bound_user_id: Option<String> =
-                state.services.oidc_mapping_service.get_bound_user_id(&issuer, &subject).await?;
+                state.services.sso.oidc_mapping_service.get_bound_user_id(&issuer, &subject).await?;
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                state.services.oidc_mapping_service.record_authentication(&issuer, &subject, now_ts).await?;
+                state.services.sso.oidc_mapping_service.record_authentication(&issuer, &subject, now_ts).await?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
@@ -535,7 +535,7 @@ async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                state.services.oidc_mapping_service.create_mapping(&issuer, &subject, &matrix_user_id, now_ts).await?;
+                state.services.sso.oidc_mapping_service.create_mapping(&issuer, &subject, &matrix_user_id, now_ts).await?;
                 matrix_user_id
             };
 

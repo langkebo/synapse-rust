@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE device_verification_request\n             SET commitment = $1, pubkey = $2\n             WHERE request_token = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b6c14b461e45d230012a5a16b4828331074282331e98e49cf38d117dfa0ee218"
+}

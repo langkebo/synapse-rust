@@ -31,7 +31,7 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        let already_processed: Option<bool> = state.services.cache.get(&dedup_key).await.unwrap_or(None);
+        let already_processed: Option<bool> = state.services.core.cache.get(&dedup_key).await.unwrap_or(None);
         if already_processed.unwrap_or(false) {
             ::tracing::debug!(
                 request_id = %request_id,
@@ -363,7 +363,7 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        if let Err(e) = state.services.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
+        if let Err(e) = state.services.core.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
             ::tracing::warn!(
                 request_id = %request_id,
                 txn_id = %txn_id,

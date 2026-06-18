@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 #[derive(Debug, Deserialize)]
 pub struct EphemeralParams {
@@ -37,50 +37,7 @@ pub async fn get_ephemeral_events(
     Query(params): Query<EphemeralParams>,
 ) -> Result<Json<EphemeralResponse>, ApiError> {
     ensure_room_member(&state, &auth_user, &room_id, "User is not in the room").await?;
-
-    let now = chrono::Utc::now().timestamp_millis();
-
-    // Get ephemeral events (typing, receipts, etc.)
-    let rows = sqlx::query(
-        r"
-        SELECT event_type, user_id, content, stream_id, created_ts
-        FROM room_ephemeral
-        WHERE room_id = $1
-        AND (expires_at IS NULL OR expires_at > $2)
-        ORDER BY stream_id DESC
-        LIMIT $3
-        ",
-    )
-    .bind(&room_id)
-    .bind(now)
-    .bind(params.limit)
-    .fetch_all(&*state.services.rooms.event_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get ephemeral events", &e))?;
-
-    let mut events: Vec<Value> = Vec::new();
-
-    for row in rows {
-        use sqlx::Row;
-        let event_type: String = row.get("event_type");
-        let sender: String = row.get("user_id");
-        let content: Value = row.get("content");
-        let stream_id: i64 = row.get("stream_id");
-        let origin_server_ts: i64 = row.get("created_ts");
-        // room_ephemeral 没有原生 event_id；按 Matrix 约定合成 `$ephemeral_{stream_id}`，
-        // 保证客户端可以按 id 做幂等去重。
-        let event_id = format!("$ephemeral_{stream_id}");
-
-        let event = json!({
-            "type": event_type,
-            "sender": sender,
-            "content": content,
-            "origin_server_ts": origin_server_ts,
-            "stream_id": stream_id,
-            "event_id": event_id,
-        });
-        events.push(event);
-    }
+    let events = state.services.rooms.room_service.get_ephemeral_events_for_client(&room_id, params.limit).await?;
 
     Ok(Json(EphemeralResponse { events, start: None, end: None }))
 }

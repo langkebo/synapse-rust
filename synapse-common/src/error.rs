@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 
 use axum::{
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -311,6 +311,17 @@ impl std::fmt::Display for ErrorSource {
 
 pub type ApiErrorCause = Arc<dyn std::error::Error + Send + Sync>;
 
+#[derive(Debug)]
+struct RetryAfterMsCause(u64);
+
+impl std::fmt::Display for RetryAfterMsCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "retry_after_ms={}", self.0)
+    }
+}
+
+impl std::error::Error for RetryAfterMsCause {}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiError {
     pub kind: ApiErrorKind,
@@ -540,13 +551,13 @@ impl ApiError {
         }
     }
 
-    pub fn rate_limited_with_retry(_retry_after_ms: u64) -> Self {
+    pub fn rate_limited_with_retry(retry_after_ms: u64) -> Self {
         Self {
             kind: ApiErrorKind::RateLimited,
             code: MatrixErrorCode::LimitExceeded,
             message: "Rate limited".to_string(),
             source: None,
-            cause: None,
+            cause: Some(Arc::new(RetryAfterMsCause(retry_after_ms))),
         }
     }
 
@@ -950,8 +961,10 @@ impl ApiError {
 
     pub fn retry_after_ms(&self) -> Option<u64> {
         if self.kind == ApiErrorKind::RateLimited {
-            // Try to parse retry_after_ms from the cause or return default
-            Some(5000)
+            self.cause
+                .as_ref()
+                .and_then(|cause| cause.downcast_ref::<RetryAfterMsCause>().map(|retry| retry.0))
+                .or(Some(5000))
         } else {
             None
         }
@@ -993,7 +1006,7 @@ impl IntoResponse for ApiError {
             }
         }
 
-        let retry_after_ms = if self.kind == ApiErrorKind::RateLimited { Some(5000u64) } else { None };
+        let retry_after_ms = self.retry_after_ms();
 
         let mut body = json!({
             "errcode": errcode,
@@ -1003,8 +1016,18 @@ impl IntoResponse for ApiError {
         if let Some(ms) = retry_after_ms {
             body["retry_after_ms"] = json!(ms);
         }
-
-        (status_code, Json(body)).into_response()
+        let mut response = (status_code, Json(body)).into_response();
+        if let Some(ms) = retry_after_ms {
+            let retry_after_seconds = ms.saturating_add(999) / 1000;
+            if let Ok(value) = HeaderValue::from_str(&retry_after_seconds.to_string()) {
+                response.headers_mut().insert("retry-after", value);
+            }
+            if let Ok(value) = HeaderValue::from_str(&ms.to_string()) {
+                response.headers_mut().insert("x-ratelimit-retry-after", value.clone());
+                response.headers_mut().insert("x-ratelimit-after", value);
+            }
+        }
+        response
     }
 }
 

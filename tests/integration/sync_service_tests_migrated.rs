@@ -3,22 +3,23 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::common::validation::Validator;
+use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
-use synapse_rust::storage::filter::{CreateFilterRequest, FilterStorage};
+use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::room_summary::RoomSummaryStorage;
+use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 use synapse_rust::PresenceStorage;
 
@@ -353,9 +354,7 @@ fn create_room_service(
         server_name: "localhost".to_string(),
         task_queue: None,
         relations_storage: RelationsStorage::new(pool),
-        event_broadcaster: Some(Arc::new(synapse_rust::federation::event_broadcaster::EventBroadcaster::new(
-            "localhost".to_string(),
-        ))),
+        event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),
         app_service_manager: None,
         beacon_service: None,
     })

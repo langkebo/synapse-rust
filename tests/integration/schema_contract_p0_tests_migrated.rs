@@ -3,7 +3,7 @@ use sqlx::Row;
 use std::sync::Arc;
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
-use synapse_rust::storage::room_summary::{
+use synapse_rust::storage::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateSummaryMemberRequest,
 };
 use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest, SpaceStorage};

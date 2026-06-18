@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE e2ee_secret_storage_keys\n            SET is_active = FALSE, updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT\n            WHERE user_id = $1 AND key_id = $2 AND is_active = TRUE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7207a507eebb225690b49a416590392622ca46defdd70c78636262aff11350ce"
+}

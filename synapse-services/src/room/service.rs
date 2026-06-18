@@ -71,6 +71,7 @@ pub struct RoomService {
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
+    #[allow(dead_code)]
     pub(crate) beacon_service: Option<()>,
 }
 
@@ -269,6 +270,7 @@ impl RoomService {
     }
 }
 
+#[cfg(feature = "friends")]
 impl From<crate::friend_room_service::FriendRoomCreateRoomConfig> for CreateRoomConfig {
     fn from(config: crate::friend_room_service::FriendRoomCreateRoomConfig) -> Self {
         Self {

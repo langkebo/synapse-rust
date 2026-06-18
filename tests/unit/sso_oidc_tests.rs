@@ -138,7 +138,7 @@ mod tests {
     fn test_oidc_pkce_code_verifier_generation() {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
         let mut random_bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut random_bytes);
+        rand::RngCore::fill_bytes(&mut rand::rng(), &mut random_bytes);
         let code_verifier = URL_SAFE_NO_PAD.encode(random_bytes);
         assert!(!code_verifier.is_empty());
         assert!(code_verifier.len() >= 43);
@@ -163,7 +163,7 @@ mod tests {
     fn test_oidc_state_parameter_format() {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
         let mut random_bytes = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut random_bytes);
+        rand::RngCore::fill_bytes(&mut rand::rng(), &mut random_bytes);
         let state = URL_SAFE_NO_PAD.encode(random_bytes);
         assert!(!state.is_empty());
         assert!(state.len() >= 43);

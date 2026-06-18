@@ -1,6 +1,6 @@
 {
   "schema_version": "1",
-  "generated_at": "2026-05-30T03:34:40Z",
+  "generated_at": "2026-06-15T04:01:17Z",
   "state_profile": "default",
   "profile_flags": {
     "oidc_enabled": false,
@@ -8,7 +8,7 @@
     "saml_enabled": false,
     "openclaw_enabled": false
   },
-  "entry_count": 1292,
+  "entry_count": 1253,
   "entries": [
     {
       "method": "GET",
@@ -7426,6 +7426,25 @@
     },
     {
       "method": "GET",
+      "path": "/_matrix/media/v3/download_signed/{server_name}/{media_id}",
+      "registered_by": "media",
+      "path_params": [
+        "server_name",
+        "media_id"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/_matrix/media/v3/download_signed/{server_name}/{media_id}/{filename}",
+      "registered_by": "media",
+      "path_params": [
+        "server_name",
+        "media_id",
+        "filename"
+      ]
+    },
+    {
+      "method": "GET",
       "path": "/_matrix/media/v3/preview_url",
       "registered_by": "media",
       "path_params": []
@@ -8445,20 +8464,8 @@
     },
     {
       "method": "POST",
-      "path": "/_synapse/admin/v1/purge_history",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "POST",
       "path": "/_synapse/admin/v1/purge_media_cache",
       "registered_by": "admin::server",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/purge_room",
-      "registered_by": "admin::room",
       "path_params": []
     },
     {
@@ -8591,225 +8598,6 @@
     },
     {
       "method": "GET",
-      "path": "/_synapse/admin/v1/room_stats",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/room_stats/{room_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/cleanup",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/search",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/search",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/rooms/{room_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/aliases",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/ban",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/ban/{user_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/block",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/block",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/delete",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/event_context/{event_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "event_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/forward_extremities",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/kick",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/kick/{user_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/listings",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/listings/public",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/listings/public",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/make_admin",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/make_admin",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/members",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "PUT",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/members/{user_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/messages",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/purge_history",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
       "path": "/_synapse/admin/v1/rooms/{room_id}/reports",
       "registered_by": "admin::report",
       "path_params": [
@@ -8823,55 +8611,6 @@
       "path_params": [
         "room_id",
         "report_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/search",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/state",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/token_sync",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/unban/{user_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id",
-        "user_id"
-      ]
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/unblock",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/rooms/{room_id}/version",
-      "registered_by": "admin::room",
-      "path_params": [
-        "room_id"
       ]
     },
     {
@@ -8961,58 +8700,6 @@
       "path": "/_synapse/admin/v1/server_version",
       "registered_by": "admin::server",
       "path_params": []
-    },
-    {
-      "method": "POST",
-      "path": "/_synapse/admin/v1/shutdown_room",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/spaces",
-      "registered_by": "admin::room",
-      "path_params": []
-    },
-    {
-      "method": "DELETE",
-      "path": "/_synapse/admin/v1/spaces/{space_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "space_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/spaces/{space_id}",
-      "registered_by": "admin::room",
-      "path_params": [
-        "space_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/spaces/{space_id}/rooms",
-      "registered_by": "admin::room",
-      "path_params": [
-        "space_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/spaces/{space_id}/stats",
-      "registered_by": "admin::room",
-      "path_params": [
-        "space_id"
-      ]
-    },
-    {
-      "method": "GET",
-      "path": "/_synapse/admin/v1/spaces/{space_id}/users",
-      "registered_by": "admin::room",
-      "path_params": [
-        "space_id"
-      ]
     },
     {
       "method": "GET",
@@ -9514,6 +9201,18 @@
         "task_id",
         "worker_id"
       ]
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/worker/v1/topology",
+      "registered_by": "worker",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/worker/v1/topology/validate",
+      "registered_by": "worker",
+      "path_params": []
     },
     {
       "method": "GET",

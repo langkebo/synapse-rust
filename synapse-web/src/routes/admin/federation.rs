@@ -92,7 +92,9 @@ pub struct BlacklistQuery {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_pending_federation_cursor, encode_pending_federation_cursor, PendingFederationCursor};
+    use synapse_services::admin_federation_service::{
+        decode_pending_federation_cursor, encode_pending_federation_cursor, PendingFederationCursor,
+    };
 
     #[test]
     fn test_pending_federation_cursor_round_trip() {

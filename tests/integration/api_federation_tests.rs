@@ -25,13 +25,13 @@ async fn setup_federation_test_app_with_pool(
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
     let mut container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone()).await;
-    container.config.server.name = "localhost".to_string();
-    container.server_name = "localhost".to_string();
-    container.config.federation.enabled = true;
-    container.config.federation.allow_ingress = true;
-    container.config.federation.server_name = "localhost".to_string();
-    container.config.federation.key_id = Some(key_id.to_string());
-    container.config.federation.signing_key = Some(signing_key_b64.to_string());
+    container.core.config.server.name = "localhost".to_string();
+    container.core.server_name = "localhost".to_string();
+    container.core.config.federation.enabled = true;
+    container.core.config.federation.allow_ingress = true;
+    container.core.config.federation.server_name = "localhost".to_string();
+    container.core.config.federation.key_id = Some(key_id.to_string());
+    container.core.config.federation.signing_key = Some(signing_key_b64.to_string());
     let cache =
         std::sync::Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
     let state = synapse_rust::web::routes::state::AppState::new(container, cache);

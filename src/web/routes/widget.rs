@@ -153,7 +153,7 @@ async fn create_widget(
         data: body.data,
     };
 
-    let widget = state.services.widget_service.create_widget(&auth_user.user_id, request).await?;
+    let widget = state.services.extensions.widget_service.create_widget(&auth_user.user_id, request).await?;
 
     Ok(Json(WidgetResponse { widget }))
 }
@@ -179,7 +179,7 @@ async fn update_widget(
 
     let widget = state
         .services
-        .widget_service
+        .extensions.widget_service
         .update_widget(&widget_id, request)
         .await?
         .ok_or(ApiError::not_found("Widget not found"))?;
@@ -193,7 +193,7 @@ async fn delete_widget(
     Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let deleted = state.services.widget_service.delete_widget(&widget_id).await?;
+    let deleted = state.services.extensions.widget_service.delete_widget(&widget_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Widget not found"));
@@ -208,7 +208,7 @@ async fn get_room_widgets(
     Path(room_id): Path<String>,
 ) -> Result<Json<WidgetListResponse>, ApiError> {
     ensure_room_widget_access(&state, &auth_user, &room_id).await?;
-    let widgets = state.services.widget_service.get_room_widgets(&room_id).await?;
+    let widgets = state.services.extensions.widget_service.get_room_widgets(&room_id).await?;
 
     Ok(Json(WidgetListResponse { total: widgets.len(), widgets }))
 }
@@ -255,7 +255,7 @@ async fn set_widget_permission(
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
     let request = SetPermissionRequest { user_id: body.user_id, permissions: body.permissions };
 
-    let permission = state.services.widget_service.set_permission(&widget_id, request).await?;
+    let permission = state.services.extensions.widget_service.set_permission(&widget_id, request).await?;
 
     Ok(Json(json!({"success": true, "permission_id": permission.id})))
 }
@@ -266,7 +266,7 @@ async fn get_widget_permissions(
     Path(widget_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "read").await?;
-    let permissions = state.services.widget_service.get_permissions(&widget_id).await?;
+    let permissions = state.services.extensions.widget_service.get_permissions(&widget_id).await?;
 
     Ok(Json(json!({"permissions": permissions})))
 }
@@ -277,7 +277,7 @@ async fn delete_widget_permission(
     Path((widget_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let deleted = state.services.widget_service.delete_permission(&widget_id, &user_id).await?;
+    let deleted = state.services.extensions.widget_service.delete_permission(&widget_id, &user_id).await?;
 
     Ok(Json(json!({"deleted": deleted})))
 }
@@ -296,7 +296,7 @@ async fn create_widget_session(
     }
     let request = CreateSessionRequest { widget_id, device_id: body.device_id, expires_in_ms: body.expires_in_ms };
 
-    let session = state.services.widget_service.create_session(&auth_user.user_id, request).await?;
+    let session = state.services.extensions.widget_service.create_session(&auth_user.user_id, request).await?;
 
     Ok(Json(SessionResponse { session }))
 }
@@ -308,7 +308,7 @@ async fn get_widget_session(
 ) -> Result<Json<SessionResponse>, ApiError> {
     let session = state
         .services
-        .widget_service
+        .extensions.widget_service
         .get_session(&session_id)
         .await?
         .ok_or(ApiError::not_found("Session not found"))?;
@@ -323,7 +323,7 @@ async fn get_widget_sessions(
     Path(widget_id): Path<String>,
 ) -> Result<Json<SessionListResponse>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
-    let sessions = state.services.widget_service.get_widget_sessions(&widget_id).await?;
+    let sessions = state.services.extensions.widget_service.get_widget_sessions(&widget_id).await?;
 
     Ok(Json(SessionListResponse { total: sessions.len(), sessions }))
 }
@@ -335,12 +335,12 @@ async fn terminate_widget_session(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = state
         .services
-        .widget_service
+        .extensions.widget_service
         .get_session(&session_id)
         .await?
         .ok_or(ApiError::not_found("Session not found"))?;
     ensure_session_access(&state, &auth_user, &session).await?;
-    let terminated = state.services.widget_service.terminate_session(&session_id).await?;
+    let terminated = state.services.extensions.widget_service.terminate_session(&session_id).await?;
 
     Ok(Json(json!({"terminated": terminated})))
 }
@@ -385,7 +385,7 @@ async fn get_widget_with_access(
     required_permission: &str,
 ) -> Result<crate::storage::widget::Widget, ApiError> {
     let widget =
-        state.services.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+        state.services.extensions.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.user_id == auth_user.user_id {
         return Ok(widget);
@@ -399,11 +399,11 @@ async fn get_widget_with_access(
     }
 
     let has_direct_permission =
-        state.services.widget_service.check_permission(widget_id, &auth_user.user_id, required_permission).await?;
+        state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, required_permission).await?;
     let has_wildcard_permission =
-        state.services.widget_service.check_permission(widget_id, &auth_user.user_id, "*").await?;
+        state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, "*").await?;
     let has_write_permission = required_permission == "read"
-        && state.services.widget_service.check_permission(widget_id, &auth_user.user_id, "write").await?;
+        && state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, "write").await?;
 
     if has_direct_permission || has_wildcard_permission || has_write_permission {
         Ok(widget)
@@ -444,7 +444,7 @@ async fn get_room_widget_capabilities(
     .await?;
 
     let widget =
-        state.services.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
@@ -481,7 +481,7 @@ async fn set_room_widget_capabilities(
 
     let update_request = UpdateWidgetRequest { url: None, name: None, data: Some(data) };
 
-    state.services.widget_service.update_widget(&widget_id, update_request).await?;
+    state.services.extensions.widget_service.update_widget(&widget_id, update_request).await?;
 
     Ok(Json(json!({
         "capabilities": body.capabilities,
@@ -512,7 +512,7 @@ async fn send_room_widget_message(
     .await?;
 
     let widget =
-        state.services.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));

@@ -2,7 +2,9 @@ use crate::common::*;
 use crate::web::routes::AppState;
 use axum::{
     extract::{Json, Query, State},
+    http::{header::HeaderName, HeaderValue},
     middleware,
+    response::IntoResponse,
     routing::{get, post, put},
     Router,
 };
@@ -155,13 +157,18 @@ async fn acquire_with_timeout(
     Ok((permit, started.elapsed().as_millis() as u64))
 }
 
-async fn federation_version(State(_state): State<AppState>) -> Json<Value> {
-    Json(json!({
-        "server": {
-            "name": "synapse-rust",
-            "version": env!("CARGO_PKG_VERSION")
-        }
-    }))
+async fn federation_version(State(state): State<AppState>) -> impl IntoResponse {
+    let route_owner =
+        crate::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+    (
+        [(HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
+        Json(json!({
+            "server": {
+                "name": "synapse-rust",
+                "version": env!("CARGO_PKG_VERSION")
+            }
+        })),
+    )
 }
 
 async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
@@ -183,6 +190,7 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
 
     let token = state
         .services
+        .core
         .account_data_service
         .validate_openid_token(access_token)
         .await?

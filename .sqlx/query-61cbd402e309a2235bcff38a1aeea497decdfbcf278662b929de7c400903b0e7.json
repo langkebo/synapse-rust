@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                id as \"id!\",\n                refresh_token_id as \"refresh_token_id!\",\n                user_id as \"user_id!\",\n                old_access_token_id as \"old_access_token_id?\",\n                new_access_token_id as \"new_access_token_id?\",\n                used_ts as \"used_ts!\",\n                ip_address as \"ip_address?\",\n                user_agent as \"user_agent?\",\n                COALESCE(is_success, false) as \"is_success!\",\n                error_message as \"error_message?\"\n            FROM refresh_token_usage WHERE user_id = $1 ORDER BY used_ts DESC LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "refresh_token_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "old_access_token_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "new_access_token_id?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "used_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "ip_address?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "user_agent?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_success!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "error_message?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "61cbd402e309a2235bcff38a1aeea497decdfbcf278662b929de7c400903b0e7"
+}

@@ -1,8 +1,16 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use synapse_common::ApiError;
 
 pub struct RoomAccountDataStorage;
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RoomAccountDataRecord {
+    pub room_id: String,
+    pub data_type: String,
+    pub content: Value,
+}
 
 impl RoomAccountDataStorage {
     pub async fn get_room_account_data_content(
@@ -52,6 +60,46 @@ impl RoomAccountDataStorage {
             .bind(data_type)
             .fetch_optional(pool)
             .await
+    }
+
+    pub async fn list_room_account_data(
+        pool: &sqlx::PgPool,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        sqlx::query_as::<_, RoomAccountDataRecord>(
+            "SELECT room_id, data_type, data AS content \
+             FROM room_account_data \
+             WHERE user_id = $1 AND room_id = $2 \
+             ORDER BY data_type ASC",
+        )
+        .bind(user_id)
+        .bind(room_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    pub async fn list_room_account_data_batch(
+        pool: &sqlx::PgPool,
+        user_id: &str,
+        room_ids: &[String],
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        if room_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        sqlx::query_as::<_, RoomAccountDataRecord>(
+            "SELECT room_id, data_type, data AS content \
+             FROM room_account_data \
+             WHERE user_id = $1 AND room_id = ANY($2) \
+             ORDER BY room_id ASC, data_type ASC",
+        )
+        .bind(user_id)
+        .bind(room_ids)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
     pub async fn get_room_vault_data(

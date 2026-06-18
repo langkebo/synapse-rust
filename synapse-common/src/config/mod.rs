@@ -28,6 +28,7 @@ pub mod retention;
 pub mod search;
 pub mod security;
 pub mod server;
+pub mod sms;
 pub mod smtp;
 pub mod translate;
 pub mod voip;
@@ -52,6 +53,7 @@ pub use retention::{RetentionConfig, RetentionPolicy, RetentionPurgeJob};
 pub use search::{PostgresFtsConfig, PostgresFtsWeights, SearchConfig};
 pub use security::{AdminRegistrationConfig, CorsConfig, SecurityConfig};
 pub use server::ServerConfig;
+pub use sms::SmsConfig;
 pub use smtp::{SmtpConfig, SmtpRateLimitConfig};
 pub use translate::TranslateConfig;
 pub use voip::{
@@ -99,6 +101,9 @@ pub struct Config {
     /// SMTP email configuration
     #[serde(default)]
     pub smtp: SmtpConfig,
+    /// SMS provider configuration
+    #[serde(default)]
+    pub sms: SmsConfig,
     /// VoIP/TURN configuration
     #[serde(default)]
     pub voip: VoipConfig,
@@ -330,6 +335,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
@@ -484,6 +490,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),
@@ -752,6 +759,7 @@ mod tests {
                 max_age_seconds: default_cors_max_age(),
             },
             smtp: SmtpConfig::default(),
+            sms: SmsConfig::default(),
             livekit: LivekitConfig::default(),
             voip: VoipConfig::default(),
             push: PushConfig::default(),

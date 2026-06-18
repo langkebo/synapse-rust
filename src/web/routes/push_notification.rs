@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::push_notification_service::SendNotificationRequest;
-use crate::storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
+use crate::storage::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -129,8 +129,7 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device: crate::storage::push_notification::PushDevice =
-        state.services.admin.push_notification_service.register_device(request).await?;
+    let device: PushDevice = state.services.admin.push_notification_service.register_device(request).await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -151,8 +150,7 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices: Vec<crate::storage::push_notification::PushDevice> =
-        state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
+    let devices: Vec<PushDevice> = state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -199,8 +197,7 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule: crate::storage::push_notification::PushRule =
-        state.services.admin.push_notification_service.create_push_rule(request).await?;
+    let rule: PushRule = state.services.admin.push_notification_service.create_push_rule(request).await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -209,8 +206,7 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules: Vec<crate::storage::push_notification::PushRule> =
-        state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
+    let rules: Vec<PushRule> = state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 

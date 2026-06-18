@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                COUNT(CASE WHEN trust_level = 'verified' THEN 1 END) AS \"verified!\",\n                COUNT(CASE WHEN trust_level = 'unverified' THEN 1 END) AS \"unverified!\",\n                COUNT(CASE WHEN trust_level = 'blocked' THEN 1 END) AS \"blocked!\"\n            FROM device_trust_status\n            WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "verified!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "unverified!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "blocked!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6e2f432ba1e91645ebde3b2e9b0c6973be101e3277c73d7759e91e996fdccb8e"
+}

@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                key_id AS \"key_id!\",\n                user_id AS \"user_id!\",\n                algorithm AS \"algorithm!\",\n                encrypted_key AS \"encrypted_key!\",\n                public_key AS \"public_key?\",\n                signatures AS \"signatures?\",\n                created_ts AS \"created_ts!\"\n            FROM e2ee_secret_storage_keys\n            WHERE user_id = $1 AND key_id = $2 AND is_active = TRUE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "algorithm!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "encrypted_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "public_key?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signatures?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b5b2b1e2541c8eef69ce2e122a14c611420ae43635db3607f0810fc6a95af555"
+}

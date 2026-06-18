@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id as \"user_id!\",\n                COUNT(*) as \"total_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = FALSE AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as \"active_tokens!\",\n                COUNT(*) FILTER (WHERE is_revoked = TRUE) as \"revoked_tokens!\",\n                COUNT(*) FILTER (WHERE expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) as \"expired_tokens!\",\n                COALESCE(SUM(use_count), 0) as \"total_uses!\"\n            FROM refresh_tokens\n            WHERE user_id = $1\n            GROUP BY user_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "total_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "active_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "revoked_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "expired_tokens!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "total_uses!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "b1d9b53b4cc437b04721f3c5487293ab36d55649d9ac47194b5761c6f009083a"
+}

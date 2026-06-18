@@ -760,7 +760,7 @@ fn encrypt_api_key(key: &str, encryption_key: &[u8; 32]) -> Result<String, ApiEr
     let cipher = Aes256Gcm::new_from_slice(encryption_key)
         .map_err(|_| ApiError::internal("Invalid encryption key length".to_string()))?;
     let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let ciphertext =

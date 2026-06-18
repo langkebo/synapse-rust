@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                server_name AS \"server_name!\",\n                key_id AS \"key_id!\",\n                secret_key AS \"secret_key!\",\n                public_key AS \"public_key!\",\n                created_ts AS \"created_ts!\",\n                expires_at AS \"expires_at!\",\n                key_json AS \"key_json!\",\n                ts_added_ms AS \"ts_added_ms!\",\n                ts_valid_until_ms AS \"ts_valid_until_ms!\"\n            FROM federation_signing_keys\n            WHERE server_name = $1 AND (expires_at = 0 OR expires_at > $2)\n            ORDER BY created_ts DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "server_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "key_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "secret_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "public_key!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "expires_at!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "key_json!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "ts_added_ms!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ts_valid_until_ms!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cdba0ce1206193d3177daacf394cbe3dbe17cc2dd76ab836d97401ed9a036deb"
+}

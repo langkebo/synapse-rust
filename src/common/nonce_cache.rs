@@ -169,7 +169,6 @@ mod tests {
         assert!(cache.check_and_record("origin.test", "nonce-1", 1_000_000).await.unwrap());
         // moka's entry_count() is approximate; the insert succeeded
         // (verified by check_and_record returning Ok(true))
-        assert!(cache.len() >= 0);
     }
 
     #[tokio::test]
@@ -186,7 +185,6 @@ mod tests {
             assert!(cache.check_and_record("origin.test", &format!("nonce-{i}"), 1_000_000).await.unwrap());
         }
         // Each nonce should have been accepted (check_and_record returned Ok(true))
-        assert!(cache.len() >= 0);
     }
 
     #[test]

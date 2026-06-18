@@ -155,6 +155,17 @@ impl Config {
                 self.push.push_gateway_url.take().map(|v| resolve_env_in_string(&v)).transpose()?;
         }
 
+        self.worker.instance_name = resolve_env_in_string(&self.worker.instance_name)?;
+        for instance in self.worker.instance_map.values_mut() {
+            instance.host = resolve_env_in_string(&instance.host)?;
+        }
+        self.worker.replication.server_name = resolve_env_in_string(&self.worker.replication.server_name)?;
+        self.worker.replication.http.host = resolve_env_in_string(&self.worker.replication.http.host)?;
+        self.worker.replication.http.secret =
+            self.worker.replication.http.secret.take().map(|value| resolve_env_in_string(&value)).transpose()?;
+        self.worker.replication.http.secret_path =
+            self.worker.replication.http.secret_path.take().map(|value| resolve_env_in_string(&value)).transpose()?;
+
         Ok(())
     }
 }

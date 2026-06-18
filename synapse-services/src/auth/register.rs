@@ -74,7 +74,7 @@ impl AuthService {
             return Err(ApiError::invalid_param(format!("Password does not meet policy requirements: {e}")));
         }
 
-        let password_hash = self.hash_password(password)?;
+        let password_hash = self.hash_password_for_storage(password).await?;
 
         let user_id = format!("@{username}:{}", self.server_name);
 

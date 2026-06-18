@@ -19,7 +19,7 @@ pub fn hash_password(password: &str) -> Result<String, String> {
 }
 
 pub fn hash_password_with_config(password: &str, config: &Argon2Config) -> Result<String, String> {
-    let salt = SaltString::generate(&mut rand::thread_rng());
+    let salt = SaltString::generate(argon2::password_hash::rand_core::OsRng);
     let params = config.to_argon2_params().map_err(|e| e.to_string())?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
 
@@ -121,32 +121,32 @@ pub fn migrate_password_hash_with_config(password: &str, config: &Argon2Config) 
 
 pub fn generate_token(length: usize) -> String {
     let mut bytes = vec![0u8; length];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub fn generate_room_id(server_name: &str) -> String {
     let mut bytes = [0u8; 18];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     format!("!{}:{}", URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
 pub fn generate_event_id(server_name: &str) -> String {
     let timestamp = chrono::Utc::now().timestamp_millis();
     let mut bytes = [0u8; 18];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     format!("${}${}:{}", timestamp, URL_SAFE_NO_PAD.encode(bytes), server_name)
 }
 
 pub fn generate_device_id() -> String {
     let mut bytes = [0u8; 10];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     format!("DEVICE{}", URL_SAFE_NO_PAD.encode(bytes).get(..10).unwrap_or("DEVICE0000"))
 }
 
 pub fn generate_salt() -> String {
     let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
@@ -188,10 +188,10 @@ pub fn hmac_sha256(key: impl AsRef<[u8]>, data: impl AsRef<[u8]>) -> Vec<u8> {
 
 pub fn random_string(length: usize) -> String {
     static CHARSET: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let result: String = (0..length)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect();
