@@ -647,7 +647,7 @@ pub(crate) async fn set_room_account_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    state.services.account_data_service.set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body).await?;
+    state.services.core.account_data_service.set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -677,7 +677,7 @@ pub(crate) async fn get_room_account_data(
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let result =
-        state.services.account_data_service.get_room_account_data(&auth_user.user_id, &room_id, &data_type).await?;
+        state.services.core.account_data_service.get_room_account_data(&auth_user.user_id, &room_id, &data_type).await?;
 
     match result {
         Some(data) => Ok(Json(data)),
@@ -705,7 +705,7 @@ pub(crate) async fn get_room_turn_server(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let voip_service = &state.services.rtc_domain_service.infra;
+    let voip_service = &state.services.extensions.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({
@@ -815,6 +815,7 @@ pub(crate) async fn get_room_vault_data(
 
     let result = state
         .services
+        .core
         .account_data_service
         .get_room_account_data_with_ts(&auth_user.user_id, &room_id, "m.room.vault_data")
         .await?;
@@ -855,6 +856,7 @@ pub(crate) async fn set_room_vault_data(
 
     state
         .services
+        .core
         .account_data_service
         .set_room_account_data(&auth_user.user_id, &room_id, "m.room.vault_data", &body)
         .await?;
@@ -1028,7 +1030,7 @@ pub(crate) async fn get_room_device(
 
     let device = state
         .services
-        .device_storage
+        .account.device_storage
         .get_device(&device_id)
         .await
         .map_err(map_internal!("Failed to get device"))?
@@ -1210,7 +1212,7 @@ pub(crate) async fn search_room_messages(
         .unwrap_or(10)
         .min(100) as i64;
 
-    let results = state.services.search_service.search_room_messages(&room_id, search_term, limit).await?;
+    let results = state.services.core.search_service.search_room_messages(&room_id, search_term, limit).await?;
 
     Ok(Json(json!({
         "search_categories": {

@@ -197,16 +197,16 @@ impl OidcService {
     /// Generate PKCE code verifier and challenge
     pub fn generate_pkce() -> (String, String) {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         // PKCE charset as bytes for indexing
         const PKCE_CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 
         // Generate code_verifier (43-128 characters)
-        let verifier_len = rng.gen_range(43..=128);
+        let verifier_len = rng.random_range(43..=128);
         let code_verifier: String = (0..verifier_len)
             .map(|_| {
-                let idx = rng.gen_range(0..PKCE_CHARSET.len());
+                let idx = rng.random_range(0..PKCE_CHARSET.len());
                 PKCE_CHARSET[idx] as char
             })
             .collect();
@@ -562,8 +562,8 @@ impl OidcService {
 
     pub fn generate_state() -> String {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
-        (0..32).map(|_| rng.sample(rand::distributions::Alphanumeric) as char).collect()
+        let mut rng = rand::rng();
+        (0..32).map(|_| rng.sample(rand::distr::Alphanumeric) as char).collect()
     }
 
     pub fn get_config(&self) -> &OidcConfig {

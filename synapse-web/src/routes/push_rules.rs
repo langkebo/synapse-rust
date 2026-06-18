@@ -13,17 +13,16 @@ pub async fn get_push_rules_default(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let rows = sqlx::query("SELECT content FROM account_data WHERE user_id = $1 AND data_type = 'm.push_rules'")
-        .bind(&auth_user.user_id)
-        .fetch_optional(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?;
-
     let username = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
-    if let Some(row) = rows {
-        use sqlx::Row;
-        let mut content: Value = row.get("content");
+    if let Some(mut content) = state
+        .services
+        .account
+        .user_storage
+        .get_account_data_content(&auth_user.user_id, "m.push_rules")
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get push rules", &e))?
+    {
         merge_default_push_rules(&mut content, &auth_user.user_id, username);
         return Ok(Json(content));
     }

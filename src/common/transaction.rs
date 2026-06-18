@@ -221,14 +221,15 @@ pub struct AdvisoryLockGuard {
 
 impl AdvisoryLockGuard {
     pub async fn try_acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
-        let row = sqlx::query_scalar!(r#"SELECT pg_try_advisory_lock($1) AS "acquired!""#, lock_id)
+        let row = sqlx::query_scalar::<_, bool>(r#"SELECT pg_try_advisory_lock($1)"#)
+            .bind(lock_id)
             .fetch_one(&**pool)
             .await?;
         Ok(Self { pool: pool.clone(), lock_id, acquired: row })
     }
 
     pub async fn acquire(pool: &Arc<PgPool>, lock_id: i64) -> Result<Self, sqlx::Error> {
-        sqlx::query!("SELECT pg_advisory_lock($1)", lock_id).execute(&**pool).await?;
+        sqlx::query("SELECT pg_advisory_lock($1)").bind(lock_id).execute(&**pool).await?;
         Ok(Self { pool: pool.clone(), lock_id, acquired: true })
     }
 
@@ -243,7 +244,10 @@ impl Drop for AdvisoryLockGuard {
             let pool = self.pool.clone();
             let lock_id = self.lock_id;
             tokio::spawn(async move {
-                let _ = sqlx::query_scalar!("SELECT pg_advisory_unlock($1)", lock_id).fetch_one(&*pool).await;
+                let _ = sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1)")
+                    .bind(lock_id)
+                    .fetch_one(&*pool)
+                    .await;
             });
         }
     }

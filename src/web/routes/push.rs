@@ -127,7 +127,7 @@ pub struct PushAction {
 async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     // P2 #32: 只返回当前设备的 pusher，防止跨设备查看
     let pushers_list: Vec<serde_json::Value> =
-        state.services.client_push_service.get_pushers(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
+        state.services.core.client_push_service.get_pushers(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({
         "pushers": pushers_list
@@ -151,6 +151,7 @@ async fn set_pusher(
     if kind != "null" {
         let created_ts: i64 = state
             .services
+            .core
             .client_push_service
             .upsert_pusher(crate::services::client_push_service::UpsertPusherRequest {
                 user_id: auth_user.user_id,
@@ -174,7 +175,7 @@ async fn set_pusher(
         })))
     } else {
         // P2 #32: 删除 pusher 时也限制为当前设备，防止跨设备删除
-        state.services.client_push_service.delete_pusher(&auth_user.user_id, &device_id, &body.pushkey).await?;
+        state.services.core.client_push_service.delete_pusher(&auth_user.user_id, &device_id, &body.pushkey).await?;
 
         Ok(Json(json!({
             "deleted": true,
@@ -187,7 +188,7 @@ async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedU
     use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
     let row: Option<serde_json::Value> =
-        state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+        state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
@@ -209,7 +210,7 @@ async fn get_push_rules_scope(
         let username: &str = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
         let result: Option<serde_json::Value> =
-            state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+            state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
         if let Some(content) = result {
             if let Some(global) = content.get("global") {
@@ -241,7 +242,7 @@ async fn get_push_rules_kind(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let rules: Vec<serde_json::Value> =
-        state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+        state.services.core.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
     Ok(Json(json!({
         kind: rules
     })))
@@ -253,7 +254,7 @@ async fn get_push_rule(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let rules: Vec<serde_json::Value> =
-        state.services.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+        state.services.core.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
 
     let rule: Option<&serde_json::Value> =
         rules.iter().find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
@@ -276,6 +277,7 @@ async fn set_push_rule(
 
     let created_ts: i64 = state
         .services
+        .core
         .client_push_service
         .upsert_push_rule(crate::services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
@@ -308,6 +310,7 @@ async fn create_push_rule(
 
     let created_ts: i64 = state
         .services
+        .core
         .client_push_service
         .upsert_push_rule(crate::services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
@@ -334,7 +337,7 @@ async fn delete_push_rule(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let deleted: bool =
-        state.services.client_push_service.delete_push_rule(&auth_user.user_id, &scope, &kind, &rule_id).await?;
+        state.services.core.client_push_service.delete_push_rule(&auth_user.user_id, &scope, &kind, &rule_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Push rule not found".to_string()));
@@ -354,6 +357,7 @@ async fn set_push_rule_actions(
 
     state
         .services
+        .core
         .client_push_service
         .set_push_rule_actions(&auth_user.user_id, &scope, &kind, &rule_id, &actions)
         .await?;
@@ -371,7 +375,7 @@ async fn get_push_rule_enabled(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let result: Option<bool> =
-        state.services.client_push_service.get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id).await?;
+        state.services.core.client_push_service.get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id).await?;
 
     match result {
         Some(enabled) => Ok(Json(json!({
@@ -391,6 +395,7 @@ async fn set_push_rule_enabled(
 
     state
         .services
+        .core
         .client_push_service
         .set_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id, enabled)
         .await?;
@@ -410,7 +415,7 @@ async fn get_notifications(
     let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
 
     let notifications_list: Vec<serde_json::Value> =
-        state.services.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
+        state.services.core.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
 
     Ok(Json(json!({
         "notifications": notifications_list,
@@ -424,7 +429,7 @@ async fn ack_notification(
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let success: bool =
-        state.services.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
+        state.services.core.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
 
     if success {
         Ok(Json(json!({

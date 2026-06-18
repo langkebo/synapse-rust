@@ -36,7 +36,7 @@ curl -f http://localhost:8008/_matrix/client/versions
 
 项目使用环境变量管理所有配置。详细说明请参考：
 
-- 📖 [环境变量配置指南](docs/ENVIRONMENT_VARIABLES.md)
+- 📖 [环境变量配置](#环境变量覆盖配置)
 - 🔧 [配置验证脚本](scripts/validate_config.sh)
 - 🔑 [密钥生成脚本](scripts/generate_env.sh)
 
@@ -128,7 +128,7 @@ cargo run --release
 统一口径：
 
 - 部署与升级的唯一迁移执行入口是 `docker/db_migrate.sh migrate`
-- 新环境统一以 `migrations/00000000_unified_schema_v7.sql` 作为基线，增量仅执行 `20260515000001/0002/0003` 三个 v7 收敛批次
+- 新环境统一以 `migrations/00000000_unified_schema_v10.sql` 作为基线，增量仅执行 `00000001_extensions_v10.sql`
 - `stream_ordering` 在线修复与覆盖索引已拆分为独立 Batch-02，配套回滚文件为 `20260515000002_consolidated_stream_ordering_online_fix_v7.undo.sql`
 - Docker 容器只是由入口脚本自动调用该迁移入口，不构成第二套迁移方案
 - 服务启动默认只执行 schema health check，不执行运行时迁移
@@ -150,20 +150,16 @@ cargo run --release
 
 - Matrix/Synapse 对标审查与优化方案：`docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`
 - Matrix 协议声明支持面：`docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md`
-- 当前正式能力状态基线（单一事实源）：`docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md`
-- 项目优化执行路线图：`docs/synapse-rust/PROJECT_OPTIMIZATION_EXECUTION_PLAN_2026-04-05.md`
-- 文档治理与单一事实源规则：`docs/synapse-rust/DOCUMENT_GOVERNANCE_AND_SINGLE_SOURCE_OF_TRUTH_2026-04-05.md`
-- 测试与 CI 语义对齐说明：`docs/synapse-rust/TEST_AND_CI_SEMANTICS_ALIGNMENT_2026-04-05.md`
-- 假绿与占位成功治理规则：`docs/synapse-rust/FALSE_GREEN_AND_PLACEHOLDER_GOVERNANCE_2026-04-05.md`
-- 当前阶段正式分析与优化方案：`docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md`
-- 文档索引：`docs/synapse-rust/PROJECT_REVIEW_INDEX_2026-04-03.md`
-- 项目整改行动清单：`docs/synapse-rust/PROJECT_REVIEW_ACTION_BACKLOG_2026-04-03.md`
-- 项目审查与优化完善方案：`docs/synapse-rust/PROJECT_REVIEW_AND_OPTIMIZATION_PLAN_2026-04-03.md`
-- API 参考：`docs/synapse-rust/API_DOCUMENTATION.md`
+- 综合审计报告（当前基线）：`docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`
+- 技术债务优化计划：`docs/synapse-rust/TECHNICAL_DEBT_OPTIMIZATION_PLAN_2026-06-11.md`
+- 测试语义与 CI 门禁：`TESTING.md`
+- 文档索引：`docs/INDEX.md`
+- API 文档：启用 `openapi-docs` feature 后访问 `/_swagger`（Swagger UI）或 `/_api-doc/openapi.json`（OpenAPI JSON）
+- API 覆盖率报告：`docs/synapse-rust/API_COVERAGE_REPORT.md`
 - 数据库迁移计划：`docs/db/MIGRATION_CONSOLIDATION_PLAN_2026-05-07.md`
 - 升级与回滚指引：`migrations/README.md`
-- 部署指南：`docs/synapse-rust/DEPLOYMENT_GUIDE.md`
-- 迁移索引：`migrations/MIGRATION_INDEX.md`
+- 运维手册：`docs/synapse-rust/OPERATIONS.md`
+- 迁移索引：`docs/db/MIGRATION_INDEX.md`
 - 迁移治理：`docs/db/MIGRATION_GOVERNANCE.md`
 
 ## 私密聊天功能集成指南 (Private Chat Features)
@@ -245,7 +241,7 @@ client.sendReadReceipt(event);
 > ⚠️ 任务追踪已整合到 GitHub Issues 和项目看板
 
 - **任务看板**: [HuLa Project Board](https://github.com/hu-matrix/hula/projects)
-- **当前正式分析**: [SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md](docs/synapse-rust/SYSTEM_GAP_ANALYSIS_AND_OPTIMIZATION_PLAN_2026-04-02.md)
-- **能力状态基线**: [CAPABILITY_STATUS_BASELINE_2026-04-02.md](docs/synapse-rust/CAPABILITY_STATUS_BASELINE_2026-04-02.md)
-- **文档索引**: [PROJECT_REVIEW_INDEX_2026-04-03.md](docs/synapse-rust/PROJECT_REVIEW_INDEX_2026-04-03.md)
+- **综合审计报告**: [COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md](docs/synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md)
+- **协议支持面**: [SUPPORTED_MATRIX_SURFACE.md](docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md)
+- **文档索引**: [INDEX.md](docs/INDEX.md)
 - **测试接线清单**: [.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md](.trae/specs/analyze-synapse-gap-and-optimization/test-execution-inventory.md)

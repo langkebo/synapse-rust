@@ -109,11 +109,8 @@ impl AdminFederationService {
 
     #[instrument(skip(self))]
     pub async fn list_destinations(&self, limit: i32, cursor: Option<DestinationCursor>) -> DestinationListResult {
-        let total = self
-            .storage
-            .count_destinations()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let total =
+            self.storage.count_destinations().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         let fetch_limit = limit as i64 + 1;
         let rows = self
@@ -231,8 +228,8 @@ impl AdminFederationService {
         let in_destinations = self
             .storage
             .destination_exists(server_name)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
         Ok(ResolveFederationResult {
             resolved: in_destinations && !blacklist.is_blocked,
@@ -377,16 +374,10 @@ impl AdminFederationService {
 
     #[instrument(skip(self))]
     pub async fn get_federation_cache(&self) -> Result<Vec<FederationCacheEntry>, ApiError> {
-        let cache = self
-            .storage
-            .get_federation_cache()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let cache =
+            self.storage.get_federation_cache().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-        Ok(cache
-            .iter()
-            .map(map_cache_entry)
-            .collect())
+        Ok(cache.iter().map(map_cache_entry).collect())
     }
 
     #[instrument(skip(self))]

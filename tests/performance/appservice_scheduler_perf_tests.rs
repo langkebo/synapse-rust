@@ -8,8 +8,8 @@ mod tests {
     use serde_json::json;
     use sqlx::PgPool;
     use synapse_rust::services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
-    use synapse_rust::storage::EventStorage;
     use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
+    use synapse_rust::storage::EventStorage;
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
     #[derive(Clone, Copy)]
@@ -278,17 +278,10 @@ mod tests {
                 .await
                 .unwrap();
 
-            seed_statistics_scenario(
-                storage.as_ref(),
-                scenario,
-                service_count,
-                event_backlog,
-                transaction_backlog,
-            )
-            .await;
+            seed_statistics_scenario(storage.as_ref(), scenario, service_count, event_backlog, transaction_backlog)
+                .await;
 
-            let latencies_ms =
-                measure_get_statistics_latency(storage.as_ref(), service_count, iterations).await;
+            let latencies_ms = measure_get_statistics_latency(storage.as_ref(), service_count, iterations).await;
             let p50_ms = percentile(&latencies_ms, 0.50);
             let p95_ms = percentile(&latencies_ms, 0.95);
             let p99_ms = percentile(&latencies_ms, 0.99);
@@ -346,10 +339,7 @@ mod tests {
         let scheduler = ApplicationServiceScheduler::with_capacity_options(manager.clone(), 50, 500, 8, 50, 2);
 
         let mock_server = MockServer::start().await;
-        Mock::given(method("PUT"))
-            .respond_with(ResponseTemplate::new(200))
-            .mount(&mock_server)
-            .await;
+        Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&mock_server).await;
 
         let transaction_service_count = 16usize;
         let event_service_count = 16usize;
@@ -443,20 +433,13 @@ mod tests {
         loop {
             let mut remaining_transactions = 0_i64;
             for idx in 0..transaction_service_count {
-                remaining_transactions += storage
-                    .count_pending_transactions(&format!("perf-mixed-txn-{idx}"))
-                    .await
-                    .unwrap();
+                remaining_transactions +=
+                    storage.count_pending_transactions(&format!("perf-mixed-txn-{idx}")).await.unwrap();
             }
 
             let mut remaining_event_services = 0usize;
             for idx in 0..event_service_count {
-                if !storage
-                    .get_pending_events(&format!("perf-mixed-event-{idx}"), 1)
-                    .await
-                    .unwrap()
-                    .is_empty()
-                {
+                if !storage.get_pending_events(&format!("perf-mixed-event-{idx}"), 1).await.unwrap().is_empty() {
                     remaining_event_services += 1;
                 }
             }

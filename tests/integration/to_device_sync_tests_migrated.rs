@@ -10,7 +10,7 @@ use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
-use synapse_rust::storage::filter::FilterStorage;
+use synapse_rust::storage::FilterStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::PresenceStorage;

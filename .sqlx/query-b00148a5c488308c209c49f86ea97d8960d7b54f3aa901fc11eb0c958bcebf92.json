@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT user_id AS \"user_id!\"\n            FROM device_lists_stream\n            WHERE stream_id > $1\n              AND stream_id <= $2\n              AND user_id != $3\n            ORDER BY user_id\n            LIMIT 100\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b00148a5c488308c209c49f86ea97d8960d7b54f3aa901fc11eb0c958bcebf92"
+}

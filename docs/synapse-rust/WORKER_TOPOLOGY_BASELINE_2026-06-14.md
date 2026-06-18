@@ -31,8 +31,14 @@
 admin worker API 已新增：
 
 - `GET /_synapse/worker/v1/topology`
+- `GET /_synapse/worker/v1/topology/validate`
 
-该接口返回静态 topology baseline，便于：
+其中：
+
+- `/_synapse/worker/v1/topology` 返回静态 topology baseline，便于：
+- `/_synapse/worker/v1/topology/validate` 返回基于当前 `worker` 配置计算的结构化校验结果（`valid` / `warnings` / `errors`、`known_instances`、`stream_writers`）
+
+这些接口便于：
 
 - 管理端查看当前预设 worker 类型矩阵
 - 后续补部署文档时复用同一份事实来源
@@ -199,19 +205,50 @@ server {
 | 检查项 | 目标 | 通过标准 |
 |---|---|---|
 | topology API | `GET /_synapse/worker/v1/topology` | 返回基线拓扑 JSON，且 worker 类型矩阵完整 |
+| topology validation API | `GET /_synapse/worker/v1/topology/validate` | 返回 `valid=true`，并暴露当前 `instance_map` / `stream_writers` / replication 配置校验结果，以及 `route_owner_expectations` |
 | worker register/heartbeat | worker 管理面 | smoke worker 可注册，heartbeat 后 `GET /workers/{id}` 可见 `status=running` 且 `last_heartbeat_ts` 已推进 |
-| client route ownership | 反向代理分流 | `/sync` 命中 `sync_worker`，普通 client API 命中 `client_reader` |
-| media route ownership | 反向代理分流 | `/_matrix/media/*` 命中 `media_repository` |
-| federation route ownership | 反向代理分流 | `/_matrix/federation/*` 命中 `federation_reader` |
+| client route probe | 入口可达性 | `CLIENT_ENDPOINT` 提供 client versions / login，`SYNC_ENDPOINT` 对 `/sync` 返回可接受状态码（默认 `200/401/403`）；默认从 `route_owner_expectations` 自动推导并校验 `X-Synapse-Route-Owner`，也可用 `SYNC_EXPECTED_ROUTE_OWNER` 覆盖 |
+| media route probe | 入口可达性 | `MEDIA_ENDPOINT` 上的 `/_matrix/media/v3/config` 返回可接受状态码（默认 `200`）；默认从 `route_owner_expectations` 自动推导并校验 `X-Synapse-Route-Owner`，也可用 `MEDIA_EXPECTED_ROUTE_OWNER` 覆盖 |
+| federation route probe | 入口可达性 | `FEDERATION_ENDPOINT` 上的 `/_matrix/federation/v1/version` 返回可接受状态码（默认 `200`）；默认从 `route_owner_expectations` 自动推导并校验 `X-Synapse-Route-Owner`，也可用 `FEDERATION_EXPECTED_ROUTE_OWNER` 覆盖 |
 | replication protection | 内网安全边界 | 公网入口不可直接访问 `/_synapse/worker/v1/replication/*` |
 | replication position | worker 协调 | smoke worker 的 stream position 可写入并回读一致 |
 | task claim | background/pusher | smoke task 同时覆盖显式 claim、`claim_next_task` 原子领取、`fail_task` 不回队列、双 worker backlog drain 与主 worker 下线后的 peer 恢复领取；复抢返回冲突或空队列；claim 后从 pending 列表消失，随后可完成或失败收口 |
 
 当前仍未自动覆盖的检查：
 
-- `/sync` / media / federation 的真实反向代理命中验证
 - 多 worker 高并发 backlog / 恢复场景下的 claim 公平性与恢复观测
 - topology API 输出与实际 listener 绑定的一致性比对
+- topology validation 推导出的 route owner 与反向代理真实回源之间仍缺少 listener/reverse proxy 级自动联动验证
+
+仓库内现已补入一套可直接复用的 `split_minimal` 样板工件：
+
+- `docker/config/homeserver.split-minimal.yaml`
+- `docker/docker-compose.split-minimal.yml`
+- `docker/nginx/split-minimal.conf`
+- `docker/config/.env.split-minimal.example`
+- `docker/config/split-minimal.smoke.env`
+- `docker/run_split_minimal_smoke.sh`
+
+这套样板的目标是把本文中的 listener / reverse proxy / smoke 说明转成可运行的本地 compose 基线。当前实现仍有一个重要限制：
+
+- 由于运行时尚未真正把 replication HTTP 独立绑定到 `worker.replication.http.port`，上述样板暂时让 replication 路径复用实例主 HTTP listener；因此 `split-minimal.smoke.env` 中的 `REPLICATION_ENDPOINT` 目前指向 `master` 的 admin HTTP 入口，而不是独立 replication 端口。
+
+最小本地执行方式：
+
+```bash
+cd docker
+cp config/.env.split-minimal.example .env
+bash run_split_minimal_smoke.sh
+```
+
+说明：
+
+- 脚本会读取 `docker/.env`
+- 缺少 `docker/.env` 时，可直接从 `docker/config/.env.split-minimal.example` 复制
+- 自动兼容 `ADMIN_SECRET` / `ADMIN_SHARED_SECRET` 与 `REGISTRATION_SECRET` / `REGISTRATION_SHARED_SECRET`
+- 自动启动 compose、获取 admin token，并执行 `scripts/deployment_smoke_test.sh`
+- 失败时会自动打印 `docker compose ps`，便于定位是哪一个 worker 未就绪
+- 需要保留现场时可设置 `KEEP_RUNNING=1`
 
 建议最小执行顺序：
 
@@ -239,7 +276,7 @@ server {
 
 - 真实 `instance_map -> listener -> reverse proxy` 闭环
 - ~~启动期 topology validator~~ ✅ 已落地（`src/worker/topology_validator.rs`），启动时校验 instance_map_keys 唯一性、Master 必须存在、route prefix 冲突
-- route owner / stream writer / background owner 的强校验
+- route owner 的更强校验
 - ~~多实例状态同步 smoke test~~ ✅ 已落地首版（heartbeat / replication position / task claim）
 - 反向代理样例配置
 - 运维手册与故障定位手册

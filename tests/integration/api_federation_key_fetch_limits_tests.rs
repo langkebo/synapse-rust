@@ -124,8 +124,8 @@ async fn setup_test_app_with_federation_key_fetch_config(
 ) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.config.federation.key_fetch_timeout_ms = key_fetch_timeout_ms;
-    container.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
+    container.core.config.federation.key_fetch_timeout_ms = key_fetch_timeout_ms;
+    container.core.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);

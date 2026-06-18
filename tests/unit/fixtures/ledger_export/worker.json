@@ -9,7 +9,7 @@
     "saml_enabled": false,
     "openclaw_enabled": false
   },
-  "entry_count": 1155,
+  "entry_count": 1157,
   "entries": [
     {
       "method": "GET",
@@ -8549,6 +8549,18 @@
       "path_params": [
         "task_id"
       ]
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/worker/v1/topology",
+      "registered_by": "worker",
+      "path_params": []
+    },
+    {
+      "method": "GET",
+      "path": "/_synapse/worker/v1/topology/validate",
+      "registered_by": "worker",
+      "path_params": []
     },
     {
       "method": "GET",

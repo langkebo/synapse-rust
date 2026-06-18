@@ -103,6 +103,7 @@ pub async fn enable_burn(
 
     state
         .services
+        .extensions
         .burn_after_read
         .set_burn_enabled(&auth_user.user_id, &room_id, enabled, burn_after_ms)
         .await
@@ -135,6 +136,7 @@ pub async fn get_burn_settings(
 
     let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
         .services
+        .extensions
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
@@ -173,6 +175,7 @@ pub async fn mark_burn_read(
 
     let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
         .services
+        .extensions
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
@@ -191,6 +194,7 @@ pub async fn mark_burn_read(
 
     state
         .services
+        .extensions
         .burn_after_read
         .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)
         .await
@@ -223,6 +227,7 @@ pub async fn get_pending_burns(
 
     let pending: Vec<crate::services::burn_after_read_service::BurnEvent> = state
         .services
+        .extensions
         .burn_after_read
         .get_pending_burns(&auth_user.user_id, &room_id)
         .await
@@ -265,6 +270,7 @@ pub async fn cancel_burn(
 
     state
         .services
+        .extensions
         .burn_after_read
         .cancel_burn(&auth_user.user_id, &room_id, &event_id)
         .await
@@ -286,6 +292,7 @@ pub async fn set_global_burn_config(
 
     state
         .services
+        .extensions
         .burn_after_read
         .set_user_default(&auth_user.user_id, default_burn_ms)
         .await
@@ -304,6 +311,7 @@ pub async fn get_burn_stats(
 ) -> Result<Json<Value>, ApiError> {
     let stats: crate::services::burn_after_read_service::BurnStats = state
         .services
+        .extensions
         .burn_after_read
         .get_user_stats(&auth_user.user_id)
         .await

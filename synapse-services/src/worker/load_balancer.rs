@@ -1,4 +1,5 @@
 use crate::worker::types::WorkerInfo;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -188,7 +189,7 @@ impl WorkerLoadBalancer {
             return None;
         }
 
-        let index = rand::random::<usize>() % candidates.len();
+        let index = rand::rng().random_range(0..candidates.len());
         Some(candidates[index].info.worker_id.clone())
     }
 

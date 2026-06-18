@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use synapse_rust::storage::room_summary::{
+use synapse_rust::storage::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateRoomSummaryRequest,
 };
 

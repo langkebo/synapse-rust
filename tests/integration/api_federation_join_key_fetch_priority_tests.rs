@@ -83,15 +83,15 @@ async fn start_key_server(delay_ms: u64, key_id: &str, key_b64: &str) -> (String
 async fn setup_ingress_app(server_name: &str, key_fetch_max_concurrency: usize) -> Option<axum::Router> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
-    container.config.server.name = server_name.to_string();
-    container.server_name = server_name.to_string();
-    container.config.federation.enabled = true;
-    container.config.federation.allow_ingress = true;
-    container.config.federation.server_name = server_name.to_string();
-    container.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
-    container.config.federation.key_fetch_timeout_ms = 5000;
-    container.config.federation.signing_key = None;
-    container.config.federation.key_id = None;
+    container.core.config.server.name = server_name.to_string();
+    container.core.server_name = server_name.to_string();
+    container.core.config.federation.enabled = true;
+    container.core.config.federation.allow_ingress = true;
+    container.core.config.federation.server_name = server_name.to_string();
+    container.core.config.federation.key_fetch_max_concurrency = key_fetch_max_concurrency;
+    container.core.config.federation.key_fetch_timeout_ms = 5000;
+    container.core.config.federation.signing_key = None;
+    container.core.config.federation.key_id = None;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);

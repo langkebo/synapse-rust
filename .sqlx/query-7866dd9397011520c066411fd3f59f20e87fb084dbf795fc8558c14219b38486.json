@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests,\n                last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)\n            VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)\n            ON CONFLICT (server_name) DO UPDATE SET\n                total_requests = federation_access_stats.total_requests + 1,\n                successful_requests = federation_access_stats.successful_requests + $2,\n                failed_requests = federation_access_stats.failed_requests + $3,\n                last_request_ts = $4,\n                last_success_ts = COALESCE($5, federation_access_stats.last_success_ts),\n                last_failure_ts = COALESCE($6, federation_access_stats.last_failure_ts),\n                average_response_time_ms = CASE\n                    WHEN $7 IS NOT NULL THEN (federation_access_stats.average_response_time_ms + $7) / 2\n                    ELSE federation_access_stats.average_response_time_ms\n                END,\n                error_rate = CAST(federation_access_stats.failed_requests AS FLOAT) / NULLIF(federation_access_stats.total_requests, 0),\n                updated_ts = $4\n            RETURNING id, server_name, total_requests, successful_requests, failed_requests, last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "successful_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_request_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_success_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_failure_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "average_response_time_ms",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "error_rate",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7866dd9397011520c066411fd3f59f20e87fb084dbf795fc8558c14219b38486"
+}

@@ -39,7 +39,7 @@ pub(crate) async fn can_view_profile_for_requester_batch(
 ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
     #[cfg(feature = "privacy-ext")]
     {
-        return state.services.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(|e| {
+        return state.services.extensions.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(|e| {
             tracing::error!("Database error: {e}");
             ApiError::database("A database error occurred".to_string())
         });
@@ -603,7 +603,7 @@ pub(crate) async fn add_threepid(
     {
         if let Err(e) = state
             .services
-            .identity_service
+            .extensions.identity_service
             .bind_three_pid(id_server, id_access_token, is_sid, is_client_secret, user_id)
             .await
         {
@@ -678,4 +678,20 @@ pub(crate) async fn unbind_threepid(
     )?;
 
     Ok(Json(json!({})))
+}
+
+/// Exports the account routes that drive capability declarations (change_password,
+/// set_displayname, set_avatar_url, 3pid_changes).  This manifest is intentionally
+/// narrower than the full account router — it only declares the (method, path)
+/// tuples that the capabilities endpoint checks at runtime.
+pub fn account_compat_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::RouteEntry;
+    use axum::http::Method;
+
+    vec![
+        RouteEntry::new(Method::POST, "/_matrix/client/v3/account/password", "account_compat"),
+        RouteEntry::new(Method::PUT, "/_matrix/client/v3/profile/{user_id}/displayname", "account_compat"),
+        RouteEntry::new(Method::PUT, "/_matrix/client/v3/profile/{user_id}/avatar_url", "account_compat"),
+        RouteEntry::new(Method::POST, "/_matrix/client/v3/account/3pid", "account_compat"),
+    ]
 }

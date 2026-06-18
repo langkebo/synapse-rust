@@ -1,9 +1,10 @@
+use std::env;
 use std::sync::Arc;
 use std::time::Instant;
 
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use rand::rngs::OsRng;
+use argon2::password_hash::rand_core::OsRng;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
@@ -50,6 +51,24 @@ pub struct PasswordHashPoolConfig {
 impl Default for PasswordHashPoolConfig {
     fn default() -> Self {
         Self { max_concurrent: 4, queue_size: 100, thread_pool_size: 2, hash_timeout_ms: 5000 }
+    }
+}
+
+fn env_override_usize(key: &str, default: usize) -> usize {
+    env::var(key).ok().and_then(|value| value.parse::<usize>().ok()).filter(|value| *value > 0).unwrap_or(default)
+}
+
+fn env_override_u64(key: &str, default: u64) -> u64 {
+    env::var(key).ok().and_then(|value| value.parse::<u64>().ok()).filter(|value| *value > 0).unwrap_or(default)
+}
+
+fn runtime_pool_config() -> PasswordHashPoolConfig {
+    let defaults = PasswordHashPoolConfig::default();
+    PasswordHashPoolConfig {
+        max_concurrent: env_override_usize("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT", defaults.max_concurrent),
+        queue_size: env_override_usize("SYNAPSE_PASSWORD_HASH_POOL_QUEUE_SIZE", defaults.queue_size),
+        thread_pool_size: env_override_usize("SYNAPSE_PASSWORD_HASH_POOL_THREAD_POOL_SIZE", defaults.thread_pool_size),
+        hash_timeout_ms: env_override_u64("SYNAPSE_PASSWORD_HASH_POOL_HASH_TIMEOUT_MS", defaults.hash_timeout_ms),
     }
 }
 
@@ -102,7 +121,7 @@ impl PasswordHashPool {
     }
 
     pub fn get_or_init_default() -> &'static Self {
-        PASSWORD_HASH_POOL.get_or_init(|| Self::new(PasswordHashPoolConfig::default(), Argon2Config::default()))
+        PASSWORD_HASH_POOL.get_or_init(|| Self::new(runtime_pool_config(), Argon2Config::get_global()))
     }
 
     pub fn metrics(&self) -> &PasswordHashMetrics {

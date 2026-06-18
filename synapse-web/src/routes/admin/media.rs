@@ -6,42 +6,30 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use synapse_common::ApiError;
+use synapse_storage::{decode_media_cursor, AdminMediaInfo, AdminMediaStorage};
 
-fn decode_media_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
-    let cursor = cursor?;
-    let (created_ts, media_id) = cursor.split_once('|')?;
-    let created_ts = created_ts.parse::<i64>().ok()?;
-    if media_id.is_empty() {
-        return None;
-    }
-    Some((created_ts, media_id))
+fn media_to_json(row: &AdminMediaInfo) -> Value {
+    json!({
+        "media_id": row.media_id,
+        "media_type": row.content_type,
+        "upload_name": row.file_name,
+        "created_ts": row.created_ts,
+        "last_access_ts": row.last_accessed_at,
+        "media_length": row.size,
+        "user_id": row.uploader_user_id,
+        "quarantined": row.quarantined
+    })
 }
 
-fn encode_media_cursor(created_ts: i64, media_id: &str) -> String {
-    format!("{created_ts}|{media_id}")
-}
-
-#[cfg(test)]
-mod cursor_tests {
-    use super::{decode_media_cursor, encode_media_cursor};
-
-    #[test]
-    fn test_media_cursor_round_trip() {
-        let cursor = encode_media_cursor(1_700_000_000_000, "abc123");
-        assert_eq!(decode_media_cursor(Some(&cursor)), Some((1_700_000_000_000, "abc123")));
-    }
-
-    #[test]
-    fn test_media_cursor_rejects_invalid_value() {
-        assert_eq!(decode_media_cursor(Some("bad-cursor")), None);
-        assert_eq!(decode_media_cursor(Some("123|")), None);
-    }
-}
-
-fn quarantine_status_to_bool(value: Option<&str>) -> bool {
-    matches!(value, Some("quarantined") | Some("true") | Some("1") | Some("yes"))
+fn user_media_to_json(row: &AdminMediaInfo) -> Value {
+    json!({
+        "media_id": row.media_id,
+        "media_type": row.content_type,
+        "upload_name": row.file_name,
+        "created_ts": row.created_ts,
+        "media_length": row.size
+    })
 }
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
@@ -84,54 +72,14 @@ pub async fn get_all_media(
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100_i64).clamp(1, 500);
     let cursor = decode_media_cursor(params.get("from").map(String::as_str));
-
-    let media = sqlx::query(
-        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status
-         FROM media_metadata
-         WHERE ($1::BIGINT IS NULL AND $2::TEXT IS NULL)
-            OR created_ts < $1
-            OR (created_ts = $1 AND media_id < $2)
-         ORDER BY created_ts DESC, media_id DESC
-         LIMIT $3"
-    )
-    .bind(cursor.map(|(created_ts, _)| created_ts))
-    .bind(cursor.map(|(_, media_id)| media_id))
-    .bind(limit)
-    .fetch_all(&*state.services.account.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let media_list: Vec<Value> = media
-        .iter()
-        .map(|row| {
-            json!({
-                "media_id": row.get::<Option<String>, _>("media_id"),
-                "media_type": row.get::<Option<String>, _>("content_type"),
-                "upload_name": row.get::<Option<String>, _>("file_name"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
-                "media_length": row.get::<Option<i64>, _>("size"),
-                "user_id": row.get::<Option<String>, _>("uploader_user_id"),
-                "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status").as_deref())
-            })
-        })
-        .collect();
-
-    let next_batch = if media.len() as i64 == limit {
-        media.last().map(|row| {
-            encode_media_cursor(
-                row.get::<Option<i64>, _>("created_ts").unwrap_or_default(),
-                row.get::<Option<String>, _>("media_id").unwrap_or_default().as_str(),
-            )
-        })
-    } else {
-        None
-    };
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
+    let page = storage.get_all_media(limit, cursor).await?;
+    let media_list: Vec<Value> = page.media.iter().map(media_to_json).collect();
 
     Ok(Json(json!({
         "media": media_list,
         "total": media_list.len(),
-        "next_batch": next_batch
+        "next_batch": page.next_batch
     })))
 }
 
@@ -141,25 +89,11 @@ pub async fn get_media_info(
     State(state): State<AppState>,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let media = sqlx::query(
-        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts, last_accessed_at, quarantine_status FROM media_metadata WHERE media_id = $1"
-    )
-    .bind(&media_id)
-    .fetch_optional(&*state.services.account.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
+    let media = storage.get_media_info(&media_id).await?;
 
     match media {
-        Some(row) => Ok(Json(json!({
-            "media_id": row.get::<Option<String>, _>("media_id"),
-            "media_type": row.get::<Option<String>, _>("content_type"),
-            "upload_name": row.get::<Option<String>, _>("file_name"),
-            "created_ts": row.get::<Option<i64>, _>("created_ts"),
-            "last_access_ts": row.get::<Option<i64>, _>("last_accessed_at"),
-            "media_length": row.get::<Option<i64>, _>("size"),
-            "user_id": row.get::<Option<String>, _>("uploader_user_id"),
-            "quarantined": quarantine_status_to_bool(row.get::<Option<String>, _>("quarantine_status").as_deref())
-        }))),
+        Some(row) => Ok(Json(media_to_json(&row))),
         None => Err(ApiError::not_found("Media not found".to_string())),
     }
 }
@@ -170,13 +104,9 @@ pub async fn delete_media(
     State(state): State<AppState>,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = sqlx::query("DELETE FROM media_metadata WHERE media_id = $1")
-        .bind(&media_id)
-        .execute(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
 
-    if result.rows_affected() == 0 {
+    if !storage.delete_media(&media_id).await? {
         return Err(ApiError::not_found("Media not found".to_string()));
     }
 
@@ -185,19 +115,12 @@ pub async fn delete_media(
 
 #[axum::debug_handler]
 pub async fn get_media_quota(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let total_size: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(size), 0)::BIGINT FROM media_metadata")
-        .fetch_one(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let total_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media_metadata")
-        .fetch_one(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
+    let quota = storage.get_media_quota().await?;
 
     Ok(Json(json!({
-        "total_size": total_size,
-        "total_count": total_count,
+        "total_size": quota.total_size,
+        "total_count": quota.total_count,
         "default_size_limit": 10000000000i64,
         "default_count_limit": 100
     })))
@@ -217,30 +140,10 @@ pub async fn get_user_media(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    if user.is_none() {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
-
-    let media = sqlx::query(
-        "SELECT media_id, content_type, file_name, size, uploader_user_id, created_ts FROM media_metadata WHERE uploader_user_id = $1 ORDER BY created_ts DESC"
-    )
-    .bind(&user_id)
-    .fetch_all(&*state.services.account.user_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let media_list: Vec<Value> = media
-        .iter()
-        .map(|row| {
-            json!({
-                "media_id": row.get::<Option<String>, _>("media_id"),
-                "media_type": row.get::<Option<String>, _>("content_type"),
-                "upload_name": row.get::<Option<String>, _>("file_name"),
-                "created_ts": row.get::<Option<i64>, _>("created_ts"),
-                "media_length": row.get::<Option<i64>, _>("size")
-            })
-        })
-        .collect();
+    let user = user.ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
+    let media = storage.get_user_media(&user.user_id).await?;
+    let media_list: Vec<Value> = media.iter().map(user_media_to_json).collect();
 
     Ok(Json(json!({ "media": media_list, "total": media_list.len() })))
 }
@@ -259,17 +162,11 @@ pub async fn delete_user_media(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    if user.is_none() {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    let user = user.ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+    let storage = AdminMediaStorage::new(&state.services.account.user_storage.pool);
+    let deleted = storage.delete_user_media(&user.user_id).await?;
 
-    let result = sqlx::query("DELETE FROM media_metadata WHERE uploader_user_id = $1")
-        .bind(&user_id)
-        .execute(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    Ok(Json(json!({ "deleted": result.rows_affected() })))
+    Ok(Json(json!({ "deleted": deleted })))
 }
 
 // ---------------------------------------------------------------------------

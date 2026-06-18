@@ -1,11 +1,77 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use std::sync::Arc;
+use async_trait::async_trait;
+use deadpool_redis::{Config as RedisPoolConfig, Runtime as RedisRuntime};
+use redis::AsyncCommands;
 use sqlx::Row;
+use std::sync::Arc;
+use synapse_common::error::ApiError;
+use synapse_common::task_queue::RedisTaskQueue;
+use synapse_rust::test_utils::TEST_ENV_LOCK;
 use synapse_rust::services::captcha_service::{CaptchaService, SendCaptchaRequest, VerifyCaptchaRequest};
+use synapse_services::sms_provider::SmsProvider;
 use synapse_storage::captcha::{CaptchaStorage, CreateCaptchaRequest, CreateSendLogRequest};
+use tokio::sync::Mutex;
+
+#[derive(Clone)]
+struct RecordingSmsProvider {
+    deliveries: Arc<Mutex<Vec<(String, String)>>>,
+}
+
+impl RecordingSmsProvider {
+    fn new() -> Self {
+        Self { deliveries: Arc::new(Mutex::new(Vec::new())) }
+    }
+}
+
+#[async_trait]
+impl SmsProvider for RecordingSmsProvider {
+    async fn send(&self, to: &str, content: &str) -> Result<(), ApiError> {
+        self.deliveries.lock().await.push((to.to_string(), content.to_string()));
+        Ok(())
+    }
+
+    fn provider_name(&self) -> &'static str {
+        "recording-sms"
+    }
+}
+
+async fn ensure_default_template(
+    pool: &Arc<sqlx::PgPool>,
+    template_name: &str,
+    captcha_type: &str,
+    subject: Option<&str>,
+    content: &str,
+) {
+    let now = chrono::Utc::now().timestamp_millis();
+    sqlx::query(
+        r"
+        INSERT INTO captcha_template (
+            template_name, captcha_type, subject, content, variables, is_default, is_enabled, created_ts, updated_ts
+        )
+        VALUES ($1, $2, $3, $4, '{}'::jsonb, TRUE, TRUE, $5, $5)
+        ON CONFLICT (template_name) DO UPDATE
+        SET captcha_type = EXCLUDED.captcha_type,
+            subject = EXCLUDED.subject,
+            content = EXCLUDED.content,
+            is_default = TRUE,
+            is_enabled = TRUE,
+            updated_ts = EXCLUDED.updated_ts
+        ",
+    )
+    .bind(template_name)
+    .bind(captcha_type)
+    .bind(subject)
+    .bind(content)
+    .bind(now)
+    .execute(&**pool)
+    .await
+    .expect("default captcha template should be available");
+}
 
 #[tokio::test]
 async fn test_captcha_storage_create() {
+    // 串行执行测试，避免数据库连接池耗尽
+    let _guard = TEST_ENV_LOCK.lock().await;
     let pool = crate::require_test_pool().await;
 
     let storage = CaptchaStorage::new(&pool);
@@ -134,6 +200,16 @@ async fn test_captcha_storage_send_log() {
 async fn test_captcha_storage_template() {
     let pool = crate::require_test_pool().await;
 
+    // 初始化默认模板
+    ensure_default_template(
+        &pool,
+        "default_email",
+        "email",
+        Some("Your verification code"),
+        "Your verification code is {{code}} and expires in {{expiry_minutes}} minutes.",
+    )
+    .await;
+
     let storage = CaptchaStorage::new(&pool);
 
     let template = storage.get_default_template("email").await;
@@ -147,6 +223,44 @@ async fn test_captcha_storage_template() {
 #[tokio::test]
 async fn test_captcha_storage_config() {
     let pool = crate::require_test_pool().await;
+
+    // 初始化测试需要的配置
+    let now = chrono::Utc::now().timestamp_millis();
+    sqlx::query(
+        r"
+        INSERT INTO captcha_config (
+            config_key, config_value, created_ts, updated_ts
+        )
+        VALUES ($1, $2, $3, $3)
+        ON CONFLICT (config_key) DO UPDATE
+        SET config_value = EXCLUDED.config_value,
+            updated_ts = EXCLUDED.updated_ts
+        ",
+    )
+    .bind("email.code_length")
+    .bind("6")
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("test captcha config should be initialized");
+
+    sqlx::query(
+        r"
+        INSERT INTO captcha_config (
+            config_key, config_value, created_ts, updated_ts
+        )
+        VALUES ($1, $2, $3, $3)
+        ON CONFLICT (config_key) DO UPDATE
+        SET config_value = EXCLUDED.config_value,
+            updated_ts = EXCLUDED.updated_ts
+        ",
+    )
+    .bind("email.code_expiry_minutes")
+    .bind("10")
+    .bind(now)
+    .execute(&*pool)
+    .await
+    .expect("test captcha config should be initialized");
 
     let storage = CaptchaStorage::new(&pool);
 
@@ -227,6 +341,16 @@ async fn test_captcha_service_invalid_type() {
 async fn test_captcha_service_email_requires_configured_provider() {
     let pool = crate::require_test_pool().await;
 
+    // 初始化默认邮件模板
+    ensure_default_template(
+        &pool,
+        "default_email",
+        "email",
+        Some("Your verification code"),
+        "Your verification code is {{code}} and expires in {{expiry_minutes}} minutes.",
+    )
+    .await;
+
     let storage = Arc::new(CaptchaStorage::new(&pool));
     let service = CaptchaService::new(storage.clone());
     let request = SendCaptchaRequest {
@@ -239,7 +363,9 @@ async fn test_captcha_service_email_requires_configured_provider() {
     assert!(result.is_err());
 
     let err = result.unwrap_err();
-    assert!(err.is_not_implemented());
+    // 打印错误详情，便于调试断言失败问题
+    println!("captcha service error: kind={:?}, message={}", err.kind, err.to_string());
+    assert!(err.is_not_implemented(), "error should be not_implemented, got {:?}", err.kind);
     assert!(err.to_string().contains("Captcha email delivery"));
 
     let send_log = sqlx::query(
@@ -257,10 +383,114 @@ async fn test_captcha_service_email_requires_configured_provider() {
     .unwrap();
 
     assert!(!send_log.get::<Option<bool>, _>("is_success").unwrap_or(true));
-    assert!(
-        send_log
-            .get::<Option<String>, _>("error_message")
-            .unwrap_or_default()
-            .contains("Captcha email delivery")
-    );
+    assert!(send_log.get::<Option<String>, _>("error_message").unwrap_or_default().contains("Captcha email delivery"));
+}
+
+#[tokio::test]
+async fn test_captcha_service_sms_provider_successfully_delivers_and_logs_provider() {
+    let pool = crate::require_test_pool().await;
+
+    let storage = Arc::new(CaptchaStorage::new(&pool));
+    ensure_default_template(
+        &pool,
+        "default_sms_runtime_test",
+        "sms",
+        None,
+        "您的验证码是 {{code}}，有效期 {{expiry_minutes}} 分钟。",
+    )
+    .await;
+
+    let provider = Arc::new(RecordingSmsProvider::new());
+    let service = CaptchaService::with_sms_provider(storage.clone(), None, false, Some(provider.clone()));
+    let request = SendCaptchaRequest {
+        captcha_type: "sms".to_string(),
+        target: "+8613800138000".to_string(),
+        template_name: None,
+    };
+
+    let response = service
+        .send_captcha(request, Some("127.0.0.1"), Some("captcha-tests"))
+        .await
+        .expect("configured sms provider should deliver captcha");
+
+    let captcha = storage
+        .get_captcha(&response.captcha_id)
+        .await
+        .expect("captcha lookup should succeed")
+        .expect("captcha should be persisted");
+
+    let deliveries = provider.deliveries.lock().await;
+    assert_eq!(deliveries.len(), 1, "sms provider should be invoked exactly once");
+    assert_eq!(deliveries[0].0, "+8613800138000");
+    assert!(deliveries[0].1.contains(&captcha.code), "rendered sms body should include the generated captcha code");
+
+    let send_log = sqlx::query(
+        r"
+        SELECT is_success, error_message, provider
+        FROM captcha_send_log
+        WHERE captcha_id = $1
+        ORDER BY sent_ts DESC
+        LIMIT 1
+        ",
+    )
+    .bind(&response.captcha_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+
+    assert!(send_log.get::<Option<bool>, _>("is_success").unwrap_or(false));
+    assert!(send_log.get::<Option<String>, _>("error_message").unwrap_or_default().is_empty());
+    assert_eq!(send_log.get::<Option<String>, _>("provider").as_deref(), Some("recording-sms"));
+}
+
+#[tokio::test]
+async fn test_captcha_service_email_enqueues_background_job_when_delivery_is_configured() {
+    let pool = crate::require_test_pool().await;
+    ensure_default_template(
+        &pool,
+        "default_email_runtime_test",
+        "email",
+        Some("Your verification code"),
+        "Your verification code is {{code}} and expires in {{expiry_minutes}} minutes.",
+    )
+    .await;
+
+    let redis_pool = RedisPoolConfig::from_url(synapse_rust::test_config::test_redis_url())
+        .create_pool(Some(RedisRuntime::Tokio1))
+        .expect("test redis pool should be created");
+    let mut redis_conn = redis_pool.get().await.expect("test redis connection should be available");
+    let queue_len_before: u64 = redis_conn.xlen("mq:tasks:default").await.expect("queue length should be readable");
+
+    let storage = Arc::new(CaptchaStorage::new(&pool));
+    let queue = Arc::new(RedisTaskQueue::from_pool(redis_pool.clone()));
+    let service = CaptchaService::with_delivery(storage.clone(), Some(queue), true);
+    let target = format!("worker_success_{}@example.com", chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default());
+    let request = SendCaptchaRequest { captcha_type: "email".to_string(), target: target.clone(), template_name: None };
+
+    let response = service
+        .send_captcha(request, Some("127.0.0.1"), Some("captcha-tests"))
+        .await
+        .expect("configured email delivery should enqueue a background job");
+
+    let queue_len_after: u64 =
+        redis_conn.xlen("mq:tasks:default").await.expect("queue length should still be readable");
+    assert!(queue_len_after >= queue_len_before + 1, "email captcha should enqueue at least one background job");
+
+    let send_log = sqlx::query(
+        r"
+        SELECT is_success, error_message, provider
+        FROM captcha_send_log
+        WHERE captcha_id = $1
+        ORDER BY sent_ts DESC
+        LIMIT 1
+        ",
+    )
+    .bind(&response.captcha_id)
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+
+    assert!(send_log.get::<Option<bool>, _>("is_success").unwrap_or(false));
+    assert!(send_log.get::<Option<String>, _>("error_message").unwrap_or_default().is_empty());
+    assert_eq!(send_log.get::<Option<String>, _>("provider").as_deref(), Some("smtp"));
 }

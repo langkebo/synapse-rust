@@ -241,47 +241,25 @@ pub(super) async fn get_user_devices(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get user devices", &e))?;
 
-    let stream_id: i64 = sqlx::query_scalar(
-        r"
-        SELECT COALESCE(MAX(stream_id), 0)
-        FROM device_lists_stream
-        WHERE user_id = $1
-        ",
-    )
-    .bind(&user_id)
-    .fetch_one(&*state.services.account.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
-
-    let master_key: Option<Value> = sqlx::query_scalar(
-        r"
-        SELECT key_data
-        FROM cross_signing_keys
-        WHERE user_id = $1 AND key_type = 'master'
-        LIMIT 1
-        ",
-    )
-    .bind(&user_id)
-    .fetch_optional(&*state.services.account.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get master key", &e))?
-    .flatten()
-    .and_then(|raw: String| serde_json::from_str(&raw).ok());
-
-    let self_signing_key: Option<Value> = sqlx::query_scalar(
-        r"
-        SELECT key_data
-        FROM cross_signing_keys
-        WHERE user_id = $1 AND key_type = 'self_signing'
-        LIMIT 1
-        ",
-    )
-    .bind(&user_id)
-    .fetch_optional(&*state.services.account.device_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Failed to get self-signing key", &e))?
-    .flatten()
-    .and_then(|raw: String| serde_json::from_str(&raw).ok());
+    let stream_id = state
+        .services
+        .account
+        .device_storage
+        .get_max_device_list_stream_id_for_user(&user_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
+    let cross_signing_storage =
+        synapse_e2ee::cross_signing::CrossSigningStorage::new(&state.services.account.device_storage.pool);
+    let master_key = cross_signing_storage
+        .get_cross_signing_key(&user_id, "master")
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get master key", &e))?
+        .and_then(|key| key.key_json);
+    let self_signing_key = cross_signing_storage
+        .get_cross_signing_key(&user_id, "self_signing")
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get self-signing key", &e))?
+        .and_then(|key| key.key_json);
 
     let devices_json: Vec<Value> = devices
         .into_iter()

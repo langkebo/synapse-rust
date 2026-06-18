@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT auth_data AS \"auth_data!\", key_count AS \"key_count!\"\n            FROM secure_key_backups WHERE user_id = $1 AND backup_id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "auth_data!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "key_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6d6d9b4265edef6c9ab28a79a6d3ca8f1d94f8f4f9f9329eb5e6cf5a27d68b1e"
+}

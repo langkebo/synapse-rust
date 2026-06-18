@@ -108,7 +108,7 @@ impl OlmStorage {
     pub async fn save_account(&self, account: &OlmAccountData) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO olm_accounts (
                 user_id, device_id, identity_key, serialized_account,
@@ -122,15 +122,15 @@ impl OlmStorage {
                 is_fallback_key_published = EXCLUDED.is_fallback_key_published,
                 updated_ts = EXCLUDED.updated_ts
             ",
-            account.user_id,
-            account.device_id,
-            account.identity_key,
-            account.serialized_account,
-            account.has_published_one_time_keys,
-            account.has_published_fallback_key,
-            now,
-            now,
         )
+        .bind(&account.user_id)
+        .bind(&account.device_id)
+        .bind(&account.identity_key)
+        .bind(&account.serialized_account)
+        .bind(account.has_published_one_time_keys)
+        .bind(account.has_published_fallback_key)
+        .bind(now)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -142,22 +142,21 @@ impl OlmStorage {
     }
 
     pub async fn load_account(&self, user_id: &str, device_id: &str) -> Result<Option<OlmAccountData>, ApiError> {
-        let row: Option<OlmAccountRow> = sqlx::query_as!(
-            OlmAccountRow,
+        let row: Option<OlmAccountRow> = sqlx::query_as::<_, OlmAccountRow>(
             r#"
             SELECT
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                identity_key AS "identity_key!",
-                serialized_account AS "serialized_account!",
-                is_one_time_keys_published AS "is_one_time_keys_published?",
-                is_fallback_key_published AS "is_fallback_key_published?"
+                user_id,
+                device_id,
+                identity_key,
+                serialized_account,
+                is_one_time_keys_published,
+                is_fallback_key_published
             FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
             "#,
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -176,14 +175,14 @@ impl OlmStorage {
     }
 
     pub async fn delete_account(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM olm_accounts
             WHERE user_id = $1 AND device_id = $2
             ",
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -197,7 +196,7 @@ impl OlmStorage {
     }
 
     pub async fn save_session(&self, session: &OlmSessionData) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO olm_sessions (
                 user_id, device_id, session_id, sender_key, receiver_key,
@@ -210,17 +209,17 @@ impl OlmStorage {
                 last_used_ts = EXCLUDED.last_used_ts,
                 expires_at = EXCLUDED.expires_at
             ",
-            session.user_id,
-            session.device_id,
-            session.session_id,
-            session.sender_key,
-            session.receiver_key,
-            session.serialized_state,
-            session.message_index as i32,
-            session.created_ts,
-            session.last_used_ts,
-            session.expires_at,
         )
+        .bind(&session.user_id)
+        .bind(&session.device_id)
+        .bind(&session.session_id)
+        .bind(&session.sender_key)
+        .bind(&session.receiver_key)
+        .bind(&session.serialized_state)
+        .bind(session.message_index as i32)
+        .bind(session.created_ts)
+        .bind(session.last_used_ts)
+        .bind(session.expires_at)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -232,27 +231,26 @@ impl OlmStorage {
     }
 
     pub async fn load_sessions(&self, user_id: &str, device_id: &str) -> Result<Vec<OlmSessionData>, ApiError> {
-        let rows: Vec<OlmSessionRow> = sqlx::query_as!(
-            OlmSessionRow,
+        let rows: Vec<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r#"
             SELECT
-                session_id AS "session_id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                sender_key AS "sender_key!",
-                receiver_key AS "receiver_key!",
-                serialized_state AS "serialized_state!",
-                message_index AS "message_index!",
-                created_ts AS "created_ts!",
-                last_used_ts AS "last_used_ts!",
-                expires_at AS "expires_at?"
+                session_id,
+                user_id,
+                device_id,
+                sender_key,
+                receiver_key,
+                serialized_state,
+                message_index,
+                created_ts,
+                last_used_ts,
+                expires_at
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
             ORDER BY last_used_ts DESC
             "#,
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -264,25 +262,24 @@ impl OlmStorage {
     }
 
     pub async fn load_session(&self, session_id: &str) -> Result<Option<OlmSessionData>, ApiError> {
-        let row: Option<OlmSessionRow> = sqlx::query_as!(
-            OlmSessionRow,
+        let row: Option<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r#"
             SELECT
-                session_id AS "session_id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                sender_key AS "sender_key!",
-                receiver_key AS "receiver_key!",
-                serialized_state AS "serialized_state!",
-                message_index AS "message_index!",
-                created_ts AS "created_ts!",
-                last_used_ts AS "last_used_ts!",
-                expires_at AS "expires_at?"
+                session_id,
+                user_id,
+                device_id,
+                sender_key,
+                receiver_key,
+                serialized_state,
+                message_index,
+                created_ts,
+                last_used_ts,
+                expires_at
             FROM olm_sessions
             WHERE session_id = $1
             "#,
-            session_id,
         )
+        .bind(session_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -299,29 +296,28 @@ impl OlmStorage {
         device_id: &str,
         sender_key: &str,
     ) -> Result<Option<OlmSessionData>, ApiError> {
-        let row: Option<OlmSessionRow> = sqlx::query_as!(
-            OlmSessionRow,
+        let row: Option<OlmSessionRow> = sqlx::query_as::<_, OlmSessionRow>(
             r#"
             SELECT
-                session_id AS "session_id!",
-                user_id AS "user_id!",
-                device_id AS "device_id!",
-                sender_key AS "sender_key!",
-                receiver_key AS "receiver_key!",
-                serialized_state AS "serialized_state!",
-                message_index AS "message_index!",
-                created_ts AS "created_ts!",
-                last_used_ts AS "last_used_ts!",
-                expires_at AS "expires_at?"
+                session_id,
+                user_id,
+                device_id,
+                sender_key,
+                receiver_key,
+                serialized_state,
+                message_index,
+                created_ts,
+                last_used_ts,
+                expires_at
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2 AND sender_key = $3
             ORDER BY last_used_ts DESC
             LIMIT 1
             "#,
-            user_id,
-            device_id,
-            sender_key,
         )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(sender_key)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -333,13 +329,13 @@ impl OlmStorage {
     }
 
     pub async fn delete_session(&self, session_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM olm_sessions
             WHERE session_id = $1
             ",
-            session_id,
         )
+        .bind(session_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -351,14 +347,14 @@ impl OlmStorage {
     }
 
     pub async fn delete_sessions_for_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
             ",
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -372,13 +368,13 @@ impl OlmStorage {
     pub async fn delete_expired_sessions(&self) -> Result<u64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r"
             DELETE FROM olm_sessions
             WHERE expires_at IS NOT NULL AND expires_at < $1
             ",
-            now,
         )
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -392,15 +388,15 @@ impl OlmStorage {
     pub async fn update_session_last_used(&self, session_id: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        sqlx::query!(
+        sqlx::query(
             r"
             UPDATE olm_sessions
             SET last_used_ts = $1
             WHERE session_id = $2
             ",
-            now,
-            session_id,
         )
+        .bind(now)
+        .bind(session_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -412,15 +408,15 @@ impl OlmStorage {
     }
 
     pub async fn get_session_count(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COUNT(*) AS "count!"
+            SELECT COUNT(*)
             FROM olm_sessions
             WHERE user_id = $1 AND device_id = $2
             "#,
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {

@@ -125,6 +125,28 @@ push:
 url_preview:
   enabled: false
 
+# =============================================================================
+# OIDC (OpenID Connect) 单点登录配置
+# =============================================================================
+# 支持三种模式：
+#   1. external OIDC — 对接外部 IdP（如 Keycloak、Auth0、Google Identity）
+#   2. builtin OIDC — 内置 OIDC Provider（编译时启用 `builtin-oidc` feature）
+#   3. 生产 IdP 模式 — external OIDC + 生产级签发者（如 MAS/ESS）
+#
+# 回调安全：
+#   - PKCE S256 强制校验（verifier 长度 43-128 字符）
+#   - State 一次性使用，600 秒过期自动清理
+#   - 回调 URL 白名单校验（拒绝 javascript:/data: 协议、localhost/IP 地址）
+#   - OIDC subject 与本地账号冲突时拒绝登录（防止账号接管）
+#   - 首次登录创建 OIDC 映射记录，后续登录绑定同一 subject
+#
+# 运维说明：
+#   - 生产环境必须使用 HTTPS 回调 URL
+#   - issuer 须与 IdP 的 .well-known/openid-configuration 一致
+#   - client_secret 须通过环境变量注入，禁止硬编码
+#   - 启用 builtin-oidc 时，`/.well-known/openid-configuration` 与 `/.well-known/jwks.json` 由内置 provider 提供
+#   - 未启用任何 OIDC/SAML 时，`/.well-known/*` 返回空 JWKS 集合
+#   - 单位测试覆盖：OIDC auth session 往返、一次性使用、PKCE 绑定校验、discovery 结构
 oidc:
   enabled: true
   issuer: "http://localhost:8180/realms/matrix"

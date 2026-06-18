@@ -379,12 +379,7 @@ impl AdminUserService {
             .filter_map(|device| device.last_seen_ts)
             .max();
 
-        Ok(AdminSingleUserStats {
-            user: AdminUserProfile::from(&user),
-            rooms_joined,
-            messages_sent,
-            last_seen_ts,
-        })
+        Ok(AdminSingleUserStats { user: AdminUserProfile::from(&user), rooms_joined, messages_sent, last_seen_ts })
     }
 
     #[instrument(skip(self))]

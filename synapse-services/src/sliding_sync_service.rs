@@ -899,10 +899,10 @@ impl SlidingSyncService {
             .filter(|value| *value > 0)
             .unwrap_or(100);
 
-        let (events, next_batch) =
-            self.get_to_device_extension_payload(user_id, device_id, since_stream_id, limit)
-                .await
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let (events, next_batch) = self
+            .get_to_device_extension_payload(user_id, device_id, since_stream_id, limit)
+            .await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
         Ok(json!({
             "events": events,
@@ -1159,9 +1159,8 @@ impl SlidingSyncService {
     }
 
     async fn get_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Value, sqlx::Error> {
-        let (changed, left) = self.device_storage
-            .get_device_lists_since_with_shared_rooms(since_stream_id, user_id)
-            .await?;
+        let (changed, left) =
+            self.device_storage.get_device_lists_since_with_shared_rooms(since_stream_id, user_id).await?;
 
         Ok(json!({
             "changed": changed,
@@ -1176,9 +1175,8 @@ impl SlidingSyncService {
         since_stream_id: i64,
         limit: i64,
     ) -> Result<(Vec<Value>, Option<String>), ApiError> {
-        let (events, last_stream_id) = self.to_device_storage
-            .get_messages_since(user_id, device_id, since_stream_id, limit)
-            .await?;
+        let (events, last_stream_id) =
+            self.to_device_storage.get_messages_since(user_id, device_id, since_stream_id, limit).await?;
 
         let next_batch = if events.is_empty() {
             Some(self.to_device_storage.get_current_stream_id(user_id, device_id).await?.to_string())
@@ -1268,42 +1266,21 @@ mod tests {
     }
 
     fn create_test_service() -> SlidingSyncService {
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+        );
         SlidingSyncService {
-            storage: SlidingSyncStorage::new(std::sync::Arc::new(
-                sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(1)
-                    .connect_lazy("postgres://localhost/test")
-                    .unwrap(),
-            )),
+            storage: SlidingSyncStorage::new(pool.clone()),
             cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-            event_storage: EventStorage::new(
-                &std::sync::Arc::new(
-                    sqlx::postgres::PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect_lazy("postgres://localhost/test")
-                        .unwrap(),
-                ),
-                "localhost".to_string(),
-            ),
+            event_storage: EventStorage::new(&pool, "localhost".to_string()),
             typing_service: Arc::new(crate::typing_service::TypingService::default()),
             presence_storage: PresenceStorage::new(
-                Arc::new(
-                    sqlx::postgres::PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect_lazy("postgres://localhost/test")
-                        .unwrap(),
-                ),
+                pool.clone(),
                 Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
             ),
-            member_storage: RoomMemberStorage::new(
-                &Arc::new(
-                    sqlx::postgres::PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect_lazy("postgres://localhost/test")
-                        .unwrap(),
-                ),
-                "localhost",
-            ),
+            member_storage: RoomMemberStorage::new(&pool, "localhost"),
+            device_storage: DeviceStorage::new(&pool),
+            to_device_storage: ToDeviceStorage::new(&pool),
             connection_tracker: Arc::new(
                 moka::sync::Cache::builder()
                     .max_capacity(MAX_TRACKED_CONNECTIONS)

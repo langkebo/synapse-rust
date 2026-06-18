@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO secure_key_backups (user_id, backup_id, version, algorithm, auth_data, key_count)\n            VALUES ($1, $2, $3, $4, $5, 0)\n            ON CONFLICT (user_id, backup_id) DO UPDATE SET\n                version = EXCLUDED.version,\n                auth_data = EXCLUDED.auth_data,\n                updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7a87a6daae876dfdf0ac81f549c23766cb45d9319d30c85b990a6239bc3ecedc"
+}

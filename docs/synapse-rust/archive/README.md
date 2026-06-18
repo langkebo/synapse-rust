@@ -1,0 +1,18 @@
+# Archive
+
+本目录存放已归档的历史文档，不再作为当前项目状态的参考依据。
+
+## 归档原因
+
+| 文档 | 归档日期 | 原因 |
+|------|----------|------|
+| `OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md` | 2026-06-17 | 已被 `LAYER_MIGRATION_OPTIMIZATION_PLAN_2026-06-12.md` 和 `TECHNICAL_DEBT_OPTIMIZATION_PLAN_2026-06-11.md` 取代 |
+| `REDUNDANCY_CLEANUP_LOG_2026-05-28.md` | 2026-06-17 | 清理工作已完成，日志已不再更新 |
+| `REDUNDANT_TABLE_DELETION_PLAN.md` | 2026-06-17 | 冗余表删除计划已完成执行 |
+| `SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md` | 2026-06-17 | 已被 `MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md` 和 `COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` 取代 |
+| `SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md` | 2026-06-17 | 上游研究快照，已融入审计报告 |
+| `E2EE_VODOZEMAC_MIGRATION.md` | 2026-06-17 | Vodozemac 迁移已完成 |
+
+## 当前文档
+
+所有活跃文档位于父目录 `docs/synapse-rust/`，以 `COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md` 为当前状态权威来源。

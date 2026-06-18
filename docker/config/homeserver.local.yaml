@@ -20,6 +20,12 @@ server:
   refresh_token_sliding_window_size: 3600
   session_duration: 86400000
   warmup_pool: true
+  app_service_config_files:
+    - "./docker/config/appservices/stress_as_1.yaml"
+    - "./docker/config/appservices/stress_as_2.yaml"
+    - "./docker/config/appservices/stress_as_3.yaml"
+    - "./docker/config/appservices/stress_as_4.yaml"
+    - "./docker/config/appservices/stress_as_5.yaml"
 
 rate_limit:
   enabled: true

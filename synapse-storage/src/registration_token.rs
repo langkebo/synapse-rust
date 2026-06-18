@@ -180,9 +180,9 @@ impl RegistrationTokenStorage {
 
     pub fn generate_token() -> String {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let chars: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-        let token: String = (0..32).map(|_| chars[rng.gen_range(0..chars.len())] as char).collect();
+        let token: String = (0..32).map(|_| chars[rng.random_range(0..chars.len())] as char).collect();
         token
     }
 

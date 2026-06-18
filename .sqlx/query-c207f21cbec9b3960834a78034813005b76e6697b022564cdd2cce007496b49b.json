@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT DISTINCT user_id AS \"user_id!\"\n            FROM device_keys\n            WHERE ts_updated_ms > $1 AND ts_updated_ms <= $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c207f21cbec9b3960834a78034813005b76e6697b022564cdd2cce007496b49b"
+}

@@ -413,7 +413,7 @@ async fn get_rtc_transports(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let voip_service = &state.services.rtc_domain_service.infra;
+    let voip_service = &state.services.extensions.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(json!({ "transports": [] })));
@@ -482,7 +482,7 @@ async fn load_extended_profile_document(
     user_id: &str,
 ) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
     let Some(content) =
-        state.services.account_data_service.get_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE).await?
+        state.services.core.account_data_service.get_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE).await?
     else {
         return Ok(serde_json::Map::new());
     };
@@ -499,7 +499,7 @@ async fn save_extended_profile_document(
     document: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), ApiError> {
     let content = serde_json::Value::Object(document.clone());
-    state.services.account_data_service.set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content).await
+    state.services.core.account_data_service.set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content).await
 }
 
 async fn get_extended_profile(
@@ -709,7 +709,7 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_account_router())
         .merge(create_account_data_router(state.clone()))
         .merge(create_directory_router(state.clone()))
-        .merge(create_sync_router())
+        .merge(create_sync_router(state.clone()))
         .merge(create_moderation_router())
         .merge(create_device_router())
         .merge(create_media_router(state.clone()))

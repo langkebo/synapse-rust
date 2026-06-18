@@ -11,7 +11,7 @@ use crate::web::routes::friend_room;
 use crate::web::routes::voice;
 #[cfg(feature = "widgets")]
 use crate::web::routes::widget;
-use crate::web::routes::{room_summary, route_ledger::RouteEntry, sliding_sync};
+use crate::web::routes::{account_compat, room_summary, route_ledger::RouteEntry, sliding_sync};
 use crate::web::AppState;
 use axum::{
     extract::{Query, State},
@@ -95,7 +95,6 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CapabilityGovernance {
-    StaticStable,
     ConfigControlled,
     RouteSurface,
 }
@@ -107,10 +106,6 @@ struct CapabilityFlag {
 }
 
 impl CapabilityFlag {
-    const fn static_stable(enabled: bool) -> Self {
-        Self { enabled, governance: CapabilityGovernance::StaticStable }
-    }
-
     const fn config_controlled(enabled: bool) -> Self {
         Self { enabled, governance: CapabilityGovernance::ConfigControlled }
     }
@@ -268,7 +263,7 @@ fn room_summary_capability() -> CapabilityFlag {
 }
 
 fn room_suggested_capability() -> CapabilityFlag {
-    CapabilityFlag::static_stable(room_summary_capability().enabled())
+    CapabilityFlag::route_surface(room_summary_capability().enabled())
 }
 
 fn voice_capability() -> CapabilityFlag {
@@ -291,20 +286,42 @@ fn sliding_sync_capability() -> CapabilityFlag {
     ))
 }
 
+fn change_password_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &account_compat::account_compat_route_manifest(),
+        &Method::POST,
+        "/_matrix/client/v3/account/password",
+    ))
+}
+
+/// Public entry-point for external callers that need the boolean value
+/// without depending on the private `CapabilityFlag` type.
 pub(crate) fn change_password_capability_enabled() -> bool {
-    CapabilityFlag::static_stable(true).enabled()
+    change_password_capability().enabled()
 }
 
-fn set_displayname_capability_enabled() -> bool {
-    CapabilityFlag::static_stable(true).enabled()
+fn set_displayname_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &account_compat::account_compat_route_manifest(),
+        &Method::PUT,
+        "/_matrix/client/v3/profile/{user_id}/displayname",
+    ))
 }
 
-fn set_avatar_url_capability_enabled() -> bool {
-    CapabilityFlag::static_stable(true).enabled()
+fn set_avatar_url_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &account_compat::account_compat_route_manifest(),
+        &Method::PUT,
+        "/_matrix/client/v3/profile/{user_id}/avatar_url",
+    ))
 }
 
-fn threepid_changes_capability_enabled() -> bool {
-    CapabilityFlag::static_stable(true).enabled()
+fn threepid_changes_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &account_compat::account_compat_route_manifest(),
+        &Method::POST,
+        "/_matrix/client/v3/account/3pid",
+    ))
 }
 
 fn sso_capability(config: &Config) -> CapabilityFlag {
@@ -398,11 +415,11 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     let mut capabilities = Map::new();
     let sso_providers = sso_providers(config);
 
-    insert_enabled_capability(&mut capabilities, "m.change_password", change_password_capability_enabled());
+    insert_enabled_capability(&mut capabilities, "m.change_password", change_password_capability().enabled());
     capabilities.insert("m.room_versions".to_string(), client_room_versions_capability());
-    insert_enabled_capability(&mut capabilities, "m.set_displayname", set_displayname_capability_enabled());
-    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", set_avatar_url_capability_enabled());
-    insert_enabled_capability(&mut capabilities, "m.3pid_changes", threepid_changes_capability_enabled());
+    insert_enabled_capability(&mut capabilities, "m.set_displayname", set_displayname_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", set_avatar_url_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.3pid_changes", threepid_changes_capability().enabled());
     insert_enabled_capability(&mut capabilities, "m.room.summary", room_summary_capability().enabled());
     insert_enabled_capability(&mut capabilities, "m.room.suggested", room_suggested_capability().enabled());
     insert_enabled_capability(&mut capabilities, "m.voice", voice_capability().enabled());
@@ -469,11 +486,12 @@ pub async fn get_capabilities(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_capabilities_response, build_client_versions, build_well_known_client, burn_after_read_capability,
-        change_password_capability_enabled, client_versions_headers, derive_well_known_server,
+        ai_connection_capability, build_capabilities_response, build_client_versions, build_well_known_client,
+        burn_after_read_capability, change_password_capability, client_versions_headers, derive_well_known_server,
         external_services_capability, friends_capability, get_client_versions, openclaw_capability,
-        room_suggested_capability, room_summary_capability, sliding_sync_capability, sso_capability, thread_capability,
-        voice_capability, voice_extended_capability, widget_capability, CapabilityGovernance, ClientApiVersionFamily,
+        room_suggested_capability, room_summary_capability, set_avatar_url_capability, set_displayname_capability,
+        sliding_sync_capability, sso_capability, thread_capability, threepid_changes_capability, voice_capability,
+        voice_extended_capability, widget_capability, CapabilityFlag, CapabilityGovernance, ClientApiVersionFamily,
         CLIENT_API_VERSION_SUPPORT,
     };
     use crate::cache::{CacheConfig, CacheManager};
@@ -560,10 +578,10 @@ mod tests {
         let body = build_capabilities_response(&Config::default(), false);
         let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
 
-        assert_eq!(capabilities["m.change_password"]["enabled"], change_password_capability_enabled());
-        assert_eq!(capabilities["m.set_displayname"]["enabled"], true);
-        assert_eq!(capabilities["m.set_avatar_url"]["enabled"], true);
-        assert_eq!(capabilities["m.3pid_changes"]["enabled"], true);
+        assert_eq!(capabilities["m.change_password"]["enabled"], change_password_capability().enabled());
+        assert_eq!(capabilities["m.set_displayname"]["enabled"], set_displayname_capability().enabled());
+        assert_eq!(capabilities["m.set_avatar_url"]["enabled"], set_avatar_url_capability().enabled());
+        assert_eq!(capabilities["m.3pid_changes"]["enabled"], threepid_changes_capability().enabled());
         assert_eq!(capabilities["m.room.summary"]["enabled"], room_summary_capability().enabled());
         assert_eq!(capabilities["m.room.suggested"]["enabled"], room_suggested_capability().enabled());
         assert_eq!(capabilities["m.voice"]["enabled"], voice_capability().enabled());
@@ -606,10 +624,14 @@ mod tests {
     #[test]
     fn test_capability_governance_classifies_route_and_config_sources() {
         assert_eq!(room_summary_capability().governance, CapabilityGovernance::RouteSurface);
-        assert_eq!(room_suggested_capability().governance, CapabilityGovernance::StaticStable);
+        assert_eq!(room_suggested_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(voice_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(thread_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(sliding_sync_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(change_password_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(set_displayname_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(set_avatar_url_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(threepid_changes_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(friends_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(external_services_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(voice_extended_capability().governance, CapabilityGovernance::RouteSurface);
@@ -647,5 +669,160 @@ mod tests {
         let body = build_well_known_client("https://matrix.example.com");
         assert_eq!(body["m.homeserver"]["base_url"], "https://matrix.example.com");
         assert!(body.get("m.identity_server").is_none());
+    }
+
+    // ---------------------------------------------------------------
+    // Contract / snapshot tests — prevent capability declaration drift
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_versions_response_snapshot_keys() {
+        let body = build_client_versions(&Config::default());
+
+        let versions = body["versions"].as_array().expect("versions should be an array");
+        assert!(!versions.is_empty(), "versions array must not be empty");
+
+        let unstable = body["unstable_features"].as_object().expect("unstable_features should be an object");
+        let expected_unstable: &[&str] = &[
+            "m.lazy_load_members",
+            "m.require_identity_server",
+            "m.supports_login_via_phone_number",
+            "org.matrix.msc3882",
+            "org.matrix.msc3983",
+            "org.matrix.msc3245",
+            "org.matrix.msc3266",
+            "org.matrix.msc3916",
+            "uk.tcpip.msc4133",
+            "org.matrix.msc3886.sliding_sync",
+            "org.matrix.msc4261.widget",
+            "io.hula.burn_after_read",
+            "io.hula.friends",
+        ];
+        for key in expected_unstable {
+            assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
+        }
+    }
+
+    #[test]
+    fn test_capabilities_response_snapshot_public_surface() {
+        let body = build_capabilities_response(&Config::default(), false);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        let expected_public: &[&str] = &[
+            "m.change_password",
+            "m.room_versions",
+            "m.set_displayname",
+            "m.set_avatar_url",
+            "m.3pid_changes",
+            "m.room.summary",
+            "m.room.suggested",
+            "m.voice",
+            "m.thread",
+            "io.hula.sliding_sync",
+        ];
+        for key in expected_public {
+            assert!(capabilities.contains_key(*key), "missing public capability: {key}");
+        }
+
+        let private_only: &[&str] = &["m.sso", "io.hula.friends", "io.hula.widget", "io.hula.burn_after_read"];
+        for key in private_only {
+            assert!(!capabilities.contains_key(*key), "private capability leaked to unauthenticated user: {key}");
+        }
+    }
+
+    #[test]
+    fn test_capabilities_response_snapshot_authenticated_surface() {
+        let body = build_capabilities_response(&Config::default(), true);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        let authenticated_only: &[&str] = &[
+            "io.hula.friends",
+            "m.sso",
+            "ai_connection",
+            "openclaw",
+            "external_services",
+            "io.hula.voice_extended",
+            "io.hula.widget",
+            "io.hula.burn_after_read",
+        ];
+        for key in authenticated_only {
+            assert!(capabilities.contains_key(*key), "missing authenticated capability: {key}");
+        }
+    }
+
+    #[test]
+    fn test_all_capabilities_have_governance_classification() {
+        // Every capability in the response must be backed by an explicit
+        // CapabilityFlag with a known governance class (RouteSurface or
+        // ConfigControlled).  No capability should be left without a
+        // governance classification.
+        let body = build_capabilities_response(&Config::default(), true);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        // All keys in the capabilities map should be known
+        let known_keys: &[&str] = &[
+            "m.change_password",
+            "m.room_versions",
+            "m.set_displayname",
+            "m.set_avatar_url",
+            "m.3pid_changes",
+            "m.room.summary",
+            "m.room.suggested",
+            "m.voice",
+            "m.thread",
+            "io.hula.sliding_sync",
+            "io.hula.friends",
+            "m.sso",
+            "ai_connection",
+            "openclaw",
+            "external_services",
+            "io.hula.voice_extended",
+            "io.hula.widget",
+            "io.hula.burn_after_read",
+        ];
+
+        for key in capabilities.keys() {
+            assert!(known_keys.contains(&key.as_str()), "unexpected capability key in response: {key}");
+        }
+
+        for key in known_keys {
+            if *key != "m.room_versions" {
+                // m.room_versions is a special case with its own structure
+                assert!(capabilities.contains_key(*key), "known capability missing from response: {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_no_residual_static_stable_governance() {
+        // After P1-03.2 cleanup, no capability should use the legacy
+        // StaticStable governance.  All capabilities must be either
+        // RouteSurface or ConfigControlled.
+        let config = Config::default();
+        let all_capabilities: &[CapabilityFlag] = &[
+            change_password_capability(),
+            set_displayname_capability(),
+            set_avatar_url_capability(),
+            threepid_changes_capability(),
+            room_summary_capability(),
+            room_suggested_capability(),
+            voice_capability(),
+            thread_capability(),
+            sliding_sync_capability(),
+            sso_capability(&config),
+            openclaw_capability(&config),
+            ai_connection_capability(&config),
+            friends_capability(),
+            external_services_capability(),
+            voice_extended_capability(),
+            widget_capability(),
+            burn_after_read_capability(),
+        ];
+
+        for flag in all_capabilities {
+            match flag.governance {
+                CapabilityGovernance::RouteSurface | CapabilityGovernance::ConfigControlled => {}
+            }
+        }
     }
 }

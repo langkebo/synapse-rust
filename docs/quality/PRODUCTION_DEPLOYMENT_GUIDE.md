@@ -1,5 +1,8 @@
 # 生产部署指南
 
+> **已合并到 [docs/synapse-rust/OPERATIONS.md](../synapse-rust/OPERATIONS.md) 和 [docker/deploy/PRODUCTION_DEPLOYMENT_GUIDE.md](../../docker/deploy/PRODUCTION_DEPLOYMENT_GUIDE.md)**
+> 本文件保留用于历史参考，请以上述文档为准。
+
 生成时间: 2026-04-26 20:00
 项目: synapse-rust Matrix Homeserver
 Docker 镜像: vmuser232922/mysynapse:latest

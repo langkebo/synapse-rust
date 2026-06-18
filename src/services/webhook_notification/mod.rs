@@ -1,1 +1,0 @@
-pub use synapse_services::webhook_notification::*;

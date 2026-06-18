@@ -230,7 +230,7 @@ pub async fn list_notifications(
 
     let (notifications, next_batch) = state
         .services
-        .server_notification_service
+        .extensions.server_notification_service
         .list_all_notifications(query.audience.as_deref(), limit, cursor)
         .await?;
 

@@ -4,7 +4,7 @@ mod qr_login_integration_suite {
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
     use std::time::Duration;
-    use synapse_rust::storage::qr_login::QrLoginStorage;
+    use synapse_rust::storage::QrLoginStorage;
 
     #[tokio::test]
     async fn test_qr_login_storage_operations() {

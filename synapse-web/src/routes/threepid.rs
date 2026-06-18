@@ -7,7 +7,7 @@ use crate::routes::{ApiError, AppState};
 
 fn generate_token() -> String {
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
-    (0..12).map(|_| chars[rand::Rng::gen_range(&mut rand::thread_rng(), 0..chars.len())]).collect()
+    (0..12).map(|_| chars[rand::Rng::random_range(&mut rand::rng(), 0..chars.len())]).collect()
 }
 
 pub fn create_threepid_router() -> Router<AppState> {

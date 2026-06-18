@@ -135,10 +135,7 @@ impl ChunkedUploadService {
     }
 
     pub async fn get_progress(&self, upload_id: &str) -> Result<UploadProgress, ApiError> {
-        self.storage
-            .get_progress(upload_id)
-            .await?
-            .ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
+        self.storage.get_progress(upload_id).await?.ok_or_else(|| ApiError::not_found("Upload not found".to_string()))
     }
 
     pub async fn load_completed_upload(&self, upload_id: &str, user_id: &str) -> Result<CompletedUploadData, ApiError> {

@@ -28,7 +28,7 @@ pub async fn get_turn_server(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.rtc_domain_service.infra;
+    let voip_service = &state.services.extensions.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(TurnServerResponse {
@@ -54,7 +54,7 @@ pub async fn get_voip_config(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<VoipConfigResponse>, ApiError> {
-    let voip_service = &state.services.rtc_domain_service.infra;
+    let voip_service = &state.services.extensions.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Ok(Json(VoipConfigResponse { turn_servers: None, stun_servers: None }));
@@ -81,7 +81,7 @@ pub async fn get_voip_config(
 
 #[allow(clippy::unused_async)]
 pub async fn get_turn_credentials_guest(State(state): State<AppState>) -> Result<Json<TurnServerResponse>, ApiError> {
-    let voip_service = &state.services.rtc_domain_service.infra;
+    let voip_service = &state.services.extensions.rtc_domain_service.infra;
 
     if !voip_service.is_enabled() {
         return Err(ApiError::not_found("VoIP/TURN service is not configured"));
@@ -167,7 +167,13 @@ pub async fn call_invite(
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
     let _session =
-        state.services.rtc_domain_service.call.handle_invite(&room_id, &auth_user.user_id, content.clone()).await?;
+        state
+            .services
+            .extensions
+            .rtc_domain_service
+            .call
+            .handle_invite(&room_id, &auth_user.user_id, content.clone())
+            .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -216,7 +222,13 @@ pub async fn call_candidates(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state.services.rtc_domain_service.call.handle_candidates(&room_id, &auth_user.user_id, content).await?;
+    state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_candidates(&room_id, &auth_user.user_id, content)
+        .await?;
 
     Ok(empty_json())
 }
@@ -233,7 +245,13 @@ pub async fn call_answer(
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
     let _session =
-        state.services.rtc_domain_service.call.handle_answer(&room_id, &auth_user.user_id, content.clone()).await?;
+        state
+            .services
+            .extensions
+            .rtc_domain_service
+            .call
+            .handle_answer(&room_id, &auth_user.user_id, content.clone())
+            .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -282,7 +300,13 @@ pub async fn call_hangup(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state.services.rtc_domain_service.call.handle_hangup(&room_id, &auth_user.user_id, content).await?;
+    state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_hangup(&room_id, &auth_user.user_id, content)
+        .await?;
 
     Ok(empty_json())
 }
@@ -299,13 +323,19 @@ pub async fn get_call_session(
 
     let session = state
         .services
-        .rtc_domain_service
+        .extensions.rtc_domain_service
         .call
         .get_session(&call_id, &room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
-    let candidates = state.services.rtc_domain_service.call.get_candidates(&call_id, &room_id).await?;
+    let candidates = state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .get_candidates(&call_id, &room_id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "call_id": session.call_id,

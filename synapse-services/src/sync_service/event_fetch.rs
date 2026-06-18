@@ -173,41 +173,16 @@ impl SyncService {
         let Some(device_id) = device_id else {
             return Ok(false);
         };
-
-        let has_to_device = sqlx::query_scalar::<_, i32>(
-            r"
-            SELECT 1
-            FROM to_device_messages
-            WHERE recipient_user_id = $1
-              AND recipient_device_id = $2
-              AND stream_id > $3
-            LIMIT 1
-            ",
-        )
-        .bind(user_id)
-        .bind(device_id)
-        .bind(since_stream_id)
-        .fetch_optional(&*self.event_storage.pool)
-        .await
-        .map_err(map_internal!("Failed to poll for to-device updates"))?;
-
-        Ok(has_to_device.is_some())
+        self.to_device_storage
+            .has_messages_since(user_id, device_id, since_stream_id)
+            .await
+            .map_err(map_internal!("Failed to poll for to-device updates"))
     }
 
     async fn has_incremental_device_list_updates(&self, since_stream_id: i64) -> ApiResult<bool> {
-        let has_device_lists = sqlx::query_scalar::<_, i32>(
-            r"
-            SELECT 1
-            FROM device_lists_stream
-            WHERE stream_id > $1
-            LIMIT 1
-            ",
-        )
-        .bind(since_stream_id)
-        .fetch_optional(&*self.event_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to poll for device-list updates", &e))?;
-
-        Ok(has_device_lists.is_some())
+        self.device_storage
+            .has_device_list_updates_since(since_stream_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to poll for device-list updates", &e))
     }
 }

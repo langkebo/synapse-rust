@@ -88,7 +88,7 @@ async fn upload_voice_message(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let voice_service = &state.services.voice_service;
+    let voice_service = &state.services.extensions.voice_service;
 
     let content_base64 = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let engine = base64::engine::general_purpose::STANDARD;
@@ -158,7 +158,7 @@ async fn upload_voice_message(
 
 #[axum::debug_handler]
 async fn get_voice_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.voice_service.get_voice_stats(&auth_user.user_id).await?;
+    let stats = state.services.extensions.voice_service.get_voice_stats(&auth_user.user_id).await?;
     Ok(Json(stats))
 }
 
@@ -169,7 +169,7 @@ async fn get_room_voice_stats(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
-    let stats = state.services.voice_service.get_room_voice_stats(&room_id).await?;
+    let stats = state.services.extensions.voice_service.get_room_voice_stats(&room_id).await?;
     Ok(Json(stats))
 }
 
@@ -180,7 +180,7 @@ async fn get_user_voice_stats(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let stats = state.services.voice_service.get_user_voice_stats(&user_id).await?;
+    let stats = state.services.extensions.voice_service.get_user_voice_stats(&user_id).await?;
     Ok(Json(stats))
 }
 
@@ -194,7 +194,7 @@ async fn get_room_voice_messages(
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice messages")
         .await?;
     let limit = query.limit.unwrap_or(50).min(100);
-    let result = state.services.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
+    let result = state.services.extensions.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
@@ -206,7 +206,7 @@ async fn get_user_voice_messages(
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(50).min(100);
-    let result = state.services.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
+    let result = state.services.extensions.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
@@ -216,7 +216,7 @@ async fn get_voice_message_content(
     _auth_user: AuthenticatedUser,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state.services.voice_service.get_voice_message_content(&media_id).await?;
+    let result = state.services.extensions.voice_service.get_voice_message_content(&media_id).await?;
     Ok(Json(result))
 }
 

@@ -83,6 +83,7 @@ impl AdminMediaStorage {
         Self { pool: pool.clone() }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_media_metadata(
         &self,
         media_id: &str,

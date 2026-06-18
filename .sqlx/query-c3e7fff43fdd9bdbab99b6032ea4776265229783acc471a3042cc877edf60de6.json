@@ -1,0 +1,84 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                user_id,\n                device_id,\n                algorithm,\n                key_id,\n                public_key,\n                signatures AS \"signatures?\",\n                display_name,\n                added_ts AS \"added_ts!\",\n                ts_updated_ms AS \"ts_updated_ms?\",\n                key_data AS \"key_data?\",\n                is_fallback AS \"is_fallback?\"\n            FROM device_keys\n            WHERE user_id = $1 AND device_id = $2 AND algorithm = $3\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "device_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "algorithm",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "public_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "signatures?",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "added_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "ts_updated_ms?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
+        "name": "key_data?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "is_fallback?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "c3e7fff43fdd9bdbab99b6032ea4776265229783acc471a3042cc877edf60de6"
+}

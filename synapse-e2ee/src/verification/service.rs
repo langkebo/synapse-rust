@@ -2,7 +2,6 @@ use crate::verification::models::*;
 use crate::verification::storage::VerificationStorage;
 use base64::Engine;
 use hmac::{Hmac, Mac};
-use rand::rngs::OsRng;
 use rand::RngCore;
 use sha2::Sha256;
 use std::sync::Arc;
@@ -34,7 +33,7 @@ impl VerificationService {
     }
 
     pub fn generate_key_pair(&self) -> (String, String) {
-        let secret = StaticSecret::random_from_rng(OsRng);
+        let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
         let public = PublicKey::from(&secret);
 
         let public_bytes = public.as_bytes();
@@ -199,9 +198,8 @@ impl VerificationService {
         let shared_secret = if !other_pubkey.is_empty() && !our_secret.is_empty() {
             self.compute_shared_secret(&our_secret, other_pubkey)?
         } else {
-            let mut rng = OsRng;
             let mut bytes = [0u8; 32];
-            rng.fill_bytes(&mut bytes);
+            rand::rng().fill_bytes(&mut bytes);
             bytes
         };
 
@@ -341,7 +339,7 @@ impl VerificationService {
 
 fn generate_transaction_id() -> String {
     let mut bytes = [0u8; 16];
-    OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 

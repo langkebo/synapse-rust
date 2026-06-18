@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO federation_blacklist (\n                server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata\n            )\n            VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)\n            ON CONFLICT (server_name) DO UPDATE SET\n                block_type = $2,\n                reason = $3,\n                blocked_by = $4,\n                updated_ts = $5,\n                expires_at = $6,\n                is_enabled = true,\n                metadata = $7\n            RETURNING id AS \"id!\", server_name AS \"server_name!\", block_type AS \"block_type!\",\n                      reason AS \"reason?\", COALESCE(blocked_by, 'system') AS \"blocked_by!\",\n                      COALESCE(created_ts, added_ts) AS \"created_ts!\",\n                      COALESCE(updated_ts, added_ts) AS \"updated_ts!\",\n                      expires_at AS \"expires_at?\", is_enabled AS \"is_enabled!\", metadata AS \"metadata!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "block_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "blocked_by!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_ts!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_enabled!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "metadata!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null,
+      null,
+      null,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "5eae78956e1bd658aa820bf2e5337a832d157590bcaaa1e77cd40540051e9056"
+}

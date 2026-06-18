@@ -173,7 +173,7 @@ mod tests {
     use base64::Engine;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
-    use rand::rngs::OsRng;
+    use aes_gcm::aead::OsRng;
 
     #[test]
     fn test_canonical_json_sorts_keys() {

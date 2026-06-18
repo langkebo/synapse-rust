@@ -2,17 +2,12 @@ use crate::auth::*;
 use crate::cache::*;
 use crate::common::config::Config;
 #[cfg(any(test, feature = "test-utils"))]
-use crate::common::config::{
-    AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig, RedisConfig, SearchConfig,
-    SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
-};
+use crate::services::test_config::build_test_config;
 use synapse_common::metrics::MetricsCollector;
 use synapse_common::server_metrics::ServerMetrics;
+use synapse_common::task_queue::RedisTaskQueue;
 
 const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
-#[cfg(any(test, feature = "test-utils"))]
-use crate::common::config::PostgresFtsConfig;
-use crate::common::task_queue::RedisTaskQueue;
 use crate::e2ee::backup::KeyBackupService;
 use crate::e2ee::cross_signing::CrossSigningService;
 use crate::e2ee::device_keys::DeviceKeyService;
@@ -29,6 +24,9 @@ use crate::federation::{DeviceSyncManager, EventAuthChain, FederationClient, Key
 use crate::services::burn_after_read_service::BurnAfterReadService;
 use crate::storage::email_verification::EmailVerificationStorage;
 use crate::storage::*;
+use crate::worker::topology_validator::{
+    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
+};
 use std::sync::Arc;
 use std::{env, path::Path};
 
@@ -41,74 +39,11 @@ pub struct ServiceContainer {
     pub federation: FederationServices,
     pub admin: AdminServices,
 
-    // Canonical-compatible grouped views. Keep flat fields below for
-    // existing root callers while we migrate access paths incrementally.
+    // Canonical-compatible grouped views
     pub core: CoreServices,
     pub account: AccountServices,
     pub sso: SsoServices,
     pub extensions: ExtensionServices,
-
-    // Core services — not specific to any single domain
-    pub threepid_storage: ThreepidStorage,
-    pub device_storage: DeviceStorage,
-    pub token_storage: AccessTokenStorage,
-    pub qr_login_storage: QrLoginStorage,
-    pub invite_blocklist_storage: InviteBlocklistStorage,
-    pub sticky_event_storage: StickyEventStorage,
-    pub registration_service: Arc<crate::services::registration_service::RegistrationService>,
-    pub search_service: Arc<crate::services::search_service::SearchService>,
-    pub media_service: crate::services::media_service::MediaService,
-    pub cache: Arc<CacheManager>,
-    pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub metrics: Arc<MetricsCollector>,
-    pub server_metrics: Arc<crate::common::server_metrics::ServerMetrics>,
-    pub server_name: String,
-    pub config: Config,
-    #[cfg(feature = "voice-extended")]
-    pub voice_service: crate::services::voice_service::VoiceService,
-    #[cfg(feature = "friends")]
-    pub friend_storage: FriendRoomStorage,
-    #[cfg(feature = "friends")]
-    pub friend_room_service: Arc<crate::services::friend_room_service::FriendRoomService>,
-    #[cfg(feature = "friends")]
-    pub friend_federation: Arc<FriendFederation>,
-    pub rtc_domain_service: Arc<crate::services::rtc::RtcDomainService>,
-    pub directory_service: Arc<crate::services::directory_service::DirectoryService>,
-    #[cfg(feature = "saml-sso")]
-    pub saml_storage: crate::storage::saml::SamlStorage,
-    #[cfg(feature = "saml-sso")]
-    pub saml_service: Arc<crate::services::saml_service::SamlService>,
-    #[cfg(feature = "cas-sso")]
-    pub cas_storage: crate::storage::cas::CasStorage,
-    #[cfg(feature = "cas-sso")]
-    pub cas_service: Arc<crate::services::cas_service::CasService>,
-    pub media_domain_service: Arc<crate::services::media::MediaDomainService>,
-    #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: crate::storage::ai_connection::AiConnectionStorage,
-    #[cfg(feature = "server-notifications")]
-    pub server_notification_storage: crate::storage::server_notification::ServerNotificationStorage,
-    #[cfg(feature = "server-notifications")]
-    pub server_notification_service: Arc<crate::services::server_notification_service::ServerNotificationService>,
-    #[cfg(feature = "privacy-ext")]
-    pub privacy_storage: crate::storage::privacy::PrivacyStorage,
-    #[cfg(feature = "widgets")]
-    pub widget_storage: crate::storage::widget::WidgetStorage,
-    #[cfg(feature = "widgets")]
-    pub widget_service: Arc<crate::services::widget_service::WidgetService>,
-    #[cfg(feature = "burn-after-read")]
-    pub burn_after_read: Arc<BurnAfterReadService>,
-    pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
-    pub oidc_mapping_service: Arc<crate::services::oidc_mapping_service::OidcMappingService>,
-    #[cfg(feature = "builtin-oidc")]
-    pub builtin_oidc_provider: Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
-    #[cfg(not(feature = "builtin-oidc"))]
-    pub builtin_oidc_provider: Option<()>,
-    pub identity_service: Arc<crate::services::identity::IdentityService>,
-    pub uia_service: Arc<crate::services::uia_service::UiaService>,
-    pub event_broadcaster: Arc<synapse_services::federation::event_broadcaster::EventBroadcaster>,
-    pub account_data_service: Arc<crate::services::account_data_service::AccountDataService>,
-    pub client_push_service: Arc<crate::services::client_push_service::ClientPushService>,
-    pub room_tag_service: Arc<crate::services::room_tag_service::RoomTagService>,
 }
 
 // =============================================================================
@@ -130,6 +65,8 @@ pub struct CoreServices {
     pub key_rotation_storage: KeyRotationStorage,
     pub event_broadcaster: Arc<synapse_services::federation::event_broadcaster::EventBroadcaster>,
     pub event_notifier: crate::services::event_notifier::EventNotifier,
+    pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
+    pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
 }
 
 // =============================================================================
@@ -163,6 +100,7 @@ pub struct SsoServices {
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::services::cas_service::CasService>,
     pub oidc_service: Option<Arc<crate::services::oidc_service::OidcService>>,
+    pub oidc_mapping_service: Arc<crate::services::oidc_mapping_service::OidcMappingService>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::services::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -299,7 +237,7 @@ pub struct RoomSyncServices {
     pub room_storage: RoomStorage,
     pub member_storage: RoomMemberStorage,
     pub event_storage: EventStorage,
-    pub room_summary_storage: crate::storage::room_summary::RoomSummaryStorage,
+    pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
     pub relations_storage: crate::storage::relations::RelationsStorage,
     pub room_summary_service: Arc<crate::services::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
@@ -313,6 +251,7 @@ pub struct RoomSyncServices {
     pub relations_service: Arc<crate::services::relations_service::RelationsService>,
     pub thread_storage: crate::storage::thread::ThreadStorage,
     pub thread_service: Arc<crate::services::thread_service::ThreadService>,
+    pub room_tag_service: Arc<synapse_services::room_tag_service::RoomTagService>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -332,7 +271,7 @@ fn assemble_room_and_sync(
     let room_storage = RoomStorage::new(pool);
     let event_storage = EventStorage::new(pool, server_name_for_storage);
     let relations_storage = crate::storage::relations::RelationsStorage::new(pool);
-    let room_summary_storage = crate::storage::room_summary::RoomSummaryStorage::new(pool);
+    let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
 
     let room_summary_service = Arc::new(crate::services::room_summary_service::RoomSummaryService::new(
         Arc::new(room_summary_storage.clone()),
@@ -414,6 +353,8 @@ fn assemble_room_and_sync(
     let thread_service =
         Arc::new(crate::services::thread_service::ThreadService::new(Arc::new(canonical_thread_storage)));
 
+    let room_tag_service = Arc::new(synapse_services::room_tag_service::RoomTagService::new(pool.clone()));
+
     RoomSyncServices {
         room_storage,
         member_storage,
@@ -432,6 +373,7 @@ fn assemble_room_and_sync(
         relations_service,
         thread_storage,
         thread_service,
+        room_tag_service,
     }
 }
 
@@ -482,6 +424,14 @@ fn assemble_federation(
     }
 }
 
+#[cfg(feature = "burn-after-read")]
+fn burn_after_read_processor_enabled() -> bool {
+    !matches!(
+        env::var("SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR").ok().as_deref(),
+        Some("0" | "false" | "FALSE" | "False" | "off" | "OFF" | "Off")
+    )
+}
+
 // =============================================================================
 // Admin assembly — audit, feature flags, modules, background updates
 // =============================================================================
@@ -492,10 +442,10 @@ pub struct AdminServices {
     pub audit_storage: crate::storage::audit::AuditEventStorage,
     pub admin_audit_service: Arc<crate::services::admin_audit_service::AdminAuditService>,
     pub admin_federation_service: Arc<crate::services::admin_federation_service::AdminFederationService>,
-    pub admin_media_service: Arc<crate::services::admin_media_service::AdminMediaService>,
-    pub admin_security_service: Arc<crate::services::admin_security_service::AdminSecurityService>,
-    pub admin_server_service: Arc<crate::services::admin_server_service::AdminServerService>,
-    pub admin_token_service: Arc<crate::services::admin_token_service::AdminTokenService>,
+    pub admin_media_service: Arc<synapse_services::admin_media_service::AdminMediaService>,
+    pub admin_security_service: Arc<synapse_services::admin_security_service::AdminSecurityService>,
+    pub admin_server_service: Arc<synapse_services::admin_server_service::AdminServerService>,
+    pub admin_token_service: Arc<synapse_services::admin_token_service::AdminTokenService>,
     pub admin_user_service: Arc<crate::services::admin_user_service::AdminUserService>,
     pub feature_flag_storage: crate::storage::feature_flags::FeatureFlagStorage,
     pub feature_flag_service: Arc<crate::services::feature_flag_service::FeatureFlagService>,
@@ -516,13 +466,13 @@ pub struct AdminServices {
     pub captcha_service: Arc<crate::services::captcha_service::CaptchaService>,
     pub federation_blacklist_storage: crate::storage::federation_blacklist::FederationBlacklistStorage,
     pub federation_blacklist_service: Arc<crate::services::federation_blacklist_service::FederationBlacklistService>,
-    pub push_notification_storage: crate::storage::push_notification::PushNotificationStorage,
+    pub push_notification_storage: synapse_storage::push_notification::PushNotificationStorage,
     pub push_notification_service: Arc<crate::services::push_notification_service::PushNotificationService>,
     pub media_quota_storage: crate::storage::media_quota::MediaQuotaStorage,
     pub media_quota_service: Arc<crate::services::media_quota_service::MediaQuotaService>,
     pub telemetry_alert_service: Arc<crate::services::telemetry_service::TelemetryAlertService>,
     pub email_verification_storage: EmailVerificationStorage,
-    pub rendezvous_storage: crate::storage::rendezvous::RendezvousStorage,
+    pub rendezvous_storage: synapse_storage::rendezvous::RendezvousStorage,
     pub app_service_storage: ApplicationServiceStorage,
     pub app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::services::application_service::ApplicationServiceScheduler>,
@@ -539,11 +489,12 @@ fn assemble_admin_support(
     auth_service: &AuthService,
 ) -> AdminServices {
     let canonical_user_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
+    let canonical_user_cache_cloned = canonical_user_cache.clone();
     let admin_registration_service = crate::services::admin_registration_service::AdminRegistrationService::new(
         auth_service.clone(),
         config.admin_registration.clone(),
-        UserStorage::new(pool, canonical_user_cache.clone()),
-        canonical_user_cache.clone(),
+        UserStorage::new(pool, canonical_user_cache_cloned.clone()),
+        canonical_user_cache_cloned,
         metrics.clone(),
     );
 
@@ -601,10 +552,11 @@ fn assemble_admin_support(
 
     let captcha_storage = crate::storage::captcha::CaptchaStorage::new(pool);
     let canonical_captcha_storage = synapse_storage::captcha::CaptchaStorage::new(pool);
-    let captcha_service = Arc::new(crate::services::captcha_service::CaptchaService::with_delivery(
+    let captcha_service = Arc::new(crate::services::captcha_service::CaptchaService::with_sms_config(
         Arc::new(canonical_captcha_storage),
         task_queue.clone(),
         config.smtp.enabled,
+        &config.sms,
     ));
 
     let federation_blacklist_storage = crate::storage::federation_blacklist::FederationBlacklistStorage::new(pool);
@@ -618,16 +570,16 @@ fn assemble_admin_support(
         Arc::new(federation_blacklist_storage.clone()),
         federation_blacklist_service.clone(),
     ));
-    let admin_media_service = Arc::new(crate::services::admin_media_service::AdminMediaService::new(
+    let admin_media_service = Arc::new(synapse_services::admin_media_service::AdminMediaService::new(
         pool,
         UserStorage::new(pool, canonical_user_cache.clone()),
     ));
-    let admin_security_service = Arc::new(crate::services::admin_security_service::AdminSecurityService::new(
+    let admin_security_service = Arc::new(synapse_services::admin_security_service::AdminSecurityService::new(
         UserStorage::new(pool, canonical_user_cache),
-        cache.clone(),
+        Arc::new(cache.as_ref().to_synapse_cache_manager()),
     ));
-    let admin_server_service = Arc::new(crate::services::admin_server_service::AdminServerService::new(pool.clone()));
-    let admin_token_service = Arc::new(crate::services::admin_token_service::AdminTokenService::new(
+    let admin_server_service = Arc::new(synapse_services::admin_server_service::AdminServerService::new(pool.clone()));
+    let admin_token_service = Arc::new(synapse_services::admin_token_service::AdminTokenService::new(
         AccessTokenStorage::new(pool),
         Arc::new(refresh_token_storage.clone()),
         registration_token_service.clone(),
@@ -642,7 +594,7 @@ fn assemble_admin_support(
         config.server.name.clone(),
     ));
 
-    let push_notification_storage = crate::storage::push_notification::PushNotificationStorage::new(pool);
+    let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
     let push_notification_service = Arc::new(crate::services::push_notification_service::PushNotificationService::new(
         Arc::new(push_notification_storage.clone()),
     ));
@@ -656,7 +608,7 @@ fn assemble_admin_support(
         config.database.max_size,
     ));
 
-    let rendezvous_storage = crate::storage::rendezvous::RendezvousStorage::new(pool.clone());
+    let rendezvous_storage = synapse_storage::rendezvous::RendezvousStorage::new(pool.clone());
 
     let app_service_storage = ApplicationServiceStorage::new(pool);
     let app_service_manager = Arc::new(crate::services::application_service::ApplicationServiceManager::new(
@@ -666,7 +618,18 @@ fn assemble_admin_support(
     ));
     let app_service_scheduler =
         Arc::new(crate::services::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
-    app_service_scheduler.clone().start();
+    let should_start_app_service_scheduler =
+        should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
+    if should_start_app_service_scheduler {
+        app_service_scheduler.clone().start();
+    } else {
+        ::tracing::info!(
+            worker_type = current_instance_worker_type(&config.worker).as_str(),
+            maintenance_owner = global_maintenance_owner(&config.worker).as_str(),
+            has_app_service_configs = !config.server.app_service_config_files.is_empty(),
+            "Skipping application service scheduler startup on this worker instance"
+        );
+    }
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
     let worker_manager =
@@ -884,15 +847,15 @@ impl ServiceContainer {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
-        let account_data_storage = crate::storage::account_data::AccountDataStorage::new(pool);
+        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
         #[cfg(feature = "friends")]
-        let friend_room_service = Arc::new(crate::services::friend_room_service::FriendRoomService::new(
+        let friend_room_service = Arc::new(synapse_services::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
             rooms.room_service.clone(),
             user_storage.clone(),
             presence_storage.clone(),
             account_data_storage,
-            &cache,
+            Arc::new(cache.as_ref().to_synapse_cache_manager()),
             config.server.name.clone(),
             Arc::new(canonical_key_rotation_manager.clone()),
         ));
@@ -1048,16 +1011,16 @@ impl ServiceContainer {
         }
 
         // Account data & Push services
-        let account_data_service = Arc::new(crate::services::account_data_service::AccountDataService::new(
+        let account_data_service = Arc::new(synapse_services::account_data_service::AccountDataService::new(
             pool,
             user_storage.clone(),
             rooms.room_storage.clone(),
-            crate::storage::filter::FilterStorage::new(pool),
-            crate::storage::openid_token::OpenIdTokenStorage::new(pool),
+            synapse_storage::filter::FilterStorage::new(pool),
+            synapse_storage::openid_token::OpenIdTokenStorage::new(pool),
         ));
 
-        let client_push_service = Arc::new(crate::services::client_push_service::ClientPushService::new(pool.clone()));
-        let room_tag_service = Arc::new(crate::services::room_tag_service::RoomTagService::new(pool.clone()));
+        let client_push_service =
+            Arc::new(synapse_services::client_push_service::ClientPushService::new(pool.clone()));
         let device_storage = DeviceStorage::new(pool);
         let token_storage = AccessTokenStorage::new(pool);
         let key_rotation_storage = KeyRotationStorage::new(pool.clone());
@@ -1082,6 +1045,8 @@ impl ServiceContainer {
             key_rotation_storage: key_rotation_storage.clone(),
             event_broadcaster: event_broadcaster.clone(),
             event_notifier: event_notifier.clone(),
+            account_data_service: account_data_service.clone(),
+            client_push_service: client_push_service.clone(),
         };
 
         let account = AccountServices {
@@ -1105,6 +1070,7 @@ impl ServiceContainer {
             #[cfg(feature = "cas-sso")]
             cas_service: cas_service.clone(),
             oidc_service: oidc_service.clone(),
+            oidc_mapping_service: oidc_mapping_service.clone(),
             #[allow(clippy::clone_on_copy)]
             builtin_oidc_provider: builtin_oidc_provider.clone(),
         };
@@ -1141,6 +1107,10 @@ impl ServiceContainer {
         };
 
         // Event broadcaster (federation)
+        let run_global_maintenance = should_run_global_maintenance(&config.worker);
+        let current_worker_type = current_instance_worker_type(&config.worker);
+        let maintenance_owner = global_maintenance_owner(&config.worker);
+
         let container = Self {
             e2ee,
             rooms,
@@ -1150,81 +1120,31 @@ impl ServiceContainer {
             account,
             sso,
             extensions,
-            threepid_storage,
-            device_storage,
-            token_storage,
-            qr_login_storage,
-            invite_blocklist_storage,
-            sticky_event_storage,
-            registration_service,
-            search_service,
-            media_service,
-            cache: cache.clone(),
-            task_queue,
-            metrics,
-            server_name,
-            config,
-            server_metrics,
-            #[cfg(feature = "voice-extended")]
-            voice_service,
-            #[cfg(feature = "friends")]
-            friend_storage,
-            #[cfg(feature = "friends")]
-            friend_room_service,
-            #[cfg(feature = "friends")]
-            friend_federation,
-            rtc_domain_service,
-            directory_service,
-            #[cfg(feature = "saml-sso")]
-            saml_storage,
-            #[cfg(feature = "saml-sso")]
-            saml_service,
-            #[cfg(feature = "cas-sso")]
-            cas_storage,
-            #[cfg(feature = "cas-sso")]
-            cas_service,
-            media_domain_service,
-            #[cfg(feature = "openclaw-routes")]
-            ai_connection_storage,
-            #[cfg(feature = "server-notifications")]
-            server_notification_storage,
-            #[cfg(feature = "server-notifications")]
-            server_notification_service,
-            #[cfg(feature = "privacy-ext")]
-            privacy_storage,
-            #[cfg(feature = "widgets")]
-            widget_storage,
-            #[cfg(feature = "widgets")]
-            widget_service,
-            #[cfg(feature = "burn-after-read")]
-            burn_after_read,
-            oidc_service,
-            oidc_mapping_service,
-            builtin_oidc_provider,
-            identity_service,
-            uia_service,
-            event_broadcaster,
-            account_data_service,
-            client_push_service,
-            room_tag_service,
         };
 
         #[cfg(feature = "burn-after-read")]
-        {
-            container.burn_after_read.recover_pending_burns().await;
-            container.burn_after_read.clone().start_burn_processor().await;
+        if run_global_maintenance && burn_after_read_processor_enabled() {
+            container.extensions.burn_after_read.recover_pending_burns().await;
+            container.extensions.burn_after_read.clone().start_burn_processor().await;
+        } else {
+            ::tracing::info!(
+                worker_type = current_worker_type.as_str(),
+                maintenance_owner = maintenance_owner.as_str(),
+                processor_enabled = burn_after_read_processor_enabled(),
+                "Skipping burn-after-read processor startup on this worker instance"
+            );
         }
 
         container
     }
 
     pub fn voip_service(&self) -> &Arc<crate::services::rtc::RtcInfraService> {
-        &self.rtc_domain_service.infra
+        &self.extensions.rtc_domain_service.infra
     }
 
     #[cfg(feature = "voip-tracking")]
     pub fn call_service(&self) -> &Arc<crate::services::rtc::CallOrchestrationService> {
-        &self.rtc_domain_service.call
+        &self.extensions.rtc_domain_service.call
     }
 
     #[cfg(any(test, feature = "test-utils"))]
@@ -1262,169 +1182,6 @@ impl ServiceContainer {
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
         let config = build_test_config();
         Self::new(&pool, cache, config, None).await
-    }
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-fn build_test_config() -> Config {
-    let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port: u16 = std::env::var("DATABASE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432);
-    let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
-    let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
-    let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
-    let test_pool_max_connections = crate::test_utils::configured_test_pool_max_connections();
-    let test_pool_min_connections = crate::test_utils::configured_test_pool_min_connections();
-
-    Config {
-        server: ServerConfig {
-            name: "localhost".to_string(),
-            host: "0.0.0.0".to_string(),
-            port: 8008,
-            public_baseurl: None,
-            signing_key_path: None,
-            macaroon_secret_key: None,
-            form_secret: None,
-            server_name: None,
-            suppress_key_server_warning: false,
-            serve_server_wellknown: false,
-            soft_file_limit: 0,
-            user_agent_suffix: None,
-            web_client_location: None,
-            registration_shared_secret: None,
-            admin_contact: None,
-            max_upload_size: 1000000,
-            max_image_resolution: 1000000,
-            remote_media_lifetime: 2592000,
-            local_media_lifetime: 0,
-            enable_registration: true,
-            enable_registration_captcha: false,
-            background_tasks_interval: 60,
-            dehydrated_device_cleanup_interval_secs: 3600,
-            expire_access_token: true,
-            expire_access_token_lifetime: 3600,
-            refresh_token_lifetime: 604800,
-            refresh_token_sliding_window_size: 1000,
-            session_duration: 86400,
-            warmup_pool: true,
-            allow_public_rooms_without_auth: false,
-            allow_public_rooms_over_federation: true,
-            auto_join_rooms: vec![],
-            autocreate_auto_join_rooms: true,
-            encryption_enabled_by_default_for_room_type: None,
-            app_service_config_files: vec![],
-            presence_enabled: true,
-        },
-        database: DatabaseConfig {
-            host,
-            port,
-            username: user,
-            password: pass,
-            name,
-            pool_size: test_pool_max_connections,
-            max_size: test_pool_max_connections,
-            min_idle: Some(test_pool_min_connections),
-            connection_timeout: crate::test_utils::configured_test_pool_acquire_timeout().as_secs(),
-        },
-        redis: RedisConfig {
-            host: "localhost".to_string(),
-            port: 6379,
-            password: None,
-            key_prefix: "test:".to_string(),
-            pool_size: 10,
-            enabled: false,
-            connection_timeout_ms: 5000,
-            command_timeout_ms: 3000,
-            circuit_breaker: crate::common::config::CircuitBreakerConfig::default(),
-        },
-        logging: crate::common::config::LoggingConfig {
-            level: "info".to_string(),
-            format: "json".to_string(),
-            log_file: None,
-            log_dir: None,
-        },
-        federation: FederationConfig {
-            enabled: true,
-            allow_ingress: false,
-            server_name: "test.example.com".to_string(),
-            federation_port: 8448,
-            connection_pool_size: 10,
-            max_transaction_payload: 50000,
-            ca_file: None,
-            client_ca_file: None,
-            signing_key: None,
-            key_id: None,
-            trusted_key_servers: vec![],
-            key_refresh_interval: 86400,
-            suppress_key_server_warning: false,
-            signature_cache_ttl: 3600,
-            key_cache_ttl: 3600,
-            key_rotation_grace_period_ms: 60_0000,
-            key_fetch_max_concurrency: 32,
-            key_fetch_timeout_ms: 5000,
-            process_inbound_edus: false,
-            inbound_edus_max_per_txn: 100,
-            inbound_edu_max_concurrency: 8,
-            inbound_edu_acquire_timeout_ms: 250,
-            inbound_edu_per_origin_max_concurrency: 2,
-            process_inbound_presence_edus: false,
-            inbound_presence_updates_max_per_txn: 50,
-            inbound_presence_backoff_ms: 3000,
-            join_max_concurrency: 16,
-            join_acquire_timeout_ms: 750,
-            admission_mode: false,
-            signing_key_master_key: None,
-        },
-        security: SecurityConfig {
-            secret: "test_secret".to_string(),
-            expiry_time: 3600,
-            refresh_token_expiry: 604800,
-            argon2_m_cost: 65536,
-            argon2_t_cost: 3,
-            argon2_p_cost: 1,
-            allow_legacy_hashes: false,
-            login_failure_lockout_threshold: 5,
-            login_lockout_duration_seconds: 900,
-            admin_mfa_required: false,
-            admin_mfa_shared_secret: String::new(),
-            admin_mfa_allowed_drift_steps: 1,
-            admin_rbac_enabled: true,
-            ui_auth_session_timeout: 900,
-        },
-        search: SearchConfig {
-            enabled: false,
-            elasticsearch_url: "http://localhost:9200".to_string(),
-            postgres_fts: PostgresFtsConfig { enabled: true, weights: Default::default() },
-            provider: "postgres".to_string(),
-        },
-        rate_limit: RateLimitConfig::default(),
-        admin_registration: AdminRegistrationConfig {
-            enabled: true,
-            shared_secret: "test_shared_secret".to_string(),
-            nonce_timeout_seconds: 60,
-            allow_external_access: false,
-            production_only: true,
-            ip_whitelist: Vec::new(),
-            require_captcha: false,
-            require_manual_approval: false,
-            approval_tokens: Vec::new(),
-        },
-        builtin_oidc: crate::common::config::BuiltinOidcConfig::default(),
-        worker: WorkerConfig::default(),
-        cors: CorsConfig::default(),
-        smtp: SmtpConfig::default(),
-        voip: crate::common::config::VoipConfig::default(),
-        livekit: crate::common::config::LivekitConfig::default(),
-        push: crate::common::config::PushConfig::default(),
-        url_preview: crate::common::config::UrlPreviewConfig::default(),
-        oidc: crate::common::config::OidcConfig::default(),
-        saml: crate::common::config::SamlConfig::default(),
-        retention: crate::common::config::RetentionConfig::default(),
-        telemetry: crate::common::telemetry_config::OpenTelemetryConfig::default(),
-        prometheus: crate::common::telemetry_config::PrometheusConfig::default(),
-        performance: crate::common::config::PerformanceConfig::default(),
-        experimental: crate::common::config::ExperimentalConfig::default(),
-        identity: crate::common::config::IdentityConfig::default(),
-        translate: crate::common::config::TranslateConfig::default(),
     }
 }
 
@@ -1477,7 +1234,7 @@ fn generate_encryption_key() -> [u8; 32] {
 
     let mut key = [0u8; 32];
     use rand::RngCore;
-    rand::rngs::OsRng.fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
 
     if let Some(ref p) = path {
         let path_buf = std::path::PathBuf::from(p);

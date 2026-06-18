@@ -25,6 +25,70 @@ pub struct WorkerManager {
 }
 
 impl WorkerManager {
+    fn worker_supports_task_type(worker_type: WorkerType, task_type: &str) -> bool {
+        match worker_type {
+            WorkerType::Master => true,
+            WorkerType::Frontend => matches!(task_type, "http" | "presence"),
+            WorkerType::Synchrotron => matches!(task_type, "sync"),
+            WorkerType::FederationSender => matches!(task_type, "federation" | "federation_send"),
+            WorkerType::FederationReader => matches!(task_type, "federation_read" | "federation_ingress"),
+            WorkerType::EventPersister => matches!(task_type, "event_persist" | "events" | "event_processing"),
+            WorkerType::Pusher => matches!(task_type, "push" | "push_notifications"),
+            WorkerType::MediaRepository => matches!(task_type, "media" | "media_upload" | "media_download"),
+            WorkerType::Background | WorkerType::AppService => {
+                matches!(task_type, "background" | "background_jobs" | "smoke" | "smoke_test")
+            }
+        }
+    }
+
+    fn worker_supported_task_types(worker_type: WorkerType) -> Option<Vec<String>> {
+        match worker_type {
+            WorkerType::Master => None,
+            WorkerType::Frontend => Some(vec!["http".to_string(), "presence".to_string()]),
+            WorkerType::Synchrotron => Some(vec!["sync".to_string()]),
+            WorkerType::FederationSender => Some(vec!["federation".to_string(), "federation_send".to_string()]),
+            WorkerType::FederationReader => Some(vec!["federation_read".to_string(), "federation_ingress".to_string()]),
+            WorkerType::EventPersister => {
+                Some(vec!["event_persist".to_string(), "events".to_string(), "event_processing".to_string()])
+            }
+            WorkerType::Pusher => Some(vec!["push".to_string(), "push_notifications".to_string()]),
+            WorkerType::MediaRepository => {
+                Some(vec!["media".to_string(), "media_upload".to_string(), "media_download".to_string()])
+            }
+            WorkerType::Background | WorkerType::AppService => Some(vec![
+                "background".to_string(),
+                "background_jobs".to_string(),
+                "smoke".to_string(),
+                "smoke_test".to_string(),
+            ]),
+        }
+    }
+
+    fn validate_worker_task_ownership(worker: &WorkerInfo, task_type: &str) -> Result<WorkerType, ApiError> {
+        let worker_type = WorkerType::from_str(&worker.worker_type).map_err(ApiError::bad_request)?;
+        Self::validate_worker_is_running(worker)?;
+        if !Self::worker_supports_task_type(worker_type, task_type) {
+            return Err(ApiError::bad_request(format!(
+                "Worker '{}' of type '{}' cannot own task type '{}'",
+                worker.worker_id,
+                worker_type.as_str(),
+                task_type
+            )));
+        }
+        Ok(worker_type)
+    }
+
+    fn validate_worker_is_running(worker: &WorkerInfo) -> Result<WorkerType, ApiError> {
+        let worker_type = WorkerType::from_str(&worker.worker_type).map_err(ApiError::bad_request)?;
+        if worker.status != WorkerStatus::Running.as_str() {
+            return Err(ApiError::conflict(format!(
+                "Worker '{}' is not running and cannot claim or own tasks",
+                worker.worker_id
+            )));
+        }
+        Ok(worker_type)
+    }
+
     pub fn new(storage: Arc<WorkerStorage>, server_name: String) -> Self {
         Self {
             storage,
@@ -392,6 +456,12 @@ impl WorkerManager {
             .map_err(|e| ApiError::internal_with_log("Failed to assign task", &e))?;
 
         if let Some(preferred_worker_id) = request.preferred_worker_id {
+            let worker = self
+                .get(&preferred_worker_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found(format!("Preferred worker '{}' not found", preferred_worker_id)))?;
+            Self::validate_worker_task_ownership(&worker, &task.task_type)?;
+
             let claimed = self
                 .storage
                 .assign_task_to_worker(&task.task_id, &preferred_worker_id)
@@ -417,6 +487,20 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn claim_task(&self, task_id: &str, worker_id: &str) -> Result<(), ApiError> {
+        let task = self
+            .storage
+            .get_pending_tasks(1000)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to inspect pending tasks before claim", &e))?
+            .into_iter()
+            .find(|task| task.task_id == task_id)
+            .ok_or_else(|| ApiError::not_found("Task is not pending or unavailable"))?;
+        let worker = self
+            .get(worker_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("Worker '{}' not found", worker_id)))?;
+        Self::validate_worker_task_ownership(&worker, &task.task_type)?;
+
         let claimed = self
             .storage
             .assign_task_to_worker(task_id, worker_id)
@@ -433,11 +517,23 @@ impl WorkerManager {
 
     #[instrument(skip(self))]
     pub async fn claim_next_pending_task(&self, worker_id: &str) -> Result<WorkerTaskAssignment, ApiError> {
-        let task: Option<WorkerTaskAssignment> = self
-            .storage
-            .claim_next_pending_task(worker_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?;
+        let worker = self
+            .get(worker_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found(format!("Worker '{}' not found", worker_id)))?;
+        let worker_type = Self::validate_worker_is_running(&worker)?;
+        let task: Option<WorkerTaskAssignment> =
+            if let Some(task_types) = Self::worker_supported_task_types(worker_type) {
+                self.storage
+                    .claim_next_pending_task_for_types(worker_id, &task_types)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to claim next compatible pending task", &e))?
+            } else {
+                self.storage
+                    .claim_next_pending_task(worker_id)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to claim next pending task", &e))?
+            };
 
         let task: WorkerTaskAssignment = task.ok_or_else(|| ApiError::not_found("No pending tasks available"))?;
 
@@ -549,16 +645,7 @@ impl WorkerManager {
             .iter()
             .filter(|w| {
                 if let Ok(worker_type) = WorkerType::from_str(&w.worker_type) {
-                    let caps = WorkerCapabilities::for_type(&worker_type);
-                    match task_type {
-                        "http" => caps.can_handle_http,
-                        "federation" => caps.can_handle_federation,
-                        "event_persist" => caps.can_persist_events,
-                        "push" => caps.can_send_push,
-                        "media" => caps.can_handle_media,
-                        "background" => caps.can_run_background_tasks,
-                        _ => true,
-                    }
+                    Self::worker_supports_task_type(worker_type, task_type)
                 } else {
                     false
                 }
@@ -606,5 +693,38 @@ mod tests {
     fn test_worker_type_as_str() {
         assert_eq!(WorkerType::Master.as_str(), "master");
         assert_eq!(WorkerType::EventPersister.as_str(), "event_persister");
+    }
+
+    #[test]
+    fn test_worker_supports_task_type_mappings() {
+        assert!(WorkerManager::worker_supports_task_type(WorkerType::Master, "event_processing"));
+        assert!(WorkerManager::worker_supports_task_type(WorkerType::EventPersister, "event_processing"));
+        assert!(WorkerManager::worker_supports_task_type(WorkerType::Synchrotron, "sync"));
+        assert!(WorkerManager::worker_supports_task_type(WorkerType::Background, "smoke_test"));
+        assert!(!WorkerManager::worker_supports_task_type(WorkerType::Frontend, "event_processing"));
+        assert!(!WorkerManager::worker_supports_task_type(WorkerType::Pusher, "background"));
+    }
+
+    #[test]
+    fn test_validate_worker_task_ownership_rejects_wrong_task_type() {
+        let worker = WorkerInfo {
+            id: 1,
+            worker_id: "frontend-1".to_string(),
+            worker_name: "frontend".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8101,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(1),
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let err = WorkerManager::validate_worker_task_ownership(&worker, "event_processing")
+            .expect_err("frontend should not own event processing tasks");
+        assert!(err.is_bad_request());
     }
 }

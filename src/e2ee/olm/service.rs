@@ -49,7 +49,7 @@ pub fn get_pickle_key() -> &'static [u8; 32] {
 fn generate_random_pickle_key() -> [u8; 32] {
     use rand::RngCore;
     let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
     key
 }
 

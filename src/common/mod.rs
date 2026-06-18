@@ -1,5 +1,4 @@
 pub mod argon2_config;
-pub mod background_job;
 pub mod backpressure;
 pub mod collections;
 pub mod concurrency;
@@ -24,14 +23,11 @@ pub mod regex_cache;
 pub mod room_versions;
 pub mod sanitizer;
 pub mod security;
-pub mod task_queue;
-pub mod telemetry_config;
 pub mod time;
 pub mod tracing;
 pub mod traits;
 pub mod transaction;
 pub mod types;
-pub mod validation;
 pub mod xml_parser;
 
 pub use synapse_common::metrics;
@@ -45,8 +41,6 @@ pub use sanitizer::*;
 
 #[allow(ambiguous_glob_reexports)]
 pub use argon2_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use background_job::*;
 #[allow(ambiguous_glob_reexports)]
 pub use collections::*;
 #[allow(ambiguous_glob_reexports)]
@@ -89,10 +83,6 @@ pub use room_versions::*;
 #[allow(ambiguous_glob_reexports)]
 pub use security::*;
 #[allow(ambiguous_glob_reexports)]
-pub use task_queue::*;
-#[allow(ambiguous_glob_reexports)]
-pub use telemetry_config::*;
-#[allow(ambiguous_glob_reexports)]
 pub use time::*;
 #[allow(ambiguous_glob_reexports)]
 pub use tracing::*;
@@ -100,3 +90,11 @@ pub use tracing::*;
 pub use types::*;
 #[allow(ambiguous_glob_reexports)]
 pub use xml_parser::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::telemetry_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::background_job::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::task_queue::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::validation::*;

@@ -34,9 +34,9 @@ async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
     let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let mut container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
-    container.config.saml.enabled = true;
-    container.config.saml.metadata_url = None;
-    container.config.saml.metadata_xml = Some(
+    container.core.config.saml.enabled = true;
+    container.core.config.saml.metadata_url = None;
+    container.core.config.saml.metadata_xml = Some(
         r#"
         <md:EntityDescriptor entityID="https://idp.example.com">
             <md:IDPSSODescriptor>
@@ -52,10 +52,10 @@ async fn setup_test_app_with_saml() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
         "#
         .to_string(),
     );
-    container.saml_service = Arc::new(synapse_rust::services::saml_service::SamlService::new(
-        Arc::new(container.config.saml.clone()),
-        Arc::new(container.saml_storage.clone()),
-        container.server_name.clone(),
+    container.sso.saml_service = Arc::new(synapse_rust::services::saml_service::SamlService::new(
+        Arc::new(container.core.config.saml.clone()),
+        Arc::new(container.sso.saml_storage.clone()),
+        container.core.server_name.clone(),
     ));
 
     let state = AppState::new(container, cache.clone());

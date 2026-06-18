@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT EXISTS (\n                SELECT 1\n                FROM pg_indexes\n                WHERE schemaname = 'public'\n                  AND indexname = 'idx_federation_signing_keys_key_id'\n            )\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0e835bf0260e12f52f88f2fd22ccbefb0b16870702bfb2a4aa4bfa9190feafc9"
+}

@@ -289,7 +289,7 @@ async fn load_direct_room_snapshot(
     #[cfg(feature = "friends")]
     {
         let snapshot: crate::services::friend_room_service::DirectRoomSnapshot =
-            state.services.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
+            state.services.extensions.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
@@ -323,7 +323,7 @@ async fn update_direct_room_snapshot(
         };
 
         let snapshot: crate::services::friend_room_service::DirectRoomSnapshot =
-            state.services.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
+            state.services.extensions.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
@@ -380,6 +380,7 @@ async fn create_dm_room_via_service(
 
     let result = state
         .services
+        .extensions
         .friend_room_service
         .create_or_reuse_direct_message_room(owner_user_id, invitee_user_ids, config, Some(owner_user_id))
         .await?;
@@ -450,6 +451,7 @@ async fn load_dm_partner_info(
 ) -> Result<(String, String, String), ApiError> {
     let partner = state
         .services
+        .extensions
         .friend_room_service
         .get_dm_partner_for_room(user_id, room_id)
         .await?
@@ -534,7 +536,7 @@ pub async fn get_dm_rooms(
 
     #[cfg(feature = "friends")]
     {
-        let dm_rooms = state.services.friend_room_service.get_effective_direct_map(user_id).await?;
+        let dm_rooms = state.services.extensions.friend_room_service.get_effective_direct_map(user_id).await?;
         Ok(Json(json!({ "rooms": dm_rooms })))
     }
 

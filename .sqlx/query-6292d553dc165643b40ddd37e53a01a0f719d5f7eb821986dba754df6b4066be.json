@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE refresh_token_families SET\n                is_compromised = TRUE,\n                compromised_at = $2\n            WHERE family_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6292d553dc165643b40ddd37e53a01a0f719d5f7eb821986dba754df6b4066be"
+}

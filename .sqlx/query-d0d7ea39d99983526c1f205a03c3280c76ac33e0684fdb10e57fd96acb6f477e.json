@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, server_name, total_requests, successful_requests, failed_requests,\n                last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts\n            FROM federation_access_stats WHERE server_name = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "server_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "successful_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "failed_requests",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_request_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "last_success_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "last_failure_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "average_response_time_ms",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "error_rate",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_ts",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_ts",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d0d7ea39d99983526c1f205a03c3280c76ac33e0684fdb10e57fd96acb6f477e"
+}

@@ -13,13 +13,19 @@ pub use container::ServiceContainer;
 // =============================================================================
 // L0 — Core Matrix services (always compiled, required for core-private-chat)
 // =============================================================================
+pub mod account_data_service;
 pub mod admin_audit_service;
 pub mod admin_federation_service;
+pub mod admin_media_service;
 pub mod admin_registration_service;
+pub mod admin_security_service;
+pub mod admin_server_service;
+pub mod admin_token_service;
 pub mod admin_user_service;
 pub mod application_service;
 pub mod background_update_service;
 pub mod captcha_service;
+pub mod client_push_service;
 pub mod content_scanner;
 pub mod database_initializer;
 pub mod dehydrated_device_service;
@@ -35,6 +41,7 @@ pub mod media;
 pub mod media_quota_service;
 pub mod media_service;
 pub mod module_service;
+pub mod oidc_mapping_service;
 pub mod oidc_service;
 pub mod push;
 pub use push::service as push_notification_service;
@@ -44,8 +51,10 @@ pub mod registration_token_service;
 pub mod relations_service;
 pub mod retention_service;
 pub mod room;
+pub mod room_tag_service;
 pub mod search_service;
 pub mod sliding_sync_service;
+pub mod sms_provider;
 pub mod sync_service;
 pub mod telemetry_service;
 pub mod thread_service;

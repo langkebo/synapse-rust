@@ -682,3 +682,33 @@ pub(crate) async fn unbind_threepid(
 
     Ok(Json(json!({})))
 }
+
+pub fn account_compat_route_manifest() -> Vec<crate::routes::route_ledger::RouteEntry> {
+    use crate::routes::route_ledger::expand_under_prefixes;
+    use axum::http::Method;
+
+    expand_under_prefixes(
+        "account_compat",
+        &["/_matrix/client/v1", "/_matrix/client/r0", "/_matrix/client/v3"],
+        &[
+            (Method::GET, "/account/whoami"),
+            (Method::POST, "/account/password"),
+            (Method::POST, "/account/password/email/requestToken"),
+            (Method::POST, "/account/password/email/submitToken"),
+            (Method::POST, "/account/deactivate"),
+            (Method::GET, "/account/3pid"),
+            (Method::POST, "/account/3pid"),
+            (Method::POST, "/account/3pid/add"),
+            (Method::POST, "/account/3pid/bind"),
+            (Method::POST, "/account/3pid/email/requestToken"),
+            (Method::POST, "/account/3pid/email/submitToken"),
+            (Method::POST, "/account/3pid/delete"),
+            (Method::POST, "/account/3pid/unbind"),
+            (Method::GET, "/profile/{user_id}"),
+            (Method::GET, "/profile/{user_id}/displayname"),
+            (Method::PUT, "/profile/{user_id}/displayname"),
+            (Method::GET, "/profile/{user_id}/avatar_url"),
+            (Method::PUT, "/profile/{user_id}/avatar_url"),
+        ],
+    )
+}

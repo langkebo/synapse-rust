@@ -111,7 +111,8 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 
     if state.services.core.config.federation.admission_mode {
         let server_status =
-            sqlx::query_scalar!("SELECT status FROM federation_servers WHERE server_name = $1", origin_server)
+            sqlx::query_scalar::<_, String>("SELECT status FROM federation_servers WHERE server_name = $1")
+                .bind(origin_server)
                 .fetch_optional(&*state.services.account.user_storage.pool)
                 .await
                 .ok()
@@ -127,13 +128,13 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
             }
             None => {
                 let now = chrono::Utc::now().timestamp_millis();
-                let _ = sqlx::query!(
+                let _ = sqlx::query(
                     "INSERT INTO federation_servers (server_name, status, updated_ts) \
                      VALUES ($1, 'pending', $2) \
                      ON CONFLICT (server_name) DO NOTHING",
-                    origin_server,
-                    now
                 )
+                .bind(origin_server)
+                .bind(now)
                 .execute(&*state.services.account.user_storage.pool)
                 .await;
 

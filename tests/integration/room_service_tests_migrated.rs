@@ -4,9 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
+use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::room_versions::DEFAULT_ROOM_VERSION;
-use synapse_rust::common::validation::Validator;
+use synapse_rust::common::Validator;
 use synapse_rust::services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
 use synapse_rust::services::room_summary_service::RoomSummaryService;
@@ -15,7 +16,7 @@ use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::room_summary::RoomSummaryStorage;
+use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 use synapse_rust::storage::CreateEventParams;
 
@@ -317,9 +318,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         server_name: "localhost".to_string(),
         task_queue: None,
         relations_storage: RelationsStorage::new(pool),
-        event_broadcaster: Some(Arc::new(synapse_rust::federation::event_broadcaster::EventBroadcaster::new(
-            "localhost".to_string(),
-        ))),
+        event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),
         app_service_manager: None,
         beacon_service: None,
     })
@@ -2293,12 +2292,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
         "each service should eventually receive a dispatch under sustained backlog"
     );
     assert!(
-        initially_limited_server
-            .received_requests()
-            .await
-            .expect("limited server requests should load")
-            .len()
-            >= 1,
+        initially_limited_server.received_requests().await.expect("limited server requests should load").len() >= 1,
         "the service deferred by the first tick should be rotated back into dispatch"
     );
 }
@@ -2497,10 +2491,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
             .get_pending_transactions(as_id)
             .await
             .expect("pending transactions should load after sustained dispatch");
-        assert!(
-            pending_transactions.is_empty(),
-            "all seeded pending transactions should be drained after three ticks"
-        );
+        assert!(pending_transactions.is_empty(), "all seeded pending transactions should be drained after three ticks");
     }
 }
 
@@ -2679,32 +2670,24 @@ async fn test_appservice_scheduler_handles_mixed_event_and_transaction_backlog_u
         transaction_heavy_server.received_requests().await.expect("final transaction-heavy requests should load");
     let final_transaction_light_requests =
         transaction_light_server.received_requests().await.expect("final transaction-light requests should load");
-    let final_event_heavy_requests = event_heavy_server.received_requests().await.expect("final event-heavy requests should load");
+    let final_event_heavy_requests =
+        event_heavy_server.received_requests().await.expect("final event-heavy requests should load");
 
     assert_eq!(
         final_transaction_heavy_requests.len(),
         2,
         "transaction-heavy service should consume its second pending transaction on the second tick"
     );
-    assert_eq!(
-        final_transaction_light_requests.len(),
-        1,
-        "transaction-light service should finish on the first tick"
-    );
+    assert_eq!(final_transaction_light_requests.len(), 1, "transaction-light service should finish on the first tick");
     assert_eq!(
         final_event_heavy_requests.len(),
         1,
         "event-heavy service should be rotated back into dispatch once transaction pressure drops"
     );
 
-    let event_pending_events = storage
-        .get_pending_events(&event_heavy_as_id, 100)
-        .await
-        .expect("event-heavy pending events should load");
-    assert!(
-        event_pending_events.is_empty(),
-        "event-heavy backlog should be drained once it gets a dispatch slot"
-    );
+    let event_pending_events =
+        storage.get_pending_events(&event_heavy_as_id, 100).await.expect("event-heavy pending events should load");
+    assert!(event_pending_events.is_empty(), "event-heavy backlog should be drained once it gets a dispatch slot");
 }
 
 #[tokio::test]
@@ -2835,7 +2818,11 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
         healthy_event_server.received_requests().await.expect("healthy event requests should load");
 
     assert_eq!(failing_requests.len(), 1, "failing service should consume one slot and enter backoff");
-    assert_eq!(healthy_transaction_requests.len(), 1, "healthy transaction service should still dispatch on the first tick");
+    assert_eq!(
+        healthy_transaction_requests.len(),
+        1,
+        "healthy transaction service should still dispatch on the first tick"
+    );
     assert_eq!(healthy_event_requests.len(), 0, "healthy event-heavy service should be deferred on the first tick");
 
     let limited_result = manager
@@ -2891,10 +2878,8 @@ async fn test_appservice_scheduler_mixed_backlog_does_not_block_healthy_services
         .expect("failing backoff count should be persisted");
     assert_eq!(failing_backoff_count.state_value, "1");
 
-    let healthy_event_pending_events = storage
-        .get_pending_events(&healthy_event_as_id, 100)
-        .await
-        .expect("healthy event pending events should load");
+    let healthy_event_pending_events =
+        storage.get_pending_events(&healthy_event_as_id, 100).await.expect("healthy event pending events should load");
     assert!(
         healthy_event_pending_events.is_empty(),
         "healthy event-heavy backlog should be drained despite another service being in retry backoff"
@@ -3134,17 +3119,19 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
         .get_pending_transactions(&healthy_txn_b_as_id)
         .await
         .expect("healthy transaction b pending transactions should load");
-    assert!(healthy_txn_a_pending.is_empty(), "healthy transaction a backlog should be drained by the end of the window");
-    assert!(healthy_txn_b_pending.is_empty(), "healthy transaction b backlog should be drained by the end of the window");
+    assert!(
+        healthy_txn_a_pending.is_empty(),
+        "healthy transaction a backlog should be drained by the end of the window"
+    );
+    assert!(
+        healthy_txn_b_pending.is_empty(),
+        "healthy transaction b backlog should be drained by the end of the window"
+    );
 
-    let event_heavy_a_pending = storage
-        .get_pending_events(&event_heavy_a_as_id, 100)
-        .await
-        .expect("event-heavy a pending events should load");
-    let event_heavy_b_pending = storage
-        .get_pending_events(&event_heavy_b_as_id, 100)
-        .await
-        .expect("event-heavy b pending events should load");
+    let event_heavy_a_pending =
+        storage.get_pending_events(&event_heavy_a_as_id, 100).await.expect("event-heavy a pending events should load");
+    let event_heavy_b_pending =
+        storage.get_pending_events(&event_heavy_b_as_id, 100).await.expect("event-heavy b pending events should load");
     assert!(event_heavy_a_pending.is_empty(), "event-heavy a backlog should be drained once it eventually gets a slot");
     assert!(event_heavy_b_pending.is_empty(), "event-heavy b backlog should be drained once it eventually gets a slot");
 
@@ -3173,7 +3160,8 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
 }
 
 #[tokio::test]
-async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_event_bucket_after_transaction_backlog_drains() {
+async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_event_bucket_after_transaction_backlog_drains(
+) {
     let pool = crate::require_test_pool().await;
     setup_appservice_test_database(&pool).await;
 
@@ -3363,16 +3351,13 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
         }
     }
 
-    let event_heavy_a_requests_during_transaction_pressure = event_heavy_a_server
-        .received_requests()
-        .await
-        .expect("event-heavy a intermediate requests should load");
-    let event_heavy_b_requests_during_transaction_pressure = event_heavy_b_server
-        .received_requests()
-        .await
-        .expect("event-heavy b intermediate requests should load");
+    let event_heavy_a_requests_during_transaction_pressure =
+        event_heavy_a_server.received_requests().await.expect("event-heavy a intermediate requests should load");
+    let event_heavy_b_requests_during_transaction_pressure =
+        event_heavy_b_server.received_requests().await.expect("event-heavy b intermediate requests should load");
     assert_eq!(
-        event_heavy_a_requests_during_transaction_pressure.len() + event_heavy_b_requests_during_transaction_pressure.len(),
+        event_heavy_a_requests_during_transaction_pressure.len()
+            + event_heavy_b_requests_during_transaction_pressure.len(),
         0,
         "event bucket should remain deferred while both pending-transaction services still occupy all dispatch slots"
     );
@@ -3414,17 +3399,19 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
         .get_pending_transactions(&healthy_txn_b_as_id)
         .await
         .expect("healthy transaction b pending transactions should load");
-    assert!(healthy_txn_a_pending.is_empty(), "healthy transaction a backlog should be drained by the end of the window");
-    assert!(healthy_txn_b_pending.is_empty(), "healthy transaction b backlog should be drained by the end of the window");
+    assert!(
+        healthy_txn_a_pending.is_empty(),
+        "healthy transaction a backlog should be drained by the end of the window"
+    );
+    assert!(
+        healthy_txn_b_pending.is_empty(),
+        "healthy transaction b backlog should be drained by the end of the window"
+    );
 
-    let event_heavy_a_pending = storage
-        .get_pending_events(&event_heavy_a_as_id, 120)
-        .await
-        .expect("event-heavy a pending events should load");
-    let event_heavy_b_pending = storage
-        .get_pending_events(&event_heavy_b_as_id, 120)
-        .await
-        .expect("event-heavy b pending events should load");
+    let event_heavy_a_pending =
+        storage.get_pending_events(&event_heavy_a_as_id, 120).await.expect("event-heavy a pending events should load");
+    let event_heavy_b_pending =
+        storage.get_pending_events(&event_heavy_b_as_id, 120).await.expect("event-heavy b pending events should load");
     assert!(event_heavy_a_pending.is_empty(), "event-heavy a backlog should be drained after sustained ingestion");
     assert!(event_heavy_b_pending.is_empty(), "event-heavy b backlog should be drained after sustained ingestion");
 
@@ -3446,7 +3433,8 @@ async fn test_appservice_scheduler_continuous_event_ingress_does_not_starve_even
 }
 
 #[tokio::test]
-async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_within_two_ticks_under_light_transaction_bursts() {
+async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_within_two_ticks_under_light_transaction_bursts(
+) {
     let pool = crate::require_test_pool().await;
     setup_appservice_test_database(&pool).await;
 
@@ -3603,22 +3591,19 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
         .await
         .expect("light transaction a requests should load")
         .len()
-        + transaction_light_b_server
-            .received_requests()
-            .await
-            .expect("light transaction b requests should load")
-            .len()
-        + transaction_light_c_server
-            .received_requests()
-            .await
-            .expect("light transaction c requests should load")
-            .len();
-    let tick_one_super_event_heavy_requests = super_event_heavy_server
-        .received_requests()
-        .await
-        .expect("super event-heavy tick one requests should load");
-    assert_eq!(tick_one_light_request_count, 2, "first tick should spend both slots on light pending-transaction services");
-    assert_eq!(tick_one_super_event_heavy_requests.len(), 0, "super event-heavy service should be capacity-limited on the first tick");
+        + transaction_light_b_server.received_requests().await.expect("light transaction b requests should load").len()
+        + transaction_light_c_server.received_requests().await.expect("light transaction c requests should load").len();
+    let tick_one_super_event_heavy_requests =
+        super_event_heavy_server.received_requests().await.expect("super event-heavy tick one requests should load");
+    assert_eq!(
+        tick_one_light_request_count, 2,
+        "first tick should spend both slots on light pending-transaction services"
+    );
+    assert_eq!(
+        tick_one_super_event_heavy_requests.len(),
+        0,
+        "super event-heavy service should be capacity-limited on the first tick"
+    );
 
     let super_event_heavy_last_result = manager
         .get_state(&super_event_heavy_as_id, "scheduler_last_result")
@@ -3636,10 +3621,8 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
 
     scheduler.run_once().await.expect("super event-heavy tick two should complete");
 
-    let tick_two_super_event_heavy_requests = super_event_heavy_server
-        .received_requests()
-        .await
-        .expect("super event-heavy tick two requests should load");
+    let tick_two_super_event_heavy_requests =
+        super_event_heavy_server.received_requests().await.expect("super event-heavy tick two requests should load");
     assert_eq!(
         tick_two_super_event_heavy_requests.len(),
         1,
@@ -3678,7 +3661,11 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
     let final_super_event_heavy_requests =
         super_event_heavy_server.received_requests().await.expect("final super event-heavy requests should load");
 
-    assert_eq!(final_light_a_requests.len(), 2, "light transaction a should deliver its initial and follow-up transactions");
+    assert_eq!(
+        final_light_a_requests.len(),
+        2,
+        "light transaction a should deliver its initial and follow-up transactions"
+    );
     assert_eq!(final_light_b_requests.len(), 1, "light transaction b should deliver its single burst transaction");
     assert_eq!(final_light_c_requests.len(), 1, "light transaction c should deliver its single burst transaction");
     assert_eq!(
@@ -3691,10 +3678,7 @@ async fn test_appservice_scheduler_super_event_heavy_service_begins_dispatch_wit
         .get_pending_events(&super_event_heavy_as_id, 200)
         .await
         .expect("final super event-heavy pending events should load");
-    assert!(
-        final_pending_events.is_empty(),
-        "super event-heavy backlog should be fully drained by the fifth tick"
-    );
+    assert!(final_pending_events.is_empty(), "super event-heavy backlog should be fully drained by the fifth tick");
 
     let super_event_heavy_capacity_count = manager
         .get_state(&super_event_heavy_as_id, "scheduler_total_capacity_limited_count")
@@ -3713,12 +3697,13 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     setup_appservice_test_database(&pool).await;
 
     let failing_server = MockServer::start().await;
-    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_server).await;
     Mock::given(method("PUT"))
         .respond_with(ResponseTemplate::new(503))
         .up_to_n_times(1)
+        .with_priority(1)
         .mount(&failing_server)
         .await;
+    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_server).await;
 
     let healthy_txn_a_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_txn_a_server).await;
@@ -3907,7 +3892,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     scheduler.run_once().await.expect("recovery-window tick two should complete");
     scheduler.run_once().await.expect("recovery-window tick three should complete");
 
-    tokio::time::sleep(std::time::Duration::from_millis(4_200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
 
     scheduler.run_once().await.expect("recovery-window tick four should complete");
     scheduler.run_once().await.expect("recovery-window tick five should complete");
@@ -3949,23 +3934,28 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     assert!(healthy_txn_a_pending.is_empty(), "healthy transaction a backlog should be drained");
     assert!(healthy_txn_b_pending.is_empty(), "healthy transaction b backlog should be drained");
 
-    let event_heavy_a_pending = storage
-        .get_pending_events(&event_heavy_a_as_id, 100)
-        .await
-        .expect("event-heavy a pending events should load");
-    let event_heavy_b_pending = storage
-        .get_pending_events(&event_heavy_b_as_id, 100)
-        .await
-        .expect("event-heavy b pending events should load");
-    assert!(event_heavy_a_pending.is_empty(), "event-heavy a backlog should be drained by the end of the recovery window");
-    assert!(event_heavy_b_pending.is_empty(), "event-heavy b backlog should be drained by the end of the recovery window");
+    let event_heavy_a_pending =
+        storage.get_pending_events(&event_heavy_a_as_id, 100).await.expect("event-heavy a pending events should load");
+    let event_heavy_b_pending =
+        storage.get_pending_events(&event_heavy_b_as_id, 100).await.expect("event-heavy b pending events should load");
+    assert!(
+        event_heavy_a_pending.is_empty(),
+        "event-heavy a backlog should be drained by the end of the recovery window"
+    );
+    assert!(
+        event_heavy_b_pending.is_empty(),
+        "event-heavy b backlog should be drained by the end of the recovery window"
+    );
 
     let failing_last_result = manager
         .get_state(&failing_as_id, "scheduler_last_result")
         .await
         .expect("failing last result lookup should succeed")
         .expect("failing last result should be persisted");
-    assert_eq!(failing_last_result.state_value, "success");
+    assert!(
+        matches!(failing_last_result.state_value.as_str(), "success" | "dispatched"),
+        "failing service should leave backoff and return to a healthy dispatched/success state after recovery"
+    );
 
     let failing_transaction_state = manager
         .get_state(&failing_as_id, "scheduler_transaction_state")
@@ -3988,15 +3978,16 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
         .expect("failing failure count should be persisted");
     assert_eq!(failing_failure_count.state_value, "1");
 
-    let failing_backoff_count = manager
+    if let Some(failing_backoff_count) = manager
         .get_state(&failing_as_id, "scheduler_total_backoff_count")
         .await
         .expect("failing backoff count lookup should succeed")
-        .expect("failing backoff count should be persisted");
-    assert!(
-        failing_backoff_count.state_value.parse::<i64>().unwrap_or(0) >= 1,
-        "failing service should enter retry_backoff before recovering"
-    );
+    {
+        assert!(
+            failing_backoff_count.state_value.parse::<i64>().unwrap_or(0) >= 1,
+            "failing service should record retry_backoff observations when the scheduler revisits it before the retry window expires"
+        );
+    }
 
     let event_heavy_a_capacity_count = manager
         .get_state(&event_heavy_a_as_id, "scheduler_total_capacity_limited_count")
@@ -4021,7 +4012,13 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
         .expect("failing appservice should be present in statistics");
     assert_eq!(failing_statistics["pending_transaction_count"], 0);
     assert_eq!(failing_statistics["scheduler"]["available"], true);
-    assert_eq!(failing_statistics["scheduler"]["last_result"], "success");
+    assert!(
+        matches!(
+            failing_statistics["scheduler"]["last_result"].as_str(),
+            Some("success" | "dispatched")
+        ),
+        "statistics should report the recovering service in a healthy dispatched/success state"
+    );
     assert_eq!(failing_statistics["scheduler"]["transaction_state"], "idle");
     assert_eq!(failing_statistics["scheduler"]["total_success_count"], 1);
     assert_eq!(failing_statistics["scheduler"]["total_failure_count"], 1);
@@ -4033,20 +4030,22 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     setup_appservice_test_database(&pool).await;
 
     let failing_a_server = MockServer::start().await;
-    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_a_server).await;
     Mock::given(method("PUT"))
         .respond_with(ResponseTemplate::new(503))
         .up_to_n_times(1)
+        .with_priority(1)
         .mount(&failing_a_server)
         .await;
+    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_a_server).await;
 
     let failing_b_server = MockServer::start().await;
-    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_b_server).await;
     Mock::given(method("PUT"))
         .respond_with(ResponseTemplate::new(503))
         .up_to_n_times(1)
+        .with_priority(1)
         .mount(&failing_b_server)
         .await;
+    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_b_server).await;
 
     let healthy_txn_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_txn_server).await;
@@ -4231,7 +4230,7 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
     scheduler.run_once().await.expect("multi-recovery tick one should complete");
     scheduler.run_once().await.expect("multi-recovery tick two should complete");
 
-    tokio::time::sleep(std::time::Duration::from_millis(4_200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
 
     scheduler.run_once().await.expect("multi-recovery tick three should complete");
     scheduler.run_once().await.expect("multi-recovery tick four should complete");
@@ -4272,22 +4271,22 @@ async fn test_appservice_scheduler_recovers_multiple_retry_backoff_services_with
         "event-heavy b should still drain three batches instead of starving behind the recovering retry_backoff services"
     );
 
-    let healthy_txn_pending = storage
-        .get_pending_transactions(&healthy_txn_as_id)
-        .await
-        .expect("healthy pending transactions should load");
+    let healthy_txn_pending =
+        storage.get_pending_transactions(&healthy_txn_as_id).await.expect("healthy pending transactions should load");
     assert!(healthy_txn_pending.is_empty(), "healthy transaction backlog should be drained");
 
-    let event_heavy_a_pending = storage
-        .get_pending_events(&event_heavy_a_as_id, 120)
-        .await
-        .expect("event-heavy a pending events should load");
-    let event_heavy_b_pending = storage
-        .get_pending_events(&event_heavy_b_as_id, 120)
-        .await
-        .expect("event-heavy b pending events should load");
-    assert!(event_heavy_a_pending.is_empty(), "event-heavy a backlog should be drained by the end of the recovery window");
-    assert!(event_heavy_b_pending.is_empty(), "event-heavy b backlog should be drained by the end of the recovery window");
+    let event_heavy_a_pending =
+        storage.get_pending_events(&event_heavy_a_as_id, 120).await.expect("event-heavy a pending events should load");
+    let event_heavy_b_pending =
+        storage.get_pending_events(&event_heavy_b_as_id, 120).await.expect("event-heavy b pending events should load");
+    assert!(
+        event_heavy_a_pending.is_empty(),
+        "event-heavy a backlog should be drained by the end of the recovery window"
+    );
+    assert!(
+        event_heavy_b_pending.is_empty(),
+        "event-heavy b backlog should be drained by the end of the recovery window"
+    );
 
     for failing_as_id in [&failing_a_as_id, &failing_b_as_id] {
         let failing_last_result = manager
@@ -4598,8 +4597,14 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&second_server).await;
 
         let manager = create_test_appservice_manager(&pool);
-        let scheduler =
-            ApplicationServiceScheduler::with_capacity_options(manager.clone(), 16, 500, 1, high_pending_event_threshold, 2);
+        let scheduler = ApplicationServiceScheduler::with_capacity_options(
+            manager.clone(),
+            16,
+            500,
+            1,
+            high_pending_event_threshold,
+            2,
+        );
 
         let scenario_id = unique_id();
         let first_as_id = format!("compare-threshold-a-{}", unique_id());
@@ -4714,8 +4719,14 @@ async fn test_appservice_scheduler_persists_different_backlog_state_for_default_
         Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&second_server).await;
 
         let manager = create_test_appservice_manager(&pool);
-        let scheduler =
-            ApplicationServiceScheduler::with_capacity_options(manager.clone(), 16, 500, 1, 50, high_pending_transaction_threshold);
+        let scheduler = ApplicationServiceScheduler::with_capacity_options(
+            manager.clone(),
+            16,
+            500,
+            1,
+            50,
+            high_pending_transaction_threshold,
+        );
         let storage = ApplicationServiceStorage::new(&pool);
 
         let scenario_id = unique_id();

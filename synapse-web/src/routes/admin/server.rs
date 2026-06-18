@@ -176,7 +176,8 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
 
 #[axum::debug_handler]
 pub async fn get_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = sqlx::query("SELECT 1").fetch_one(&*state.services.account.user_storage.pool).await.is_ok();
+    let readiness = state.health_checker.check_readiness().await;
+    let db_ok = readiness.checks.get("database").map(|check| check.status == "healthy").unwrap_or(false);
 
     Ok(Json(json!({
         "db_ok": db_ok,
@@ -263,7 +264,8 @@ pub async fn whois_device(
 
 #[axum::debug_handler]
 pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = sqlx::query("SELECT 1").fetch_one(&*state.services.account.user_storage.pool).await.is_ok();
+    let readiness = state.health_checker.check_readiness().await;
+    let db_ok = readiness.checks.get("database").map(|check| check.status == "healthy").unwrap_or(false);
 
     Ok(Json(json!({
         "status": if db_ok { "ok" } else { "error" },

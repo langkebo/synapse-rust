@@ -139,8 +139,8 @@ fn register_error_response(status: u16, errcode: &str, error: impl Into<String>)
 
 /// 生成随机 nonce
 fn generate_nonce() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: Vec<u8> = (0..32).map(|_| rng.gen()).collect();
+    let mut rng = rand::rng();
+    let bytes: Vec<u8> = (0..32).map(|_| rng.random()).collect();
     use std::fmt::Write;
     let mut s = String::with_capacity(64);
     for byte in bytes {
@@ -553,14 +553,9 @@ async fn register(
     match register_result {
         Ok((_user, access_token, refresh_token, device_id)) => {
             if let Some(user_type) = payload.user_type.as_deref() {
-                sqlx::query("UPDATE users SET user_type = $1 WHERE user_id = $2")
-                    .bind(user_type)
-                    .bind(&user_id)
-                    .execute(&*state.services.account.user_storage.pool)
-                    .await
-                    .map_err(|e| {
-                        register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
-                    })?;
+                state.services.account.user_storage.set_user_type(&user_id, Some(user_type)).await.map_err(|e| {
+                    register_error_response(500, "M_UNKNOWN", format!("Failed to persist user_type: {e}"))
+                })?;
             }
 
             Ok(Json(RegisterResponse {

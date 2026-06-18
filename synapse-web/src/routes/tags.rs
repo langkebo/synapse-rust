@@ -3,23 +3,13 @@ use axum::{
     routing::{delete, get, put},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use serde::Deserialize;
 
 use crate::routes::response_helpers::empty_json;
 use crate::routes::AppState;
 use crate::routes::AuthenticatedUser;
 use synapse_common::ApiError;
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct RoomTag {
-    pub user_id: String,
-    pub room_id: String,
-    pub tag: String,
-    #[sqlx(rename = "order_value")]
-    pub order: Option<f64>,
-    pub created_ts: i64,
-}
+use synapse_storage::room_tag::RoomTagStorage;
 
 #[derive(Debug, Deserialize)]
 pub struct TagContent {
@@ -68,7 +58,7 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = get_all_user_tags(&state.services.account.user_storage.pool, &user_id)
+    let tags = RoomTagStorage::get_all_tags(&state.services.account.user_storage.pool, &user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get tags", &e))?;
 
@@ -101,7 +91,7 @@ async fn get_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags = get_room_tags(&state.services.account.user_storage.pool, &user_id, &room_id)
+    let tags = RoomTagStorage::get_tags(&state.services.account.user_storage.pool, &user_id, &room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get tags", &e))?;
 
@@ -128,9 +118,7 @@ async fn put_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let now = chrono::Utc::now().timestamp_millis();
-
-    upsert_room_tag(&state.services.account.user_storage.pool, &user_id, &room_id, &tag, content.order, now)
+    RoomTagStorage::add_tag(&state.services.account.user_storage.pool, &user_id, &room_id, &tag, content.order)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set tag", &e))?;
 
@@ -146,83 +134,11 @@ async fn delete_tag(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    delete_room_tag(&state.services.account.user_storage.pool, &user_id, &room_id, &tag)
+    RoomTagStorage::remove_tag(&state.services.account.user_storage.pool, &user_id, &room_id, &tag)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete tag", &e))?;
 
     Ok(empty_json())
-}
-
-async fn get_room_tags(pool: &PgPool, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as::<_, RoomTag>(
-        r"
-        SELECT user_id, room_id, tag, order_value, created_ts
-        FROM room_tags
-        WHERE user_id = $1 AND room_id = $2
-        ORDER BY tag
-        ",
-    )
-    .bind(user_id)
-    .bind(room_id)
-    .fetch_all(pool)
-    .await
-}
-
-async fn get_all_user_tags(pool: &PgPool, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-    sqlx::query_as::<_, RoomTag>(
-        r"
-        SELECT user_id, room_id, tag, order_value, created_ts
-        FROM room_tags
-        WHERE user_id = $1
-        ORDER BY room_id, tag
-        ",
-    )
-    .bind(user_id)
-    .fetch_all(pool)
-    .await
-}
-
-async fn upsert_room_tag(
-    pool: &PgPool,
-    user_id: &str,
-    room_id: &str,
-    tag: &str,
-    order: Option<f64>,
-    created_ts: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r"
-        INSERT INTO room_tags (user_id, room_id, tag, order_value, created_ts)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, room_id, tag)
-        DO UPDATE SET order_value = $4, created_ts = $5
-        ",
-    )
-    .bind(user_id)
-    .bind(room_id)
-    .bind(tag)
-    .bind(order)
-    .bind(created_ts)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-async fn delete_room_tag(pool: &PgPool, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r"
-        DELETE FROM room_tags
-        WHERE user_id = $1 AND room_id = $2 AND tag = $3
-        ",
-    )
-    .bind(user_id)
-    .bind(room_id)
-    .bind(tag)
-    .execute(pool)
-    .await?;
-
-    Ok(())
 }
 
 #[cfg(test)]

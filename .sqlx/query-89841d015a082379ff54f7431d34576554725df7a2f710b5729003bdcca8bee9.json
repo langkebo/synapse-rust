@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE access_tokens SET is_revoked = TRUE\n            WHERE user_id = $1 AND device_id != $2 AND is_revoked = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "89841d015a082379ff54f7431d34576554725df7a2f710b5729003bdcca8bee9"
+}

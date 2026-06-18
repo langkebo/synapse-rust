@@ -14,7 +14,7 @@ pub struct FederationTestKeypair {
 
 #[cfg(any(test, feature = "test-utils"))]
 pub fn generate_federation_test_keypair() -> FederationTestKeypair {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut secret_bytes = [0u8; 32];
     rng.fill_bytes(&mut secret_bytes);
 
@@ -105,10 +105,10 @@ fn extract_signature_from_header(header: &str) -> Result<String, String> {
 #[cfg(any(test, feature = "test-utils"))]
 fn generate_random_string(length: usize) -> String {
     const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let result: String = (0..length)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = rng.random_range(0..CHARSET.len());
             CHARSET[idx] as char
         })
         .collect();

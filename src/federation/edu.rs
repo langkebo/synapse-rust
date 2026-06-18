@@ -72,18 +72,18 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
 }
 
 fn increment_counter(state: &AppState, name: &str) {
-    if let Some(counter) = state.services.metrics.get_counter(name) {
+    if let Some(counter) = state.services.core.metrics.get_counter(name) {
         counter.inc();
     } else {
-        state.services.metrics.register_counter(name.to_string()).inc();
+        state.services.core.metrics.register_counter(name.to_string()).inc();
     }
 }
 
 fn increment_counter_by(state: &AppState, name: &str, delta: u64) {
-    if let Some(counter) = state.services.metrics.get_counter(name) {
+    if let Some(counter) = state.services.core.metrics.get_counter(name) {
         counter.inc_by(delta);
     } else {
-        state.services.metrics.register_counter(name.to_string()).inc_by(delta);
+        state.services.core.metrics.register_counter(name.to_string()).inc_by(delta);
     }
 }
 
@@ -244,17 +244,17 @@ async fn handle_device_list_update_edu(
         if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
 
     let pool = &*state.services.account.device_storage.pool;
-    let result = sqlx::query!(
+    let result = sqlx::query(
         r#"
         INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
         VALUES ($1, $2, $3, $4, $4)
         ON CONFLICT DO NOTHING
         "#,
-        user_id,
-        device_id,
-        change_type,
-        stream_id
     )
+    .bind(user_id)
+    .bind(device_id)
+    .bind(change_type)
+    .bind(stream_id)
     .execute(pool)
     .await;
 

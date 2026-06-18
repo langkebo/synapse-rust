@@ -106,7 +106,7 @@ impl AdminRegistrationService {
     pub async fn generate_nonce(&self) -> ApiResult<NonceResponse> {
         let start = std::time::Instant::now();
         let nonce = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let mut nonce_bytes = vec![0u8; 64];
             rng.fill_bytes(&mut nonce_bytes);
             URL_SAFE_NO_PAD.encode(&nonce_bytes)

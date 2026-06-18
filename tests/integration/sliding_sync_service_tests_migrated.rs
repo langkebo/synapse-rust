@@ -3,9 +3,11 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::services::sliding_sync_service::SlidingSyncService;
 use synapse_rust::services::typing_service::TypingService;
+use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::sliding_sync::{
@@ -311,8 +313,19 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let typing_service = Arc::new(TypingService::default());
     let presence_storage = PresenceStorage::new(pool.clone(), canonical_cache.clone());
     let member_storage = RoomMemberStorage::new(pool, "localhost");
+    let device_storage = DeviceStorage::new(pool);
+    let to_device_storage = ToDeviceStorage::new(pool);
 
-    SlidingSyncService::new(storage, canonical_cache, event_storage, typing_service, presence_storage, member_storage)
+    SlidingSyncService::new(
+        storage,
+        canonical_cache,
+        event_storage,
+        typing_service,
+        presence_storage,
+        member_storage,
+        device_storage,
+        to_device_storage,
+    )
 }
 
 #[tokio::test]
