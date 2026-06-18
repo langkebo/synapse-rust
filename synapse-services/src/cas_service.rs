@@ -42,7 +42,7 @@ impl CasService {
 
     fn generate_ticket_id(&self, prefix: &str) -> String {
         let mut random_bytes = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut random_bytes);
+        rand::rng().fill_bytes(&mut random_bytes);
         let random_str = URL_SAFE_NO_PAD.encode(random_bytes);
         format!("{}-{}-{}", prefix, self.server_name, random_str)
     }

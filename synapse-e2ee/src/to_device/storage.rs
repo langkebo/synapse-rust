@@ -89,7 +89,7 @@ impl ToDeviceStorage {
             r"
             INSERT INTO to_device_transactions (sender_user_id, sender_device_id, message_id, created_ts)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (sender_user_id, sender_device_id, message_id) DO NOTHING
+            ON CONFLICT DO NOTHING
             ",
         )
         .bind(sender_user_id)
@@ -266,11 +266,7 @@ impl ToDeviceStorage {
         Ok((messages, max_stream_id))
     }
 
-    pub async fn get_current_stream_id(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<i64, ApiError> {
+    pub async fn get_current_stream_id(&self, user_id: &str, device_id: &str) -> Result<i64, ApiError> {
         let max_id: Option<i64> = sqlx::query_scalar(
             r"
             SELECT COALESCE(MAX(stream_id), 0)

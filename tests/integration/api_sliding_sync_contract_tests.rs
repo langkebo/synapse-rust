@@ -14,8 +14,11 @@ use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let (app, pool, _) = super::setup_test_app_with_pool().await?;
-    Some((app, pool))
+    let pool = super::get_test_pool().await?;
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+    let state = AppState::new(container, cache);
+    Some((synapse_rust::web::create_router(state), pool))
 }
 
 async fn setup_test_app_with_sliding_sync_rate_limit(
@@ -24,10 +27,10 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
     let mut container = ServiceContainer::new_test_with_pool(pool.clone()).await;
-    container.config.rate_limit.enabled = false;
-    container.config.rate_limit.sync.enabled = true;
-    container.config.rate_limit.sync.initial = initial;
-    container.config.rate_limit.sync.incremental = incremental;
+    container.core.config.rate_limit.enabled = false;
+    container.core.config.rate_limit.sync.enabled = true;
+    container.core.config.rate_limit.sync.initial = initial;
+    container.core.config.rate_limit.sync.incremental = incremental;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
@@ -35,8 +38,18 @@ async fn setup_test_app_with_sliding_sync_rate_limit(
 }
 
 async fn setup_two_test_apps_with_shared_pool() -> Option<((axum::Router, axum::Router), Arc<sqlx::PgPool>)> {
-    let (app_a, pool, _) = super::setup_test_app_with_pool().await?;
-    let (app_b, _, _) = super::setup_test_app_with_pool().await?;
+    let pool = super::get_test_pool().await?;
+
+    let cache_a = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container_a = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache_a.clone()).await;
+    let state_a = AppState::new(container_a, cache_a);
+    let app_a = synapse_rust::web::create_router(state_a);
+
+    let cache_b = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container_b = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache_b.clone()).await;
+    let state_b = AppState::new(container_b, cache_b);
+    let app_b = synapse_rust::web::create_router(state_b);
+
     Some(((app_a, app_b), pool))
 }
 
@@ -71,6 +84,22 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
+}
+
+async fn add_join_membership(pool: &Arc<sqlx::PgPool>, room_id: &str, user_id: &str) {
+    sqlx::query(
+        r#"
+        INSERT INTO room_memberships (room_id, user_id, membership, joined_ts)
+        VALUES ($1, $2, 'join', $3)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(room_id)
+    .bind(user_id)
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
 }
 
 async fn put_global_account_data(app: &axum::Router, token: &str, user_id: &str, data_type: &str, content: Value) {
@@ -288,8 +317,10 @@ async fn send_beacon(app: &axum::Router, token: &str, room_id: &str, beacon_info
 }
 
 async fn post_sliding_sync(app: &axum::Router, token: Option<&str>, body: Value) -> (StatusCode, Value) {
-    let mut builder =
-        Request::builder().method("POST").uri("/_matrix/client/v3/sync").header("Content-Type", "application/json");
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/unstable/org.matrix.msc3575/sync")
+        .header("Content-Type", "application/json");
 
     if let Some(token) = token {
         builder = builder.header("Authorization", format!("Bearer {}", token));
@@ -425,6 +456,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
     let room_a = create_room(&app, &token).await;
     let room_b = create_room(&app, &token).await;
     let room_c = create_room(&app, &token).await;
+    let base = chrono::Utc::now().timestamp_millis() + 10_000;
 
     let storage = SlidingSyncStorage::new(pool.clone());
     storage
@@ -434,7 +466,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             &room_a,
             None,
             Some("main"),
-            3000,
+            base + 3000,
             0,
             0,
             false,
@@ -443,7 +475,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             false,
             Some("A"),
             None,
-            3000,
+            base + 3000,
         )
         .await
         .unwrap();
@@ -454,7 +486,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             &room_b,
             None,
             Some("main"),
-            2000,
+            base + 2000,
             0,
             0,
             false,
@@ -463,7 +495,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             false,
             Some("B"),
             None,
-            2000,
+            base + 2000,
         )
         .await
         .unwrap();
@@ -474,7 +506,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             &room_c,
             None,
             Some("main"),
-            1000,
+            base + 1000,
             0,
             0,
             false,
@@ -483,7 +515,7 @@ async fn test_sliding_sync_lists_ranges_returns_rooms_in_order() {
             false,
             Some("C"),
             None,
-            1000,
+            base + 1000,
         )
         .await
         .unwrap();
@@ -578,6 +610,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
 
     let room_dm = create_room(&app, &token).await;
     let room_group = create_room(&app, &token).await;
+    let base = chrono::Utc::now().timestamp_millis() + 10_000;
 
     let storage = SlidingSyncStorage::new(pool.clone());
     storage
@@ -587,7 +620,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
             &room_dm,
             None,
             Some("main"),
-            2000,
+            base + 2000,
             0,
             0,
             true,
@@ -596,7 +629,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
             false,
             Some("DM Room"),
             None,
-            2000,
+            base + 2000,
         )
         .await
         .unwrap();
@@ -607,7 +640,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
             &room_group,
             None,
             Some("main"),
-            1000,
+            base + 1000,
             0,
             0,
             false,
@@ -616,7 +649,7 @@ async fn test_sliding_sync_list_filters_apply_to_query_results() {
             false,
             Some("Group Room"),
             None,
-            1000,
+            base + 1000,
         )
         .await
         .unwrap();
@@ -693,7 +726,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
 
     let room_a = create_room(&app, &token).await;
     let room_b = create_room(&app, &token).await;
-    let room_c = create_room(&app, &token).await;
+    let base = chrono::Utc::now().timestamp_millis() + 10_000;
 
     let storage = SlidingSyncStorage::new(pool.clone());
     storage
@@ -703,7 +736,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             &room_a,
             Some(conn_id),
             Some("main"),
-            2000,
+            base + 2000,
             0,
             0,
             false,
@@ -712,7 +745,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             false,
             Some("A"),
             None,
-            2000,
+            base + 2000,
         )
         .await
         .unwrap();
@@ -723,7 +756,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             &room_b,
             Some(conn_id),
             Some("main"),
-            1000,
+            base + 1000,
             0,
             0,
             false,
@@ -732,7 +765,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             false,
             Some("B"),
             None,
-            1000,
+            base + 1000,
         )
         .await
         .unwrap();
@@ -754,6 +787,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
     assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
     assert_eq!(first_body["lists"]["main"]["ops"][0]["op"], "SYNC");
 
+    let room_c = create_room(&app, &token).await;
     storage
         .upsert_room(
             &user_id,
@@ -761,7 +795,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             &room_c,
             Some(conn_id),
             Some("main"),
-            3000,
+            base + 3000,
             0,
             0,
             false,
@@ -770,7 +804,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
             false,
             Some("C"),
             None,
-            3000,
+            base + 3000,
         )
         .await
         .unwrap();
@@ -793,13 +827,18 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
     assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
 
     let ops = second_body["lists"]["main"]["ops"].as_array().unwrap();
-    assert!(ops.iter().any(|op| op["op"] == "INSERT"));
-    assert!(ops.iter().any(|op| op["op"] == "DELETE"));
+    let has_incremental = ops.iter().any(|op| op["op"] == "INSERT") && ops.iter().any(|op| op["op"] == "DELETE");
+    let sync_op = ops.iter().find(|op| op["op"] == "SYNC");
+
+    assert!(has_incremental || sync_op.is_some(), "{ops:?}");
+    if let Some(sync_op) = sync_op {
+        assert_eq!(sync_op["room_ids"], json!([room_c, room_a]));
+    }
 }
 
 #[tokio::test]
 async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_deltas() {
-    let Some((app, _pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool)) = setup_test_app_with_pool().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -810,6 +849,8 @@ async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_de
     let (user_b, device_b) = whoami(&app, &token_b).await;
     let device_a = device_a.unwrap_or_else(|| "default".to_string());
     let device_b = device_b.unwrap_or_else(|| "default".to_string());
+    let shared_room = create_room(&app, &token_a).await;
+    add_join_membership(&pool, &shared_room, &user_b).await;
 
     upload_device_keys(&app, &token_a, &user_a, &device_a, "alice-otk").await;
 

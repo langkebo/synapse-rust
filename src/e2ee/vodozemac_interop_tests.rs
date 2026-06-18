@@ -746,7 +746,7 @@ fn ed25519_sign_verify() {
     use rand::RngCore;
 
     let mut csprng = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut csprng);
+    rand::rng().fill_bytes(&mut csprng);
     let key = SigningKey::from_bytes(&csprng);
     let message = b"interop ed25519";
     let sig: Signature = key.sign(message);

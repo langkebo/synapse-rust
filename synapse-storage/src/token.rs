@@ -95,6 +95,20 @@ impl AccessTokenStorage {
         Ok(rows)
     }
 
+    pub async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM access_tokens
+            WHERE id = $1 AND user_id = $2
+            "#,
+            token_id,
+            user_id
+        )
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn delete_token(&self, token: &str) -> Result<(), sqlx::Error> {
         let token_hash = Self::hash_token(token);
         let legacy_hash = Self::hash_token_legacy(token);

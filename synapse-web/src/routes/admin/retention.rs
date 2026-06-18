@@ -6,8 +6,8 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::Row;
 use synapse_common::ApiError;
+use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 
 pub fn create_retention_router(_state: AppState) -> Router<AppState> {
     Router::new()
@@ -49,17 +49,13 @@ pub struct RunRetentionRequest {
 
 #[axum::debug_handler]
 pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let policy =
-        sqlx::query("SELECT max_lifetime, min_lifetime, is_expire_on_clients FROM server_retention_policy LIMIT 1")
-            .fetch_optional(&*state.services.rooms.room_storage.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let policy = state.services.admin.retention_service.get_server_policy_optional().await?;
 
     match policy {
-        Some(row) => Ok(Json(json!({
-            "max_lifetime": row.get::<Option<i64>, _>("max_lifetime"),
-            "min_lifetime": row.get::<Option<i64>, _>("min_lifetime"),
-            "is_expire_on_clients": row.get::<bool, _>("is_expire_on_clients")
+        Some(policy) => Ok(Json(json!({
+            "max_lifetime": policy.max_lifetime,
+            "min_lifetime": policy.min_lifetime,
+            "is_expire_on_clients": policy.is_expire_on_clients
         }))),
         None => Ok(Json(json!({
             "max_lifetime": null,
@@ -75,20 +71,21 @@ pub async fn set_retention_policy(
     State(state): State<AppState>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    sqlx::query(
-        "INSERT INTO server_retention_policy (id, max_lifetime, min_lifetime, is_expire_on_clients, created_ts, updated_ts) VALUES (1, $1, $2, $3, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (id) DO UPDATE SET max_lifetime = $1, min_lifetime = $2, is_expire_on_clients = $3, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
-    )
-    .bind(body.max_lifetime)
-    .bind(body.min_lifetime)
-    .bind(body.is_expire_on_clients.unwrap_or(false))
-    .execute(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let policy = state
+        .services
+        .admin
+        .retention_service
+        .upsert_server_policy(UpdateServerRetentionPolicyRequest {
+            max_lifetime: body.max_lifetime,
+            min_lifetime: body.min_lifetime,
+            is_expire_on_clients: body.is_expire_on_clients,
+        })
+        .await?;
 
     Ok(Json(json!({
-        "max_lifetime": body.max_lifetime,
-        "min_lifetime": body.min_lifetime,
-        "is_expire_on_clients": body.is_expire_on_clients.unwrap_or(false)
+        "max_lifetime": policy.max_lifetime,
+        "min_lifetime": policy.min_lifetime,
+        "is_expire_on_clients": policy.is_expire_on_clients
     })))
 }
 
@@ -110,20 +107,14 @@ pub async fn get_room_retention_policy(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let policy = sqlx::query(
-        "SELECT max_lifetime, min_lifetime, is_expire_on_clients FROM room_retention_policies WHERE room_id = $1",
-    )
-    .bind(&room_id)
-    .fetch_optional(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let policy = state.services.admin.retention_service.get_room_policy(&room_id).await?;
 
     match policy {
-        Some(row) => Ok(Json(json!({
+        Some(policy) => Ok(Json(json!({
             "room_id": room_id,
-            "max_lifetime": row.get::<Option<i64>, _>("max_lifetime"),
-            "min_lifetime": row.get::<Option<i64>, _>("min_lifetime"),
-            "is_expire_on_clients": row.get::<bool, _>("is_expire_on_clients")
+            "max_lifetime": policy.max_lifetime,
+            "min_lifetime": policy.min_lifetime,
+            "is_expire_on_clients": policy.is_expire_on_clients
         }))),
         None => Ok(Json(json!({
             "room_id": room_id,
@@ -152,22 +143,23 @@ pub async fn set_room_retention_policy(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    sqlx::query(
-        "INSERT INTO room_retention_policies (room_id, max_lifetime, min_lifetime, is_expire_on_clients, is_server_default, created_ts, updated_ts) VALUES ($1, $2, $3, $4, FALSE, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000, EXTRACT(EPOCH FROM NOW())::BIGINT * 1000) ON CONFLICT (room_id) DO UPDATE SET max_lifetime = $2, min_lifetime = $3, is_expire_on_clients = $4, updated_ts = EXTRACT(EPOCH FROM NOW())::BIGINT * 1000"
-    )
-    .bind(&room_id)
-    .bind(body.max_lifetime)
-    .bind(body.min_lifetime)
-    .bind(body.is_expire_on_clients.unwrap_or(false))
-    .execute(&*state.services.rooms.room_storage.pool)
-    .await
-    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let policy = state
+        .services
+        .admin
+        .retention_service
+        .set_room_policy(CreateRoomRetentionPolicyRequest {
+            room_id: room_id.clone(),
+            max_lifetime: body.max_lifetime,
+            min_lifetime: body.min_lifetime,
+            is_expire_on_clients: body.is_expire_on_clients,
+        })
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id,
-        "max_lifetime": body.max_lifetime,
-        "min_lifetime": body.min_lifetime,
-        "is_expire_on_clients": body.is_expire_on_clients.unwrap_or(false)
+        "max_lifetime": policy.max_lifetime,
+        "min_lifetime": policy.min_lifetime,
+        "is_expire_on_clients": policy.is_expire_on_clients
     })))
 }
 
@@ -212,17 +204,9 @@ pub async fn run_retention(
 
 #[axum::debug_handler]
 pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let rooms_with_policy: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM room_retention_policies")
-        .fetch_one(&*state.services.rooms.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let status = state.services.admin.retention_service.get_status_summary().await?;
 
-    let server_policy_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM server_retention_policy)")
-        .fetch_one(&*state.services.rooms.room_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let last_run = state.services.admin.retention_service.get_last_lifecycle_summary().await.map(|summary| {
+    let last_run = status.last_run.map(|summary| {
         json!({
             "started_ts": summary.started_ts,
             "completed_ts": summary.completed_ts,
@@ -238,8 +222,8 @@ pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppStat
     });
 
     Ok(Json(json!({
-        "server_policy_enabled": server_policy_exists,
-        "rooms_with_custom_policy": rooms_with_policy,
+        "server_policy_enabled": status.server_policy_enabled,
+        "rooms_with_custom_policy": status.rooms_with_custom_policy,
         "lifecycle_cleanup_enabled": state.services.core.config.retention.lifecycle_cleanup_enabled,
         "cleanup_batch_size": state.services.core.config.retention.cleanup_batch_size,
         "audit_retention_days": state.services.core.config.retention.audit_retention_days,

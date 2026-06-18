@@ -52,14 +52,14 @@ impl SecretStorageService {
         let public_key_base64 = BASE64.encode(public_key_bytes);
 
         let mut iv_bytes = [0u8; SSSS_IV_LENGTH];
-        OsRng.fill_bytes(&mut iv_bytes);
+        rand::rng().fill_bytes(&mut iv_bytes);
         let iv = BASE64.encode(iv_bytes);
 
         let key_data = format!("{private_key_base64}:{public_key_base64}");
 
         // Generate random AES-256-GCM session key
         let mut session_key_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut session_key_bytes);
+        rand::rng().fill_bytes(&mut session_key_bytes);
         let cipher = Aes256Gcm::new_from_slice(&session_key_bytes).map_err(|e| {
             tracing::error!("Cipher init failed: {e}");
             ApiError::database("A database error occurred".to_string())
@@ -67,7 +67,7 @@ impl SecretStorageService {
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let ciphertext = cipher.encrypt(nonce, key_data.as_bytes()).map_err(|e| {
@@ -88,11 +88,11 @@ impl SecretStorageService {
 
     fn create_aes_hmac_key(key_id: &str) -> SecretStorageKeyCreationTerm {
         let mut key_bytes = [0u8; SSSS_KEY_LENGTH];
-        OsRng.fill_bytes(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         let key_base64 = BASE64.encode(key_bytes);
 
         let mut iv_bytes = [0u8; SSSS_IV_LENGTH];
-        OsRng.fill_bytes(&mut iv_bytes);
+        rand::rng().fill_bytes(&mut iv_bytes);
         let iv_base64 = BASE64.encode(iv_bytes);
 
         let key_data = format!("{key_base64}:{iv_base64}");
@@ -231,7 +231,7 @@ impl SecretStorageService {
 
         // Generate random nonce
         let mut nonce_bytes = [0u8; 12];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
         let encrypted = cipher.encrypt(nonce, secret.as_bytes()).map_err(|e| {

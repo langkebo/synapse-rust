@@ -14,6 +14,7 @@ use crate::web::middleware::replication_http_auth_middleware;
 use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
 use crate::web::routes::{AdminUser, AppState};
 use crate::worker::types::*;
+use synapse_common::config::worker::WorkerConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterWorkerBody {
@@ -155,7 +156,9 @@ impl From<WorkerInfo> for WorkerResponse {
                 })
                 .unwrap_or_default(),
             owned_route_prefixes: worker_type
-                .map(|worker_type| worker_type.owned_route_prefixes().iter().map(|value| (*value).to_string()).collect())
+                .map(|worker_type| {
+                    worker_type.owned_route_prefixes().iter().map(|value| (*value).to_string()).collect()
+                })
                 .unwrap_or_default(),
             replication_streams: worker_type
                 .map(|worker_type| worker_type.replication_streams().iter().map(|value| (*value).to_string()).collect())
@@ -202,6 +205,92 @@ pub struct WorkerTaskResponse {
 impl From<WorkerTaskAssignment> for WorkerTaskResponse {
     fn from(t: WorkerTaskAssignment) -> Self {
         Self { task_id: t.task_id, task_type: t.task_type, status: t.status, assigned_worker_id: t.assigned_worker_id }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkerStreamWriterOwners {
+    pub stream_name: String,
+    pub owners: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkerRouteOwnerExpectation {
+    pub probe: String,
+    pub path: String,
+    pub expected_owner: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorkerTopologyValidationResponse {
+    pub worker_enabled: bool,
+    pub instance_name: String,
+    pub known_instances: Vec<String>,
+    pub replication_enabled: bool,
+    pub replication_http_enabled: bool,
+    pub validation: crate::worker::topology_validator::TopologyValidation,
+    pub stream_writers: Vec<WorkerStreamWriterOwners>,
+    pub route_owner_expectations: Vec<WorkerRouteOwnerExpectation>,
+}
+
+fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyValidationResponse {
+    let mut known_instances = vec!["master".to_string(), config.instance_name.clone()];
+    known_instances.extend(config.instance_map.keys().cloned());
+    known_instances.sort();
+    known_instances.dedup();
+
+    let stream_writers = vec![
+        WorkerStreamWriterOwners { stream_name: "events".to_string(), owners: config.stream_writers.events.clone() },
+        WorkerStreamWriterOwners { stream_name: "typing".to_string(), owners: config.stream_writers.typing.clone() },
+        WorkerStreamWriterOwners {
+            stream_name: "to_device".to_string(),
+            owners: config.stream_writers.to_device.clone(),
+        },
+        WorkerStreamWriterOwners {
+            stream_name: "account_data".to_string(),
+            owners: config.stream_writers.account_data.clone(),
+        },
+        WorkerStreamWriterOwners {
+            stream_name: "receipts".to_string(),
+            owners: config.stream_writers.receipts.clone(),
+        },
+        WorkerStreamWriterOwners {
+            stream_name: "presence".to_string(),
+            owners: config.stream_writers.presence.clone(),
+        },
+        WorkerStreamWriterOwners {
+            stream_name: "push_rules".to_string(),
+            owners: config.stream_writers.push_rules.clone(),
+        },
+        WorkerStreamWriterOwners {
+            stream_name: "device_lists".to_string(),
+            owners: config.stream_writers.device_lists.clone(),
+        },
+    ];
+    let route_owner_expectations = [
+        crate::worker::topology_validator::RouteOwnerProbe::Sync,
+        crate::worker::topology_validator::RouteOwnerProbe::Media,
+        crate::worker::topology_validator::RouteOwnerProbe::Federation,
+    ]
+    .into_iter()
+    .map(|probe| WorkerRouteOwnerExpectation {
+        probe: probe.as_str().to_string(),
+        path: probe.path().to_string(),
+        expected_owner: crate::worker::topology_validator::expected_route_owner_for_probe(config, probe)
+            .as_str()
+            .to_string(),
+    })
+    .collect();
+
+    WorkerTopologyValidationResponse {
+        worker_enabled: config.enabled,
+        instance_name: config.instance_name.clone(),
+        known_instances,
+        replication_enabled: config.replication.enabled,
+        replication_http_enabled: config.replication.http.enabled,
+        validation: crate::worker::topology_validator::validate_worker_config(config),
+        stream_writers,
+        route_owner_expectations,
     }
 }
 
@@ -442,11 +531,15 @@ pub async fn get_statistics(
     Ok(Json(stats))
 }
 
-pub async fn get_topology(
-    _state: State<AppState>,
+pub async fn get_topology(_state: State<AppState>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(WorkerTopologySummary::baseline()))
+}
+
+pub async fn get_topology_validation(
+    State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(WorkerTopologySummary::baseline()))
+    Ok(Json(build_topology_validation_response(&state.services.core.config.worker)))
 }
 
 pub async fn get_type_statistics(
@@ -496,6 +589,7 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/tasks/claim/{worker_id}", post(claim_next_task))
         .route("/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}", post(claim_task))
         .route("/_synapse/worker/v1/topology", get(get_topology))
+        .route("/_synapse/worker/v1/topology/validate", get(get_topology_validation))
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
@@ -543,6 +637,7 @@ pub fn worker_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEnt
         (Method::POST, "/_synapse/worker/v1/tasks/claim/{worker_id}"),
         (Method::POST, "/_synapse/worker/v1/tasks/{task_id}/claim/{worker_id}"),
         (Method::GET, "/_synapse/worker/v1/topology"),
+        (Method::GET, "/_synapse/worker/v1/topology/validate"),
         (Method::GET, "/_synapse/worker/v1/statistics"),
         (Method::GET, "/_synapse/worker/v1/statistics/types"),
         (Method::GET, "/_synapse/worker/v1/select/{task_type}"),
@@ -684,5 +779,84 @@ mod tests {
     fn test_worker_route_manifest_contains_topology_endpoint() {
         let manifest = worker_route_manifest();
         assert!(manifest.iter().any(|entry| entry.path == "/_synapse/worker/v1/topology"));
+        assert!(manifest.iter().any(|entry| entry.path == "/_synapse/worker/v1/topology/validate"));
+    }
+
+    #[test]
+    fn test_build_topology_validation_response_reports_known_instances_and_validity() {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "event_persister".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 9102,
+                tls: false,
+            },
+        );
+        config.stream_writers.events = vec!["event_persister".to_string()];
+        config.replication.enabled = true;
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("test-secret".to_string());
+
+        let response = build_topology_validation_response(&config);
+
+        assert!(response.validation.valid);
+        assert!(response.known_instances.iter().any(|name| name == "master"));
+        assert!(response.known_instances.iter().any(|name| name == "event_persister"));
+        assert!(response
+            .stream_writers
+            .iter()
+            .any(|entry| entry.stream_name == "events" && entry.owners == vec!["event_persister".to_string()]));
+        assert!(response
+            .route_owner_expectations
+            .iter()
+            .any(|entry| entry.probe == "sync" && entry.expected_owner == "master"));
+    }
+
+    #[test]
+    fn test_build_topology_validation_response_reports_specialized_route_owner_expectations() {
+        let mut config = WorkerConfig { enabled: true, instance_name: "master".to_string(), ..WorkerConfig::default() };
+        config.instance_map.insert(
+            "sync_worker".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8103,
+                tls: false,
+            },
+        );
+        config.instance_map.insert(
+            "media_repository".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8104,
+                tls: false,
+            },
+        );
+        config.instance_map.insert(
+            "federation_reader".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8449,
+                tls: false,
+            },
+        );
+        config.replication.enabled = true;
+        config.replication.http.enabled = true;
+        config.replication.http.secret = Some("test-secret".to_string());
+
+        let response = build_topology_validation_response(&config);
+
+        assert!(response
+            .route_owner_expectations
+            .iter()
+            .any(|entry| entry.probe == "sync" && entry.expected_owner == "synchrotron"));
+        assert!(response
+            .route_owner_expectations
+            .iter()
+            .any(|entry| entry.probe == "media" && entry.expected_owner == "media_repository"));
+        assert!(response
+            .route_owner_expectations
+            .iter()
+            .any(|entry| entry.probe == "federation" && entry.expected_owner == "federation_reader"));
     }
 }

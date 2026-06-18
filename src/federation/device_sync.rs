@@ -1,6 +1,4 @@
 use crate::cache::CacheManager;
-use crate::common::background_job::BackgroundJob;
-use crate::common::task_queue::RedisTaskQueue;
 use crate::common::ApiError;
 use chrono::{Duration, TimeZone, Utc};
 use reqwest::{Client, StatusCode};
@@ -9,6 +7,8 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_common::background_job::BackgroundJob;
+use synapse_common::task_queue::RedisTaskQueue;
 use tokio::sync::RwLock;
 
 const DEVICE_SYNC_CACHE_TTL: u64 = 3600;
@@ -223,19 +223,18 @@ impl DeviceSyncManager {
     }
 
     pub async fn get_local_devices(&self, user_id: &str) -> Result<Vec<DeviceInfo>, ApiError> {
-        let rows = sqlx::query_as!(
-            DeviceRow,
+        let rows = sqlx::query_as::<_, DeviceRow>(
             r#"
-            SELECT device_id as "device_id!", user_id as "user_id!",
-                   display_name as "device_display_name?",
-                   device_key as "keys?",
-                   last_seen_ts as "last_seen_ts?",
-                   last_seen_ip as "last_seen_ip?",
-                   FALSE as "is_blocked!", FALSE as "verified!"
+            SELECT device_id, user_id,
+                   display_name AS device_display_name,
+                   device_key AS keys,
+                   last_seen_ts,
+                   last_seen_ip,
+                   FALSE AS is_blocked, FALSE AS verified
             FROM devices WHERE user_id = $1
             "#,
-            user_id
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to fetch devices", &e))?;
@@ -285,15 +284,15 @@ impl DeviceSyncManager {
     pub async fn cleanup_expired_devices(&self, user_id: &str) -> Result<u64, ApiError> {
         let expiry_threshold = Utc::now() - Duration::days(DEVICE_KEY_EXPIRY_DAYS);
 
-        let result = sqlx::query!(
+        let result = sqlx::query(
             r#"
             DELETE FROM devices
             WHERE user_id = $1
             AND (last_seen_ts IS NULL OR last_seen_ts < $2)
             "#,
-            user_id,
-            expiry_threshold.timestamp_millis()
         )
+        .bind(user_id)
+        .bind(expiry_threshold.timestamp_millis())
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to cleanup expired devices", &e))?;
@@ -331,16 +330,16 @@ impl DeviceSyncManager {
     }
 
     pub async fn revoke_device(&self, device_id: &str, user_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE devices SET
                 device_key = NULL,
                 last_seen_ts = NULL
             WHERE device_id = $1 AND user_id = $2
             "#,
-            device_id,
-            user_id
         )
+        .bind(device_id)
+        .bind(user_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to revoke device", &e))?;

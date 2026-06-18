@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use synapse_rust::services::ServiceContainer;
-    use synapse_rust::storage::room_summary::*;
+    use synapse_rust::storage::*;
     use synapse_rust::worker::StreamPosition;
 
     #[test]

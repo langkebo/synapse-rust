@@ -5,9 +5,9 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_rust::services::telemetry_service::TelemetryAlertSeverity;
 use synapse_rust::services::ServiceContainer;
+use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use tower::ServiceExt;
@@ -29,11 +29,11 @@ async fn test_telemetry_metrics_alerts_and_ack() {
     };
     let (admin_token, _) = super::get_admin_token(&app).await;
 
-    let counter = state.services.metrics.register_counter("telemetry_test_counter".to_string());
+    let counter = state.services.core.metrics.register_counter("telemetry_test_counter".to_string());
     counter.inc_by(3);
-    let gauge = state.services.metrics.register_gauge("telemetry_test_gauge".to_string());
+    let gauge = state.services.core.metrics.register_gauge("telemetry_test_gauge".to_string());
     gauge.set(42.0);
-    let histogram = state.services.metrics.register_histogram("telemetry_test_histogram".to_string());
+    let histogram = state.services.core.metrics.register_histogram("telemetry_test_histogram".to_string());
     histogram.observe(100.0);
 
     let as_id = format!("telemetry_scheduler_as_{}", rand::random::<u32>());
@@ -170,12 +170,13 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     let (admin_token, _) = super::get_admin_token(&app).await;
 
     let failing_server = MockServer::start().await;
-    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_server).await;
     Mock::given(method("PUT"))
         .respond_with(ResponseTemplate::new(503))
         .up_to_n_times(1)
+        .with_priority(1)
         .mount(&failing_server)
         .await;
+    Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&failing_server).await;
 
     let healthy_txn_server = MockServer::start().await;
     Mock::given(method("PUT")).respond_with(ResponseTemplate::new(200)).mount(&healthy_txn_server).await;
@@ -300,7 +301,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
 
     state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick one should complete");
     state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick two should complete");
-    tokio::time::sleep(std::time::Duration::from_millis(4_200)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
     state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick three should complete");
 
     let request = Request::builder()

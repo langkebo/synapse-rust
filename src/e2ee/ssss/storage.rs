@@ -64,7 +64,7 @@ impl SecretStorage {
     }
 
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO e2ee_secret_storage_keys
                 (key_id, key_name, user_id, algorithm, key_data,
@@ -79,16 +79,16 @@ impl SecretStorage {
                 updated_ts = EXCLUDED.updated_ts,
                 is_active = TRUE
             ",
-            key.key_id,
-            key.key_id,
-            key.user_id,
-            key.algorithm,
-            Vec::<u8>::new(),
-            key.encrypted_key,
-            key.public_key,
-            key.signatures,
-            key.created_ts,
         )
+        .bind(&key.key_id)
+        .bind(&key.key_id)
+        .bind(&key.user_id)
+        .bind(&key.algorithm)
+        .bind(Vec::<u8>::new())
+        .bind(&key.encrypted_key)
+        .bind(&key.public_key)
+        .bind(&key.signatures)
+        .bind(key.created_ts)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -100,23 +100,22 @@ impl SecretStorage {
     }
 
     pub async fn get_key(&self, user_id: &str, key_id: &str) -> Result<Option<SecretStorageKey>, ApiError> {
-        let row: Option<SecretStorageKeyRow> = sqlx::query_as!(
-            SecretStorageKeyRow,
+        let row: Option<SecretStorageKeyRow> = sqlx::query_as::<_, SecretStorageKeyRow>(
             r#"
             SELECT
-                key_id AS "key_id!",
-                user_id AS "user_id!",
-                algorithm AS "algorithm!",
-                encrypted_key AS "encrypted_key!",
-                public_key AS "public_key?",
-                signatures AS "signatures?",
-                created_ts AS "created_ts!"
+                key_id,
+                user_id,
+                algorithm,
+                encrypted_key,
+                public_key,
+                signatures,
+                created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND key_id = $2 AND is_active = TRUE
             "#,
-            user_id,
-            key_id,
         )
+        .bind(user_id)
+        .bind(key_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
@@ -128,22 +127,21 @@ impl SecretStorage {
     }
 
     pub async fn get_all_keys(&self, user_id: &str) -> Result<Vec<SecretStorageKey>, ApiError> {
-        let rows: Vec<SecretStorageKeyRow> = sqlx::query_as!(
-            SecretStorageKeyRow,
+        let rows: Vec<SecretStorageKeyRow> = sqlx::query_as::<_, SecretStorageKeyRow>(
             r#"
             SELECT
-                key_id AS "key_id!",
-                user_id AS "user_id!",
-                algorithm AS "algorithm!",
-                encrypted_key AS "encrypted_key!",
-                public_key AS "public_key?",
-                signatures AS "signatures?",
-                created_ts AS "created_ts!"
+                key_id,
+                user_id,
+                algorithm,
+                encrypted_key,
+                public_key,
+                signatures,
+                created_ts
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND is_active = TRUE
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
@@ -155,15 +153,15 @@ impl SecretStorage {
     }
 
     pub async fn delete_key(&self, user_id: &str, key_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             UPDATE e2ee_secret_storage_keys
             SET is_active = FALSE, updated_ts = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
             WHERE user_id = $1 AND key_id = $2 AND is_active = TRUE
             ",
-            user_id,
-            key_id,
         )
+        .bind(user_id)
+        .bind(key_id)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -176,7 +174,7 @@ impl SecretStorage {
 
     pub async fn store_secret(&self, user_id: &str, secret: &StoredSecret) -> Result<(), ApiError> {
         let now_ts = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO e2ee_stored_secrets
                 (user_id, secret_name, secret_data, key_key_id,
@@ -189,14 +187,14 @@ impl SecretStorage {
                 key_id = EXCLUDED.key_id,
                 updated_ts = EXCLUDED.updated_ts
             ",
-            user_id,
-            secret.secret_name,
-            Vec::<u8>::new(),
-            secret.key_id,
-            secret.encrypted_secret,
-            secret.key_id,
-            now_ts,
         )
+        .bind(user_id)
+        .bind(&secret.secret_name)
+        .bind(Vec::<u8>::new())
+        .bind(&secret.key_id)
+        .bind(&secret.encrypted_secret)
+        .bind(&secret.key_id)
+        .bind(now_ts)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -208,19 +206,18 @@ impl SecretStorage {
     }
 
     pub async fn get_secret(&self, user_id: &str, secret_name: &str) -> Result<Option<StoredSecret>, ApiError> {
-        let row: Option<StoredSecretRow> = sqlx::query_as!(
-            StoredSecretRow,
+        let row: Option<StoredSecretRow> = sqlx::query_as::<_, StoredSecretRow>(
             r#"
             SELECT
-                secret_name AS "secret_name!",
-                encrypted_secret AS "encrypted_secret?",
-                key_id AS "key_id?"
+                secret_name,
+                encrypted_secret,
+                key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
             "#,
-            user_id,
-            secret_name,
         )
+        .bind(user_id)
+        .bind(secret_name)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
@@ -236,19 +233,18 @@ impl SecretStorage {
             return Ok(Vec::new());
         }
 
-        let rows: Vec<StoredSecretRow> = sqlx::query_as!(
-            StoredSecretRow,
+        let rows: Vec<StoredSecretRow> = sqlx::query_as::<_, StoredSecretRow>(
             r#"
             SELECT
-                secret_name AS "secret_name!",
-                encrypted_secret AS "encrypted_secret?",
-                key_id AS "key_id?"
+                secret_name,
+                encrypted_secret,
+                key_id
             FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
             "#,
-            user_id,
-            secret_names,
         )
+        .bind(user_id)
+        .bind(secret_names)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| {
@@ -260,14 +256,14 @@ impl SecretStorage {
     }
 
     pub async fn delete_secret(&self, user_id: &str, secret_name: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = $2
             ",
-            user_id,
-            secret_name,
         )
+        .bind(user_id)
+        .bind(secret_name)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -283,14 +279,14 @@ impl SecretStorage {
             return Ok(());
         }
 
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM e2ee_stored_secrets
             WHERE user_id = $1 AND secret_name = ANY($2)
             ",
-            user_id,
-            secret_names,
         )
+        .bind(user_id)
+        .bind(secret_names)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -302,14 +298,14 @@ impl SecretStorage {
     }
 
     pub async fn has_secrets(&self, user_id: &str) -> Result<bool, ApiError> {
-        let count: i64 = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COUNT(*) AS "count!"
+            SELECT COUNT(*)
             FROM e2ee_secret_storage_keys
             WHERE user_id = $1 AND is_active = TRUE
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {

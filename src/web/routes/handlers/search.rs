@@ -266,7 +266,7 @@ async fn search_room_events(
 
     let page = state
         .services
-        .search_service
+        .core.search_service
         .search_room_events(user_id, &search.search_term, filter.as_ref(), limit, next_batch)
         .await?;
 
@@ -733,7 +733,7 @@ async fn timestamp_to_event(
 
     let direction = if dir == "b" { TimestampDirection::Backward } else { TimestampDirection::Forward };
 
-    let event = state.services.search_service.find_event_by_timestamp(&room_id, ts, direction).await?;
+    let event = state.services.core.search_service.find_event_by_timestamp(&room_id, ts, direction).await?;
 
     match event {
         Some(event) => Ok(Json(json!({
@@ -776,7 +776,7 @@ async fn get_event_context(
     let target_ts = target_event.origin_server_ts;
 
     let context_window =
-        state.services.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
+        state.services.core.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
 
     let events_before_list: Vec<Value> = context_window
         .events_before
@@ -1123,7 +1123,7 @@ async fn search_rooms(
         return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
-    let rooms = state.services.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
+    let rooms = state.services.core.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
 
     let results: Vec<Value> = rooms
         .iter()

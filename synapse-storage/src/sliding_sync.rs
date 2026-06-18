@@ -611,6 +611,8 @@ impl SlidingSyncStorage {
         .await?
         .unwrap_or(now);
 
+        let existing_room = self.get_room(user_id, device_id, room_id, conn_id).await?;
+
         let room_info = sqlx::query_scalar::<_, Option<String>>(
             r"
             SELECT name FROM rooms WHERE room_id = $1
@@ -638,14 +640,14 @@ impl SlidingSyncStorage {
             conn_id,
             None,
             bump_stamp,
-            0,
-            0,
-            false,
-            false,
-            false,
-            false,
-            room_info.as_deref(),
-            avatar_info.as_deref(),
+            existing_room.as_ref().map_or(0, |room| room.highlight_count),
+            existing_room.as_ref().map_or(0, |room| room.notification_count),
+            existing_room.as_ref().is_some_and(|room| room.is_dm),
+            existing_room.as_ref().is_some_and(|room| room.is_encrypted),
+            existing_room.as_ref().is_some_and(|room| room.is_tombstoned),
+            existing_room.as_ref().is_some_and(|room| room.is_invited),
+            room_info.as_deref().or(existing_room.as_ref().and_then(|room| room.name.as_deref())),
+            avatar_info.as_deref().or(existing_room.as_ref().and_then(|room| room.avatar.as_deref())),
             now,
         )
         .await?;

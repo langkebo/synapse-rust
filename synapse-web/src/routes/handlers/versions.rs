@@ -6,7 +6,7 @@ use axum::{
     extract::{Query, State},
     http::{
         header::{CACHE_CONTROL, VARY},
-        HeaderMap, HeaderValue,
+        HeaderMap, HeaderValue, Method,
     },
     Json,
 };
@@ -87,6 +87,32 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("io.hula.burn_after_read", cfg!(feature = "burn-after-read")),
     ("io.hula.friends", cfg!(feature = "friends")),
 ];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CapabilityGovernance {
+    ConfigControlled,
+    RouteSurface,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CapabilityFlag {
+    enabled: bool,
+    governance: CapabilityGovernance,
+}
+
+impl CapabilityFlag {
+    const fn config_controlled(enabled: bool) -> Self {
+        Self { enabled, governance: CapabilityGovernance::ConfigControlled }
+    }
+
+    const fn route_surface(enabled: bool) -> Self {
+        Self { enabled, governance: CapabilityGovernance::RouteSurface }
+    }
+
+    const fn enabled(self) -> bool {
+        self.enabled
+    }
+}
 
 fn declared_client_api_versions() -> Vec<&'static str> {
     let mut seen_stable = false;
@@ -192,50 +218,215 @@ fn sso_providers(config: &Config) -> Vec<&'static str> {
 
 fn build_capabilities_unstable_features() -> Value {
     json!({
-        "io.hula.friends": cfg!(feature = "friends"),
-        "org.matrix.msc3245.voice": true,
-        "org.matrix.msc3983.thread": true,
-        "org.matrix.msc3886.sliding_sync": true,
-        "org.matrix.msc4261.widget": cfg!(feature = "widgets"),
-        "io.hula.burn_after_read": cfg!(feature = "burn-after-read")
+        "io.hula.friends": friends_capability().enabled(),
+        "org.matrix.msc3245.voice": voice_capability().enabled(),
+        "org.matrix.msc3983.thread": thread_capability().enabled(),
+        "org.matrix.msc3886.sliding_sync": sliding_sync_capability().enabled(),
+        "org.matrix.msc4261.widget": widget_capability().enabled(),
+        "io.hula.burn_after_read": burn_after_read_capability().enabled()
     })
+}
+
+fn manifest_has_route(entries: &[crate::routes::route_ledger::RouteEntry], method: &Method, path: &str) -> bool {
+    entries.iter().any(|entry| entry.method == *method && entry.path == path)
+}
+
+fn room_summary_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::room_summary::room_summary_route_manifest(),
+        &Method::GET,
+        "/_matrix/client/v3/rooms/{room_id}/summary",
+    ))
+}
+
+fn room_suggested_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(room_summary_capability().enabled())
+}
+
+fn voice_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(room_summary_capability().enabled())
+}
+
+fn thread_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::handlers::thread::thread_route_manifest(),
+        &Method::GET,
+        "/_matrix/client/v1/threads",
+    ))
+}
+
+fn sliding_sync_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::sliding_sync::sliding_sync_route_manifest(),
+        &Method::POST,
+        "/_matrix/client/v1/sync",
+    ))
+}
+
+fn change_password_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::account_compat::account_compat_route_manifest(),
+        &Method::POST,
+        "/_matrix/client/v3/account/password",
+    ))
+}
+
+fn set_displayname_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::account_compat::account_compat_route_manifest(),
+        &Method::PUT,
+        "/_matrix/client/v3/profile/{user_id}/displayname",
+    ))
+}
+
+fn set_avatar_url_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::account_compat::account_compat_route_manifest(),
+        &Method::PUT,
+        "/_matrix/client/v3/profile/{user_id}/avatar_url",
+    ))
+}
+
+fn threepid_changes_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::routes::account_compat::account_compat_route_manifest(),
+        &Method::POST,
+        "/_matrix/client/v3/account/3pid",
+    ))
+}
+
+fn sso_capability(config: &Config) -> CapabilityFlag {
+    CapabilityFlag::config_controlled(!sso_providers(config).is_empty())
+}
+
+fn openclaw_routes_enabled(config: &Config) -> bool {
+    #[cfg(feature = "openclaw-routes")]
+    {
+        config.experimental.openclaw_routes_enabled
+    }
+
+    #[cfg(not(feature = "openclaw-routes"))]
+    {
+        let _ = config;
+        false
+    }
+}
+
+fn openclaw_capability(config: &Config) -> CapabilityFlag {
+    CapabilityFlag::config_controlled(openclaw_routes_enabled(config))
+}
+
+fn ai_connection_capability(config: &Config) -> CapabilityFlag {
+    CapabilityFlag::config_controlled(openclaw_routes_enabled(config))
+}
+
+fn friends_capability() -> CapabilityFlag {
+    #[cfg(feature = "friends")]
+    {
+        CapabilityFlag::route_surface(manifest_has_route(
+            &crate::routes::friend_room::friend_route_manifest(),
+            &Method::GET,
+            "/_matrix/client/v3/friends",
+        ))
+    }
+    #[cfg(not(feature = "friends"))]
+    {
+        CapabilityFlag::route_surface(false)
+    }
+}
+
+fn external_services_capability() -> CapabilityFlag {
+    #[cfg(feature = "external-services")]
+    {
+        CapabilityFlag::route_surface(manifest_has_route(
+            &crate::routes::external_service::external_service_route_manifest(),
+            &Method::GET,
+            "/_synapse/admin/v1/external_services",
+        ))
+    }
+    #[cfg(not(feature = "external-services"))]
+    {
+        CapabilityFlag::route_surface(false)
+    }
+}
+
+fn voice_extended_capability() -> CapabilityFlag {
+    #[cfg(feature = "voice-extended")]
+    {
+        CapabilityFlag::route_surface(manifest_has_route(
+            &crate::routes::voice::voice_route_manifest(),
+            &Method::GET,
+            "/_matrix/client/v1/voice/config",
+        ))
+    }
+    #[cfg(not(feature = "voice-extended"))]
+    {
+        CapabilityFlag::route_surface(false)
+    }
+}
+
+fn widget_capability() -> CapabilityFlag {
+    #[cfg(feature = "widgets")]
+    {
+        CapabilityFlag::route_surface(manifest_has_route(
+            &crate::routes::widget::widget_route_manifest(),
+            &Method::POST,
+            "/_matrix/client/v1/widgets",
+        ))
+    }
+    #[cfg(not(feature = "widgets"))]
+    {
+        CapabilityFlag::route_surface(false)
+    }
+}
+
+fn burn_after_read_capability() -> CapabilityFlag {
+    #[cfg(feature = "burn-after-read")]
+    {
+        CapabilityFlag::route_surface(manifest_has_route(
+            &crate::routes::burn_after_read::burn_after_read_route_manifest(),
+            &Method::PUT,
+            "/_matrix/client/v1/rooms/{room_id}/burn",
+        ))
+    }
+    #[cfg(not(feature = "burn-after-read"))]
+    {
+        CapabilityFlag::route_surface(false)
+    }
 }
 
 fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     let mut capabilities = Map::new();
     let sso_providers = sso_providers(config);
 
-    insert_enabled_capability(&mut capabilities, "m.change_password", true);
+    insert_enabled_capability(&mut capabilities, "m.change_password", change_password_capability().enabled());
     capabilities.insert("m.room_versions".to_string(), client_room_versions_capability());
-    insert_enabled_capability(&mut capabilities, "m.set_displayname", true);
-    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", true);
-    insert_enabled_capability(&mut capabilities, "m.3pid_changes", true);
-    insert_enabled_capability(&mut capabilities, "m.room.summary", true);
-    insert_enabled_capability(&mut capabilities, "m.room.suggested", true);
-    insert_enabled_capability(&mut capabilities, "m.voice", true);
-    insert_enabled_capability(&mut capabilities, "m.thread", true);
-    insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", true);
+    insert_enabled_capability(&mut capabilities, "m.set_displayname", set_displayname_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.set_avatar_url", set_avatar_url_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.3pid_changes", threepid_changes_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.room.summary", room_summary_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.room.suggested", room_suggested_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.voice", voice_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "m.thread", thread_capability().enabled());
+    insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", sliding_sync_capability().enabled());
 
     if authenticated {
-        #[cfg(feature = "openclaw-routes")]
-        let openclaw_enabled = config.experimental.openclaw_routes_enabled;
-        #[cfg(not(feature = "openclaw-routes"))]
-        let openclaw_enabled = false;
+        let openclaw_enabled = openclaw_capability(config).enabled();
 
-        capabilities.insert("io.hula.friends".to_string(), json!(cfg!(feature = "friends")));
+        capabilities.insert("io.hula.friends".to_string(), json!(friends_capability().enabled()));
         capabilities.insert(
             "m.sso".to_string(),
             json!({
-                "enabled": !sso_providers.is_empty(),
+                "enabled": sso_capability(config).enabled(),
                 "providers": sso_providers
             }),
         );
-        insert_enabled_capability(&mut capabilities, "ai_connection", openclaw_enabled);
+        insert_enabled_capability(&mut capabilities, "ai_connection", ai_connection_capability(config).enabled());
         insert_enabled_capability(&mut capabilities, "openclaw", openclaw_enabled);
-        insert_enabled_capability(&mut capabilities, "external_services", cfg!(feature = "external-services"));
-        insert_enabled_capability(&mut capabilities, "io.hula.voice_extended", cfg!(feature = "voice-extended"));
-        insert_enabled_capability(&mut capabilities, "io.hula.widget", cfg!(feature = "widgets"));
-        insert_enabled_capability(&mut capabilities, "io.hula.burn_after_read", cfg!(feature = "burn-after-read"));
+        insert_enabled_capability(&mut capabilities, "external_services", external_services_capability().enabled());
+        insert_enabled_capability(&mut capabilities, "io.hula.voice_extended", voice_extended_capability().enabled());
+        insert_enabled_capability(&mut capabilities, "io.hula.widget", widget_capability().enabled());
+        insert_enabled_capability(&mut capabilities, "io.hula.burn_after_read", burn_after_read_capability().enabled());
     }
 
     json!({
@@ -279,8 +470,13 @@ pub async fn get_capabilities(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_capabilities_response, build_client_versions, build_well_known_client, client_versions_headers,
-        derive_well_known_server, get_client_versions, ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
+        ai_connection_capability, build_capabilities_response, build_client_versions, build_well_known_client,
+        burn_after_read_capability, client_versions_headers, derive_well_known_server, external_services_capability,
+        friends_capability, get_client_versions, openclaw_capability, room_suggested_capability,
+        room_summary_capability, set_avatar_url_capability, set_displayname_capability, sliding_sync_capability,
+        sso_capability, thread_capability, threepid_changes_capability, voice_capability,
+        voice_extended_capability, widget_capability, change_password_capability, CapabilityFlag,
+        CapabilityGovernance, ClientApiVersionFamily, CLIENT_API_VERSION_SUPPORT,
     };
     use crate::routes::AppState;
     use axum::http::header::{CACHE_CONTROL, VARY};
@@ -381,9 +577,41 @@ mod tests {
         assert_eq!(capabilities["m.sso"]["enabled"], true);
         assert_eq!(capabilities["m.sso"]["providers"][0], "saml");
         assert_eq!(capabilities["openclaw"]["enabled"], false);
-        assert_eq!(capabilities["io.hula.widget"]["enabled"], cfg!(feature = "widgets"));
-        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], cfg!(feature = "burn-after-read"));
-        assert_eq!(body["unstable_features"]["org.matrix.msc4261.widget"], cfg!(feature = "widgets"));
+        assert_eq!(capabilities["ai_connection"]["enabled"], ai_connection_capability(&config).enabled());
+        assert_eq!(capabilities["external_services"]["enabled"], external_services_capability().enabled());
+        assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], voice_extended_capability().enabled());
+        assert_eq!(capabilities["io.hula.widget"]["enabled"], widget_capability().enabled());
+        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], burn_after_read_capability().enabled());
+        assert_eq!(body["unstable_features"]["org.matrix.msc4261.widget"], widget_capability().enabled());
+    }
+
+    #[test]
+    fn test_capabilities_route_surface_flags_follow_declared_routes() {
+        let body = build_capabilities_response(&Config::default(), false);
+        let capabilities = body["capabilities"].as_object().expect("capabilities should be an object");
+
+        assert_eq!(capabilities["m.change_password"]["enabled"], change_password_capability().enabled());
+        assert_eq!(capabilities["m.set_displayname"]["enabled"], set_displayname_capability().enabled());
+        assert_eq!(capabilities["m.set_avatar_url"]["enabled"], set_avatar_url_capability().enabled());
+        assert_eq!(capabilities["m.3pid_changes"]["enabled"], threepid_changes_capability().enabled());
+        assert_eq!(capabilities["m.room.summary"]["enabled"], room_summary_capability().enabled());
+        assert_eq!(capabilities["m.room.suggested"]["enabled"], room_suggested_capability().enabled());
+        assert_eq!(capabilities["m.voice"]["enabled"], voice_capability().enabled());
+        assert_eq!(capabilities["m.thread"]["enabled"], thread_capability().enabled());
+        assert_eq!(capabilities["io.hula.sliding_sync"]["enabled"], sliding_sync_capability().enabled());
+    }
+
+    #[test]
+    fn test_capability_governance_categories_are_stable() {
+        assert_eq!(change_password_capability(), CapabilityFlag::route_surface(true));
+        assert_eq!(set_displayname_capability(), CapabilityFlag::route_surface(true));
+        assert_eq!(set_avatar_url_capability(), CapabilityFlag::route_surface(true));
+        assert_eq!(threepid_changes_capability(), CapabilityFlag::route_surface(true));
+        assert_eq!(room_summary_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(thread_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(widget_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(sso_capability(&Config::default()).governance, CapabilityGovernance::ConfigControlled);
+        assert_eq!(openclaw_capability(&Config::default()).governance, CapabilityGovernance::ConfigControlled);
     }
 
     #[tokio::test]

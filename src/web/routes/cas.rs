@@ -19,7 +19,7 @@ async fn cas_config_check_middleware(
     next: Next,
 ) -> Result<Response, ApiError> {
     // 检查 CAS 服务是否已配置
-    if !state.services.cas_service.is_configured().await {
+    if !state.services.sso.cas_service.is_configured().await {
         tracing::error!("CAS service is not properly configured - database tables may not exist");
         return Err(ApiError::internal(
             "CAS service is not available. Please ensure database migrations have been run.".to_string(),
@@ -117,7 +117,7 @@ async fn cas_sso_redirect(
     State(state): State<AppState>,
     Query(params): Query<SsoRedirectQuery>,
 ) -> Result<axum::response::Response, ApiError> {
-    if state.services.cas_service.is_configured().await {
+    if state.services.sso.cas_service.is_configured().await {
         let redirect_url = if let Some(ref redirect) = params.redirect_after {
             format!("/login?service={}", urlencoding::encode(redirect))
         } else {
@@ -210,7 +210,7 @@ async fn login_redirect(
     State(state): State<AppState>,
     Query(query): Query<ServiceTicketQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let _service = state.services.cas_service.get_service_by_url(&query.service).await?;
+    let _service = state.services.sso.cas_service.get_service_by_url(&query.service).await?;
 
     let encoded_service: String = form_urlencoded::byte_serialize(query.service.as_bytes()).collect();
 
@@ -228,7 +228,7 @@ async fn service_validate(
     Query(query): Query<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result =
-        state.services.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
+        state.services.sso.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
             tracing::warn!("CAS service ticket validation error: {}", e);
             None
         });
@@ -247,7 +247,7 @@ async fn proxy_validate(
     Query(query): Query<ProxyValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result =
-        state.services.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
+        state.services.sso.cas_service.validate_proxy_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
             tracing::warn!("CAS proxy ticket validation error: {}", e);
             None
         });
@@ -272,7 +272,7 @@ async fn proxy_validate(
 }
 
 async fn proxy(State(state): State<AppState>, Query(query): Query<ProxyQuery>) -> Result<impl IntoResponse, ApiError> {
-    let ticket = state.services.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
+    let ticket = state.services.sso.cas_service.create_proxy_ticket(&query.pgt, &query.target_service).await?;
 
     let response = CasValidationResponse::Success {
         user: ticket.user_id.clone(),
@@ -289,7 +289,7 @@ async fn p3_service_validate(
 ) -> Result<impl IntoResponse, ApiError> {
     let response = state
         .services
-        .cas_service
+        .sso.cas_service
         .validate_service_ticket_v3(
             &query.ticket,
             &query.service,
@@ -337,13 +337,13 @@ async fn register_service(
         is_single_logout: body.single_logout,
     };
 
-    let service = state.services.cas_service.register_service(request).await?;
+    let service = state.services.sso.cas_service.register_service(request).await?;
 
     Ok((StatusCode::CREATED, Json(ServiceResponse::from(service))))
 }
 
 async fn list_services(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let services = state.services.cas_service.list_services().await?;
+    let services = state.services.sso.cas_service.list_services().await?;
     let response: Vec<ServiceResponse> = services.into_iter().map(ServiceResponse::from).collect();
     Ok(Json(response))
 }
@@ -353,7 +353,7 @@ async fn delete_service(
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let deleted = state.services.cas_service.delete_service(&service_id).await?;
+    let deleted = state.services.sso.cas_service.delete_service(&service_id).await?;
 
     if deleted {
         Ok(StatusCode::NO_CONTENT)
@@ -369,7 +369,7 @@ async fn set_user_attribute(
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let attr =
-        state.services.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
+        state.services.sso.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
 
     Ok(Json(serde_json::json!({
         "user_id": attr.user_id,
@@ -383,7 +383,7 @@ async fn get_user_attributes(
     _admin: AdminUser,
     Path(user_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attrs = state.services.cas_service.get_user_attributes(&user_id).await?;
+    let attrs = state.services.sso.cas_service.get_user_attributes(&user_id).await?;
 
     let response: Vec<serde_json::Value> = attrs
         .into_iter()

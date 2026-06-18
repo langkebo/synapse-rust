@@ -10,7 +10,7 @@ use synapse_rust::e2ee::verification::storage::VerificationStorage;
 use synapse_rust::storage::moderation::{
     CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType, ModerationStorage,
 };
-use synapse_rust::storage::room_summary::RoomSummaryStorage;
+use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::space::SpaceStorage;
 use synapse_rust::worker::storage::WorkerStorage;
 use synapse_rust::worker::types::{AssignTaskRequest, RegisterWorkerRequest, WorkerType};

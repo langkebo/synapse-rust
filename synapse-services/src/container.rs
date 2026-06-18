@@ -413,6 +413,14 @@ fn assemble_federation(
     }
 }
 
+#[cfg(feature = "burn-after-read")]
+fn burn_after_read_processor_enabled() -> bool {
+    !matches!(
+        env::var("SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR").ok().as_deref(),
+        Some("0" | "false" | "FALSE" | "False" | "off" | "OFF" | "Off")
+    )
+}
+
 // =============================================================================
 // Admin assembly — audit, feature flags, modules, background updates
 // =============================================================================
@@ -558,7 +566,14 @@ fn assemble_admin_support(
     ));
     let app_service_scheduler =
         Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
-    app_service_scheduler.clone().start();
+    if !config.server.app_service_config_files.is_empty() {
+        app_service_scheduler.clone().start();
+    } else {
+        ::tracing::info!(
+            has_app_service_configs = false,
+            "Skipping application service scheduler startup because no appservice config files are declared"
+        );
+    }
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
     let worker_manager =
@@ -739,7 +754,7 @@ impl ServiceContainer {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
-        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(&pool);
+        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
@@ -986,9 +1001,14 @@ impl ServiceContainer {
         };
 
         #[cfg(feature = "burn-after-read")]
-        {
+        if burn_after_read_processor_enabled() {
             container.extensions.burn_after_read.recover_pending_burns().await;
             container.extensions.burn_after_read.clone().start_burn_processor().await;
+        } else {
+            ::tracing::info!(
+                processor_enabled = false,
+                "Skipping burn-after-read processor startup because it is disabled by environment"
+            );
         }
 
         container
@@ -1254,7 +1274,7 @@ fn generate_encryption_key() -> [u8; 32] {
 
     let mut key = [0u8; 32];
     use rand::RngCore;
-    rand::rngs::OsRng.fill_bytes(&mut key);
+    rand::rng().fill_bytes(&mut key);
 
     if let Some(ref p) = path {
         let path_buf = std::path::PathBuf::from(p);

@@ -91,7 +91,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 fn create_storage(pool: &Arc<sqlx::PgPool>) -> ThreepidStorage {
-    ThreepidStorage::new(pool.clone())
+    ThreepidStorage::new(pool.as_ref())
 }
 
 async fn insert_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {

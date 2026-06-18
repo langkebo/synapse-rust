@@ -10,7 +10,7 @@ fn create_test_storage(pool: sqlx::PgPool) -> MatrixRTCStorage {
 }
 
 fn create_test_service(storage: MatrixRTCStorage, cache: synapse_rust::cache::CacheManager) -> MatrixRTCService {
-    MatrixRTCService::new(storage, std::sync::Arc::new(cache))
+    MatrixRTCService::new(storage, std::sync::Arc::new(cache.to_synapse_cache_manager()))
 }
 
 #[tokio::test]

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT new_key_id, rotated_at AS \"rotated_at!\"\n            FROM key_rotation_log\n            WHERE user_id = $1 AND device_id = $2\n            ORDER BY rotated_at DESC\n            LIMIT 10",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "new_key_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "rotated_at!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "4edd14683c493ee1ef9f7fd36073d5ad904454bb15d2ae336dc4affaaefebf33"
+}

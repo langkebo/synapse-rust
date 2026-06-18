@@ -206,6 +206,30 @@ async fn test_get_user_tokens_returns_empty_for_unknown_user() {
 }
 
 #[tokio::test]
+async fn test_delete_user_token_by_id() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let storage = AccessTokenStorage::new(&pool);
+    let suffix = unique_id();
+    let user_id = format!("@at_user_{suffix}:localhost");
+    insert_test_user(&pool, &user_id, suffix).await;
+
+    let token_str = format!("syt_delete_by_id_{suffix}");
+    let created = storage.create_token(&token_str, &user_id, None, None).await.unwrap();
+
+    let deleted = storage.delete_user_token_by_id(&user_id, created.id).await.unwrap();
+    assert!(deleted);
+
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id = $1)")
+        .bind(created.id)
+        .fetch_one(&*pool)
+        .await
+        .unwrap();
+    assert!(!exists);
+}
+
+#[tokio::test]
 async fn test_delete_token() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;

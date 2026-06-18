@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO key_rotation_config (key, value)\n            VALUES ($1, $2)\n            ON CONFLICT (key) DO UPDATE SET value = $2\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "141026efb9ae41a5e5032cb1dcb32f47ee93bc3f55d6cb0f88fce1108d5c9d57"
+}

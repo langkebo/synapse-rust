@@ -5,7 +5,7 @@ use crate::web::AuthenticatedUser;
 use axum::{
     body::Bytes,
     extract::{Json, Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post, put},
     Router,
@@ -243,7 +243,9 @@ async fn upload_media_common(
         return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
-    Ok(Json(state.services.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?))
+    Ok(Json(
+        state.services.extensions.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?,
+    ))
 }
 
 async fn upload_media_with_id_common(
@@ -279,6 +281,7 @@ async fn upload_media_with_id_common(
     Ok(Json(
         state
             .services
+            .extensions
             .media_domain_service
             .upload_media_with_id(user_id, media_id, &content_bytes, content_type, filename)
             .await?,
@@ -301,7 +304,7 @@ async fn download_media_common(
 ) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
     ensure_local_media_server_name(state, server_name)?;
 
-    state.services.media_domain_service.download_media(server_name, media_id, response_filename).await
+    state.services.extensions.media_domain_service.download_media(server_name, media_id, response_filename).await
 }
 
 fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders) -> HeaderMap {
@@ -360,7 +363,7 @@ async fn thumbnail_response_common(
     ensure_local_media_server_name(state, server_name)?;
     let (width, height, method) = thumbnail_request_params(params);
 
-    state.services.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await
+    state.services.extensions.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await
 }
 
 async fn upload_media_v3(
@@ -373,14 +376,19 @@ async fn upload_media_v3(
     upload_media_common(&state, &auth_user.user_id, &params, &headers, body).await
 }
 
-pub async fn media_config(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({
-        "m.upload.size": state.services.core.config.server.max_upload_size
-    }))
+pub async fn media_config(State(state): State<AppState>) -> impl IntoResponse {
+    let route_owner =
+        crate::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+    (
+        [(header::HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
+        Json(json!({
+            "m.upload.size": state.services.core.config.server.max_upload_size
+        })),
+    )
 }
 
 pub async fn check_quota(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.media_domain_service.get_user_quota(&auth_user.user_id).await?;
+    let quota_info = state.services.extensions.media_domain_service.get_user_quota(&auth_user.user_id).await?;
 
     let limit = quota_info.max_storage_bytes;
     let used = quota_info.current_storage_bytes;
@@ -395,8 +403,8 @@ pub async fn check_quota(State(state): State<AppState>, auth_user: Authenticated
 }
 
 pub async fn quota_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.media_domain_service.get_user_quota(&auth_user.user_id).await?;
-    let stats = state.services.media_domain_service.get_usage_stats(&auth_user.user_id).await?;
+    let quota_info = state.services.extensions.media_domain_service.get_user_quota(&auth_user.user_id).await?;
+    let stats = state.services.extensions.media_domain_service.get_usage_stats(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "user_id": auth_user.user_id,
@@ -411,7 +419,7 @@ pub async fn quota_alerts(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let alerts = state.services.media_domain_service.get_user_alerts(&auth_user.user_id, false).await?;
+    let alerts = state.services.extensions.media_domain_service.get_user_alerts(&auth_user.user_id, false).await?;
 
     let alerts_list: Vec<Value> = alerts
         .into_iter()
@@ -477,7 +485,8 @@ async fn download_media_signed(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires)
+    {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
@@ -499,7 +508,8 @@ async fn download_media_signed_with_filename(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires)
+    {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
@@ -612,7 +622,7 @@ async fn preview_url(
 
     let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    match state.services.media_domain_service.preview_url(url, ts) {
+    match state.services.extensions.media_domain_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),
         Err(e) => Ok(Json(json!({
             "url": url,
@@ -629,7 +639,12 @@ async fn delete_media(
 ) -> Result<Json<Value>, ApiError> {
     ensure_local_media_server_name(&state, &server_name)?;
 
-    state.services.media_domain_service.delete_media_for_user(&server_name, &media_id, &auth_user.user_id).await?;
+    state
+        .services
+        .extensions
+        .media_domain_service
+        .delete_media_for_user(&server_name, &media_id, &auth_user.user_id)
+        .await?;
 
     Ok(Json(json!({
         "deleted": true,
@@ -659,6 +674,7 @@ async fn chunked_upload_start(
 
     let upload_id = state
         .services
+        .extensions
         .media_domain_service
         .start_chunked_upload(&auth_user.user_id, filename, content_type, total_size, total_chunks)
         .await?;
@@ -696,7 +712,7 @@ async fn chunked_upload_chunk(
         total_size,
     };
 
-    let response = state.services.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
+    let response = state.services.extensions.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "upload_id": response.upload_id,
@@ -720,7 +736,8 @@ async fn chunked_upload_complete(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let response = state.services.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
+    let response =
+        state.services.extensions.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "content_uri": response.content_uri,
@@ -741,7 +758,7 @@ async fn chunked_upload_cancel(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    state.services.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
+    state.services.extensions.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "cancelled": true,
@@ -761,7 +778,7 @@ async fn chunked_upload_progress(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let progress = state.services.media_domain_service.get_chunked_upload_progress(upload_id).await?;
+    let progress = state.services.extensions.media_domain_service.get_chunked_upload_progress(upload_id).await?;
 
     if progress.user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Upload does not belong to user"));

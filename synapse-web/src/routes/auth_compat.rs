@@ -35,15 +35,13 @@ pub(crate) async fn register(
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create guest user", &e))?;
 
-        sqlx::query(
-            r"
-            UPDATE users SET is_guest = TRUE WHERE user_id = $1
-            ",
-        )
-        .bind(&user.user_id)
-        .execute(&*state.services.account.user_storage.pool)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
+        state
+            .services
+            .account
+            .user_storage
+            .set_guest_status(&user.user_id, true)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
         DeviceStorage::create_device(
             &state.services.account.device_storage,

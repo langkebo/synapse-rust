@@ -549,11 +549,7 @@ impl WorkerTopologyEntry {
             worker_type,
             instance_map_keys: worker_type.instance_map_keys().iter().map(|value| (*value).to_string()).collect(),
             domains: worker_type.responsibility_domains().iter().map(|value| (*value).to_string()).collect(),
-            owned_route_prefixes: worker_type
-                .owned_route_prefixes()
-                .iter()
-                .map(|value| (*value).to_string())
-                .collect(),
+            owned_route_prefixes: worker_type.owned_route_prefixes().iter().map(|value| (*value).to_string()).collect(),
             replication_streams: worker_type.replication_streams().iter().map(|value| (*value).to_string()).collect(),
             capabilities: WorkerCapabilities::for_type(&worker_type),
         }
@@ -685,10 +681,7 @@ impl WorkerTopologySummary {
     }
 
     pub fn baseline_preset(name: &str) -> Option<WorkerTopologyPreset> {
-        Self::baseline()
-            .deployment_presets
-            .into_iter()
-            .find(|preset| preset.name == name)
+        Self::baseline().deployment_presets.into_iter().find(|preset| preset.name == name)
     }
 }
 
@@ -733,7 +726,10 @@ mod tests {
 
     #[test]
     fn test_worker_type_route_prefixes_and_instance_map_keys() {
-        assert_eq!(WorkerType::Synchrotron.owned_route_prefixes(), &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"]);
+        assert_eq!(
+            WorkerType::Synchrotron.owned_route_prefixes(),
+            &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"]
+        );
         assert_eq!(WorkerType::EventPersister.instance_map_keys(), &["event_persister"]);
     }
 

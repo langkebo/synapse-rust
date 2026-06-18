@@ -15,7 +15,7 @@
 | [`CLAUDE.md`](../CLAUDE.md) | Claude IDE 项目规则 | 现行 |
 | [`TESTING.md`](../TESTING.md) | 测试分层与门禁定义 | 现行 |
 | [`CHECKLIST.md`](../CHECKLIST.md) | 发布前自检表 | 现行 |
-| [`CHANGELOG.md`](../CHANGELOG.md) | 版本变更日志（Keep a Changelog + SemVer） | 现行（v8.0.0 基线，2026-06-06） |
+| [`CHANGELOG.md`](../CHANGELOG.md) | 版本变更日志（Keep a Changelog + SemVer） | 现行（v10.0.0 基线，2026-06-12） |
 
 ---
 
@@ -27,9 +27,9 @@
 |------|------|----------|
 | [`COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md`](./synapse-rust/COMPREHENSIVE_AUDIT_REPORT_2026-06-03.md) | **当前基线**：P0/P1/P2 + Step 1-12 执行状态 + 30 项修复路线 | 2026-06-12 |
 | [`MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md`](./synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) | Matrix v1.18 / Synapse v1.153 协议对齐 + 优化 backlog | 2026-05-29 |
-| [`SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md`](./synapse-rust/SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md) | 优化总蓝图 | 2026-05-27 |
-| [`SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md`](./synapse-rust/SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md) | 上游 Synapse 行为研究 | 2026-05-27 |
-| [`OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md`](./synapse-rust/OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md) | 冗余消除与去重方案 | 2026-04-21 |
+| [`SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md`](./synapse-rust/archive/SYNAPSE_RUST_OPTIMIZATION_BLUEPRINT_2026-05-27.md) | 优化总蓝图 | 2026-05-27 |
+| [`SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md`](./synapse-rust/archive/SYNAPSE_UPSTREAM_RESEARCH_2026-05-27.md) | 上游 Synapse 行为研究 | 2026-05-27 |
+| [`OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md`](./synapse-rust/archive/OPTIMIZATION_AND_DEDUPLICATION_PLAN_2026-04-21.md) | 冗余消除与去重方案 | 2026-04-21 |
 | [`SPEC_ALIGNMENT_PLAN_2026-05-01.md`](./synapse-rust/SPEC_ALIGNMENT_PLAN_2026-05-01.md) | Matrix 规范对齐计划 | 2026-05-01 |
 
 ---
@@ -39,12 +39,11 @@
 | 文档 | 用途 |
 |------|------|
 | [`SUPPORTED_MATRIX_SURFACE.md`](./synapse-rust/SUPPORTED_MATRIX_SURFACE.md) | 声明的 Matrix 客户端/服务端版本与能力面；提升规则 |
-| [`API_COVERAGE_REPORT.md`](./synapse-rust/API_COVERAGE_REPORT.md) | API 覆盖率分析（vs Synapse v1.149.1） |
+| [`API_COVERAGE_REPORT.md`](./synapse-rust/API_COVERAGE_REPORT.md) | API 覆盖率分析（vs Synapse v1.153.0） |
 | [`API_SECURITY_VERIFICATION_REPORT.md`](./synapse-rust/API_SECURITY_VERIFICATION_REPORT.md) | API 安全验证报告 |
 | [`admin-registration-guide.md`](./synapse-rust/admin-registration-guide.md) | 管理员注册流程 |
 | [`LEDGER_EXPORT_SCHEMA.md`](./synapse-rust/LEDGER_EXPORT_SCHEMA.md) | Ledger 导出 schema |
 | [`permission_matrix.csv`](./synapse-rust/permission_matrix.csv) | 权限矩阵 |
-| [`api/`](./synapse-rust/api) | OpenAPI / 协议映射 |
 
 ---
 
@@ -52,13 +51,13 @@
 
 | 文档 | 用途 | 状态 |
 |------|------|------|
-| [`E2EE_VODOZEMAC_MIGRATION.md`](./synapse-rust/E2EE_VODOZEMAC_MIGRATION.md) | C-5 E2EE → vodozemac 收敛（C-5 Phase 1-4） | Phase 1+2 ✅ / Phase 3 🚧 |
+| [`E2EE_VODOZEMAC_MIGRATION.md`](./synapse-rust/archive/E2EE_VODOZEMAC_MIGRATION.md) | C-5 E2EE → vodozemac 收敛（C-5 Phase 1-4） | Phase 1+2 ✅ / Phase 3 🚧 |
 | [`M3_BATCH1_EXECUTION_PLAN.md`](./synapse-rust/M3_BATCH1_EXECUTION_PLAN.md) | M-3 `sqlx::query!` 关键路径加固执行计划（A-F 阶段 5-8 天） | ⏳ 待启动 |
 | [`M3_SQLX_MIGRATION_PLAN.md`](./synapse-rust/M3_SQLX_MIGRATION_PLAN.md) | M-3 `sqlx::query!` 迁移计划（**stale** — 已被搁置/重定向到 Batch 1 计划） | ⚠️ **stale** |
 | [`M3_PROGRESS.md`](./synapse-rust/M3_PROGRESS.md) | M-3 进度报告（动态 SQL → 编译期宏迁移跟踪） | 🚧 进行中 |
 | [`ROUTE_STORAGE_MIGRATION_PLAN.md`](./synapse-rust/ROUTE_STORAGE_MIGRATION_PLAN.md) | M-4 路由层直查 storage 迁移 | ✅ |
-| [`REDUNDANCY_CLEANUP_LOG_2026-05-28.md`](./synapse-rust/REDUNDANCY_CLEANUP_LOG_2026-05-28.md) | 冗余清理变更日志 | ✅ |
-| [`REDUNDANT_TABLE_DELETION_PLAN.md`](./synapse-rust/REDUNDANT_TABLE_DELETION_PLAN.md) | 冗余表删除计划 | ✅ |
+| [`REDUNDANCY_CLEANUP_LOG_2026-05-28.md`](./synapse-rust/archive/REDUNDANCY_CLEANUP_LOG_2026-05-28.md) | 冗余清理变更日志 | ✅ |
+| [`REDUNDANT_TABLE_DELETION_PLAN.md`](./synapse-rust/archive/REDUNDANT_TABLE_DELETION_PLAN.md) | 冗余表删除计划 | ✅ |
 
 ### M-3 Issue Tracker
 

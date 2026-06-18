@@ -265,6 +265,19 @@ pub struct KeyRotationStorage {
     pool: Arc<sqlx::PgPool>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct RotationStatusRow {
+    total_sessions: i64,
+    rotated_sessions: i64,
+    last_rotation: Option<i64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DeviceRotationHistoryRow {
+    new_key_id: Option<String>,
+    rotated_at: i64,
+}
+
 impl KeyRotationStorage {
     pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
         Self { pool }
@@ -274,19 +287,19 @@ impl KeyRotationStorage {
         let now_ts = chrono::Utc::now().timestamp_millis();
         let new_key_id = uuid::Uuid::new_v4().to_string();
 
-        sqlx::query!(
+        sqlx::query(
             r#"INSERT INTO key_rotation_log
              (user_id, device_id, room_id, rotation_type, old_key_id, new_key_id, reason, rotated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-            user_id,
-            "",
-            Some(room_id),
-            rotation_type,
-            None::<&str>,
-            Some(new_key_id.as_str()),
-            None::<&str>,
-            now_ts,
         )
+        .bind(user_id)
+        .bind("")
+        .bind(Some(room_id))
+        .bind(rotation_type)
+        .bind(None::<&str>)
+        .bind(Some(new_key_id.as_str()))
+        .bind(None::<&str>)
+        .bind(now_ts)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -298,9 +311,9 @@ impl KeyRotationStorage {
     }
 
     pub async fn get_encrypted_rooms(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_scalar::<_, String>(
             r#"
-            SELECT DISTINCT r.room_id AS "room_id!"
+            SELECT DISTINCT r.room_id
             FROM rooms r
             INNER JOIN room_memberships rm ON r.room_id = rm.room_id
             INNER JOIN events e ON r.room_id = e.room_id
@@ -309,8 +322,8 @@ impl KeyRotationStorage {
               AND e.event_type = 'm.room.encryption'
               AND e.state_key IS NOT NULL
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -318,22 +331,22 @@ impl KeyRotationStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(rows.into_iter().map(|r| r.room_id).collect())
+        Ok(rows)
     }
 
     pub async fn record_key_share(&self, room_id: &str, session_id: &str, share_reason: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO megolm_key_shares (room_id, session_id, share_reason, shared_at)
             VALUES ($1, $2, $3, $4)
             ON CONFLICT (room_id, session_id) DO UPDATE SET share_reason = $3, shared_at = $4
             ",
-            room_id,
-            session_id,
-            share_reason,
-            now,
         )
+        .bind(room_id)
+        .bind(session_id)
+        .bind(share_reason)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -346,16 +359,16 @@ impl KeyRotationStorage {
 
     pub async fn mark_rotated(&self, user_id: &str, room_id: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO key_rotation_state (user_id, room_id, is_rotated, rotated_at)
             VALUES ($1, $2, TRUE, $3)
             ON CONFLICT (user_id, room_id) DO UPDATE SET is_rotated = TRUE, rotated_at = $3
             ",
-            user_id,
-            room_id,
-            now,
         )
+        .bind(user_id)
+        .bind(room_id)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -367,11 +380,11 @@ impl KeyRotationStorage {
     }
 
     pub async fn check_needs_rotation(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
-        let row = sqlx::query!(
-            r#"SELECT is_rotated AS "is_rotated!" FROM key_rotation_state WHERE user_id = $1 AND room_id = $2"#,
-            user_id,
-            room_id,
+        let is_rotated = sqlx::query_scalar::<_, bool>(
+            r#"SELECT is_rotated FROM key_rotation_state WHERE user_id = $1 AND room_id = $2"#,
         )
+        .bind(user_id)
+        .bind(room_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -379,12 +392,12 @@ impl KeyRotationStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(row.as_ref().is_none_or(|r| !r.is_rotated))
+        Ok(is_rotated.is_none_or(|v| !v))
     }
 
     pub async fn delete_expired_sessions(&self) -> Result<i64, ApiError> {
         let result =
-            sqlx::query!("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
+            sqlx::query("DELETE FROM megolm_sessions WHERE expires_at < (EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)")
                 .execute(&*self.pool)
                 .await
                 .map_err(|e| {
@@ -397,16 +410,16 @@ impl KeyRotationStorage {
 
     pub async fn get_rotation_status(&self, user_id: &str) -> Result<RotationStatus, ApiError> {
         let seven_days_ago_ms = chrono::Utc::now().timestamp_millis() - 7 * 24 * 3600 * 1000;
-        let row = sqlx::query!(
+        let row = sqlx::query_as::<_, RotationStatusRow>(
             r#"SELECT
-             COUNT(*) AS "total_sessions!",
-             COUNT(CASE WHEN rotated_at > $2 THEN 1 END) AS "rotated_sessions!",
+             COUNT(*) AS total_sessions,
+             COUNT(CASE WHEN rotated_at > $2 THEN 1 END) AS rotated_sessions,
              MAX(rotated_at) AS last_rotation
              FROM key_rotation_state
              WHERE user_id = $1"#,
-            user_id,
-            seven_days_ago_ms,
         )
+        .bind(user_id)
+        .bind(seven_days_ago_ms)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {
@@ -422,9 +435,9 @@ impl KeyRotationStorage {
     }
 
     pub async fn get_encrypted_room_members(&self, room_id: &str) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_scalar::<_, String>(
             r#"
-            SELECT rm.user_id AS "user_id!"
+            SELECT rm.user_id
             FROM room_memberships rm
             INNER JOIN events e ON rm.room_id = e.room_id
             WHERE rm.room_id = $1
@@ -432,8 +445,8 @@ impl KeyRotationStorage {
               AND e.event_type = 'm.room.encryption'
               AND e.state_key IS NOT NULL
             "#,
-            room_id,
         )
+        .bind(room_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -441,21 +454,21 @@ impl KeyRotationStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(rows.into_iter().map(|r| r.user_id).collect())
+        Ok(rows)
     }
 
     pub async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
             VALUES ($1, 'member_left', $2, $3)
             ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
             ",
-            room_id,
-            leaving_user_id,
-            now,
         )
+        .bind(room_id)
+        .bind(leaving_user_id)
+        .bind(now)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -467,16 +480,16 @@ impl KeyRotationStorage {
     }
 
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_scalar::<_, String>(
             r#"
-            SELECT DISTINCT krp.room_id AS "room_id!"
+            SELECT DISTINCT krp.room_id
             FROM key_rotation_pending krp
             INNER JOIN room_memberships rm ON krp.room_id = rm.room_id
             WHERE rm.user_id = $1
               AND rm.membership = 'join'
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -484,16 +497,16 @@ impl KeyRotationStorage {
             ApiError::database("A database error occurred".to_string())
         })?;
 
-        Ok(rows.into_iter().map(|r| r.room_id).collect())
+        Ok(rows)
     }
 
     pub async fn clear_key_rotation_needed(&self, room_id: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             DELETE FROM key_rotation_pending WHERE room_id = $1
             ",
-            room_id,
         )
+        .bind(room_id)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -506,16 +519,15 @@ impl KeyRotationStorage {
 
     /// Get the timestamp of the most recent rotation for a user.
     pub async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT MAX(rotated_at) AS "max?" FROM key_rotation_log WHERE user_id = $1"#,
-            user_id,
-        )
-        .fetch_one(&*self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to query key rotation log: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        let result =
+            sqlx::query_scalar::<_, Option<i64>>(r#"SELECT MAX(rotated_at) FROM key_rotation_log WHERE user_id = $1"#)
+                .bind(user_id)
+                .fetch_one(&*self.pool)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to query key rotation log: {e}");
+                    ApiError::database("A database error occurred".to_string())
+                })?;
 
         Ok(result)
     }
@@ -527,15 +539,15 @@ impl KeyRotationStorage {
         user_id: &str,
         device_id: &str,
     ) -> Result<Vec<(Option<String>, i64)>, ApiError> {
-        let rows = sqlx::query!(
-            r#"SELECT new_key_id, rotated_at AS "rotated_at!"
+        let rows = sqlx::query_as::<_, DeviceRotationHistoryRow>(
+            r#"SELECT new_key_id, rotated_at
             FROM key_rotation_log
             WHERE user_id = $1 AND device_id = $2
             ORDER BY rotated_at DESC
             LIMIT 10"#,
-            user_id,
-            device_id,
         )
+        .bind(user_id)
+        .bind(device_id)
         .fetch_all(&*self.pool)
         .await
         .map_err(|e| {
@@ -548,16 +560,16 @@ impl KeyRotationStorage {
 
     /// Get the last rotation timestamp for a specific key id.
     pub async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError> {
-        let result = sqlx::query_scalar!(
+        let result = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT rotated_at AS "rotated_at!"
+            SELECT rotated_at
             FROM key_rotation_log
             WHERE user_id = $1 AND (new_key_id = $2 OR old_key_id = $2)
             ORDER BY rotated_at DESC LIMIT 1
             "#,
-            user_id,
-            key_id,
         )
+        .bind(user_id)
+        .bind(key_id)
         .fetch_optional(&*self.pool)
         .await
         .map_err(|e| {
@@ -571,10 +583,10 @@ impl KeyRotationStorage {
     /// Get the maximum rotation timestamp for a user (returns 0 if no
     /// rotations exist).
     pub async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
-        let result = sqlx::query_scalar!(
-            r#"SELECT COALESCE(MAX(rotated_at), 0)::BIGINT AS "coalesce!" FROM key_rotation_log WHERE user_id = $1"#,
-            user_id,
+        let result = sqlx::query_scalar::<_, i64>(
+            r#"SELECT COALESCE(MAX(rotated_at), 0) FROM key_rotation_log WHERE user_id = $1"#,
         )
+        .bind(user_id)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| {
@@ -587,15 +599,15 @@ impl KeyRotationStorage {
 
     /// Persist a key-value pair in the key_rotation_config table.
     pub async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError> {
-        sqlx::query!(
+        sqlx::query(
             r"
             INSERT INTO key_rotation_config (key, value)
             VALUES ($1, $2)
             ON CONFLICT (key) DO UPDATE SET value = $2
             ",
-            key,
-            value,
         )
+        .bind(key)
+        .bind(value)
         .execute(&*self.pool)
         .await
         .map_err(|e| {
@@ -608,7 +620,8 @@ impl KeyRotationStorage {
 
     /// Read a value from the key_rotation_config table.
     pub async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError> {
-        let result = sqlx::query_scalar!(r#"SELECT value AS "value!" FROM key_rotation_config WHERE key = $1"#, key,)
+        let result = sqlx::query_scalar::<_, String>(r#"SELECT value FROM key_rotation_config WHERE key = $1"#)
+            .bind(key)
             .fetch_optional(&*self.pool)
             .await
             .map_err(|e| {

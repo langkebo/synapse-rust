@@ -231,7 +231,7 @@ impl RendezvousStorage {
     fn generate_key() -> String {
         use rand::RngCore;
         let mut key_bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         URL_SAFE_NO_PAD.encode(key_bytes)
     }
 

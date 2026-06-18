@@ -19,9 +19,9 @@ use synapse_storage::refresh_token::RefreshTokenStorage;
 use synapse_storage::*;
 
 // Re-export shared claims types from synapse-common for backward compatibility.
-pub use synapse_common::claims::{Claims, ClaimsBuilder};
 pub use guest::GuestAuthExt;
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
+pub use synapse_common::claims::{Claims, ClaimsBuilder};
 
 const TOKEN_CACHE_TTL_SECS: u64 = 3600;
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
@@ -97,7 +97,7 @@ impl AuthService {
 
 fn auth_generate_token(length: usize) -> String {
     static CHARSET: [u8; 62] = *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut token = String::with_capacity(length);
     for _ in 0..length {
         let idx = (rng.next_u32() as usize) % CHARSET.len();

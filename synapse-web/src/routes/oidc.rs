@@ -504,10 +504,9 @@ async fn oidc_token(
             // 查询 (issuer, subject) -> user_id 绑定，防止外部 IdP 攻击者通过
             // 控制 preferred_username 等映射字段冒用本地已存在账号。
             let pool = &*state.services.account.user_storage.pool;
-            let bound_user_id =
-                synapse_storage::OidcUserMappingStorage::get_bound_user_id(pool, &issuer, &subject)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
+            let bound_user_id = synapse_storage::OidcUserMappingStorage::get_bound_user_id(pool, &issuer, &subject)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
 
             let matrix_user_id = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。

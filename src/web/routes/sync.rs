@@ -3,24 +3,49 @@ use crate::web::routes::{
     handlers::sync::{get_events, sync},
     AppState,
 };
-use axum::{routing::get, Router};
+use axum::{
+    body::Body,
+    extract::State,
+    http::{HeaderValue, Request},
+    middleware::{self, Next},
+    response::Response,
+    routing::get,
+    Router,
+};
 
-fn create_sync_compat_router() -> Router<AppState> {
-    Router::new().route("/sync", get(sync)).route("/events", get(get_events))
+const ROUTE_OWNER_HEADER: &str = "x-synapse-route-owner";
+
+async fn sync_route_owner_header_middleware(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    let route_owner =
+        crate::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+    response.headers_mut().insert(ROUTE_OWNER_HEADER, HeaderValue::from_static(route_owner.as_str()));
+    response
 }
 
-fn create_sync_r0_router() -> Router<AppState> {
-    create_sync_compat_router().route("/joined_rooms", get(get_joined_rooms))
-}
-
-fn create_sync_v3_router() -> Router<AppState> {
-    create_sync_compat_router().route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
-}
-
-pub fn create_sync_router() -> Router<AppState> {
+fn create_sync_compat_router(state: AppState) -> Router<AppState> {
     Router::new()
-        .nest("/_matrix/client/r0", create_sync_r0_router())
-        .nest("/_matrix/client/v3", create_sync_v3_router())
+        .route("/sync", get(sync))
+        .route("/events", get(get_events))
+        .route_layer(middleware::from_fn_with_state(state, sync_route_owner_header_middleware))
+}
+
+fn create_sync_r0_router(state: AppState) -> Router<AppState> {
+    create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms))
+}
+
+fn create_sync_v3_router(state: AppState) -> Router<AppState> {
+    create_sync_compat_router(state).route("/joined_rooms", get(get_joined_rooms)).route("/my_rooms", get(get_my_rooms))
+}
+
+pub fn create_sync_router(state: AppState) -> Router<AppState> {
+    Router::new()
+        .nest("/_matrix/client/r0", create_sync_r0_router(state.clone()))
+        .nest("/_matrix/client/v3", create_sync_v3_router(state))
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_sync_router`

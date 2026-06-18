@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use tokio::signal;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
@@ -23,10 +24,20 @@ use crate::web::middleware::{
 use crate::web::routes::create_router;
 use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
 use crate::web::AppState;
+use crate::worker::topology_validator::{
+    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
+};
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
+
+fn global_maintenance_tasks_enabled() -> bool {
+    !matches!(
+        std::env::var("SYNAPSE_ENABLE_GLOBAL_MAINTENANCE_TASKS").ok().as_deref(),
+        Some("0" | "false" | "FALSE" | "False" | "off" | "OFF" | "Off")
+    )
+}
 
 #[derive(Clone)]
 struct PrometheusMetricsState {
@@ -50,7 +61,7 @@ pub struct SynapseServer {
     _config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
-use crate::common::task_queue::RedisTaskQueue;
+use synapse_common::task_queue::RedisTaskQueue;
 
 impl SynapseServer {
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
@@ -87,9 +98,9 @@ impl SynapseServer {
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
             .after_connect(|conn, _meta| {
                 Box::pin(async move {
-                    sqlx::query!("SET statement_timeout = '30s'").execute(&mut *conn).await?;
-                    sqlx::query!("SET lock_timeout = '10s'").execute(&mut *conn).await?;
-                    sqlx::query!("SET idle_in_transaction_session_timeout = '60s'").execute(&mut *conn).await?;
+                    sqlx::query("SET statement_timeout = '30s'").execute(&mut *conn).await?;
+                    sqlx::query("SET lock_timeout = '10s'").execute(&mut *conn).await?;
+                    sqlx::query("SET idle_in_transaction_session_timeout = '60s'").execute(&mut *conn).await?;
                     Ok(())
                 })
             })
@@ -221,10 +232,7 @@ impl SynapseServer {
 
         // P1-12: startup topology validation
         {
-            let enabled_workers = crate::worker::types::WorkerTopologySummary::baseline_preset("monolith")
-                .map(|preset| preset.worker_types())
-                .unwrap_or_else(|| vec![crate::worker::types::WorkerType::Master]);
-            let validation = crate::worker::topology_validator::validate_topology(&enabled_workers);
+            let validation = crate::worker::topology_validator::validate_worker_config(&config.worker);
             validation.log();
             if !validation.valid {
                 ::tracing::warn!(
@@ -333,65 +341,89 @@ impl SynapseServer {
             ::tracing::warn!("Warmup encountered minor errors: {}", e);
         }
 
-        self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
+        let worker_config = &self.app_state.services.core.config.worker;
+        let current_worker_type = current_instance_worker_type(worker_config);
+        let maintenance_owner = global_maintenance_owner(worker_config);
+        let maintenance_runtime_enabled = global_maintenance_tasks_enabled();
+        let run_global_maintenance = should_run_global_maintenance(worker_config) && maintenance_runtime_enabled;
 
-        ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
-        self.scheduled_tasks.start_all();
+        ::tracing::info!(
+            worker_type = current_worker_type.as_str(),
+            maintenance_owner = maintenance_owner.as_str(),
+            maintenance_runtime_enabled,
+            run_global_maintenance,
+            "Evaluated global maintenance task ownership"
+        );
+
+        if run_global_maintenance {
+            self.app_state.services.federation.key_rotation_manager.start_auto_rotation().await;
+
+            ::tracing::info!("Starting scheduled database monitoring and maintenance tasks...");
+            self.scheduled_tasks.start_all();
+        } else {
+            ::tracing::info!(
+                worker_type = current_worker_type.as_str(),
+                maintenance_owner = maintenance_owner.as_str(),
+                maintenance_runtime_enabled,
+                "Skipping global maintenance tasks on this worker instance"
+            );
+        }
 
         #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.rooms.beacon_service.clone();
-        let retention_service = self.app_state.services.admin.retention_service.clone();
-        let retention_config = self.app_state.services.core.config.retention.clone();
-        let megolm_service = self.app_state.services.e2ee.megolm_service.clone();
         let background_tasks_interval = self.app_state.services.core.config.server.background_tasks_interval.max(10);
-        let dehydrated_cleanup_interval_secs =
-            self.app_state.services.core.config.server.dehydrated_device_cleanup_interval_secs;
-        let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
-            retention_config.lifecycle_cleanup_interval_secs.max(background_tasks_interval)
-        } else {
-            background_tasks_interval
-        };
-        tokio::spawn(async move {
-            let mut interval_timer = tokio::time::interval(Duration::from_secs(lifecycle_interval_secs));
-            interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                interval_timer.tick().await;
-                if retention_config.lifecycle_cleanup_enabled {
-                    #[cfg(feature = "beacons")]
-                    {
-                        retention_service.run_data_lifecycle_cycle(&beacon_service, &retention_config).await;
+        if run_global_maintenance {
+            let retention_service = self.app_state.services.admin.retention_service.clone();
+            let retention_config = self.app_state.services.core.config.retention.clone();
+            let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
+                retention_config.lifecycle_cleanup_interval_secs.max(background_tasks_interval)
+            } else {
+                background_tasks_interval
+            };
+            let megolm_service = self.app_state.services.e2ee.megolm_service.clone();
+
+            tokio::spawn(async move {
+                let mut interval_timer = tokio::time::interval(Duration::from_secs(lifecycle_interval_secs));
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    interval_timer.tick().await;
+                    if retention_config.lifecycle_cleanup_enabled {
+                        #[cfg(feature = "beacons")]
+                        {
+                            retention_service.run_data_lifecycle_cycle(&beacon_service, &retention_config).await;
+                        }
+                        #[cfg(not(feature = "beacons"))]
+                        {
+                            retention_service.run_data_lifecycle_cycle_no_beacons(&retention_config).await;
+                        }
+                    } else {
+                        #[cfg(feature = "beacons")]
+                        match beacon_service.cleanup_expired_beacons().await {
+                            Ok(count) => {
+                                if count > 0 {
+                                    ::tracing::info!("Cleaned up {} expired beacons", count);
+                                }
+                            }
+                            Err(error) => {
+                                ::tracing::warn!("Failed to cleanup expired beacons: {}", error);
+                            }
+                        }
                     }
-                    #[cfg(not(feature = "beacons"))]
-                    {
-                        retention_service.run_data_lifecycle_cycle_no_beacons(&retention_config).await;
-                    }
-                } else {
-                    #[cfg(feature = "beacons")]
-                    match beacon_service.cleanup_expired_beacons().await {
+
+                    // Clean up expired Megolm sessions (Synapse v1.153 alignment)
+                    match megolm_service.cleanup_expired_sessions().await {
                         Ok(count) => {
                             if count > 0 {
-                                ::tracing::info!("Cleaned up {} expired beacons", count);
+                                ::tracing::info!("Cleaned up {} expired Megolm sessions", count);
                             }
                         }
                         Err(error) => {
-                            ::tracing::warn!("Failed to cleanup expired beacons: {}", error);
+                            ::tracing::warn!("Failed to cleanup expired Megolm sessions: {}", error);
                         }
                     }
                 }
-
-                // Clean up expired Megolm sessions (Synapse v1.153 alignment)
-                match megolm_service.cleanup_expired_sessions().await {
-                    Ok(count) => {
-                        if count > 0 {
-                            ::tracing::info!("Cleaned up {} expired Megolm sessions", count);
-                        }
-                    }
-                    Err(error) => {
-                        ::tracing::warn!("Failed to cleanup expired Megolm sessions: {}", error);
-                    }
-                }
-            }
-        });
+            });
+        }
 
         let router = self.router.clone();
         let fed_router = self.router.clone();
@@ -423,7 +455,7 @@ impl SynapseServer {
         let mut shutdown_rx5 = shutdown_tx.subscribe();
         let mut shutdown_rx6 = shutdown_tx.subscribe();
 
-        {
+        if run_global_maintenance {
             let bg_service = self.app_state.services.admin.background_update_service.clone();
             let retention_service = self.app_state.services.admin.retention_service.clone();
             let media_service = self.app_state.services.core.media_service.clone();
@@ -483,8 +515,10 @@ impl SynapseServer {
             });
         }
 
-        {
+        if run_global_maintenance {
             let dehydrated_service = self.app_state.services.e2ee.dehydrated_device_service.clone();
+            let dehydrated_cleanup_interval_secs =
+                self.app_state.services.core.config.server.dehydrated_device_cleanup_interval_secs;
             let cleanup_interval = dehydrated_device_cleanup_interval(dehydrated_cleanup_interval_secs);
             let server_metrics = self.app_state.services.core.server_metrics.clone();
             tokio::spawn(async move {
@@ -527,7 +561,7 @@ impl SynapseServer {
             });
         }
 
-        {
+        if run_global_maintenance {
             // Megolm session expiry cleanup: periodically delete expired megolm
             // sessions to prevent unbounded growth of the megolm_sessions table.
             // Per Synapse v1.153 behavior, expired sessions should be cleaned up
@@ -613,11 +647,64 @@ impl SynapseServer {
 
         ::tracing::info!("All servers started successfully");
 
+        // Spawn signal handler for graceful shutdown (ctrl_c / SIGTERM).
+        let shutdown_tx_signal = shutdown_tx.clone();
+        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
+        let start_ts = chrono::Utc::now().timestamp_millis();
+        tokio::spawn(async move {
+            let sig = tokio::select! {
+                _ = signal::ctrl_c() => "SIGINT",
+                sig = async {
+                    #[cfg(unix)]
+                    {
+                        use tokio::signal::unix::{signal, SignalKind};
+                        let mut sigterm = signal(SignalKind::terminate()).ok()?;
+                        sigterm.recv().await?;
+                        Some("SIGTERM")
+                    }
+                    #[cfg(not(unix))]
+                    None::<&str>
+                } => sig.unwrap_or("SIGTERM"),
+            };
+            let uptime_secs = (chrono::Utc::now().timestamp_millis() - start_ts) / 1000;
+            ::tracing::warn!(
+                target: "shutdown",
+                signal = %sig,
+                worker_instance = %worker_instance,
+                uptime_secs = %uptime_secs,
+                "Shutdown signal received — draining listeners"
+            );
+            let _ = shutdown_tx_signal.send(());
+        });
+
         client_rx.await.ok();
         fed_rx.await.ok();
         prom_rx.await.ok();
 
         ::tracing::info!("Servers shutdown complete");
+
+        // Pre-exit logging for key worker types: capture queue state, restart count, and exit reason.
+        let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
+        let restart_count = std::env::var("RESTART_COUNT").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+        match worker_instance.as_str() {
+            "federation_reader" | "federation_sender" | "pusher" => {
+                ::tracing::warn!(
+                    target: "worker_exit",
+                    worker_instance = %worker_instance,
+                    restart_count = %restart_count,
+                    "Worker exiting — check container restart policy and upstream logs for crash-loop evidence"
+                );
+            }
+            _ => {
+                ::tracing::info!(
+                    target: "worker_exit",
+                    worker_instance = %worker_instance,
+                    restart_count = %restart_count,
+                    "Worker shutdown complete"
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -626,9 +713,9 @@ impl SynapseServer {
 
         ::tracing::info!("Performing system warmup...");
 
-        sqlx::query_scalar!("SELECT 1 AS health_check").fetch_one(&**pool).await?;
+        sqlx::query_scalar::<_, i32>("SELECT 1 AS health_check").fetch_one(&**pool).await?;
 
-        let _ = sqlx::query_scalar!("SELECT count(*) FROM users").fetch_one(&**pool).await?;
+        let _ = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM users").fetch_one(&**pool).await?;
 
         #[cfg(feature = "saml-sso")]
         {
@@ -755,6 +842,7 @@ mod tests {
     use super::*;
     use crate::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
     use crate::test_utils::prepare_shared_test_pool;
+    use crate::worker::types::WorkerType;
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -768,6 +856,54 @@ mod tests {
     #[test]
     fn dehydrated_device_cleanup_uses_background_interval_when_larger() {
         assert_eq!(dehydrated_device_cleanup_interval(900), Duration::from_secs(900));
+    }
+
+    #[test]
+    fn global_maintenance_defaults_to_master_without_workers() {
+        let config = synapse_common::config::worker::WorkerConfig::default();
+
+        assert_eq!(global_maintenance_owner(&config), WorkerType::Master);
+        assert!(should_run_global_maintenance(&config));
+    }
+
+    #[test]
+    fn global_maintenance_prefers_background_worker_when_present() {
+        let mut config = synapse_common::config::worker::WorkerConfig {
+            enabled: true,
+            instance_name: "background_worker".to_string(),
+            ..Default::default()
+        };
+        config.instance_map.insert(
+            "background_worker".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8105,
+                tls: false,
+            },
+        );
+
+        assert_eq!(global_maintenance_owner(&config), WorkerType::Background);
+        assert!(should_run_global_maintenance(&config));
+    }
+
+    #[test]
+    fn master_skips_global_maintenance_when_background_worker_exists() {
+        let mut config = synapse_common::config::worker::WorkerConfig {
+            enabled: true,
+            instance_name: "master".to_string(),
+            ..Default::default()
+        };
+        config.instance_map.insert(
+            "background_worker".to_string(),
+            synapse_common::config::worker::InstanceLocationConfig {
+                host: "127.0.0.1".to_string(),
+                port: 8105,
+                tls: false,
+            },
+        );
+
+        assert_eq!(global_maintenance_owner(&config), WorkerType::Background);
+        assert!(!should_run_global_maintenance(&config));
     }
 
     #[test]

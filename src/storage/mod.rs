@@ -6,7 +6,6 @@ use tokio::sync::RwLock;
 // =============================================================================
 // L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
 // =============================================================================
-pub mod account_data;
 pub mod admin_media;
 pub mod application_service;
 pub mod audit;
@@ -20,7 +19,6 @@ pub mod event_report;
 pub mod feature_flags;
 pub mod federation_blacklist;
 pub mod federation_queue;
-pub mod filter;
 pub mod invite_blocklist;
 pub mod maintenance;
 pub mod media;
@@ -30,21 +28,13 @@ pub mod moderation;
 pub mod module;
 pub mod monitoring;
 pub mod oidc_user_mapping;
-pub mod openid_token;
 pub mod performance;
 pub mod presence;
-pub mod push;
-pub mod push_notification;
-pub mod qr_login;
-pub mod rate_limit;
 pub mod refresh_token;
 pub mod registration_token;
 pub mod relations;
-pub mod rendezvous;
 pub mod retention;
 pub mod room;
-pub mod room_account_data;
-pub mod room_summary;
 pub mod room_tag;
 pub mod schema_health_check;
 pub mod schema_validator;
@@ -104,7 +94,6 @@ pub mod captcha;
 pub use self::threepid::UserThreepid;
 pub use self::user::*;
 
-pub use self::account_data::*;
 pub use self::admin_media::*;
 pub use self::application_service::*;
 pub use self::audit::*;
@@ -115,7 +104,6 @@ pub use self::e2ee_audit::*;
 pub use self::event::*;
 pub use self::feature_flags::*;
 pub use self::federation_blacklist::*;
-pub use self::filter::*;
 pub use self::invite_blocklist::*;
 pub use self::maintenance::*;
 pub use self::media_quota::*;
@@ -126,16 +114,10 @@ pub use self::monitoring::{
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
 pub use self::oidc_user_mapping::*;
-pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::presence::*;
-pub use self::push::*;
-pub use self::push_notification::*;
-pub use self::qr_login::*;
-pub use self::rate_limit::*;
-pub use self::rendezvous::*;
 pub use self::room::*;
-pub use self::room_account_data::*;
+pub use self::room_tag::*;
 pub use self::schema_validator::*;
 pub use self::search_index::*;
 pub use self::sliding_sync::*;
@@ -144,6 +126,16 @@ pub use self::sticky_event::*;
 pub use self::thread::*;
 pub use self::threepid::*;
 pub use self::token::*;
+pub use synapse_storage::account_data::*;
+pub use synapse_storage::filter::*;
+pub use synapse_storage::openid_token::*;
+pub use synapse_storage::push::*;
+pub use synapse_storage::push_notification::*;
+pub use synapse_storage::qr_login::*;
+pub use synapse_storage::rate_limit::*;
+pub use synapse_storage::rendezvous::*;
+pub use synapse_storage::room_account_data::*;
+pub use synapse_storage::room_summary::*;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]

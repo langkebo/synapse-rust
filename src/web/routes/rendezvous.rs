@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::rendezvous::{
+use crate::storage::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
 };
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
@@ -209,8 +209,7 @@ async fn update_session(
     }
 
     if status == "completed" {
-        let session: crate::storage::rendezvous::RendezvousSession =
-            load_rendezvous_session(&state, &session_id).await?;
+        let session: RendezvousSession = load_rendezvous_session(&state, &session_id).await?;
 
         if let Some(user_id) = &session.user_id {
             let device_id: String = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());

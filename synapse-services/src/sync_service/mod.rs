@@ -9,7 +9,6 @@ mod response;
 #[cfg(test)]
 mod tests;
 mod types;
-
 pub use types::*;
 
 use crate::*;

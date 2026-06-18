@@ -4045,13 +4045,13 @@ CREATE INDEX IF NOT EXISTS idx_qr_login_transactions_expires ON qr_login_transac
 CREATE INDEX IF NOT EXISTS idx_widgets_room ON widgets(room_id);
 
 -- Server notifications
-CREATE INDEX IF NOT EXISTS idx_server_notifications_user ON server_notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_server_notifications_target_users ON server_notifications USING GIN (target_user_ids jsonb_ops);
 
 -- Beacon
 CREATE INDEX IF NOT EXISTS idx_beacon_info_room ON beacon_info(room_id);
 
 -- Call/MATRIXRTC
-CREATE INDEX IF NOT EXISTS idx_call_signaling_room ON call_signaling(room_id);
+CREATE INDEX IF NOT EXISTS idx_call_sessions_room ON call_sessions(room_id);
 
 -- Migration audit
 CREATE INDEX IF NOT EXISTS idx_migration_audit_version ON migration_audit(version);
@@ -4254,93 +4254,143 @@ END $$;
 -- Foreign Keys
 -- ============================================================================
 
--- User-related foreign keys
-ALTER TABLE devices ADD CONSTRAINT fk_devices_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_device
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
-ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_device
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_devices_user_id' AND conrelid = 'devices'::regclass) THEN
+        ALTER TABLE devices ADD CONSTRAINT fk_devices_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Room-related foreign keys
-ALTER TABLE events ADD CONSTRAINT fk_events_room_id
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_room_id
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_user_id' AND conrelid = 'access_tokens'::regclass) THEN
+        ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- E2EE-related foreign keys
-ALTER TABLE device_keys ADD CONSTRAINT fk_device_keys_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
-ALTER TABLE cross_signing_keys ADD CONSTRAINT fk_cross_signing_keys_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_access_tokens_device' AND conrelid = 'access_tokens'::regclass) THEN
+        ALTER TABLE access_tokens ADD CONSTRAINT fk_access_tokens_device
+            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+    END IF;
 
--- Push-related foreign keys
-ALTER TABLE push_notification_queue ADD CONSTRAINT fk_push_queue_user_id
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_user_id' AND conrelid = 'refresh_tokens'::regclass) THEN
+        ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Token blacklist
-ALTER TABLE token_blacklist ADD CONSTRAINT fk_token_blacklist_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_tokens_device' AND conrelid = 'refresh_tokens'::regclass) THEN
+        ALTER TABLE refresh_tokens ADD CONSTRAINT fk_refresh_tokens_device
+            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+    END IF;
 
--- Registration token usage
-ALTER TABLE registration_token_usage ADD CONSTRAINT fk_registration_token_usage_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_events_room_id' AND conrelid = 'events'::regclass) THEN
+        ALTER TABLE events ADD CONSTRAINT fk_events_room_id
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
 
--- Report rate limits
-ALTER TABLE report_rate_limits ADD CONSTRAINT fk_report_rate_limits_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_memberships_room_id' AND conrelid = 'room_memberships'::regclass) THEN
+        ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_room_id
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
 
--- Refresh token usage
-ALTER TABLE refresh_token_usage ADD CONSTRAINT fk_refresh_token_usage_token
-    FOREIGN KEY (refresh_token_id) REFERENCES refresh_tokens(id) ON DELETE CASCADE NOT VALID;
-ALTER TABLE refresh_token_usage ADD CONSTRAINT fk_refresh_token_usage_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_memberships_user_id' AND conrelid = 'room_memberships'::regclass) THEN
+        ALTER TABLE room_memberships ADD CONSTRAINT fk_room_memberships_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Refresh token families
-ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
-ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_device
-    FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_keys_user_id' AND conrelid = 'device_keys'::regclass) THEN
+        ALTER TABLE device_keys ADD CONSTRAINT fk_device_keys_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Refresh token rotations
-ALTER TABLE refresh_token_rotations ADD CONSTRAINT fk_refresh_token_rotations_family
-    FOREIGN KEY (family_id) REFERENCES refresh_token_families(family_id) ON DELETE CASCADE NOT VALID;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_cross_signing_keys_user_id' AND conrelid = 'cross_signing_keys'::regclass) THEN
+        ALTER TABLE cross_signing_keys ADD CONSTRAINT fk_cross_signing_keys_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Module execution logs
-ALTER TABLE module_execution_logs ADD CONSTRAINT fk_module_execution_logs_module
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_push_queue_user_id' AND conrelid = 'push_notification_queue'::regclass) THEN
+        ALTER TABLE push_notification_queue ADD CONSTRAINT fk_push_queue_user_id
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
 
--- Room retention policies
-ALTER TABLE room_retention_policies ADD CONSTRAINT fk_room_retention_policies_room
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_token_blacklist_user' AND conrelid = 'token_blacklist'::regclass) THEN
+        ALTER TABLE token_blacklist ADD CONSTRAINT fk_token_blacklist_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL NOT VALID;
+    END IF;
 
--- Replication positions
-ALTER TABLE replication_positions ADD CONSTRAINT fk_replication_positions_worker
-    FOREIGN KEY (worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_registration_token_usage_user' AND conrelid = 'registration_token_usage'::regclass) THEN
+        ALTER TABLE registration_token_usage ADD CONSTRAINT fk_registration_token_usage_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    END IF;
 
--- Presence stream
-ALTER TABLE presence_stream ADD CONSTRAINT fk_presence_stream_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_report_rate_limits_user' AND conrelid = 'report_rate_limits'::regclass) THEN
+        ALTER TABLE report_rate_limits ADD CONSTRAINT fk_report_rate_limits_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    END IF;
 
--- Typing stream
-ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_room
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
-ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_usage_token' AND conrelid = 'refresh_token_usage'::regclass) THEN
+        ALTER TABLE refresh_token_usage ADD CONSTRAINT fk_refresh_token_usage_token
+            FOREIGN KEY (refresh_token_id) REFERENCES refresh_tokens(id) ON DELETE CASCADE NOT VALID;
+    END IF;
 
--- Device lists outbound pokes
-ALTER TABLE device_lists_outbound_pokes ADD CONSTRAINT fk_device_lists_outbound_pokes_user
-    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_usage_user' AND conrelid = 'refresh_token_usage'::regclass) THEN
+        ALTER TABLE refresh_token_usage ADD CONSTRAINT fk_refresh_token_usage_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    END IF;
 
--- Room stats current
-ALTER TABLE room_stats_current ADD CONSTRAINT fk_room_stats_current_room
-    FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_families_user' AND conrelid = 'refresh_token_families'::regclass) THEN
+        ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_families_device' AND conrelid = 'refresh_token_families'::regclass) THEN
+        ALTER TABLE refresh_token_families ADD CONSTRAINT fk_refresh_token_families_device
+            FOREIGN KEY (device_id) REFERENCES devices(device_id) ON DELETE SET NULL NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_refresh_token_rotations_family' AND conrelid = 'refresh_token_rotations'::regclass) THEN
+        ALTER TABLE refresh_token_rotations ADD CONSTRAINT fk_refresh_token_rotations_family
+            FOREIGN KEY (family_id) REFERENCES refresh_token_families(family_id) ON DELETE CASCADE NOT VALID;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_module_execution_logs_module' AND conrelid = 'module_execution_logs'::regclass) THEN
+        ALTER TABLE module_execution_logs ADD CONSTRAINT fk_module_execution_logs_module
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_retention_policies_room' AND conrelid = 'room_retention_policies'::regclass) THEN
+        ALTER TABLE room_retention_policies ADD CONSTRAINT fk_room_retention_policies_room
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_replication_positions_worker' AND conrelid = 'replication_positions'::regclass) THEN
+        ALTER TABLE replication_positions ADD CONSTRAINT fk_replication_positions_worker
+            FOREIGN KEY (worker_id) REFERENCES workers(worker_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_presence_stream_user' AND conrelid = 'presence_stream'::regclass) THEN
+        ALTER TABLE presence_stream ADD CONSTRAINT fk_presence_stream_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_typing_stream_room' AND conrelid = 'typing_stream'::regclass) THEN
+        ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_room
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_typing_stream_user' AND conrelid = 'typing_stream'::regclass) THEN
+        ALTER TABLE typing_stream ADD CONSTRAINT fk_typing_stream_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_device_lists_outbound_pokes_user' AND conrelid = 'device_lists_outbound_pokes'::regclass) THEN
+        ALTER TABLE device_lists_outbound_pokes ADD CONSTRAINT fk_device_lists_outbound_pokes_user
+            FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_stats_current_room' AND conrelid = 'room_stats_current'::regclass) THEN
+        ALTER TABLE room_stats_current ADD CONSTRAINT fk_room_stats_current_room
+            FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- ============================================================================
 -- Primary Keys (missing from original schema)

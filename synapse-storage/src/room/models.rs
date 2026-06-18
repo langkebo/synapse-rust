@@ -202,6 +202,13 @@ pub struct Receipt {
     pub data: serde_json::Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct RoomUnreadCounts {
+    pub room_id: String,
+    pub highlight_count: i64,
+    pub notification_count: i64,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct RoomRecord {
     pub(crate) room_id: String,

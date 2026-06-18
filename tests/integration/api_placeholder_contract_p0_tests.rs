@@ -459,6 +459,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
     let (_, user_id) = register_user(&app, &username).await;
 
     services
+        .account
         .threepid_storage
         .add_threepid(CreateThreepidRequest {
             user_id: user_id.clone(),
@@ -470,6 +471,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
         .await
         .expect("failed to add test email threepid");
     services
+        .account
         .threepid_storage
         .verify_threepid(&user_id, "email", &email)
         .await

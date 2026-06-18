@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)\n                VALUES ($1, $2, $3, $4, $5)\n                ON CONFLICT (user_id, session_id) DO UPDATE\n                SET encrypted_key = EXCLUDED.encrypted_key,\n                    created_ts = EXCLUDED.created_ts,\n                    expires_at = EXCLUDED.expires_at\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "164f027a1192cb629e67c8aa62dfd704786ee6887964c4bc84231d70ea6de134"
+}

@@ -236,7 +236,7 @@ impl BuiltinOidcProvider {
             has_signing_key_path = path.is_some(),
             "Generating new signing key for builtin OIDC provider"
         );
-        let mut rng = rand::thread_rng();
+        let mut rng = aes_gcm::aead::OsRng;
         let key =
             RsaPrivateKey::new(&mut rng, 2048).map_err(|e| ApiError::internal_with_log("OIDC RSA generate", &e))?;
 

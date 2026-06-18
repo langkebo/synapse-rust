@@ -49,7 +49,7 @@ pub async fn cleanup_all(
 
     let access_tokens = state
         .services
-        .token_storage
+        .account.token_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
@@ -63,7 +63,7 @@ pub async fn cleanup_all(
 
     let qr_txns = state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .cleanup_expired()
         .await
         .map_err(|e| ApiError::internal_with_log("QR login cleanup failed", &e))?;
@@ -106,7 +106,7 @@ pub async fn cleanup_tokens(_admin: AdminUser, State(state): State<AppState>) ->
 
     let access_tokens = state
         .services
-        .token_storage
+        .account.token_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;

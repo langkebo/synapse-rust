@@ -269,7 +269,7 @@ pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::
     let cached = FEDERATION_APP
         .get_or_init(|| async {
             build_test_app(|container| {
-                container.config.federation.allow_ingress = true;
+                container.core.config.federation.allow_ingress = true;
             })
             .await
         })
@@ -392,6 +392,9 @@ pub async fn create_test_user(app: &axum::Router) -> String {
     use axum::body::Body;
     use hyper::Request;
     use tower::ServiceExt;
+    use uuid::Uuid;
+
+    let suffix = Uuid::new_v4().simple().to_string();
 
     let request = Request::builder()
         .method("POST")
@@ -399,16 +402,25 @@ pub async fn create_test_user(app: &axum::Router) -> String {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::json!({
-                "username": format!("user_{}", rand::random::<u32>()),
+                "username": format!("user_{}", suffix),
                 "password": "UserTest@123",
-                "device_id": "TESTDEVICE"
+                "device_id": format!("DEV{}", &suffix[..12]),
+                "auth": { "type": "m.login.dummy" }
             })
             .to_string(),
         ))
         .unwrap();
 
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(
+        status,
+        axum::http::StatusCode::OK,
+        "test user registration failed with status {}: {}",
+        status,
+        String::from_utf8_lossy(&body)
+    );
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     json["access_token"].as_str().unwrap().to_string()
 }

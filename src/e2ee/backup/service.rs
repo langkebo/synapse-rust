@@ -3,6 +3,7 @@ use super::storage::{BackupKeyInsertParams, BackupKeyStorage, KeyBackupStorage};
 use crate::e2ee::device_keys::DeviceKeyStorage;
 use crate::e2ee::signed_json::verify_signed_json;
 use crate::error::ApiError;
+use sqlx::Row;
 
 #[derive(Debug, Clone)]
 pub struct BackupKeyUploadParams {
@@ -289,15 +290,15 @@ impl KeyBackupService {
     }
 
     pub async fn get_backup_key_count(&self, user_id: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COALESCE(COUNT(*), 0)::BIGINT AS "count!"
+            SELECT COALESCE(COUNT(*), 0)::BIGINT AS count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_one(&*self.storage.pool)
         .await?;
 
@@ -305,24 +306,23 @@ impl KeyBackupService {
     }
 
     pub async fn get_all_backup_keys(&self, user_id: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
-        let rows = sqlx::query_as!(
-            BackupKeyInfo,
+        let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
             SELECT
-                kb.user_id AS "user_id!",
-                COALESCE(kb.backup_id_text, kb.version::text) AS "backup_id!",
-                bk.room_id AS "room_id!",
-                bk.session_id AS "session_id!",
-                bk.first_message_index AS "first_message_index!",
-                bk.forwarded_count AS "forwarded_count!",
-                bk.is_verified AS "is_verified!",
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
             "#,
-            user_id,
         )
+        .bind(user_id)
         .fetch_all(&*self.storage.pool)
         .await?;
         Ok(rows)
@@ -330,43 +330,42 @@ impl KeyBackupService {
 
     /// Return every stored session for a single backup version.
     pub async fn get_keys_for_version(&self, user_id: &str, version: &str) -> Result<Vec<BackupKeyInfo>, ApiError> {
-        let rows = sqlx::query_as!(
-            BackupKeyInfo,
+        let rows = sqlx::query_as::<_, BackupKeyInfo>(
             r#"
             SELECT
-                kb.user_id AS "user_id!",
-                COALESCE(kb.backup_id_text, kb.version::text) AS "backup_id!",
-                bk.room_id AS "room_id!",
-                bk.session_id AS "session_id!",
-                bk.first_message_index AS "first_message_index!",
-                bk.forwarded_count AS "forwarded_count!",
-                bk.is_verified AS "is_verified!",
+                kb.user_id,
+                COALESCE(kb.backup_id_text, kb.version::text) AS backup_id,
+                bk.room_id,
+                bk.session_id,
+                bk.first_message_index,
+                bk.forwarded_count,
+                bk.is_verified,
                 bk.session_data
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
             "#,
-            user_id,
-            version,
         )
+        .bind(user_id)
+        .bind(version)
         .fetch_all(&*self.storage.pool)
         .await?;
         Ok(rows)
     }
 
     pub async fn get_backup_key_count_for_version(&self, user_id: &str, version: &str) -> Result<i64, ApiError> {
-        let count: i64 = sqlx::query_scalar!(
+        let count: i64 = sqlx::query_scalar::<_, i64>(
             r#"
-            SELECT COALESCE(COUNT(*), 0)::BIGINT AS "count!"
+            SELECT COALESCE(COUNT(*), 0)::BIGINT AS count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
             "#,
-            user_id,
-            version,
         )
+        .bind(user_id)
+        .bind(version)
         .fetch_one(&*self.storage.pool)
         .await?;
 
@@ -380,24 +379,26 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
-        let rows = sqlx::query!(
+        let rows = sqlx::query(
             r#"
-            SELECT bk.room_id AS "room_id!", COALESCE(COUNT(*), 0)::BIGINT AS "count!"
+            SELECT bk.room_id, COALESCE(COUNT(*), 0)::BIGINT AS count
             FROM backup_keys bk
             JOIN key_backups kb ON kb.backup_id = bk.backup_id
             WHERE kb.user_id = $1
               AND (kb.backup_id_text = $2 OR kb.version::text = $2)
             GROUP BY bk.room_id
             "#,
-            user_id,
-            &backup.backup_id,
         )
+        .bind(user_id)
+        .bind(&backup.backup_id)
         .fetch_all(&*self.storage.pool)
         .await?;
 
         let mut rooms: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
         for row in rows {
-            rooms.insert(row.room_id, serde_json::Value::from(row.count));
+            let room_id: String = row.get("room_id");
+            let count: i64 = row.get("count");
+            rooms.insert(room_id, serde_json::Value::from(count));
         }
 
         Ok(serde_json::Value::Object(rooms))

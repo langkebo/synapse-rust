@@ -548,7 +548,7 @@ pub async fn get_user_devices_admin(
     let user = resolve_user(&state, &user_id).await?;
     let devices = state
         .services
-        .device_storage
+        .account.device_storage
         .get_user_devices(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -664,7 +664,7 @@ pub async fn logout_user_devices(
 
     let device_count: i64 = state
         .services
-        .device_storage
+        .account.device_storage
         .get_device_count(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -921,7 +921,7 @@ pub async fn get_user_sessions(
 
     let devices = state
         .services
-        .device_storage
+        .account.device_storage
         .get_user_devices(&user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -957,7 +957,7 @@ pub async fn invalidate_user_sessions(
     let canonical_user_id = user.user_id;
     let sessions_removed: i64 = state
         .services
-        .device_storage
+        .account.device_storage
         .get_device_count(&canonical_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -982,7 +982,7 @@ pub async fn get_account_details(
 
     let device_count: i64 = state
         .services
-        .device_storage
+        .account.device_storage
         .get_device_count(canonical_user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;

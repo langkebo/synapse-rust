@@ -20,7 +20,7 @@ pub async fn get_qr_code(State(state): State<AppState>, auth_user: Authenticated
     // Store the transaction
     state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .create_qr_login(&transaction_id, &auth_user.user_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create QR transaction", &e))?;
@@ -50,7 +50,7 @@ pub async fn confirm_qr_login(
     // Verify the transaction exists and is valid
     let transaction = state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
@@ -61,7 +61,7 @@ pub async fn confirm_qr_login(
     if now > transaction.expires_at {
         state
             .services
-            .qr_login_storage
+            .account.qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -77,7 +77,7 @@ pub async fn confirm_qr_login(
     // Update status to confirmed
     state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .update_qr_status(transaction_id, "confirmed")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -102,7 +102,7 @@ pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Valu
     // Get transaction to verify it exists
     let transaction = state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
@@ -113,7 +113,7 @@ pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Valu
     if now > transaction.expires_at {
         state
             .services
-            .qr_login_storage
+            .account.qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -141,7 +141,7 @@ pub async fn get_qr_status(
 ) -> Result<Json<Value>, ApiError> {
     let transaction = state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .get_qr_transaction(&transaction_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
@@ -175,7 +175,7 @@ pub async fn invalidate_qr_login(
     // Get transaction to verify it exists
     let transaction = state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get QR transaction", &e))?
@@ -189,7 +189,7 @@ pub async fn invalidate_qr_login(
     // Update status to invalidated
     state
         .services
-        .qr_login_storage
+        .account.qr_login_storage
         .update_qr_status(transaction_id, "invalidated")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;

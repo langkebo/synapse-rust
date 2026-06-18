@@ -8,7 +8,7 @@ pub async fn get_push_rules_default(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let row: Option<Value> = state.services.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+    let row: Option<Value> = state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 

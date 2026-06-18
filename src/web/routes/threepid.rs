@@ -7,7 +7,7 @@ use crate::web::routes::{ApiError, AppState};
 
 fn generate_token() -> String {
     let chars: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".chars().collect();
-    (0..12).map(|_| chars[rand::Rng::gen_range(&mut rand::thread_rng(), 0..chars.len())]).collect()
+    (0..12).map(|_| chars[rand::Rng::random_range(&mut rand::rng(), 0..chars.len())]).collect()
 }
 
 pub fn create_threepid_router() -> Router<AppState> {
@@ -69,7 +69,7 @@ pub async fn request_token(
 
     let _id: i64 = state
         .services
-        .threepid_storage
+        .account.threepid_storage
         .create_validation_session(
             &session_id,
             "email",
@@ -102,7 +102,7 @@ pub async fn submit_token(
 
     let session: crate::storage::threepid::ThreepidValidationSession = state
         .services
-        .threepid_storage
+        .account.threepid_storage
         .get_validation_session(&req.sid, &req.client_secret, &req.token)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -110,7 +110,7 @@ pub async fn submit_token(
 
     state
         .services
-        .threepid_storage
+        .account.threepid_storage
         .mark_validation_validated(session.id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;

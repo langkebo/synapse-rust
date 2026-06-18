@@ -6,7 +6,7 @@ use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 #[cfg(test)]
 use dashmap::DashSet;
 use generic_array::GenericArray;
-use rand::Rng;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -27,7 +27,7 @@ pub struct Aes256GcmKey {
 impl Aes256GcmKey {
     pub fn generate() -> Self {
         let mut bytes = [0u8; 32];
-        rand::thread_rng().fill(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -58,7 +58,7 @@ impl<'de> Deserialize<'de> for Aes256GcmNonce {
 impl Aes256GcmNonce {
     fn generate() -> Self {
         let mut bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -70,6 +70,10 @@ impl Aes256GcmNonce {
         let mut arr = [0u8; 12];
         arr.copy_from_slice(bytes);
         Ok(Self { bytes: arr })
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
     }
 }
 
@@ -99,7 +103,7 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Nonce {
 impl XChaCha20Poly1305Nonce {
     pub fn generate() -> Self {
         let mut bytes = [0u8; 24];
-        rand::thread_rng().fill(&mut bytes);
+        rand::rng().fill_bytes(&mut bytes);
         Self { bytes }
     }
 
@@ -113,7 +117,7 @@ impl XChaCha20Poly1305Nonce {
         Ok(Self { bytes: arr })
     }
 
-    pub fn as_bytes(&self) -> &[u8; 24] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
@@ -320,7 +324,7 @@ impl SecureNonceGenerator {
         }
 
         let mut nonce_bytes = [0u8; 12];
-        rand::thread_rng().fill(&mut nonce_bytes[0..4]);
+        rand::rng().fill_bytes(&mut nonce_bytes[0..4]);
 
         nonce_bytes[4..12].copy_from_slice(&counter.to_be_bytes());
 
@@ -336,7 +340,7 @@ impl SecureNonceGenerator {
         }
 
         let mut nonce_bytes = [0u8; 24];
-        rand::thread_rng().fill(&mut nonce_bytes[0..16]);
+        rand::rng().fill_bytes(&mut nonce_bytes[0..16]);
 
         nonce_bytes[16..24].copy_from_slice(&counter.to_be_bytes());
 

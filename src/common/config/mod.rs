@@ -26,6 +26,7 @@ pub mod retention;
 pub mod search;
 pub mod security;
 pub mod server;
+pub mod sms;
 pub mod smtp;
 #[cfg(test)]
 mod tests;
@@ -56,6 +57,7 @@ pub use security::{
     CorsConfig, SecurityConfig,
 };
 pub use server::{default_dehydrated_device_cleanup_interval_secs, ServerConfig};
+pub use sms::SmsConfig;
 pub use smtp::SmtpConfig;
 pub use translate::TranslateConfig;
 pub use voip::{
@@ -100,6 +102,9 @@ pub struct Config {
     /// SMTP email configuration
     #[serde(default)]
     pub smtp: SmtpConfig,
+    /// SMS provider configuration
+    #[serde(default)]
+    pub sms: SmsConfig,
     /// VoIP/TURN configuration
     #[serde(default)]
     pub voip: VoipConfig,
@@ -126,10 +131,10 @@ pub struct Config {
     pub retention: RetentionConfig,
     /// OpenTelemetry configuration
     #[serde(default)]
-    pub telemetry: crate::common::telemetry_config::OpenTelemetryConfig,
+    pub telemetry: synapse_common::telemetry_config::OpenTelemetryConfig,
     /// Prometheus configuration
     #[serde(default)]
-    pub prometheus: crate::common::telemetry_config::PrometheusConfig,
+    pub prometheus: synapse_common::telemetry_config::PrometheusConfig,
     /// Performance optimization configuration
     #[serde(default)]
     pub performance: PerformanceConfig,

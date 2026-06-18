@@ -16,6 +16,9 @@
 #   MEDIA_ENDPOINT=http://127.0.0.1:8104
 #   FEDERATION_ENDPOINT=http://127.0.0.1:8449
 #   REPLICATION_ENDPOINT=http://127.0.0.1:9101
+#   RUN_APPSERVICE_GATE=1
+#   APPSERVICE_GATE_DAY=D2
+#   APPSERVICE_GATE_FAIL_ON=warning
 # =============================================================================
 
 set -euo pipefail
@@ -29,6 +32,19 @@ FEDERATION_ENDPOINT="${FEDERATION_ENDPOINT:-http://127.0.0.1:8008}"
 REPLICATION_ENDPOINT="${REPLICATION_ENDPOINT:-http://127.0.0.1:8008}"
 ADMIN_AUTH_HEADER="${ADMIN_AUTH_HEADER:-}"
 REPLICATION_SECRET="${REPLICATION_SECRET:-}"
+RUN_APPSERVICE_GATE="${RUN_APPSERVICE_GATE:-0}"
+APPSERVICE_GATE_DAY="${APPSERVICE_GATE_DAY:-D2}"
+APPSERVICE_GATE_FAIL_ON="${APPSERVICE_GATE_FAIL_ON:-warning}"
+APPSERVICE_GATE_BASE_URL="${APPSERVICE_GATE_BASE_URL:-$ADMIN_ENDPOINT}"
+APPSERVICE_GATE_PROMETHEUS_URL="${APPSERVICE_GATE_PROMETHEUS_URL:-http://127.0.0.1:9090/metrics}"
+APPSERVICE_GATE_OUTPUT_DIR="${APPSERVICE_GATE_OUTPUT_DIR:-/tmp/appservice-deployment-gate-$$}"
+APPSERVICE_GATE_RESOURCE_SUMMARY="${APPSERVICE_GATE_RESOURCE_SUMMARY:-deployment smoke gate run; 待补 CPU/RSS/连接池摘要}"
+SYNC_EXPECTED_STATUSES="${SYNC_EXPECTED_STATUSES:-200,401,403}"
+MEDIA_EXPECTED_STATUSES="${MEDIA_EXPECTED_STATUSES:-200}"
+FEDERATION_EXPECTED_STATUSES="${FEDERATION_EXPECTED_STATUSES:-200}"
+SYNC_EXPECTED_ROUTE_OWNER="${SYNC_EXPECTED_ROUTE_OWNER:-}"
+MEDIA_EXPECTED_ROUTE_OWNER="${MEDIA_EXPECTED_ROUTE_OWNER:-}"
+FEDERATION_EXPECTED_ROUTE_OWNER="${FEDERATION_EXPECTED_ROUTE_OWNER:-}"
 SMOKE_WORKER_ID="${SMOKE_WORKER_ID:-smoke-worker-$$-$(date +%s)}"
 SMOKE_PEER_WORKER_ID="${SMOKE_PEER_WORKER_ID:-${SMOKE_WORKER_ID}-peer}"
 SMOKE_WORKER_NAME="${SMOKE_WORKER_NAME:-Deployment Smoke Worker}"
@@ -109,6 +125,22 @@ json_extract() {
     printf '%s' "$body" | python3 -c "import json,sys; data=json.load(sys.stdin); value=$expression; print(value if value is not None else '')" 2>/dev/null
 }
 
+extract_bearer_token() {
+    local header="$1"
+    case "$header" in
+        Authorization:\ Bearer\ *) printf '%s\n' "${header#Authorization: Bearer }" ;;
+        authorization:\ Bearer\ *) printf '%s\n' "${header#authorization: Bearer }" ;;
+        Bearer\ *) printf '%s\n' "${header#Bearer }" ;;
+        *) printf '%s\n' "" ;;
+    esac
+}
+
+extract_route_owner_from_validation() {
+    local body="$1"
+    local probe="$2"
+    printf '%s' "$body" | python3 -c "import json,sys; data=json.load(sys.stdin); print(next((item.get('expected_owner', '') for item in data.get('route_owner_expectations', []) if item.get('probe') == '$probe'), ''))" 2>/dev/null
+}
+
 check() {
     local name="$1"
     local url="$2"
@@ -161,6 +193,124 @@ check_json() {
     fi
 }
 
+check_any_status() {
+    local name="$1"
+    local url="$2"
+    local allowed_statuses_csv="$3"
+    local header="${4:-}"
+    local status
+
+    if [ -n "$header" ]; then
+        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" -H "$header" "$url" 2>/dev/null || echo "000")
+    else
+        status=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "$url" 2>/dev/null || echo "000")
+    fi
+
+    IFS=',' read -r -a allowed_statuses <<< "$allowed_statuses_csv"
+    for allowed in "${allowed_statuses[@]}"; do
+        if [ "$status" = "$allowed" ]; then
+            pass_note "$name (HTTP $status)"
+            return 0
+        fi
+    done
+
+    fail_note "$name (expected one of $allowed_statuses_csv, got $status)"
+    return 1
+}
+
+check_header_any_status() {
+    local name="$1"
+    local url="$2"
+    local allowed_statuses_csv="$3"
+    local expected_header_value="$4"
+    local header="${5:-}"
+    local status
+    local header_file
+    header_file=$(mktemp)
+
+    if [ -n "$header" ]; then
+        status=$(curl -s -D "$header_file" -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" -H "$header" "$url" 2>/dev/null || echo "000")
+    else
+        status=$(curl -s -D "$header_file" -o /dev/null -w "%{http_code}" --max-time "$TIMEOUT" "$url" 2>/dev/null || echo "000")
+    fi
+
+    IFS=',' read -r -a allowed_statuses <<< "$allowed_statuses_csv"
+    local status_allowed=0
+    for allowed in "${allowed_statuses[@]}"; do
+        if [ "$status" = "$allowed" ]; then
+            status_allowed=1
+            break
+        fi
+    done
+
+    if [ "$status_allowed" != "1" ]; then
+        fail_note "$name header check failed because HTTP status $status is not in $allowed_statuses_csv"
+        rm -f "$header_file"
+        return 1
+    fi
+
+    local actual_header_value
+    actual_header_value=$(python3 - "$header_file" <<'PY'
+import sys
+from pathlib import Path
+header_file = Path(sys.argv[1])
+value = ""
+for line in header_file.read_text(errors="ignore").splitlines():
+    if ":" not in line:
+        continue
+    name, raw = line.split(":", 1)
+    if name.strip().lower() == "x-synapse-route-owner":
+        value = raw.strip()
+        break
+print(value)
+PY
+)
+
+    if [ "$actual_header_value" = "$expected_header_value" ]; then
+        pass_note "$name exposes x-synapse-route-owner=$actual_header_value"
+        rm -f "$header_file"
+        return 0
+    fi
+
+    fail_note "$name exposes unexpected x-synapse-route-owner (expected '$expected_header_value', got '${actual_header_value:-<missing>}')"
+    rm -f "$header_file"
+    return 1
+}
+
+run_appservice_gate() {
+    if [ "$RUN_APPSERVICE_GATE" != "1" ]; then
+        return 0
+    fi
+
+    echo ""
+    echo "[7] AppService gate"
+
+    local admin_token
+    admin_token="$(extract_bearer_token "$ADMIN_AUTH_HEADER")"
+    if [ -z "$admin_token" ]; then
+        fail_note "appservice gate requires ADMIN_AUTH_HEADER with Bearer token"
+        return 1
+    fi
+
+    mkdir -p "$APPSERVICE_GATE_OUTPUT_DIR"
+    if ADMIN_TOKEN="$admin_token" \
+        BASE_URL="$APPSERVICE_GATE_BASE_URL" \
+        PROMETHEUS_URL="$APPSERVICE_GATE_PROMETHEUS_URL" \
+        python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/appservice_daily_report.py" \
+            --day "$APPSERVICE_GATE_DAY" \
+            --fail-on "$APPSERVICE_GATE_FAIL_ON" \
+            --output-dir "$APPSERVICE_GATE_OUTPUT_DIR" \
+            --resource-summary "$APPSERVICE_GATE_RESOURCE_SUMMARY"; then
+        pass_note "appservice gate passed (${APPSERVICE_GATE_DAY}, fail-on=${APPSERVICE_GATE_FAIL_ON})"
+        pass_note "appservice gate artifacts saved to $APPSERVICE_GATE_OUTPUT_DIR"
+        return 0
+    fi
+
+    fail_note "appservice gate failed (${APPSERVICE_GATE_DAY}, fail-on=${APPSERVICE_GATE_FAIL_ON})"
+    echo "    artifacts: $APPSERVICE_GATE_OUTPUT_DIR"
+    return 1
+}
+
 # —— 检查列表 ——
 
 echo ""
@@ -187,6 +337,7 @@ if [ "$SKIP_TOPOLOGY" = "0" ]; then
     echo ""
     echo "[3] Worker topology"
     check_json "topology" "$ADMIN_ENDPOINT/_synapse/worker/v1/topology" 200 "$ADMIN_AUTH_HEADER"
+    check_json "topology validation" "$ADMIN_ENDPOINT/_synapse/worker/v1/topology/validate" 200 "$ADMIN_AUTH_HEADER"
 
     # 验证 topology 响应中包含预期的 worker 类型
     topo=""
@@ -202,15 +353,82 @@ if [ "$SKIP_TOPOLOGY" = "0" ]; then
             warn_note "topology may not contain worker type: $worker_type"
         fi
     done
+
+    topo_validation=""
+    if [ -n "$ADMIN_AUTH_HEADER" ]; then
+        topo_validation=$(curl -s --max-time "$TIMEOUT" -H "$ADMIN_AUTH_HEADER" \
+            "$ADMIN_ENDPOINT/_synapse/worker/v1/topology/validate" 2>/dev/null || echo "{}")
+    else
+        topo_validation=$(curl -s --max-time "$TIMEOUT" \
+            "$ADMIN_ENDPOINT/_synapse/worker/v1/topology/validate" 2>/dev/null || echo "{}")
+    fi
+
+    if echo "$topo_validation" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("validation", {}).get("valid") is True' 2>/dev/null; then
+        pass_note "topology validation reports valid=true"
+    else
+        fail_note "topology validation reports invalid worker config"
+        errors=$(printf '%s' "$topo_validation" | python3 -c 'import json,sys; data=json.load(sys.stdin); print("; ".join(data.get("validation", {}).get("errors", [])))' 2>/dev/null || true)
+        if [ -n "$errors" ]; then
+            echo "    errors: $errors"
+        fi
+    fi
+
+    warnings=$(printf '%s' "$topo_validation" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(len(data.get("validation", {}).get("warnings", [])))' 2>/dev/null || echo "")
+    if [ -n "$warnings" ] && [ "$warnings" != "0" ]; then
+        warn_note "topology validation returned $warnings warning(s)"
+    fi
+
+    if [ -z "$SYNC_EXPECTED_ROUTE_OWNER" ]; then
+        SYNC_EXPECTED_ROUTE_OWNER=$(extract_route_owner_from_validation "$topo_validation" "sync")
+        if [ -n "$SYNC_EXPECTED_ROUTE_OWNER" ]; then
+            pass_note "auto-derived sync route owner expectation: $SYNC_EXPECTED_ROUTE_OWNER"
+        fi
+    fi
+    if [ -z "$MEDIA_EXPECTED_ROUTE_OWNER" ]; then
+        MEDIA_EXPECTED_ROUTE_OWNER=$(extract_route_owner_from_validation "$topo_validation" "media")
+        if [ -n "$MEDIA_EXPECTED_ROUTE_OWNER" ]; then
+            pass_note "auto-derived media route owner expectation: $MEDIA_EXPECTED_ROUTE_OWNER"
+        fi
+    fi
+    if [ -z "$FEDERATION_EXPECTED_ROUTE_OWNER" ]; then
+        FEDERATION_EXPECTED_ROUTE_OWNER=$(extract_route_owner_from_validation "$topo_validation" "federation")
+        if [ -n "$FEDERATION_EXPECTED_ROUTE_OWNER" ]; then
+            pass_note "auto-derived federation route owner expectation: $FEDERATION_EXPECTED_ROUTE_OWNER"
+        fi
+    fi
 fi
 
-# 4. Client API route ownership
+# 4. Route reachability
 if [ "$SKIP_CLIENT" = "0" ]; then
     echo ""
-    echo "[4] Client API reachability"
+    echo "[4] Route reachability"
     check_json "client versions"         "$CLIENT_ENDPOINT/_matrix/client/versions"         200
     check "client login (公开)"           "$CLIENT_ENDPOINT/_matrix/client/v3/login"         200 || \
         check "client login (405)"       "$CLIENT_ENDPOINT/_matrix/client/v3/login"         405
+    check_any_status "sync route probe" "$SYNC_ENDPOINT/_matrix/client/v3/sync" "$SYNC_EXPECTED_STATUSES"
+    check_any_status "media route probe" "$MEDIA_ENDPOINT/_matrix/media/v3/config" "$MEDIA_EXPECTED_STATUSES"
+    check_any_status "federation route probe" "$FEDERATION_ENDPOINT/_matrix/federation/v1/version" "$FEDERATION_EXPECTED_STATUSES"
+    if [ -n "$SYNC_EXPECTED_ROUTE_OWNER" ]; then
+        check_header_any_status \
+            "sync route owner probe" \
+            "$SYNC_ENDPOINT/_matrix/client/v3/sync" \
+            "$SYNC_EXPECTED_STATUSES" \
+            "$SYNC_EXPECTED_ROUTE_OWNER"
+    fi
+    if [ -n "$MEDIA_EXPECTED_ROUTE_OWNER" ]; then
+        check_header_any_status \
+            "media route owner probe" \
+            "$MEDIA_ENDPOINT/_matrix/media/v3/config" \
+            "$MEDIA_EXPECTED_STATUSES" \
+            "$MEDIA_EXPECTED_ROUTE_OWNER"
+    fi
+    if [ -n "$FEDERATION_EXPECTED_ROUTE_OWNER" ]; then
+        check_header_any_status \
+            "federation route owner probe" \
+            "$FEDERATION_ENDPOINT/_matrix/federation/v1/version" \
+            "$FEDERATION_EXPECTED_STATUSES" \
+            "$FEDERATION_EXPECTED_ROUTE_OWNER"
+    fi
 fi
 
 # 5. Replication protection (security boundary)
@@ -646,7 +864,10 @@ EOF
     fi
 fi
 
-# 7. 总结
+# 7. Optional appservice gate
+run_appservice_gate || true
+
+# 8. 总结
 echo ""
 echo "=== Results ==="
 echo -e "  ${GREEN}PASS: $PASS${NC}"

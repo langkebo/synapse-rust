@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sqlx::PgPool;
-use synapse_rust::storage::filter::{CreateFilterRequest, Filter, FilterStorage};
+use synapse_rust::storage::{CreateFilterRequest, Filter, FilterStorage};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
