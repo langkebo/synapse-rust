@@ -66,7 +66,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
 fn create_user_storage(pool: &Arc<sqlx::PgPool>) -> UserStorage {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    UserStorage::new(pool, Arc::new(cache.to_synapse_cache_manager()))
+    UserStorage::new(pool, cache.clone())
 }
 
 #[tokio::test]

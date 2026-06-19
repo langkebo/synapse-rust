@@ -3,10 +3,10 @@ use sqlx::Row;
 use std::sync::Arc;
 use synapse_rust::services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
+use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest, SpaceStorage};
 use synapse_rust::storage::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryStorage, UpdateSummaryMemberRequest,
 };
-use synapse_rust::storage::space::{AddChildRequest, CreateSpaceRequest, SpaceStorage};
 
 async fn seed_space_users(pool: &sqlx::PgPool, suffix: &str) -> (String, String) {
     let creator = format!("@schema-space-creator-{suffix}:localhost");
@@ -1737,6 +1737,7 @@ async fn test_schema_contract_room_summary_queue_processor_service_closure() {
                 content: serde_json::json!({ "name": "Processor Updated" }),
                 state_key: Some(String::new()),
                 origin_server_ts: 100_i64,
+                redacts: None,
             },
             None,
         )
@@ -1752,6 +1753,7 @@ async fn test_schema_contract_room_summary_queue_processor_service_closure() {
                 content: serde_json::json!({ "body": "service update" }),
                 state_key: None,
                 origin_server_ts: 200_i64,
+                redacts: None,
             },
             None,
         )

@@ -83,6 +83,14 @@ pub use room_versions::*;
 #[allow(ambiguous_glob_reexports)]
 pub use security::*;
 #[allow(ambiguous_glob_reexports)]
+pub use synapse_common::background_job::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::task_queue::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::telemetry_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::validation::*;
+#[allow(ambiguous_glob_reexports)]
 pub use time::*;
 #[allow(ambiguous_glob_reexports)]
 pub use tracing::*;
@@ -90,11 +98,3 @@ pub use tracing::*;
 pub use types::*;
 #[allow(ambiguous_glob_reexports)]
 pub use xml_parser::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::telemetry_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::background_job::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::task_queue::*;
-#[allow(ambiguous_glob_reexports)]
-pub use synapse_common::validation::*;

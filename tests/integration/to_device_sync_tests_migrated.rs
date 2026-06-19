@@ -10,9 +10,9 @@ use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_rust::services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
-use synapse_rust::storage::FilterStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::room::RoomStorage;
+use synapse_rust::storage::FilterStorage;
 use synapse_rust::PresenceStorage;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
@@ -271,7 +271,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
     setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence_storage = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
+    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
@@ -344,10 +344,7 @@ async fn test_to_device_messages_are_deleted_after_ack() {
 
     let to_device_storage = ToDeviceStorage::new(&pool);
     let sync_service = SyncService::new(
-        PresenceStorage::new(
-            pool.clone(),
-            Arc::new(CacheManager::new(&CacheConfig::default()).to_synapse_cache_manager()),
-        ),
+        PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
         RoomMemberStorage::new(&pool, "localhost"),
         EventStorage::new(&pool, "localhost".to_string()),
         RoomStorage::new(&pool),

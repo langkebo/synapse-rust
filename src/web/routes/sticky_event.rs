@@ -48,7 +48,8 @@ pub async fn get_sticky_events(
     if let Some(event_type) = query.event_type {
         let sticky_event: Option<crate::storage::sticky_event::StickyEvent> = state
             .services
-            .account.sticky_event_storage
+            .account
+            .sticky_event_storage
             .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky event", &e))?;
@@ -70,7 +71,8 @@ pub async fn get_sticky_events(
         // Get all sticky events
         let sticky_events: Vec<crate::storage::sticky_event::StickyEvent> = state
             .services
-            .account.sticky_event_storage
+            .account
+            .sticky_event_storage
             .get_all_is_sticky_events(&room_id, &auth_user.user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky events", &e))?;
@@ -135,7 +137,8 @@ pub async fn set_sticky_events(
         // Set the sticky event
         state
             .services
-            .account.sticky_event_storage
+            .account
+            .sticky_event_storage
             .set_is_sticky_event(&room_id, &auth_user.user_id, &stored_event.event_id, event_type, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
@@ -156,7 +159,8 @@ pub async fn clear_sticky_event(
 
     state
         .services
-        .account.sticky_event_storage
+        .account
+        .sticky_event_storage
         .clear_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to clear sticky event", &e))?;

@@ -138,39 +138,30 @@ impl EventAuthChain {
     }
 
     pub fn compute_mainline(&self, events: &HashMap<String, EventData>, room_create_event_id: &str) -> Vec<String> {
-        let mut mainline = Vec::new();
-        let mut queue = VecDeque::new();
-        let mut visited = HashSet::new();
+        // MSC1442 主链: 从 m.room.create 开始, 沿 auth_events 链
+        // 收集 m.room.power_levels 事件序列 (含 create 作为根).
+        let mut mainline: Vec<String> = Vec::new();
+        let mut visited: HashSet<String> = HashSet::new();
 
+        // 主链必须包含 create 事件作为根.
         if events.contains_key(room_create_event_id) {
-            queue.push_back(room_create_event_id.to_string());
+            mainline.push(room_create_event_id.to_string());
             visited.insert(room_create_event_id.to_string());
         }
 
-        while let Some(current) = queue.pop_front() {
-            mainline.push(current.clone());
+        // 收集所有 m.room.power_levels 事件, 按深度排序 (升序).
+        let mut pl_events: Vec<(i64, i64, String)> = events
+            .iter()
+            .filter(|(_, e)| e.event_type == "m.room.power_levels")
+            .map(|(eid, e)| (e.depth, e.origin_server_ts, eid.clone()))
+            .collect();
+        pl_events.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
 
-            if events.contains_key(&current) {
-                let mut descendants = Vec::new();
-                for (eid, ev) in events.iter() {
-                    if !visited.contains(eid) && ev.auth_events.contains(&current) {
-                        descendants.push(eid.clone());
-                    }
-                }
-
-                descendants.sort_by_key(|eid| {
-                    if let Some(ev) = events.get(eid) {
-                        if let Some(depth) = ev.content.as_ref().and_then(|c| c.get("depth")).and_then(|d| d.as_i64()) {
-                            return std::cmp::Reverse(depth);
-                        }
-                    }
-                    std::cmp::Reverse(0)
-                });
-
-                for desc in descendants {
-                    visited.insert(desc.clone());
-                    queue.push_back(desc);
-                }
+        // 按深度顺序加入主链 (深度小的在前 = 旧的在前).
+        for (_, _, eid) in pl_events {
+            if !visited.contains(&eid) {
+                mainline.push(eid.clone());
+                visited.insert(eid);
             }
         }
 

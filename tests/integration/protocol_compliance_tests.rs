@@ -78,7 +78,7 @@ fn test_typing_set_and_clear() {
         };
         let arc_pool = Arc::new(pool.clone());
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let presence = PresenceStorage::new(arc_pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
+        let presence = PresenceStorage::new(arc_pool.clone(), cache.clone());
 
         let room_id = "!room:test";
         let user_id = "@alice:localhost";
@@ -162,6 +162,7 @@ fn test_receipt_insert() {
                     content: json!({"body":"hi"}),
                     state_key: None,
                     origin_server_ts: now,
+                    redacts: None,
                 }, None)
                 .await
                 .unwrap();

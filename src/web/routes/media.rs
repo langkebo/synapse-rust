@@ -244,7 +244,12 @@ async fn upload_media_common(
     }
 
     Ok(Json(
-        state.services.extensions.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?,
+        state
+            .services
+            .extensions
+            .media_domain_service
+            .upload_media(user_id, &content_bytes, content_type, filename)
+            .await?,
     ))
 }
 
@@ -485,8 +490,12 @@ async fn download_media_signed(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires)
-    {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(
+        &server_name,
+        &media_id,
+        signature,
+        expires,
+    ) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
@@ -508,8 +517,12 @@ async fn download_media_signed_with_filename(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires)
-    {
+    if !state.services.extensions.media_domain_service.verify_media_download_url(
+        &server_name,
+        &media_id,
+        signature,
+        expires,
+    ) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 

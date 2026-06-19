@@ -224,13 +224,13 @@ impl OidcService {
         URL_SAFE_NO_PAD.encode(data)
     }
 
-    /// Verify PKCE code verifier
+    /// Verify PKCE code verifier (constant-time comparison to mitigate timing attacks)
     pub fn verify_pkce(code_verifier: &str, code_challenge: &str) -> bool {
         let mut hasher = Sha256::new();
         hasher.update(code_verifier.as_bytes());
         let hash = hasher.finalize();
         let computed = Self::base64url_encode(&hash);
-        computed == code_challenge
+        synapse_common::crypto::secure_compare(&computed, code_challenge)
     }
 
     pub async fn exchange_code(

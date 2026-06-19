@@ -131,6 +131,12 @@ impl SynapseServer {
             db_init_service.initialize().await?;
         }
 
+        // Validate TOKEN_HASH_SECRET before accepting any requests.
+        // In production, a missing or weak secret is a fatal startup error.
+        if let Err(e) = synapse_common::crypto::validate_token_hash_secret() {
+            return Err(format!("FATAL: {e}").into());
+        }
+
         // 运行数据库 Schema 健康检查（在运行时初始化之后）
         let skip_schema_check = std::env::var("SYNAPSE_SKIP_SCHEMA_CHECK").unwrap_or_default().to_lowercase() == "true";
 
@@ -840,9 +846,12 @@ fn append_prometheus_gauge(output: &mut String, name: &str, help: &str, value: f
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "test-utils")]
     use crate::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
+    #[cfg(feature = "test-utils")]
     use crate::test_utils::prepare_shared_test_pool;
     use crate::worker::types::WorkerType;
+    #[cfg(feature = "test-utils")]
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
     #[test]
@@ -931,6 +940,7 @@ mod tests {
         assert!(rendered.contains("synapse_appservice_scheduler_in_flight_count 5"));
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
         let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");

@@ -215,6 +215,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
         events.insert(
@@ -227,6 +228,7 @@ mod tests {
                 prev_events: vec!["$create".to_string()],
                 state_key: Some(json!("@user:test")),
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -249,6 +251,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -270,6 +273,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -338,6 +342,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
         events.insert(
@@ -350,6 +355,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -380,6 +386,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
         events.insert(
@@ -392,6 +399,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: Some(json!("@user:test")),
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -607,6 +615,7 @@ mod tests {
             prev_events: vec![],
             state_key: None,
             content: None,
+            ..Default::default()
         };
 
         let cloned = data.clone();
@@ -670,6 +679,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -710,6 +720,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -731,6 +742,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
         events.insert(
@@ -743,6 +755,7 @@ mod tests {
                 prev_events: vec!["$create".to_string()],
                 state_key: Some(json!("@user:test")),
                 content: None,
+                ..Default::default()
             },
         );
 
@@ -770,6 +783,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: Some(json!("")),
                 content: Some(json!({"name": "Test Room"})),
+                ..Default::default()
             },
         );
 
@@ -792,6 +806,7 @@ mod tests {
                 prev_events: vec![],
                 state_key: None,
                 content: Some(json!({"body": "hello"})),
+                ..Default::default()
             },
         );
 

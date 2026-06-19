@@ -106,7 +106,7 @@ impl BurnAfterReadService {
     pub async fn delete_burned_message(&self, user_id: &str, room_id: &str, event_id: &str) -> ApiResult<()> {
         let now = Utc::now().timestamp_millis();
 
-        if let Err(e) = self.event_storage.redact_event_content(event_id).await {
+        if let Err(e) = self.event_storage.redact_event_content(event_id, Some(user_id)).await {
             ::tracing::warn!(
                 error = %e,
                 user_id = %user_id,
@@ -127,6 +127,7 @@ impl BurnAfterReadService {
                     content: serde_json::json!({"reason": "Burn after read"}),
                     state_key: None,
                     origin_server_ts: now,
+                    redacts: None,
                 },
                 None,
             )
@@ -202,7 +203,7 @@ impl BurnAfterReadService {
         let mut expired = Vec::new();
 
         for row in &expired_rows {
-            if let Err(e) = self.event_storage.redact_event_content(&row.event_id).await {
+            if let Err(e) = self.event_storage.redact_event_content(&row.event_id, Some(&row.user_id)).await {
                 ::tracing::warn!(
                     error = %e,
                     burn_id = row.id,
@@ -224,6 +225,7 @@ impl BurnAfterReadService {
                         content: serde_json::json!({"reason": "Burn after read"}),
                         state_key: None,
                         origin_server_ts: now,
+                        redacts: None,
                     },
                     None,
                 )

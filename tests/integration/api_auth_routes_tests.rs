@@ -162,14 +162,24 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(capabilities["m.thread"]["enabled"], true);
     assert_eq!(capabilities["io.hula.sliding_sync"]["enabled"], true);
     assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
-    assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
+    // Only creatable versions appear in the client capability list.
+    let creatable_count = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).count();
+    assert_eq!(available.len(), creatable_count);
     for supported in SUPPORTED_ROOM_VERSIONS {
-        assert_eq!(
-            available.get(supported.version).and_then(|value| value.as_str()),
-            Some(supported.disposition_str()),
-            "declared room version surface should include {}",
-            supported.version
-        );
+        if supported.can_create {
+            assert_eq!(
+                available.get(supported.version).and_then(|value| value.as_str()),
+                Some(supported.disposition_str()),
+                "declared room version surface should include {}",
+                supported.version
+            );
+        } else {
+            assert!(
+                available.get(supported.version).is_none(),
+                "non-creatable room version {} should not appear in client capabilities",
+                supported.version
+            );
+        }
     }
     assert_eq!(unstable["org.matrix.msc3245.voice"], true);
     assert_eq!(unstable["org.matrix.msc3983.thread"], true);

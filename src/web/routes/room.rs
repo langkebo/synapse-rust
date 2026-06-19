@@ -367,6 +367,7 @@ async fn set_anti_screenshot(
                 content: serde_json::json!({ "action": action }),
                 state_key: Some("".to_string()),
                 origin_server_ts: now_ts,
+                redacts: None,
             },
             None,
         )

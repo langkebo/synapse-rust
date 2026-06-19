@@ -92,6 +92,7 @@ pub(super) async fn knock_room(
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
     let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
+    let origin_server_ts = chrono::Utc::now().timestamp_millis();
 
     let content = json!({"membership": "knock"});
     let params = crate::storage::event::CreateEventParams {
@@ -101,7 +102,8 @@ pub(super) async fn knock_room(
         event_type: "m.room.member".to_string(),
         content: content.clone(),
         state_key: Some(user_id.clone()),
-        origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        origin_server_ts,
+        redacts: None,
     };
 
     state
@@ -114,10 +116,20 @@ pub(super) async fn knock_room(
     dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, &user_id, &content, Some(&user_id))
         .await;
 
+    // P1-14: Spec-compliant response — return full event object under "event" key,
+    // and use "knock" (not "knocking") for the state field.
     Ok(Json(json!({
-        "event_id": event_id,
-        "room_id": room_id,
-        "state": "knocking"
+        "event": {
+            "event_id": event_id,
+            "room_id": room_id,
+            "sender": user_id,
+            "type": "m.room.member",
+            "state_key": user_id,
+            "content": content,
+            "origin_server_ts": origin_server_ts,
+            "origin": auth.origin,
+        },
+        "state": "knock"
     })))
 }
 
@@ -164,6 +176,7 @@ pub(super) async fn thirdparty_invite(
         content: content.clone(),
         state_key: Some(invitee.to_string()),
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        redacts: None,
     };
 
     state
@@ -332,6 +345,7 @@ pub(super) async fn invite_v2(
             .get("origin_server_ts")
             .and_then(|v| v.as_i64())
             .unwrap_or(chrono::Utc::now().timestamp_millis()),
+        redacts: None,
     };
 
     state
@@ -519,6 +533,7 @@ pub(super) async fn send_join(
             content: content.clone(),
             state_key: Some(user_id.to_string()),
             origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+            redacts: None,
         };
         state
             .services
@@ -585,6 +600,7 @@ pub(super) async fn send_leave(
         content: event.get("content").cloned().unwrap_or(json!({})),
         state_key: Some(user_id.to_string()),
         origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
+        redacts: None,
     };
     state
         .services
@@ -693,6 +709,7 @@ pub(super) async fn send_join_v2(
                 .get("origin_server_ts")
                 .and_then(|v| v.as_i64())
                 .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            redacts: None,
         };
         state
             .services
@@ -771,6 +788,7 @@ pub(super) async fn send_leave_v2(
         content: membership_content,
         state_key: Some(sender.to_string()),
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        redacts: None,
     };
 
     state

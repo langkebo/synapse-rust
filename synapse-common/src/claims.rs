@@ -12,6 +12,12 @@ pub struct Claims {
     pub exp: i64,
     pub iat: i64,
     pub device_id: Option<String>,
+    /// P1-18: JWT issuer claim — prevents token confusion when jwt_secret is reused across services.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iss: Option<String>,
+    /// P1-18: JWT audience claim — ensures token is only accepted by the intended server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aud: Option<String>,
 }
 
 /// Builder for constructing [`Claims`] with consistent defaults.
@@ -23,11 +29,23 @@ pub struct ClaimsBuilder {
     exp: Option<i64>,
     iat: Option<i64>,
     device_id: Option<String>,
+    iss: Option<String>,
+    aud: Option<String>,
 }
 
 impl ClaimsBuilder {
     pub fn new() -> Self {
-        Self { sub: None, user_id: None, jti: None, is_admin: false, exp: None, iat: None, device_id: None }
+        Self {
+            sub: None,
+            user_id: None,
+            jti: None,
+            is_admin: false,
+            exp: None,
+            iat: None,
+            device_id: None,
+            iss: None,
+            aud: None,
+        }
     }
 
     #[allow(clippy::should_implement_trait)]
@@ -66,6 +84,18 @@ impl ClaimsBuilder {
         self
     }
 
+    /// P1-18: Set the JWT issuer claim (typically the server_name).
+    pub fn iss(mut self, iss: impl Into<String>) -> Self {
+        self.iss = Some(iss.into());
+        self
+    }
+
+    /// P1-18: Set the JWT audience claim (typically the server_name).
+    pub fn aud(mut self, aud: impl Into<String>) -> Self {
+        self.aud = Some(aud.into());
+        self
+    }
+
     #[allow(clippy::expect_used)]
     pub fn build(self) -> Claims {
         let now = chrono::Utc::now().timestamp();
@@ -78,6 +108,8 @@ impl ClaimsBuilder {
             exp: self.exp.expect("ClaimsBuilder: exp is required"),
             iat: self.iat.unwrap_or(now),
             device_id: self.device_id,
+            iss: self.iss,
+            aud: self.aud,
         }
     }
 }

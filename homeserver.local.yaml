@@ -117,6 +117,29 @@ cors:
 smtp:
   enabled: false
 
+# =============================================================================
+# SMS 短信配置（用于短信验证码投递）
+#
+# 启用后，CaptchaService 的 sms 路径会通过 SmsProvider 投递验证码。
+# 支持的 provider: aliyun（阿里云短信）、http（通用 HTTP 网关）。
+# 未配置或 enabled=false 时，sms captcha 返回 not_implemented 错误而非 panic。
+#
+# 安全建议：
+#   - api_secret 通过环境变量注入：SYNAPSE_SMS__API_SECRET
+#   - 生产环境设置 rate_limit_per_minute=1, rate_limit_per_hour=5
+#   - 定期轮换 AccessKey
+# =============================================================================
+sms:
+  enabled: false
+  provider: "aliyun"           # aliyun | http | twilio
+  api_key: ""                  # AccessKey ID
+  api_secret: ""               # AccessKey Secret（建议环境变量注入）
+  endpoint: ""                 # 留空使用默认 endpoint
+  sender_id: ""                # 短信签名（SignName）
+  template_code: ""            # 短信模板 ID（如 SMS_123456789）
+  rate_limit_per_minute: 1     # 每分钟每用户最多 1 条
+  rate_limit_per_hour: 5       # 每小时每用户最多 5 条
+
 voip:
   enabled: false
 
@@ -126,6 +149,41 @@ push:
 url_preview:
   enabled: false
 
+# =============================================================================
+# OIDC / SSO 配置
+#
+# 支持三种模式（互斥，同时启用 external + builtin 会在启动时告警）：
+#
+# 1. external OIDC（生产推荐）
+#    对接外部身份提供商（Keycloak / Auth0 / Okta 等），本服务作为 Relying Party。
+#    使用 Authorization Code Flow + PKCE（S256），state 参数为一次性、10 分钟过期。
+#    需要配置 issuer / client_id / client_secret / callback_url。
+#
+# 2. builtin OIDC Provider（仅用于开发/测试，不可用于生产）
+#    本服务自身充当 OIDC Provider，内置 RSA-2048 签名密钥。
+#    需启用 `builtin-oidc` feature 并配置 `builtin_oidc:` 段。
+#    警告：不适用于多实例部署，重启后临时密钥失效。
+#
+# 3. disabled（默认）
+#    不启用任何 OIDC / SSO，`/.well-known/openid-configuration` 返回最小 stub。
+#
+# 回调安全校验清单（external OIDC）：
+#   - callback_url 必须使用 HTTPS（生产环境）
+#   - issuer 必须与 IdP discovery 文档中的 issuer 完全一致
+#   - client_secret 建议通过环境变量注入：SYNAPSE_OIDC__CLIENT_SECRET
+#   - state 参数一次性消费，10 分钟过期，防止 CSRF
+#   - PKCE code_verifier 长度 43-128，S256 方法，防止授权码拦截
+#   - redirect_url 经过 is_safe_redirect_url 校验（拒绝 javascript:/data:/localhost/raw IP）
+#   - localpart 冲突时触发 security_audit 日志（target: security_audit）
+#
+# 运维说明：
+#   - builtin 模式下 `/.well-known/openid-configuration` 和 `/.well-known/jwks.json`
+#     由本服务直接提供；external 模式下由外部 IdP 提供。
+#   - 多实例部署时，external OIDC 的 auth session 当前为进程内存（OnceLock<HashMap>），
+#     尚未切换到 DB-backed OidcSessionStorage；建议前置粘性会话或暂限单实例登录。
+#   - 单元测试覆盖：PKCE 生成/验证、state 一次性消费、is_safe_redirect_url、
+#     validate_state_pkce_binding（见 src/web/routes/oidc.rs tests 模块）。
+# =============================================================================
 oidc:
   enabled: false
   issuer: ""

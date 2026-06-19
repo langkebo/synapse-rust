@@ -404,6 +404,45 @@ impl AdminFederationService {
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         Ok(rows_affected)
     }
+
+    /// Federation admission probe used by the federation auth middleware.
+    ///
+    /// Returns `Ok(Some(status))` when the server is already known with a
+    /// non-empty status (caller decides whether to allow or reject based on
+    /// the status value), or `Ok(None)` when the server was previously
+    /// unknown and has just been registered as `pending` (caller should
+    /// reject with a "pending approval" message).
+    ///
+    /// Errors are mapped to `ApiError::internal_with_log` so the middleware
+    /// can propagate them without leaking sqlx error details.
+    #[instrument(skip(self))]
+    pub async fn check_admission(&self, server_name: &str) -> Result<Option<String>, ApiError> {
+        let existing = self
+            .storage
+            .get_server_admission_status(server_name)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        match existing {
+            // Row exists with a non-NULL status.
+            Some(Some(status)) => Ok(Some(status)),
+            // Row exists but status is NULL — treat as active to preserve
+            // the middleware's historical behaviour where a NULL status did
+            // not trigger the "pending" branch.
+            Some(None) => Ok(Some("active".to_string())),
+            // Server is unknown: register as pending and signal the caller.
+            None => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let _ = self
+                    .storage
+                    .insert_pending_server(server_name, now)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+                info!("New federation server '{}' registered as pending", server_name);
+                Ok(None)
+            }
+        }
+    }
 }
 
 fn map_destination_row(row: &FederationDestinationRecord) -> DestinationInfo {

@@ -329,6 +329,7 @@ CREATE TABLE IF NOT EXISTS events (
     reference_image TEXT,
     origin TEXT,
     user_id TEXT,
+    redacts TEXT,
     stream_ordering BIGINT DEFAULT nextval('events_stream_ordering_seq'),
     CONSTRAINT pk_events PRIMARY KEY (event_id),
     CONSTRAINT fk_events_room FOREIGN KEY (room_id) REFERENCES rooms(room_id) ON DELETE CASCADE
@@ -3531,6 +3532,7 @@ CREATE INDEX IF NOT EXISTS idx_events_room_stream_ordering_not_redacted ON event
 CREATE INDEX IF NOT EXISTS idx_events_sync_covering ON events(room_id, stream_ordering DESC) INCLUDE (event_id, sender, event_type, content, origin_server_ts);
 CREATE INDEX IF NOT EXISTS idx_events_friend_room ON events(sender, room_id, origin_server_ts DESC) WHERE event_type = 'm.room.create' AND content->>'type' = 'm.friends';
 CREATE INDEX IF NOT EXISTS idx_events_friend_list ON events(room_id, origin_server_ts DESC) WHERE event_type = 'm.friends.list' AND state_key = '';
+CREATE INDEX IF NOT EXISTS idx_events_redacts ON events(redacts) WHERE redacts IS NOT NULL;
 
 -- Event relations
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique ON event_relations(event_id, relation_type, sender);

@@ -219,7 +219,8 @@ async fn delete_room_account_data(
         return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
 
-    let deleted = state.services.core.account_data_service.delete_room_account_data(&user_id, &room_id, &data_type).await?;
+    let deleted =
+        state.services.core.account_data_service.delete_room_account_data(&user_id, &room_id, &data_type).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Room account data not found".to_string()));
@@ -255,7 +256,8 @@ async fn get_openid_token(
         return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }
 
-    let (token, expires_in) = state.services.core.account_data_service.create_openid_token(&user_id, None, 3600).await?;
+    let (token, expires_in) =
+        state.services.core.account_data_service.create_openid_token(&user_id, None, 3600).await?;
 
     Ok(Json(json!({
         "access_token": token,

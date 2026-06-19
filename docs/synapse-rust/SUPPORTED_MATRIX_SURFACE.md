@@ -98,9 +98,9 @@
 | Version | Create | Join | Upgrade | Redaction | Auth Rules | State Resolution | 证据 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1-10 | ✅ | ✅ | ✅ | ✅ | v1-v10 auth rules | v1-v10 algorithm | `tests/integration/api_room_tests.rs` 覆盖 create/join/redaction；`src/services/room_service.rs` 实现 upgrade |
-| 11 | ✅ | ✅ | ✅ | ✅ | MSC3667: restricted join rules | v11 (same as v10) | `src/common/room_versions.rs` 声明 stable；`src/services/room_service.rs` 支持 restricted join；`tests/integration/api_room_tests.rs` 验证 create+join |
-| 12 | ✅ | ✅ | ✅ | ✅ | MSC3787: knock_restricted join rules | v12 (same as v11) | `src/common/room_versions.rs` 声明 stable；knock_restricted preset 在 `room_service.rs` 中处理 |
-| 13 | ✅ | ✅ | ✅ | ✅ | MSC4151: simplified restricted join rules | v13 (same as v12) | `src/common/room_versions.rs` 声明 stable；restricted join 简化逻辑在 `room_service.rs` 中实现 |
+| 11 | ✅ | ✅ | ✅ | ✅ | MSC3667: restricted join rules | v11 (same as v10) | `src/common/room_versions.rs` 声明 stable（can_create=true）；v11+ redaction 格式（MSC2174/MSC3820）已实现（`synapse-common/src/redaction.rs`），自删除权限已支持（`can_redact_event`） |
+| 12 | ✅ | ✅ | ✅ | ✅ | MSC3787: knock_restricted join rules | v12 (same as v11) | `src/common/room_versions.rs` 声明 stable；redaction 链路已完成 |
+| 13 | ✅ | ✅ | ✅ | ✅ | MSC4151: simplified restricted join rules | v13 (same as v12) | `src/common/room_versions.rs` 声明 stable；redaction 链路已完成 |
 - `src/web/routes/account_compat.rs` 中 `account_compat_route_manifest()` 声明了 `m.change_password`、`m.set_displayname`、`m.set_avatar_url`、`m.3pid_changes` 四个能力对应的路由清单
 
 ## Unstable And Custom Features

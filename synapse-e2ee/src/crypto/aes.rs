@@ -179,6 +179,7 @@ impl AsRef<[u8]> for Aes256GcmCiphertext {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct XChaCha20Poly1305Ciphertext {
     nonce: XChaCha20Poly1305Nonce,
@@ -213,6 +214,7 @@ impl<'de> Deserialize<'de> for XChaCha20Poly1305Ciphertext {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 impl XChaCha20Poly1305Ciphertext {
     pub fn new(nonce: XChaCha20Poly1305Nonce, ciphertext: Vec<u8>) -> Self {
         Self { nonce, ciphertext }
@@ -312,6 +314,7 @@ pub struct SecureNonceGenerator {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 impl SecureNonceGenerator {
     pub fn new(tracker: Arc<NonceTracker>) -> Self {
         Self { counter: AtomicU64::new(0), tracker }
@@ -505,6 +508,7 @@ pub struct E2eeCryptoProvider {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 impl E2eeCryptoProvider {
     pub fn new() -> Self {
         let nonce_tracker = Arc::new(NonceTracker::new());

@@ -24,6 +24,7 @@ pub mod nonce_cache;
 pub mod password_hash_pool;
 pub mod rate_limit;
 pub mod rate_limit_config;
+pub mod redaction;
 pub mod regex_cache;
 pub mod room_versions;
 pub mod sanitizer;
@@ -88,6 +89,8 @@ pub use password_hash_pool::*;
 pub use rate_limit::*;
 #[allow(ambiguous_glob_reexports)]
 pub use rate_limit_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use redaction::*;
 #[allow(ambiguous_glob_reexports)]
 pub use regex_cache::*;
 #[allow(ambiguous_glob_reexports)]

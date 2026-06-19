@@ -7,7 +7,7 @@ use crate::worker::storage::WorkerStorage;
 use crate::worker::stream::StreamWriterManager;
 use crate::worker::tcp::ReplicationConnection;
 use crate::worker::types::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -25,6 +25,30 @@ pub struct WorkerManager {
 }
 
 impl WorkerManager {
+    fn select_most_recent_worker<'a>(candidates: &[&'a WorkerInfo]) -> Option<&'a WorkerInfo> {
+        candidates.iter().copied().max_by(|a, b| {
+            let a_heartbeat = a.last_heartbeat_ts.unwrap_or(0);
+            let b_heartbeat = b.last_heartbeat_ts.unwrap_or(0);
+            a_heartbeat.cmp(&b_heartbeat).then_with(|| b.started_ts.cmp(&a.started_ts))
+        })
+    }
+
+    fn select_fallback_candidate<'a>(
+        candidates: &[&'a WorkerInfo],
+        healthy_worker_ids: Option<&HashSet<String>>,
+    ) -> Option<&'a WorkerInfo> {
+        if let Some(healthy_worker_ids) = healthy_worker_ids {
+            let healthy_candidates: Vec<&WorkerInfo> =
+                candidates.iter().copied().filter(|worker| healthy_worker_ids.contains(&worker.worker_id)).collect();
+
+            if !healthy_candidates.is_empty() {
+                return Self::select_most_recent_worker(&healthy_candidates);
+            }
+        }
+
+        Self::select_most_recent_worker(candidates)
+    }
+
     fn worker_supports_task_type(worker_type: WorkerType, task_type: &str) -> bool {
         match worker_type {
             WorkerType::Master => true,
@@ -240,6 +264,34 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update worker status", &e))?;
 
+        match status {
+            WorkerStatus::Starting | WorkerStatus::Running => {
+                if let Some(lb) = &self.load_balancer {
+                    if let Some(worker) = self
+                        .storage
+                        .get_worker(worker_id)
+                        .await
+                        .map_err(|e| ApiError::internal_with_log("Failed to refresh worker after heartbeat", &e))?
+                    {
+                        lb.register_worker(worker).await;
+                    }
+                }
+
+                if let Some(hc) = &self.health_checker {
+                    hc.register_worker(worker_id).await;
+                }
+            }
+            WorkerStatus::Stopping | WorkerStatus::Stopped | WorkerStatus::Error => {
+                if let Some(lb) = &self.load_balancer {
+                    lb.unregister_worker(worker_id).await;
+                }
+
+                if let Some(hc) = &self.health_checker {
+                    hc.unregister_worker(worker_id).await;
+                }
+            }
+        }
+
         if let Some(stats) = load_stats {
             let _ = self
                 .storage
@@ -268,8 +320,11 @@ impl WorkerManager {
             hc.unregister_worker(worker_id).await;
         }
 
-        let mut connections = self.connections.write().await;
-        if let Some(conn) = connections.remove(worker_id) {
+        let conn = {
+            let mut connections = self.connections.write().await;
+            connections.remove(worker_id)
+        };
+        if let Some(conn) = conn {
             conn.disconnect().await;
         }
 
@@ -600,8 +655,11 @@ impl WorkerManager {
     pub async fn disconnect_from_worker(&self, worker_id: &str) -> Result<(), ApiError> {
         info!(worker_id = %worker_id, "Disconnecting from worker");
 
-        let mut connections = self.connections.write().await;
-        if let Some(conn) = connections.remove(worker_id) {
+        let conn = {
+            let mut connections = self.connections.write().await;
+            connections.remove(worker_id)
+        };
+        if let Some(conn) = conn {
             conn.disconnect().await;
         }
 
@@ -656,11 +714,19 @@ impl WorkerManager {
             return Ok(None);
         }
 
-        let selected = candidates.iter().min_by(|a, b| {
-            let a_load = a.last_heartbeat_ts.unwrap_or(0);
-            let b_load = b.last_heartbeat_ts.unwrap_or(0);
-            a_load.cmp(&b_load)
-        });
+        let healthy_worker_ids = if let Some(hc) = &self.health_checker {
+            let mut healthy = HashSet::new();
+            for candidate in &candidates {
+                if hc.is_healthy(&candidate.worker_id).await {
+                    healthy.insert(candidate.worker_id.clone());
+                }
+            }
+            Some(healthy)
+        } else {
+            None
+        };
+
+        let selected = Self::select_fallback_candidate(&candidates, healthy_worker_ids.as_ref());
 
         Ok(selected.map(|w| w.worker_id.clone()))
     }
@@ -726,5 +792,207 @@ mod tests {
         let err = WorkerManager::validate_worker_task_ownership(&worker, "event_processing")
             .expect_err("frontend should not own event processing tasks");
         assert!(err.is_bad_request());
+    }
+
+    #[test]
+    fn test_validate_worker_task_ownership_accepts_running_compatible_worker() {
+        let worker = WorkerInfo {
+            id: 1,
+            worker_id: "event-persister-1".to_string(),
+            worker_name: "event-persister".to_string(),
+            worker_type: "event_persister".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8102,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(1),
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let worker_type = WorkerManager::validate_worker_task_ownership(&worker, "event_processing")
+            .expect("running event persister should own event_processing tasks");
+        assert_eq!(worker_type, WorkerType::EventPersister);
+    }
+
+    #[test]
+    fn test_validate_worker_task_ownership_rejects_non_running_worker_even_when_task_type_matches() {
+        let worker = WorkerInfo {
+            id: 1,
+            worker_id: "background-1".to_string(),
+            worker_name: "background".to_string(),
+            worker_type: "background".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8103,
+            status: "stopped".to_string(),
+            last_heartbeat_ts: Some(1),
+            started_ts: 1,
+            stopped_ts: Some(2),
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let err = WorkerManager::validate_worker_task_ownership(&worker, "background_jobs")
+            .expect_err("stopped worker must not claim or own tasks even when task type matches");
+        assert!(err.is_conflict());
+        assert!(err.to_string().contains("is not running"));
+    }
+
+    #[test]
+    fn test_select_most_recent_worker_prefers_freshest_heartbeat() {
+        let older = WorkerInfo {
+            id: 1,
+            worker_id: "frontend-older".to_string(),
+            worker_name: "frontend-older".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8101,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(100),
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let newer = WorkerInfo {
+            id: 2,
+            worker_id: "frontend-newer".to_string(),
+            worker_name: "frontend-newer".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8102,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(200),
+            started_ts: 2,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let selected = WorkerManager::select_most_recent_worker(&[&older, &newer])
+            .expect("one of the candidates should be selected");
+        assert_eq!(selected.worker_id, newer.worker_id);
+    }
+
+    #[test]
+    fn test_select_most_recent_worker_treats_missing_heartbeat_as_staler_than_present_value() {
+        let missing = WorkerInfo {
+            id: 1,
+            worker_id: "frontend-missing".to_string(),
+            worker_name: "frontend-missing".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8101,
+            status: "running".to_string(),
+            last_heartbeat_ts: None,
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let present = WorkerInfo {
+            id: 2,
+            worker_id: "frontend-present".to_string(),
+            worker_name: "frontend-present".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8102,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(1),
+            started_ts: 2,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+
+        let selected = WorkerManager::select_most_recent_worker(&[&missing, &present])
+            .expect("one of the candidates should be selected");
+        assert_eq!(selected.worker_id, present.worker_id);
+    }
+
+    #[test]
+    fn test_select_fallback_candidate_prefers_healthy_candidate_over_staler_unhealthy_one() {
+        let unhealthy_newer = WorkerInfo {
+            id: 1,
+            worker_id: "frontend-unhealthy".to_string(),
+            worker_name: "frontend-unhealthy".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8101,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(200),
+            started_ts: 2,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let healthy_older = WorkerInfo {
+            id: 2,
+            worker_id: "frontend-healthy".to_string(),
+            worker_name: "frontend-healthy".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8102,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(100),
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let healthy_worker_ids = HashSet::from([healthy_older.worker_id.clone()]);
+
+        let selected =
+            WorkerManager::select_fallback_candidate(&[&unhealthy_newer, &healthy_older], Some(&healthy_worker_ids))
+                .expect("healthy fallback candidate should be selected");
+        assert_eq!(selected.worker_id, healthy_older.worker_id);
+    }
+
+    #[test]
+    fn test_select_fallback_candidate_falls_back_to_recent_worker_when_no_healthy_candidates_exist() {
+        let newer = WorkerInfo {
+            id: 1,
+            worker_id: "frontend-newer".to_string(),
+            worker_name: "frontend-newer".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8101,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(200),
+            started_ts: 2,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let older = WorkerInfo {
+            id: 2,
+            worker_id: "frontend-older".to_string(),
+            worker_name: "frontend-older".to_string(),
+            worker_type: "frontend".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 8102,
+            status: "running".to_string(),
+            last_heartbeat_ts: Some(100),
+            started_ts: 1,
+            stopped_ts: None,
+            config: serde_json::json!({}),
+            metadata: serde_json::json!({}),
+            version: Some("1.0.0".to_string()),
+        };
+        let healthy_worker_ids = HashSet::new();
+
+        let selected = WorkerManager::select_fallback_candidate(&[&older, &newer], Some(&healthy_worker_ids))
+            .expect("recent fallback candidate should still be selected");
+        assert_eq!(selected.worker_id, newer.worker_id);
     }
 }

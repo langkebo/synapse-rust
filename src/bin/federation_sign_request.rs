@@ -37,7 +37,13 @@ fn main() {
         },
     };
 
-    let bytes = canonical_federation_request_bytes(&method, &uri, &origin, &destination, content.as_ref());
+    let bytes = match canonical_federation_request_bytes(&method, &uri, &origin, &destination, content.as_ref()) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Canonical JSON error: {e}");
+            std::process::exit(6);
+        }
+    };
 
     let sig = signing_key.sign(&bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());

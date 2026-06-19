@@ -1214,7 +1214,7 @@ PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/account_data/{type} [accou
 PUT /_matrix/client/v3/user/{user_id}/rooms/{room_id}/tags/{tag} [tags]
 PUT /_matrix/federation/v1/exchange_third_party_invite/{room_id} [federation]
 PUT /_matrix/federation/v1/invite/{room_id}/{event_id} [federation]
-PUT /_matrix/federation/v1/knock/{room_id}/{user_id} [federation]
+POST /_matrix/federation/v1/knock/{room_id}/{user_id} [federation]
 PUT /_matrix/federation/v1/send/{txn_id} [federation]
 PUT /_matrix/federation/v1/send_join/{room_id}/{event_id} [federation]
 PUT /_matrix/federation/v1/send_leave/{room_id}/{event_id} [federation]

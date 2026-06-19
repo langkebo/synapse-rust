@@ -583,17 +583,18 @@ impl RegistrationTokenStorage {
         .fetch_one(&*self.pool)
         .await?;
 
-        for token in tokens {
+        if !tokens.is_empty() {
+            let tokens_arr: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
             sqlx::query(
                 r"
                 INSERT INTO registration_tokens (
                     token, token_type, description, max_uses, expires_at, created_by,
                     created_ts, updated_ts
                 )
-                VALUES ($1, 'single_use', $2, 1, $3, $4, $5, $5)
+                SELECT unnest($1::text[]), 'single_use', $2, 1, $3, $4, $5, $5
                 ",
             )
-            .bind(token)
+            .bind(&tokens_arr)
             .bind(&batch.description)
             .bind(batch.expires_at)
             .bind(&batch.created_by)

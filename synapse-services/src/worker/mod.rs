@@ -6,6 +6,7 @@ pub mod protocol;
 pub mod storage;
 pub mod stream;
 pub mod tcp;
+pub mod topology_validator;
 pub mod types;
 
 pub use bus::{BusMessage, RedisBusConfig, WorkerBus};
@@ -15,4 +16,5 @@ pub use manager::WorkerManager;
 pub use protocol::{ReplicationCommand, ReplicationEvent, ReplicationProtocol};
 pub use storage::WorkerStorage;
 pub use stream::StreamWriterManager;
+pub use topology_validator::*;
 pub use types::*;

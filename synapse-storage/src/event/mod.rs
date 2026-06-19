@@ -20,12 +20,12 @@ impl EventStorage {
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> Result<RoomEvent, sqlx::Error> {
         let query = r"
-            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)
             RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
                       COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                       0::BIGINT as not_before, 'pending' as status, null as reference_image,
-                      'self' as origin, stream_ordering
+                      'self' as origin, stream_ordering, redacts
             ";
 
         if let Some(tx) = tx {
@@ -38,6 +38,7 @@ impl EventStorage {
                 .bind(&params.content)
                 .bind(params.state_key.as_deref())
                 .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
                 .fetch_one(&mut **tx)
                 .await
         } else {
@@ -50,6 +51,7 @@ impl EventStorage {
                 .bind(&params.content)
                 .bind(params.state_key.as_deref())
                 .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
                 .fetch_one(&*self.pool)
                 .await
         }
@@ -60,7 +62,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events WHERE event_id = $1
             ",
         )
@@ -563,13 +565,43 @@ impl EventStorage {
         .await
     }
 
-    pub async fn redact_event_content(&self, event_id: &str) -> Result<(), sqlx::Error> {
-        let redacted_content = serde_json::json!({});
-        sqlx::query("UPDATE events SET content = $1, is_redacted = true WHERE event_id = $2")
-            .bind(redacted_content)
-            .bind(event_id)
-            .execute(&*self.pool)
-            .await?;
+    /// Redacts an event's content in-place according to the Matrix redaction
+    /// rules for room versions 1-10 (P0-06).
+    ///
+    /// Unlike the previous implementation which cleared content to `{}`, this
+    /// fetches the event type and retains the spec-mandated fields per event
+    /// type (e.g. `membership` for `m.room.member`, `users`/`ban`/... for
+    /// `m.room.power_levels`).  This keeps redacted state events functional
+    /// and matches Synapse/Synapse-Rust federation hash computation.
+    ///
+    /// `redacted_by` optionally records the user_id of the redactor.
+    pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
+        // Fetch the event type and content so we can apply the per-type
+        // retention table from synapse_common::redaction.
+        let row: Option<(String, serde_json::Value)> =
+            sqlx::query_as("SELECT event_type, content FROM events WHERE event_id = $1")
+                .bind(event_id)
+                .fetch_optional(&*self.pool)
+                .await?;
+
+        let Some((event_type, content)) = row else {
+            // Event not found — nothing to redact.  This is benign for
+            // federation redaction PDUs that target events we don't have.
+            return Ok(());
+        };
+
+        let redacted_content = synapse_common::redaction::redact_content(&event_type, &content);
+        let now = chrono::Utc::now().timestamp_millis();
+
+        sqlx::query(
+            "UPDATE events SET content = $1, is_redacted = true, redacted_at = $2, redacted_by = $3 WHERE event_id = $4",
+        )
+        .bind(&redacted_content)
+        .bind(now)
+        .bind(redacted_by)
+        .bind(event_id)
+        .execute(&*self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1009,6 +1041,7 @@ mod tests {
             reference_image: None,
             origin: "self".to_string(),
             stream_ordering: Some(1),
+            redacts: None,
         };
 
         assert_eq!(event.event_id, "$event123:example.com");
@@ -1054,6 +1087,7 @@ mod tests {
             content: json!({"msgtype": "m.text", "body": "Test"}),
             state_key: None,
             origin_server_ts: 1234567890,
+            redacts: None,
         };
 
         assert_eq!(params.event_id, "$new_event:example.com");
@@ -1071,6 +1105,7 @@ mod tests {
             content: json!({"membership": "join"}),
             state_key: Some("@user:example.com".to_string()),
             origin_server_ts: 1234567890,
+            redacts: None,
         };
 
         assert_eq!(params.event_type, "m.room.member");
@@ -1126,6 +1161,7 @@ mod tests {
             reference_image: None,
             origin: "self".to_string(),
             stream_ordering: Some(0),
+            redacts: None,
         };
 
         assert_eq!(event.content["msgtype"], "m.text");

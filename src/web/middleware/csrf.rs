@@ -111,13 +111,20 @@ pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Bod
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "test-utils")]
     use crate::cache::{CacheConfig, CacheManager};
+    #[cfg(feature = "test-utils")]
     use crate::services::ServiceContainer;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
+    #[cfg(feature = "test-utils")]
     use axum::http::StatusCode;
+    #[cfg(feature = "test-utils")]
     use axum::{middleware, routing::post, Router};
+    #[cfg(feature = "test-utils")]
     use std::sync::Arc;
     use std::time::Duration;
+    #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
 
     #[test]
@@ -161,6 +168,7 @@ mod tests {
         assert_eq!(extract_cookie_session_id_for_csrf(&auth_only_headers), None);
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_csrf_middleware_rejects_cross_site_cookie_post_without_token() {
         async fn ok_handler() -> StatusCode {
@@ -196,6 +204,7 @@ mod tests {
         assert_eq!(json["error"], "Cross-site requests are not allowed");
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_csrf_middleware_rejects_same_origin_cookie_post_without_token() {
         async fn ok_handler() -> StatusCode {
@@ -231,6 +240,7 @@ mod tests {
         assert_eq!(json["error"], "Missing or invalid CSRF token");
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_csrf_middleware_allows_same_origin_cookie_post_with_valid_token() {
         async fn ok_handler() -> StatusCode {

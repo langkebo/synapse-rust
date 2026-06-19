@@ -1,60 +1,13 @@
 use base64::Engine;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::Value;
+use synapse_common::canonical_json;
+use synapse_common::secure_compare;
 
 const MAX_PDU_SIZE_BYTES: usize = 65536;
 const MAX_EVENT_KEYS: usize = 100;
 const MAX_CONTENT_KEYS: usize = 100;
 const MAX_STRING_LENGTH: usize = 65536;
-
-pub fn canonical_json_string(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        Value::Bool(b) => {
-            if *b {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            }
-        }
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string()),
-        Value::Array(arr) => {
-            let mut out = String::from("[");
-            let mut first = true;
-            for v in arr {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&canonical_json_string(v));
-            }
-            out.push(']');
-            out
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            let mut out = String::from("{");
-            let mut first = true;
-            for k in keys {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&serde_json::to_string(k).unwrap_or_else(|_| "\"\"".to_string()));
-                out.push(':');
-                if let Some(v) = map.get(k) {
-                    out.push_str(&canonical_json_string(v));
-                } else {
-                    out.push_str("null");
-                }
-            }
-            out.push('}');
-            out
-        }
-    }
-}
 
 pub fn canonical_federation_request_bytes(
     method: &str,
@@ -62,7 +15,7 @@ pub fn canonical_federation_request_bytes(
     origin: &str,
     destination: &str,
     content: Option<&Value>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, synapse_common::CanonicalJsonError> {
     let mut obj = serde_json::Map::new();
     obj.insert("method".to_string(), Value::String(method.to_string()));
     obj.insert("uri".to_string(), Value::String(uri.to_string()));
@@ -71,7 +24,7 @@ pub fn canonical_federation_request_bytes(
     if let Some(content) = content {
         obj.insert("content".to_string(), content.clone());
     }
-    canonical_json_string(&Value::Object(obj)).into_bytes()
+    Ok(canonical_json(&Value::Object(obj))?.into_bytes())
 }
 
 pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value: &mut Value) -> Result<(), String> {
@@ -81,7 +34,7 @@ pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value
             obj.remove("signatures");
             obj.remove("unsigned");
         }
-        canonical_json_string(&copy)
+        canonical_json(&copy).map_err(|e| format!("Canonical JSON error: {e}"))?
     };
 
     let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
@@ -119,7 +72,7 @@ pub fn compute_event_content_hash(event: &Value) -> Option<String> {
     redacted.as_object_mut()?.remove("hashes");
     redacted.as_object_mut()?.remove("signatures");
     redacted.as_object_mut()?.remove("unsigned");
-    let canonical = canonical_json_string(&redacted);
+    let canonical = canonical_json(&redacted).ok()?;
     use sha2::Digest;
     let hash = sha2::Sha256::digest(canonical.as_bytes());
     Some(base64::engine::general_purpose::STANDARD_NO_PAD.encode(hash))
@@ -135,7 +88,8 @@ pub fn verify_event_content_hash(event: &Value) -> Result<(), String> {
     let computed =
         compute_event_content_hash(event).ok_or_else(|| "Failed to compute event content hash".to_string())?;
 
-    if computed != sha256_hash {
+    // P3-03: constant-time comparison to avoid leaking hash bytes via timing.
+    if !secure_compare(&computed, sha256_hash) {
         return Err(format!("Event content hash mismatch: expected {sha256_hash}, computed {computed}"));
     }
 
@@ -198,51 +152,12 @@ fn check_string_depth(value: &Value, depth: usize) -> Result<(), String> {
 }
 
 fn redact_event_for_hash(event: &Value) -> Value {
-    let mut event = event.clone();
-
-    let allowed_top_level: &[&str] = &[
-        "event_id",
-        "type",
-        "room_id",
-        "sender",
-        "state_key",
-        "content",
-        "hashes",
-        "signatures",
-        "depth",
-        "prev_events",
-        "prev_state",
-        "auth_events",
-        "origin",
-        "origin_server_ts",
-        "membership",
-    ];
-
-    if let Some(obj) = event.as_object_mut() {
-        obj.retain(|k, _| allowed_top_level.contains(&k.as_str()));
-    }
-
-    let event_type = event.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-    let allowed_content_keys: &[&str] = match event_type {
-        "m.room.member" => &["membership", "third_party_invite", "displayname", "avatar_url"],
-        "m.room.create" => &["creator", "room_version", "type", "m.federate"],
-        "m.room.join_rules" => &["join_rule", "allow"],
-        "m.room.power_levels" => {
-            &["users", "users_default", "events", "events_default", "state_default", "ban", "kick", "redact", "invite"]
-        }
-        "m.room.history_visibility" => &["history_visibility"],
-        "m.room.encrypted" => &["algorithm", "ciphertext", "session_id", "sender_key", "device_id"],
-        _ => &[],
-    };
-
-    if !allowed_content_keys.is_empty() {
-        if let Some(content) = event.get_mut("content").and_then(|c| c.as_object_mut()) {
-            content.retain(|k, _| allowed_content_keys.contains(&k.as_str()));
-        }
-    }
-
-    event
+    // P0-07: delegate to the shared redaction module so that the field
+    // retention table is consistent between hash computation and runtime
+    // redaction.  The previous inline implementation included illegal
+    // top-level fields (`prev_state`, `membership`) and was missing
+    // `notifications` from `m.room.power_levels`.
+    synapse_common::redaction::redact_event_for_hash(event)
 }
 
 pub fn check_event_federate(room_create_event: &Value) -> bool {
@@ -253,6 +168,7 @@ pub fn check_event_federate(room_create_event: &Value) -> bool {
 mod tests {
     use super::*;
     use ed25519_dalek::{Verifier, VerifyingKey};
+    use synapse_common::canonical_json;
 
     fn generate_test_key() -> (String, ed25519_dalek::SigningKey) {
         let secret_bytes: [u8; 32] = [
@@ -286,7 +202,7 @@ mod tests {
         let mut copy = value.clone();
         copy.as_object_mut().unwrap().remove("signatures");
         copy.as_object_mut().unwrap().remove("unsigned");
-        let canonical = canonical_json_string(&copy);
+        let canonical = canonical_json(&copy).unwrap();
         let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value).unwrap();
         let signature = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
         assert!(verifying_key.verify(canonical.as_bytes(), &signature).is_ok());
@@ -310,7 +226,7 @@ mod tests {
         let mut copy = value.clone();
         copy.as_object_mut().unwrap().remove("signatures");
         copy.as_object_mut().unwrap().remove("unsigned");
-        let canonical = canonical_json_string(&copy);
+        let canonical = canonical_json(&copy).unwrap();
 
         let sig_value = value["signatures"]["server"]["ed25519:1"].as_str().unwrap();
         let sig_bytes = base64::engine::general_purpose::STANDARD_NO_PAD.decode(sig_value).unwrap();
@@ -338,8 +254,8 @@ mod tests {
             "z_key": "last"
         });
 
-        let canonical1 = canonical_json_string(&value1);
-        let canonical2 = canonical_json_string(&value2);
+        let canonical1 = canonical_json(&value1).unwrap();
+        let canonical2 = canonical_json(&value2).unwrap();
         assert_eq!(canonical1, canonical2);
 
         assert!(canonical1.starts_with("{\"a_key\""));
@@ -353,7 +269,8 @@ mod tests {
             "origin.server",
             "destination.server",
             None,
-        );
+        )
+        .unwrap();
 
         let decoded: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(decoded["method"], "GET");
@@ -369,7 +286,8 @@ mod tests {
             "origin.server",
             "destination.server",
             Some(&content),
-        );
+        )
+        .unwrap();
         let decoded_with: Value = serde_json::from_slice(&bytes_with_content).unwrap();
         assert_eq!(decoded_with["method"], "PUT");
         assert!(decoded_with.get("content").is_some());
@@ -400,7 +318,7 @@ mod tests {
         let mut copy = value.clone();
         copy.as_object_mut().unwrap().remove("signatures");
         copy.as_object_mut().unwrap().remove("unsigned");
-        let canonical = canonical_json_string(&copy);
+        let canonical = canonical_json(&copy).unwrap();
 
         assert!(new_verifying_key.verify(canonical.as_bytes(), &signature).is_err());
     }
@@ -506,11 +424,11 @@ mod tests {
 
     #[test]
     fn test_canonical_json_types() {
-        assert_eq!(canonical_json_string(&Value::Null), "null");
-        assert_eq!(canonical_json_string(&Value::Bool(true)), "true");
-        assert_eq!(canonical_json_string(&Value::Bool(false)), "false");
-        assert_eq!(canonical_json_string(&serde_json::json!(42)), "42");
-        assert_eq!(canonical_json_string(&serde_json::json!("hello")), "\"hello\"");
-        assert_eq!(canonical_json_string(&serde_json::json!([1, 2, 3])), "[1,2,3]");
+        assert_eq!(canonical_json(&Value::Null).unwrap(), "null");
+        assert_eq!(canonical_json(&Value::Bool(true)).unwrap(), "true");
+        assert_eq!(canonical_json(&Value::Bool(false)).unwrap(), "false");
+        assert_eq!(canonical_json(&serde_json::json!(42)).unwrap(), "42");
+        assert_eq!(canonical_json(&serde_json::json!("hello")).unwrap(), "\"hello\"");
+        assert_eq!(canonical_json(&serde_json::json!([1, 2, 3])).unwrap(), "[1,2,3]");
     }
 }

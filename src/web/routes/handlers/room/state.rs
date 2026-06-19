@@ -196,6 +196,7 @@ pub(crate) async fn send_state_event(
                 content,
                 state_key,
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )
@@ -309,6 +310,7 @@ pub(crate) async fn put_state_event(
                 content: body,
                 state_key: Some(state_key),
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )
@@ -402,6 +404,7 @@ pub(crate) async fn put_state_event_empty_key(
                 content: body,
                 state_key: Some("".to_string()),
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )
@@ -442,6 +445,7 @@ pub(crate) async fn put_state_event_no_key(
                 content: body,
                 state_key: Some("".to_string()),
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )

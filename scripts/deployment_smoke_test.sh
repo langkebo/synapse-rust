@@ -625,12 +625,110 @@ EOF
                     fail_note "pending task list fetch failed (HTTP $REQUEST_STATUS)"
                 fi
 
+                stopping_body='{"status":"stopping","load_stats":{"cpu_usage":0.1,"queue_depth":1}}'
+                request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID/heartbeat" "$REPLICATION_AUTH_HEADER" "$stopping_body"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    pass_note "stopping heartbeat accepted for $SMOKE_WORKER_ID"
+                else
+                    fail_note "stopping heartbeat failed for $SMOKE_WORKER_ID (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    worker_status=$(json_extract "$REQUEST_BODY" "data.get('status', '')")
+                    if [ "$worker_status" = "stopping" ]; then
+                        pass_note "worker detail reflects stopping state"
+                    else
+                        fail_note "worker detail did not reflect stopping state"
+                    fi
+                else
+                    fail_note "get worker after stopping heartbeat failed (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    primary_active=$(json_extract "$REQUEST_BODY" "any(item.get('worker_id') == '$SMOKE_WORKER_ID' for item in data)")
+                    peer_active=$(json_extract "$REQUEST_BODY" "any(item.get('worker_id') == '$SMOKE_PEER_WORKER_ID' for item in data)")
+                    if [ "$primary_active" = "False" ] && [ "$peer_active" = "True" ]; then
+                        pass_note "stopping worker is removed from active worker list while peer stays active"
+                    else
+                        fail_note "stopping worker active-list state mismatch"
+                    fi
+                else
+                    fail_note "active worker list fetch after stopping heartbeat failed (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/select/$SMOKE_TASK_TYPE" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    stopping_selected_worker=$(json_extract "$REQUEST_BODY" "data.get('selected_worker', '') if isinstance(data, dict) else ''")
+                    if [ "$stopping_selected_worker" = "$SMOKE_PEER_WORKER_ID" ]; then
+                        pass_note "worker selection skips stopping worker and picks peer"
+                    else
+                        fail_note "worker selection returned unexpected worker during stopping drain"
+                    fi
+                else
+                    fail_note "worker selection failed during stopping drain (HTTP $REQUEST_STATUS)"
+                fi
+
+                stopping_assign_body=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"stopping_claim_reject","worker_id":"$SMOKE_PEER_WORKER_ID"},"priority":100004}
+EOF
+)
+                request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$stopping_assign_body"
+                if [ "$REQUEST_STATUS" = "201" ]; then
+                    stopping_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                    if [ -n "$stopping_task_id" ]; then
+                        pass_note "assigned stopping-drain verification task $stopping_task_id"
+                    else
+                        fail_note "assign stopping-drain verification task returned empty task_id"
+                    fi
+                else
+                    fail_note "assign stopping-drain verification task failed (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                if [ "$REQUEST_STATUS" = "409" ]; then
+                    pass_note "stopping worker correctly rejected new claim_next_task"
+                else
+                    fail_note "stopping worker claim_next_task expected HTTP 409, got $REQUEST_STATUS"
+                fi
+
+                if [ -n "${stopping_task_id:-}" ]; then
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        stopping_claimed_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                        if [ "$stopping_claimed_task_id" = "$stopping_task_id" ]; then
+                            pass_note "peer worker claims stopping-drain verification task"
+                        else
+                            fail_note "peer worker returned unexpected stopping-drain verification task"
+                        fi
+                    else
+                        fail_note "peer worker claim_next_task failed during stopping drain (HTTP $REQUEST_STATUS)"
+                    fi
+                fi
+
                 complete_body='{"result":{"smoke_test":"ok"}}'
                 request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$task_id/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
                 if [ "$REQUEST_STATUS" = "200" ]; then
                     pass_note "task completion accepted for $task_id"
                 else
                     fail_note "task completion failed for $task_id (HTTP $REQUEST_STATUS)"
+                fi
+
+                if [ -n "${stopping_task_id:-}" ] && [ "${stopping_claimed_task_id:-}" = "$stopping_task_id" ]; then
+                    request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$stopping_task_id/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        pass_note "stopping-drain verification task completion accepted for $stopping_task_id"
+                    else
+                        fail_note "stopping-drain verification task completion failed for $stopping_task_id (HTTP $REQUEST_STATUS)"
+                    fi
+                fi
+
+                request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID/heartbeat" "$REPLICATION_AUTH_HEADER" "$heartbeat_body"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    pass_note "running heartbeat restores $SMOKE_WORKER_ID after stopping drain"
+                else
+                    fail_note "running heartbeat restore failed for $SMOKE_WORKER_ID after stopping drain (HTTP $REQUEST_STATUS)"
                 fi
 
                 next_assign_body=$(cat <<EOF
@@ -676,6 +774,96 @@ EOF
                     else
                         fail_note "claim-next task completion failed for $next_task_id (HTTP $REQUEST_STATUS)"
                     fi
+                fi
+
+                error_assign_body=$(cat <<EOF
+{"task_type":"$SMOKE_TASK_TYPE","task_data":{"smoke_test":"error_requeue","worker_id":"$SMOKE_WORKER_ID"},"priority":100003}
+EOF
+)
+                request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks" "$ADMIN_AUTH_HEADER" "$error_assign_body"
+                if [ "$REQUEST_STATUS" = "201" ]; then
+                    error_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                    if [ -n "$error_task_id" ]; then
+                        pass_note "assigned error-path smoke task $error_task_id"
+                    else
+                        fail_note "assign error-path smoke task returned empty task_id"
+                    fi
+                else
+                    fail_note "assign error-path smoke task failed (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID/heartbeat" "$REPLICATION_AUTH_HEADER" '{"status":"error","load_stats":{"cpu_usage":0.1,"queue_depth":1}}'
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    pass_note "error heartbeat accepted for $SMOKE_WORKER_ID"
+                else
+                    fail_note "error heartbeat failed for $SMOKE_WORKER_ID (HTTP $REQUEST_STATUS)"
+                fi
+
+                request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID" "$ADMIN_AUTH_HEADER"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    worker_status=$(json_extract "$REQUEST_BODY" "data.get('status', '')")
+                    if [ "$worker_status" = "error" ]; then
+                        pass_note "worker detail reflects error state"
+                    else
+                        fail_note "worker detail did not reflect error state"
+                    fi
+                else
+                    fail_note "get worker after error heartbeat failed (HTTP $REQUEST_STATUS)"
+                fi
+
+                if [ -n "${error_task_id:-}" ]; then
+                    request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks?limit=100" "$ADMIN_AUTH_HEADER"
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        error_task_pending=$(json_extract "$REQUEST_BODY" "any(item.get('task_id') == '$error_task_id' and item.get('status') == 'pending' for item in data)")
+                        if [ "$error_task_pending" = "True" ]; then
+                            pass_note "error heartbeat re-queues claimed task back to pending list"
+                        else
+                            fail_note "error heartbeat did not re-queue claimed task to pending list"
+                        fi
+                    else
+                        fail_note "pending task list fetch after error heartbeat failed (HTTP $REQUEST_STATUS)"
+                    fi
+
+                    request "GET" "$ADMIN_ENDPOINT/_synapse/worker/v1/select/$SMOKE_TASK_TYPE" "$ADMIN_AUTH_HEADER"
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        error_selected_worker=$(json_extract "$REQUEST_BODY" "data.get('selected_worker', '') if isinstance(data, dict) else ''")
+                        if [ "$error_selected_worker" = "$SMOKE_PEER_WORKER_ID" ]; then
+                            pass_note "worker selection skips errored worker and picks peer"
+                        else
+                            fail_note "worker selection returned unexpected worker during error recovery"
+                        fi
+                    else
+                        fail_note "worker selection failed during error recovery (HTTP $REQUEST_STATUS)"
+                    fi
+
+                    request "POST" "$ADMIN_ENDPOINT/_synapse/worker/v1/tasks/claim/$SMOKE_PEER_WORKER_ID" "$ADMIN_AUTH_HEADER" ""
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        claimed_error_task_id=$(json_extract "$REQUEST_BODY" "data.get('task_id', '')")
+                        claimed_error_worker_id=$(json_extract "$REQUEST_BODY" "data.get('assigned_worker_id', '')")
+                        if [ "$claimed_error_task_id" = "$error_task_id" ] && [ "$claimed_error_worker_id" = "$SMOKE_PEER_WORKER_ID" ]; then
+                            pass_note "peer worker claims error-requeued task after primary enters error"
+                        else
+                            fail_note "peer worker returned unexpected task or worker for error-requeue path"
+                        fi
+                    else
+                        fail_note "peer worker claim_next_task failed after error heartbeat (HTTP $REQUEST_STATUS)"
+                    fi
+                fi
+
+                if [ -n "${error_task_id:-}" ] && [ "${claimed_error_task_id:-}" = "$error_task_id" ]; then
+                    request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/tasks/$error_task_id/complete" "$REPLICATION_AUTH_HEADER" "$complete_body"
+                    if [ "$REQUEST_STATUS" = "200" ]; then
+                        pass_note "error-requeued task completion accepted for $error_task_id"
+                    else
+                        fail_note "error-requeued task completion failed for $error_task_id (HTTP $REQUEST_STATUS)"
+                    fi
+                fi
+
+                request "POST" "$REPLICATION_ENDPOINT/_synapse/worker/v1/workers/$SMOKE_WORKER_ID/heartbeat" "$REPLICATION_AUTH_HEADER" "$heartbeat_body"
+                if [ "$REQUEST_STATUS" = "200" ]; then
+                    pass_note "running heartbeat restores $SMOKE_WORKER_ID after error recovery"
+                else
+                    fail_note "running heartbeat restore failed for $SMOKE_WORKER_ID after error recovery (HTTP $REQUEST_STATUS)"
                 fi
 
                 failed_assign_body=$(cat <<EOF

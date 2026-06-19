@@ -23,6 +23,7 @@ mod federation_event_auth_error_tests {
                 prev_events: vec![],
                 state_key: Some(json!("@user:test")),
                 content: Some(json!({"type": "m.text", "body": "test"})),
+                ..Default::default()
             },
         );
 
@@ -47,6 +48,7 @@ mod federation_event_auth_error_tests {
                 prev_events: vec![],
                 state_key: Some(json!("@user:test")),
                 content: Some(json!({"type": "m.text", "body": "test"})),
+                ..Default::default()
             },
         );
 
@@ -72,6 +74,7 @@ mod federation_event_auth_error_tests {
                 prev_events: vec![],
                 state_key: Some(json!("@user:test")),
                 content: Some(json!({"type": "m.text", "body": "test"})),
+                ..Default::default()
             },
         );
 
@@ -97,6 +100,7 @@ mod federation_event_auth_error_tests {
                     prev_events: if i > 0 { vec![format!("$event_{}", i - 1)] } else { vec![] },
                     state_key: Some(json!(format!("@user:{}", i % 5))),
                     content: Some(json!({"type": "m.text", "body": format!("test{}", i)})),
+                    ..Default::default()
                 },
             );
         }
@@ -133,6 +137,7 @@ mod federation_event_auth_error_tests {
                 prev_events: vec![],
                 state_key: Some(json!("@user:test")),
                 content: Some(json!({"type": "m.text", "body": "test"})),
+                ..Default::default()
             },
         );
 

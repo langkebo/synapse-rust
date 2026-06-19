@@ -376,6 +376,7 @@ mod tests {
             reference_image: None,
             origin: "example.com".to_string(),
             stream_ordering: Some(1),
+            redacts: None,
         };
         assert_eq!(event.event_id, "$test_event");
         assert_eq!(event.room_id, "!test:example.com");

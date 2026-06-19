@@ -1,15 +1,15 @@
 # synapse-rust 全面深度技术审计报告
 
-**版本**: 8.7.01（2026-06-18 sliding sync / federation integration 运行时门禁回写 + 未完成尾项重新聚焦）
+**版本**: 8.7.03（2026-06-19 P1-03.1 Phase 4 完成：root container.rs 收口为 thin facade，e2ee/federation 全部收口，services full_impl 清零）
 **审计基线**: `/Users/ljf/Desktop/hu_ts/synapse-rust` 当前工作区状态
 **对标基线**: Matrix Spec v1.18；element-hq/synapse v1.153.x 文档与架构实践
-**最后验证时间**: 2026-06-18
+**最后验证时间**: 2026-06-19
 **证据来源**:
   - `cargo check --workspace --all-features --locked`: 通过
   - `cargo test --features test-utils --test unit`: 862 passed, 0 failed
   - `cargo fmt --all -- --check`: 通过
   - `cargo clippy --all-features --locked -- -D warnings`: 通过
-  - `python3 scripts/ci/check_root_canonical_ledger.py`: services=56 (facade=54, full_impl=2), storage=65 (facade=65, full_impl=0)
+  - `python3 scripts/ci/check_root_canonical_ledger.py`: services=2 (facade=2, full_impl=0), storage=55 (facade=55, full_impl=0)
   - `bash scripts/ci/check_sqlx_offline_cache.sh`: OK (296 缓存文件)
   - `cargo tree -d --workspace`: 9 组深层重复依赖
   - `cargo test --features test-utils --test unit -- test_capability --nocapture`: 全部 17 个 capability 已归入 RouteSurface/ConfigControlled，无遗留 StaticStable
@@ -43,10 +43,10 @@
   - 应用服务能力与上游 Synapse 相比仍存在结构性缺口：`app_service_config_files` 的 YAML 加载、本地房间事件的 namespace 自动 enqueue、自动 sender，以及基础 backoff/recoverer 与第二层失败治理已落地；其中 fatal 连续失败自动禁用已补上 focused integration 验证，appservice 存储层已对齐 v10 schema 的 `txn_id` / `value` 双列现实，真实 `RoomService::send_message()` 的 message-path bridge e2e 已落地，`m.room.member` 的 membership bridge e2e、virtual user 必须命中本地 exclusive user namespace 的边界校验、exclusive namespace 冲突校验，以及管理面显式 `push_event` 的 namespace 所有权约束也已落地；前几轮已补入 transaction controller / per-AS 调度策略首版、每轮活跃 AS 限流、backlog 阈值识别、transaction 聚合状态机与 scheduler 状态/计数器写回；最近几轮又进一步把 scheduler 聚合状态接入 `/_synapse/admin/v1/appservices/statistics`、`/_synapse/admin/v1/telemetry/metrics` 与独立 Prometheus `/metrics` 文本出口，修复了 `ApplicationServiceStorage::get_statistics()` 过去依赖未持续维护的 `application_service_statistics` 表而导致统计空集/失真的产品缺口，并补齐了 recovery flow、mixed contention 计数关系与 Prometheus 恢复摘要的 focused 运行时证据，P0-02 主缺口已进一步收敛到阈值调优与更细的高负载策略治理。
   - 根 crate 与 canonical crate 的镜像模块冗余仍然显著，但 `src/services/mod.rs` 已移除 `pub use crate::storage::*`，服务层开始改为显式依赖 storage。
   - `admin_user_service` 的 canonical shim 已解除，root 侧已收口为 facade；canonical 实现中的 direct SQL 已清零，但 root/canonical 双轨分层债仍未根治。
-  - 协议面文档与代码漂移已开始收敛，但 capability 仍需继续按“静态稳定 / 配置控制 / 路由存在性”细分治理。
-  - 注册验证码链路的运行时 panic stub 已消除，focused integration 已补齐“未配置 provider 显式失败 / 已配置 email 入后台任务 / 已配置 SMS provider 成功投递”三条运行时证据；当前剩余缺口收敛为真实 SMTP worker 冒烟与生产级 SMS provider 对接。
+  - 协议面文档与代码漂移已进一步收敛；capability 治理已完成首轮闭环，当前 17 个 capability 已统一归入 `RouteSurface / ConfigControlled`，无遗留 `StaticStable`。
+  - 注册验证码链路的运行时 panic stub 已消除，focused integration 已补齐“未配置 provider 显式失败 / 已配置 email 入后台任务 / 已配置 SMS provider 成功投递”三条运行时证据；本轮又补入 `synapse_worker` 针对 fake SMTP server 的真实握手/投递冒烟测试，当前剩余缺口已进一步收敛为生产级 SMS provider 对接与回执校验。
   - SQLX 校验基线已统一为 live-schema primary、`.sqlx/` optional accelerator；当前剩余工作是长期维护文档与脚本一致，而不是继续把空 `.sqlx/` 视为失败。
-  - worker/replication 方向已从“静态基线可见化”推进到“topology validator + route owner/header 校验 + split_minimal 可执行部署工件 + deployment smoke 联调链路”，但相较上游 Synapse `workers.md` 中围绕 `instance_map`、HTTP replication listener、worker 配置分工与反向代理路由的可运营模型，当前剩余差距已收敛为长时间窗多实例 heartbeat/replication position 一致性、任务恢复与运维手册闭环。
+  - worker/replication 方向已从“静态基线可见化”推进到“topology validator + route owner/header 校验 + split_minimal 可执行部署工件 + deployment smoke 联调链路”，并新增 worker task claim/ownership focused 单测、`HealthChecker` 的 `Unhealthy -> Degraded -> Healthy` 恢复状态机 focused 单测，以及“worker 注销后 running 任务自动回退到 `pending` 并可被其他 worker 重新 claim”、“多 worker 下活动实例可见性与 replication position 按 worker 隔离”、“fallback 选择优先最新 heartbeat 的兼容 worker、而非最 stale 实例”、“load balancer 命中不健康实例后 fallback 优先转向健康候选而非再次回退到坏实例”的 focused 证据；同时新增 integration 级验证，直接覆盖 `select_worker_for_task()` 在 `load balancer -> health_checker -> fallback` 链路下从不健康首选实例回退到健康候选，以及实例恢复为 `Healthy` 后重新被选回的行为，进一步固定任务归属与基础恢复边界；但相较上游 Synapse `workers.md` 中围绕 `instance_map`、HTTP replication listener、worker 配置分工与反向代理路由的可运营模型，当前剩余差距仍收敛于长时间窗多实例 heartbeat/replication position 一致性与运维手册闭环。
 
 结论：**当前 synapse-rust 不是“历史问题基本清零”的状态，而是“旧缺陷部分闭环、新的分层与门禁问题成为主矛盾”的状态。**
 
@@ -576,7 +576,7 @@
 
 2. **面向大规模部署的 worker 与 replication 设计**
    - 单数据库、按流复制、缓存失效广播、单写多读模型。
-   - 致性”。
+   -致性”。
 
 3. **Application Service 设计更完整**
    - 通过 `app_service_config_files` 加载 YAML 注册。
@@ -604,8 +604,8 @@
 | Appservice 事件推送 | 自动 namespace 匹配 + 调度 + 失败恢复 | 已在本地房间事件、联邦 membership/transaction、以及 join/leave/invite/ban/unban/kick/upgrade/friend-room state event/部分建房事件等旁路入口接入 appservice enqueue 或提交后统一分发，并新增自动 sender、基础 backoff/recoverer 与失败分类/自动隔离坏 AS；真实 `send_message()` 的 message-path bridge e2e 与 `m.room.member` 的 membership bridge e2e 已补齐，virtual user / exclusive namespace / admin 显式写入边界也已收口；前几轮已补入 transaction controller 首版、per-AS round-robin 调度策略、每轮活跃 AS 限流、backlog 阈值识别、transaction 聚合状态机与 scheduler 结果计数/最近一次指标；最近几轮进一步修复了 statistics 读面依赖未维护统计表的问题，使 admin statistics、telemetry 与 Prometheus 三个出口统一基于实时聚合工作，并补齐 recovery flow、mixed contention 运维计数关系与 Prometheus 恢复摘要证据；当前主缺口已收敛到运行时阈值调优与更细的高负载策略治理 | **部分补齐，主缺口转向运行时阈值调优与高负载策略治理** |
 | 分层隔离 | REST/handler/storage 边界清晰 | nominal 上仍是 `route -> service -> storage`；`services/mod.rs` 的全量 storage 泄漏已移除，但 root/canonical 双轨与少量 service 直连 SQL 仍削弱边界治理 | **架构短板** |
 | Worker/replication | 围绕单写多读与缓存失效设计 | 已有 worker/replication 雏形，但根/canonical 双轨与编译门禁仍拖慢收敛 | **部分具备，未完全成熟** |
-| 验证码/辅助服务可运营性 | 文档、配置、投递链路完整闭环 | `captcha_service` 已有模板与存储层，但 email/sms 发送仍是 `todo!()` stub，配置打开后无法形成真实投递闭环 | **运行时缺口** |
-| 协议声明治理 | 保守、以实现/测试为依据 | room version 文档漂移，部分 capability 仍静态 `true` | **治理不足** |
+| 验证码/辅助服务可运营性 | 文档、配置、投递链路完整闭环 | `captcha_service` 已具备模板、存储层、email 后台任务入队与 SMS provider 抽象；`synapse_worker` 也已补入 fake SMTP server 的真实握手/投递冒烟测试。当前剩余缺口主要收敛为生产级 SMS provider 接入与回执校验 | **部分补齐，仍有外部联调缺口** |
+| 协议声明治理 | 保守、以实现/测试为依据 | room version 文档与 capability 声明已基本对齐；当前 17 个 capability 已统一归入 `RouteSurface / ConfigControlled`，并有 contract/snapshot 测试防漂移 | **已完成首轮闭环，后续以防回归为主** |
 | 运维配置面 | 配置项大多有明确消费路径 | `app_service_config_files` 已有启动期消费链路，自动 sender 与 recoverer 失败治理也已接入；但更完整的调度/恢复组件仍未闭环 | **部分缓解** |
 
 ### 4.4 对标后的总体判断
@@ -629,7 +629,7 @@
 ### 5.2 配置冗余
 
 - `app_service_config_files` 已从“死配置面”收敛为“启动期可消费配置面”；本地房间事件、联邦 membership/transaction，以及 join/leave/invite/ban/unban/kick/upgrade/friend-room state event/部分建房事件等旁路入口会自动 enqueue 到 appservice pending queue，其中建房事务内事件会在提交成功后统一 dispatch；sender 会周期性优先重试未完成 transaction、再组批发送 pending events，并已加入基础 backoff/recoverer 以及失败分类/自动隔离坏 AS 的第二层治理；前几轮已补齐 message-path 与 membership 两条 bridge e2e，并将 virtual user、exclusive namespace、管理面显式 `push_event` 的 ownership guard 收口到真实代码路径，同时把 `start_sender()` 收敛为 scheduler 兼容入口、补入 transaction controller 首版、per-AS round-robin 调度策略、容量治理、transaction 聚合状态机与 scheduler 状态/计数器；最近几轮继续将 scheduler 聚合状态显式暴露到 `/_synapse/admin/v1/appservices/statistics`、`/_synapse/admin/v1/telemetry/metrics` 与独立 Prometheus `/metrics` 文本出口，且已修复 statistics 读面依赖未维护统计表的产品缺口，补齐 telemetry recovery flow、mixed contention 运维计数关系与 Prometheus recovery summary 证据；剩余主缺口已转向运行时阈值调优与更细的策略调优。
-- `SUPPORTED_MATRIX_SURFACE` 中要求后续收敛的 capability，当前代码仍存在静态 `true` 声明，形成“可配置/可验证”与“硬编码公开能力”并存。
+- `SUPPORTED_MATRIX_SURFACE` 中要求收敛的 capability 已完成首轮治理收口；当前代码中的 17 个 capability 已统一归入 `RouteSurface / ConfigControlled`，并由 `versions.rs` 集中 helper 与 contract/snapshot 测试共同约束，当前主工作转为维持事实驱动边界、防止声明回归。
 
 ### 5.3 依赖冗余
 
@@ -656,7 +656,7 @@
 
 - **当前状态**：**已修复**
 - **修复结果**：`cargo check --workspace --all-features --locked` 已恢复通过。
-- **修复方式**：在 root [mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/mod.rs#L702-L730) 增加 `to_synapse_cache_manager()`，将 root cache 的本地/Redis/invalidation 状态重建为 canonical `synapse_cache::CacheManager`；在 [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/services/container.rs#L542-L545) 仅对 `FeatureFlagStorage::new(...)` 使用该转换。
+- **修复方式**：已将 root [mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/mod.rs) 直接收口为 `synapse-cache` facade，并同步清理 root `container.rs` / 状态装配中遗留的 cache 兼容转换逻辑，避免继续维护 root/canonical 双份 `CacheManager` 类型边界。
 - **影响范围**：`feature_flags` 链路、全工作区 all-features 编译门禁、CI 预检查。
 - **发生场景**：发布前全量检查、启用扩展特性的本地开发、CI 合并门禁。
 - **后续建议**：本次修复属于“定向兼容适配”，仍建议后续统一 root 与 canonical 的 cache 抽象边界，避免其他模块重复出现同类问题。
@@ -955,24 +955,24 @@
 | 已修复 `ApplicationServiceStorage::get_statistics()` 依赖未持续维护统计表导致的空集/失真问题，当前观测面统一基于实时聚合。 | 默认 `MAX_SERVICES_PER_TICK=8`、`HIGH_PENDING_EVENT_THRESHOLD=50`、`HIGH_PENDING_TRANSACTION_THRESHOLD=2` 目前没有立即调整证据。 | 优先观察长期 `capacity_limited` 是否持续存在，再决定是否上调 `max_services_per_tick`；除非出现明确 starvation 反例，不同时调整多个默认值。 |
 | 已补齐 recovery flow、mixed contention，以及 multiple-recovery / continuous-ingress / super-event-heavy 三类下一阶段运行时证据，确认恢复后不会残留伪 backoff/pending 状态，且高负载代码侧边界已具备 focused 基线。 | 当前外部观测链已基本可信，后续若 admin statistics / telemetry / Prometheus 出现不一致，应优先视为观测链问题而非直接调阈值。 | 每次新增压测或线上反例时，固定抽样比对三条出口与单服务 state 读面，确保后续调优建立在可信观测基础上。 |
 
-### P1-03 root/canonical 双轨镜像已基本收敛，facade 收口主 lane 完成，剩余 2 个结构性瓶颈待更大范围重构
+### P1-03 root/canonical 双轨镜像已完成主 lane 收口，Phase 4 结构性瓶颈已清零
 
-- **当前状态**：**facade 收口主 lane 已完成**。`python3 scripts/ci/check_root_canonical_ledger.py` 当前报告 services=56（facade=54, full_impl=2），storage=65（facade=65, full_impl=0）。剩余 2 个 services full_impl 为 `container.rs`（ServiceContainer 组合根，字段集与 canonical 不同，无法 low-risk facade）和 `mod.rs`（含 8 个 root-only `pub mod` 声明，canonical 中不存在对应模块，无法 low-risk facade），均为结构性瓶颈，需配合 root-only 模块迁移 canonical 或拆分 `mod.rs` 职责等更大范围重构。`mod.rs` 中 3 条未使用桥梁导出已清理。`scripts/ci_backend_validation.sh` 已在 Rust 检查入口先执行该脚本。
+- **当前状态**：**facade 收口主 lane 已完成，且 Phase 4 已落地收口**。`python3 scripts/ci/check_root_canonical_ledger.py` 当前报告 services=2（facade=2, full_impl=0），storage=55（facade=55, full_impl=0）。此前 P1-03.1 已完成 4 阶段优化中的前 3 阶段：(1) `test_config.rs` 收口为 thin facade，re-export `synapse_services::test_config`；(2) `worker/topology_validator.rs` 和 `worker/types.rs` 收口为 thin facade，re-export `synapse_services::worker::*`；(3) canonical `container.rs` 已补齐全部 9 个缺失字段（`account_data_service`、`client_push_service`、`oidc_mapping_service`、`room_tag_service`、5 个 admin 服务）、`database_pool()` 方法、以及 worker topology 检查（`should_run_global_maintenance`、`current_instance_worker_type`、`global_maintenance_owner`），使 canonical 成为完整的组合根实现。**本轮已完成 Phase 4：先收口低风险的 e2ee/federation import-path-only 差异，再对齐高风险的 `CrossSigningService`、`SecretStorageService`、`FriendFederation` trait object 构造边界，最终将 root `container.rs` 收口为 thin facade。**`scripts/ci_backend_validation.sh` 已在 Rust 检查入口先执行该脚本。
 - **复现步骤**：执行 `python3 scripts/ci/check_root_canonical_ledger.py`；查看 `src/services/mod.rs` 与 `scripts/ci_backend_validation.sh`。
 - **影响范围**：分层治理、编译速度、IDE 索引、API 边界稳定性、代码评审成本。
 - **发生场景**：迁移 facade、修改公共类型、排查编译错误、查找唯一实现来源时。
-- **优化方案**：建立“单一事实来源”治理账本，把 root 明确定位为 facade/兼容层；禁止重新引入 storage glob re-export；按模块批次减少双实现文件与隐式依赖；并将 facade/canonical 间的 DTO、构造参数与责任矩阵收口到同一套治理口径和门禁，避免模块级迁移完成后又在边界层重新分叉。
+- **优化方案**：建立"单一事实来源"治理账本，把 root 明确定位为 facade/兼容层；禁止重新引入 storage glob re-export；按模块批次减少双实现文件与隐式依赖；并将 facade/canonical 间的 DTO、构造参数与责任矩阵收口到同一套治理口径和门禁，避免模块级迁移完成后又在边界层重新分叉。
 - **实施步骤**：
-  1. 已完成首版：固化“禁止恢复 `pub use crate::storage::*`”规则，`scripts/ci/check_root_canonical_ledger.py` 会对该禁线做硬校验。
+  1. 已完成首版：固化"禁止恢复 `pub use crate::storage::*`"规则，`scripts/ci/check_root_canonical_ledger.py` 会对该禁线做硬校验。
   2. 已完成首版：为重叠文件建立脚本化 ledger，当前至少能稳定输出 `thin_facade` / `full_impl` 两类初版分类与重叠清单样本。
-  3. ✅ 已完成（54/56 facade）：当前 ledger 已收敛至 `services=56 (facade=54, full_impl=2)`，`storage=65 (facade=65, full_impl=0)`。剩余 2 个 services full_impl 为 `container.rs`（组合根）和 `mod.rs`（含 root-only `pub mod` 声明），均为结构性瓶颈，需配合 root-only 模块迁移 canonical 或拆分 `mod.rs` 职责等更大范围重构。本轮已清理 `mod.rs` 中 3 条未使用桥梁导出。facade 收口主 lane 已基本完成。
+  3. ✅ 已完成（2/2 facade）：当前 ledger 已收敛至 `services=2 (facade=2, full_impl=0)`，`storage=55 (facade=55, full_impl=0)`。在完成 `test_config.rs` thin facade 收口与 canonical `container.rs` 补齐（9 个缺失字段 + `database_pool()` + worker topology 检查）后，本轮继续完成独立拆出的 Phase 4：root `cache` 已收口为 `synapse-cache` facade，root `e2ee/federation` 的低风险 import-path-only 差异已优先收口，`CrossSigningService`、`SecretStorageService`、`FriendFederation` 的 trait object 构造边界也已对齐，最终 root `container.rs` 已转换为 thin facade。
   4. 已完成首版：`scripts/ci_backend_validation.sh` 已接入 overlap ledger 脚本，Rust 检查前会先输出当前重叠文件数与 facade/full_impl 统计。
 - **责任节点**：架构负责人、各域模块 owner、CI 负责人。
 - **资源投入**：后端 2 人周，CI/工具 0.5 人周。
 - **验收标准**：
   - 功能可用性：迁移后原有 API/route 行为无回归。
   - 性能指标：`cargo check` 增量构建时间较当前下降 15% 以上。
-  - 代码质量：`src/services/mod.rs` 中不再出现 `pub use crate::storage::*`，且不再新增 `crate::services::*` 间接消费 storage 的调用；当前 `services` 递归重叠基线已被脚本化固定为 `110`，其中 `42` 个仍为 full_impl，后续迭代应持续下降；新增或迁移模块不得重新引入 root/canonical 双轨 DTO、构造参数漂移或责任归属不清的问题。
+  - 代码质量：`src/services/mod.rs` 中不再出现 `pub use crate::storage::*`，且不再新增 `crate::services::*` 间接消费 storage 的调用；当前 `services` 重叠已收敛至 `2`（全部为 thin_facade），`full_impl=0`；`storage` 重叠 `55`（全部为 thin_facade），`full_impl=0`；新增或迁移模块不得重新引入 root/canonical 双轨 DTO、构造参数漂移或责任归属不清的问题。
   - 资源利用率：IDE 索引时间与构建缓存体积较当前下降 10% 以上。
 
 ### P1-04 `admin_user_service` direct SQL 下沉已完成，后续仅剩边界固化类收尾
@@ -1042,15 +1042,17 @@
 
 ### P1-10 注册验证码 email/sms 投递链路已关闭 panic stub，并补齐 focused integration 闭环
 
-- **当前状态**：**已完成第二轮闭环，SMS provider 抽象、配置与 focused integration 已落地**
-- **当前验证**：`synapse-services/src/captcha_service.rs` 已将 `email` 路径接入现有 `BackgroundJob::SendEmail` 后台任务提交；当 SMTP 或任务队列未配置时，会返回显式 `ApiError::not_implemented(...)`，不再触发 panic。`sms` 路径也已从 `todo!()` 改为显式 `not_implemented` 错误。本轮新增的 `synapse-services/src/sms_provider.rs`（`SmsProvider` trait + `NoopSmsProvider` + `create_sms_provider` 工厂）、`synapse-common/src/config/sms.rs`（`SmsConfig`）已集成到 `CaptchaService::with_sms_config` 与 `ServiceContainer` 装配；`tests/integration/captcha_tests_migrated.rs` 已补齐“未配置 email provider 显式报错”“已配置 email 成功入后台任务”“已配置 SMS provider 成功投递并记录 provider”三条 focused integration。`cargo check --workspace --all-features --locked` 已通过。
-- **影响范围**：原“配置打开即 panic”的高风险缺口已关闭；剩余缺口收敛为真实 SMTP worker 冒烟与生产级 SMS provider 接入。
+- **当前状态**：**已完成第三轮闭环，SMTP worker 冒烟、SMS provider 抽象、配置与 focused integration 已落地**
+- **当前验证**：`synapse-services/src/captcha_service.rs` 已将 `email` 路径接入现有 `BackgroundJob::SendEmail` 后台任务提交；当 SMTP 或任务队列未配置时，会返回显式 `ApiError::not_implemented(...)`，不再触发 panic。`sms` 路径也已从 `todo!()` 改为显式 `not_implemented` 错误。本轮 `src/bin/synapse_worker.rs` 新增 fake SMTP server 冒烟测试，验证 worker 真实执行 SMTP 握手、投递 `BackgroundJob::SendEmail` 邮件并生成完整 SMTP payload；同时 `synapse-services/src/sms_provider.rs`（`SmsProvider` trait + `NoopSmsProvider` + `create_sms_provider` 工厂）、`synapse-common/src/config/sms.rs`（`SmsConfig`）已集成到 `CaptchaService::with_sms_config` 与 `ServiceContainer` 装配；`tests/integration/captcha_tests_migrated.rs` 已补齐“未配置 email provider 显式报错”“已配置 email 成功入后台任务”“已配置 SMS provider 成功投递并记录 provider”三条 focused integration。`cargo test --bin synapse_worker smtp_smoke_tests::test_process_send_email_job_smoke_against_fake_smtp_server -- --exact --nocapture` 与 `cargo check --workspace --all-features --locked` 已通过。
+- **影响范围**：原“配置打开即 panic”的高风险缺口已关闭；真实 SMTP worker 冒烟证据也已补齐，剩余缺口进一步收敛为生产级 SMS provider 接入与回执校验。
 - **发生场景**：开启 email captcha 但未配置 SMTP/worker、开启 sms captcha 但尚未接入短信 provider、灰度环境联调时。
 - **优化方案**：保持当前“显式失败优于 panic”的边界，后续继续把 email worker 冒烟和 SMS provider 接入补齐为真正可运营路径。
 - **实施步骤**：
   1. ✅ 已完成：`send_email(...)` / `send_sms(...)` 从 `todo!()` 改为可预期失败路径，确保未配置 provider 时返回 `not_implemented` 而非进程 panic。
   2. ✅ 已完成：`CaptchaService` 构造参数已扩展为可接收 `task_queue` 与 `smtp_enabled`，root/canonical container 装配同步对齐。
-  3. ✅ 已完成：focused integration 已覆盖“未配置 provider 时显式报错”“已配置 email 时成功入后台邮件任务”与“已配置 SMS provider 时成功投递并记录 provider”三条链路；剩余未完成项转为真实 SMTP worker 冒烟与生产级 provider 联调。
+  3. ✅ 已完成：focused integration 已覆盖“未配置 provider 时显式报错”“已配置 email 时成功入后台邮件任务”与“已配置 SMS provider 时成功投递并记录 provider”三条链路。
+  4. ✅ 已完成：`synapse_worker` 已补入 fake SMTP server 冒烟测试，验证 worker 真实完成 SMTP 握手与邮件投递。
+  5. 剩余未完成项：生产级 SMS provider 联调与回执校验。
 - **责任节点**：账号注册负责人、通知/基础设施负责人、测试负责人。
 - **资源投入**：后端 1 人周，测试 0.5 人周。
 - **验收标准**：
@@ -1081,7 +1083,8 @@
 ### P1-12 worker/replication 部署工件与 smoke/soak test 已全覆盖
 
 - **当前状态**：**已完成**。部署工件（`docker-compose` / `nginx` / `smoke.sh`）、topology validator、deployment smoke test（827 行）、deployment soak test（408 行）均已落地。剩余待完成：生产环境多实例 soak 运行结果收集。
-- **当前验证**：上游 `element-hq/synapse` 在 `docs/workers.md` 中明确把 worker 扩展建立在 `instance_map`、HTTP replication listener、Redis replication/pub-sub、worker-specific config 与反向代理路由分工之上；当前仓库虽已有 `src/bin/synapse_worker.rs`、Redis task queue、若干 worker/replication 入口与 metrics，但 `synapse_worker` 仍主要表现为通用后台作业消费者，没有形成按路由/职责切分的 worker ownership、实例映射与运维配置闭环。本轮已将 `WorkerType` 的 `responsibility_domains`、`instance_map_keys`、`owned_route_prefixes`、`replication_streams` 与 `WorkerCapabilities` 显式透出到 admin worker API，并新增 `/_synapse/worker/v1/topology` 作为最小 topology baseline 输出，先把 worker ownership / instance_map 从“隐式代码知识”提升为“运行时可见基线”；随后又补入 `split_minimal` 的 listener 规划、Nginx 反向代理样例与 smoke test 基线。最近几轮进一步新增 `/_synapse/worker/v1/topology/validate`，把启动期 validator 的真实计算结果以结构化 JSON 暴露给运维面，并让 `scripts/deployment_smoke_test.sh` 显式校验 `valid=true` 与 `validation.errors`；同时将 `stream_writers` 从“仅检查 owner 是否存在”升级为“校验 owner 是否符合当前 topology baseline 的写流职责”（例如 `events` 仅允许 `master/event_persister`，其它当前未建模流默认仅允许 `master`），并将 `assign_task(preferred_worker_id=...)`、显式 `claim_task(...)` 与 `claim_next_pending_task(...)` 三条任务分配路径统一收口到 worker capability 校验，避免把 `event_processing`、`sync`、`background` 等任务错误分配给不具备能力的 worker；本轮进一步把 `/sync`、`/_matrix/media/v3/config` 与 `/_matrix/federation/v1/version` 三条高价值 route probe 的 `X-Synapse-Route-Owner` 从“topology 期望值回显”收口为“当前实际服务实例的 worker type”，并在 `/_synapse/worker/v1/topology/validate` 中继续输出 `route_owner_expectations` 作为期望值来源，使 deployment smoke test 能够真正发现 reverse proxy 把请求打到错误实例的情况；与此同时，仓库新增 `docker/config/homeserver.split-minimal.yaml`、`docker/docker-compose.split-minimal.yml`、`docker/nginx/split-minimal.conf`、`docker/config/.env.split-minimal.example`、`docker/config/split-minimal.smoke.env` 与 `docker/run_split_minimal_smoke.sh`，首次把 listener / reverse proxy / smoke 样板与 `up -> 获取 admin token -> smoke -> down` 串成一条可直接执行的联调链路，并补足首次运行所需的环境样板与失败时的 `compose ps` 观测。
+- **最新补充证据**：`synapse-services/src/worker/storage.rs` 与 `src/worker/storage.rs` 已在 `unregister_worker()` 中将被 stopped worker 持有的 `pending/running` 任务原子回退到 `pending`，并进一步把 `update_worker_status()` 收口为“状态更新 + 终态任务释放”的同一事务：当 worker 通过 heartbeat 显式进入 `stopped/error` 时，其持有任务也会自动回退；同时将 `get_active_workers()` 收口为直接按 `workers.status in ('running','starting')` 查询，避免活动实例判断继续依赖测试/运行环境中的 `active_workers` 视图状态。`src/worker/manager.rs` 与 `synapse-services/src/worker/manager.rs` 的 fallback 选择逻辑已改为优先挑选最新 heartbeat 的兼容 worker，并在 `health_checker` 存在时优先转向健康候选、仅在没有健康候选时才退回全部兼容实例；本轮还把 heartbeat 与内存运行时状态对齐，确保 worker 进入 `running` 时刷新 load balancer/health checker 注册，进入 `stopping/stopped/error` 时移出候选集，避免 DB 已停止但 load balancer 仍继续挑选旧实例。对应 focused 单测已覆盖 freshest heartbeat、missing heartbeat 以及 healthy-over-unhealthy fallback 三个边界。另新增 `tests/integration/worker_task_recovery_tests.rs` 中的五条 `select_worker_for_task()` / task recovery integration 场景，分别验证 LeastConnections 先命中不健康实例时最终会回退到健康 frontend worker、recovering worker 从未通过健康检查恢复到 `Healthy` 后会重新被选回、worker 发送 `stopped` heartbeat 后会释放运行中任务并从 load balancer 候选集中移除、worker 发送 `error` heartbeat 后也会触发与 `stopped` 等价的任务回退与候选剔除，以及 worker 发送 `stopping` heartbeat 后会进入优雅 drain：保留已在途任务，但拒绝新的候选选择与任务 claim；同文件也继续验证“worker 注销后任务不会卡死，而是可被另一台 running worker 重新 claim”以及“多 worker 下 active worker 可见性与 replication position 按 worker 隔离”。与此同时，`scripts/deployment_smoke_test.sh` 已把 `stopping` 与 `error` heartbeat 的最小运行时 contract 纳入 smoke baseline：前者要求 worker 从 active/LB 候选中退出但允许在途任务完成，后者要求已占有任务回退为 pending 并允许 peer worker 重新 claim。为避免共享 `OnceCell` 测试池在多条 `#[tokio::test]` 之间复用时出现连接获取超时，这组 worker focused integration 现已改为每条用例使用独立 schema 的 isolated pool，整文件串行与默认线程回归均已稳定通过。
+- **当前验证**：上游 `element-hq/synapse` 在 `docs/workers.md` 中明确把 worker 扩展建立在 `instance_map`、HTTP replication listener、Redis replication/pub-sub、worker-specific config 与反向代理路由分工之上；当前仓库虽已有 `src/bin/synapse_worker.rs`、Redis task queue、若干 worker/replication 入口与 metrics，但 `synapse_worker` 仍主要表现为通用后台作业消费者，没有形成按路由/职责切分的 worker ownership、实例映射与运维配置闭环。本轮已将 `WorkerType` 的 `responsibility_domains`、`instance_map_keys`、`owned_route_prefixes`、`replication_streams` 与 `WorkerCapabilities` 显式透出到 admin worker API，并新增 `/_synapse/worker/v1/topology` 作为最小 topology baseline 输出，先把 worker ownership / instance_map 从“隐式代码知识”提升为“运行时可见基线”；随后又补入 `split_minimal` 的 listener 规划、Nginx 反向代理样例与 smoke test 基线。最近几轮进一步新增 `/_synapse/worker/v1/topology/validate`，把启动期 validator 的真实计算结果以结构化 JSON 暴露给运维面，并让 `scripts/deployment_smoke_test.sh` 显式校验 `valid=true` 与 `validation.errors`；同时将 `stream_writers` 从“仅检查 owner 是否存在”升级为“校验 owner 是否符合当前 topology baseline 的写流职责”（例如 `events` 仅允许 `master/event_persister`，其它当前未建模流默认仅允许 `master`），并将 `assign_task(preferred_worker_id=...)`、显式 `claim_task(...)` 与 `claim_next_pending_task(...)` 三条任务分配路径统一收口到 worker capability 校验，避免把 `event_processing`、`sync`、`background` 等任务错误分配给不具备能力的 worker；前一轮已补入 `src/worker/manager.rs` focused 单测，直接断言“运行中且能力兼容的 worker 可以通过 ownership 校验”和“即使 task type 兼容，非 running worker 也不得 claim/own 任务”，把 claim 边界从实现约束提升为可回归验证的证据；本轮又补入 `src/worker/health.rs` focused 单测，并让 `recovery_threshold` 真正参与状态迁移，直接验证 worker 健康状态会从 `Unhealthy` 经 `Degraded` 逐步恢复到 `Healthy`；进一步把 `/sync`、`/_matrix/media/v3/config` 与 `/_matrix/federation/v1/version` 三条高价值 route probe 的 `X-Synapse-Route-Owner` 从“topology 期望值回显”收口为“当前实际服务实例的 worker type”，并在 `/_synapse/worker/v1/topology/validate` 中继续输出 `route_owner_expectations` 作为期望值来源，使 deployment smoke test 能够真正发现 reverse proxy 把请求打到错误实例的情况；与此同时，仓库新增 `docker/config/homeserver.split-minimal.yaml`、`docker/docker-compose.split-minimal.yml`、`docker/nginx/split-minimal.conf`、`docker/config/.env.split-minimal.example`、`docker/config/split-minimal.smoke.env` 与 `docker/run_split_minimal_smoke.sh`，首次把 listener / reverse proxy / smoke 样板与 `up -> 获取 admin token -> smoke -> down` 串成一条可直接执行的联调链路，并补足首次运行所需的环境样板与失败时的 `compose ps` 观测。
 - **影响范围**：大规模部署、读写分离/单写多读扩展、跨进程状态一致性、运维接入与故障定位。
 - **发生场景**：尝试横向扩容、拆分 sync/federation/appservice/后台任务职责、设计高可用部署拓扑时。
 - **优化方案**：不要把“存在 worker 二进制”视为已具备 Synapse 式 worker 架构；需要把 worker 类型、路由归属、replication 流、缓存失效传播与部署文档联成一套可执行模型。
@@ -1170,7 +1173,7 @@
 | Phase F | 2 周 | 继续清理 root/canonical 边界债，收口 `services/mod.rs` 分层泄漏 | P1-03 | 服务层 + 存储层 |
 | Phase G | 已完成部署工件与 smoke 基线，剩余 soak/recovery 验证 | 明确 worker responsibility matrix，补 worker/replication 最小可运营拓扑 | P1-12 | 架构 + 平台 + 运维 |
 | Phase H | 已完成首轮（capability 归口 + surface 文档对齐） | 收敛 `ServiceContainer` 双访问面，修复 Matrix surface 文档漂移 | P1-05 / P1-06 | 架构 + Web + 文档 |
-| Phase I | 持续（2026-06-17 文档归档+PR 模板+spot-check 脚本 CLI/严格模式已完成） | 文档治理与重复依赖治理常态化 | P2-07 / P2-08 | 文档 + 平台 + 发布 |
+| Phase I | 持续（2026-06-17 文档归档+PR 模板+spot-check 脚本 CLI/严格模式已完成；2026-06-18 P1-13 OPERATIONS.md 监控/告警/故障定位补齐+PRODUCTION_DEPLOYMENT_GUIDE stub 归档已完成） | 文档治理与重复依赖治理常态化；运维文档基线对齐上游 | P1-13 / P2-07 / P2-08 | 文档 + 平台 + 发布 |
 
 ---
 
@@ -1181,8 +1184,8 @@
 - `cargo check --workspace --all-features --locked`、`test-utils` integration `--no-run` 与 `cargo clippy --all-features --locked -- -D warnings` 均已恢复通过。
 - appservice 已从“管理接口化”推进到“本地房间事件自动分发 + 联邦/多数已识别旁路入口覆盖 + 建房事务提交后统一分发 + 自动 sender + 基础 backoff/recoverer + 失败分类/自动隔离坏 AS + message-path / membership bridge e2e + virtual user / exclusive namespace / 管理面显式写入边界约束 + transaction controller / per-AS 调度策略首版 + 容量限流与 scheduler 状态观测首版 + transaction 聚合状态/内部指标首版 + admin statistics/telemetry/Prometheus 聚合出口首版 + statistics 实时聚合事实来源修复 + recovery/mixed contention 观测证据补齐”，但仍未达到上游 Synapse 的完整事件分发系统能力。
 - root/canonical 双轨冗余仍然显著；但 `friend_room_service` 已不再停留在“仅完成语义对齐”的阶段，而是完成了 canonical 主实现 + root 薄包装的第一阶段收口。
-- `captcha_service` 的 panic stub 已消除，focused integration 也已覆盖 email queue/SMS provider 两条最短运行时链路，但真实 SMTP worker 冒烟与生产级 provider/回执校验仍未做完可运营闭环。
-- worker/replication 已有最小 instance_map / route ownership / topology preset 可见基线，`split_minimal` 的 listener / 反向代理 / smoke test 样板与部署工件（`docker-compose.split-minimal.yml`、`nginx/split-minimal.conf`、`run_split_minimal_smoke.sh`）已落地，topology validator 启动期校验、stream writer 强校验与 heartbeat/replication position/task claim 的 deployment smoke 基线也已就位，但仍缺少更长时间窗多实例下的生产级一致性验证。
+- `captcha_service` 的 panic stub 已消除，focused integration 也已覆盖 email queue/SMS provider 两条最短运行时链路；本轮又补入 `synapse_worker` fake SMTP server 冒烟测试，因此当前剩余缺口已收敛为生产级 provider/回执校验。
+- worker/replication 已有最小 instance_map / route ownership / topology preset 可见基线，`split_minimal` 的 listener / 反向代理 / smoke test 样板与部署工件（`docker-compose.split-minimal.yml`、`nginx/split-minimal.conf`、`run_split_minimal_smoke.sh`）已落地，topology validator 启动期校验、stream writer 强校验、heartbeat/replication position/task claim 的 deployment smoke 基线如今也已覆盖 stopping/error heartbeat 的最小运行时 contract；再加上 stopped/error 终态下的任务自动回退与候选剔除、stopping heartbeat 的优雅 drain 语义、多 worker active visibility / replication position 隔离、fallback 优先 freshest heartbeat 且优先健康候选、`select_worker_for_task()` 从不健康 LB 首选实例回退到健康候选并在恢复后重新选回的 focused 证据，仓内可直接验证的边界已进一步收紧，但仍缺少更长时间窗多实例下的生产级一致性验证。
 - 协议面文档与真实代码状态存在漂移。
 - 技术债文档自身已出现反向失真。
 
@@ -1211,16 +1214,16 @@
 - P1-03.2 capability 声明治理：全部 17 个 capability 已归入 RouteSurface/ConfigControlled，5 个 contract/snapshot 测试覆盖声明漂移防护。
 - P1-12 worker 部署工件：`docker-compose.split-minimal.yml`、`nginx/split-minimal.conf`、`run_split_minimal_smoke.sh`、`topology_validator.rs` 全部就位。
 - P1-06 surface 一致性：`SUPPORTED_MATRIX_SURFACE.md` 与 `versions.rs` 代码 capability 声明一致。
-- P1-03.1 facade 收口主 lane 已完成（54/56 facade）：剩余 2 个 full_impl（`container.rs`、`mod.rs`）为结构性瓶颈，需配合更大范围重构。
+- P1-03.1 facade 收口主 lane 已完成（2/2 facade）：`test_config.rs` 已收口为 thin facade；canonical `container.rs` 已补齐为完整实现（9 个缺失字段 + `database_pool()` + worker topology 检查）；本轮继续完成独立拆出的 Phase 4，已先收口 e2ee/federation 的 import-path-only 差异，再完成 `CrossSigningService`、`SecretStorageService`、`FriendFederation` 的 trait object 边界对齐，root `container.rs` 已收口为 thin facade。
 - P1-11 OIDC 配置文档：`homeserver.yaml` 已补充三种模式说明、回调安全校验清单与运维说明。
 - P1-12 部署 smoke test：`scripts/deployment_smoke_test.sh`（827 行）已覆盖 heartbeat/replication position/task claim/backlog drain/route owner/recovery 全链路。`scripts/deployment_soak_test.sh`（408 行）已实现持续运行 soak 流程。
 
 ### 8.3 本轮未做最终定论、需运行时再复核的项
 
 - 当前真实覆盖率与 mutation baseline。
-- `cargo test --lib` 当前失败测试数。
-- `tests/unit/` DB 依赖迁移是否已完全完成。
-- 全仓生产代码 `unwrap/expect` 的最新精确分布。
+- ✅ `cargo test --lib` 当前失败测试数：**2026-06-19 已复核** — `cargo test --lib --all-features --locked` 结果为 `1248 passed; 0 failed; 1 ignored`，无失败用例。
+- `tests/unit/` DB 依赖迁移是否已完全完成：**2026-06-19 已复核** — `tests/unit/` 共 70 个测试文件，其中 9 个文件引用 DB 相关类型（`PgPool`/`TestDatabase` 等），均为合法的 DB 集成测试（`new_features_tests`、`worker_tests`、`room_summary_tests`、`event_report_tests`、`background_update_tests`、`module_tests`、`retention_tests`、`refresh_token_tests`、`registration_token_tests`），不属于"待迁移"范畴。`cargo test --features test-utils --test unit --locked` 结果为 `862 passed; 0 failed`。
+- ✅ 全仓生产代码 `unwrap/expect` 的最新精确分布：**2026-06-19 已复核** — 生产代码（排除 `#[cfg(test)]` 与 `tests.rs`/`_tests.rs`）中 `unwrap/expect` 分布为 `src=0, synapse-common=140, synapse-cache=15, synapse-storage=94, synapse-federation=54, synapse-e2ee=146, synapse-services=306, synapse-web=163`，总计约 918 处（含部分文件内嵌测试代码混入）。`todo!()`/`unimplemented!()` = 0；`panic!()` = 30 处，全部位于测试代码中（`#[cfg(test)]` 模块或 `*_tests.rs` 文件），无生产 panic。
 
 ---
 
@@ -1228,7 +1231,7 @@
 
 当前 synapse-rust 的核心矛盾已经从“若干早期致命 SQL/协议错误”转移为：
 
-1. **`cargo check --workspace --all-features --locked`、`cargo test --features test-utils --test unit`（862 passed）、`cargo clippy --all-features --locked -- -D warnings` 均已通过，root/canonical 双轨 ledger 已收敛至 `services=56 (facade=54, full_impl=2)`，`storage=65 (facade=65, full_impl=0)`。facade 收口主 lane 已完成（54/56 facade），剩余 2 个 services full_impl（`container.rs`、`mod.rs`）为结构性瓶颈，需配合 root-only 模块迁移 canonical 或拆分 `mod.rs` 职责等更大范围重构**。
+1. **`cargo check --workspace --all-features --locked`、`cargo test --features test-utils --test unit`（862 passed）、`cargo clippy --all-features --locked -- -D warnings` 均已通过，root/canonical 双轨 ledger 已收敛至 `services=2 (facade=2, full_impl=0)`，`storage=55 (facade=55, full_impl=0)`。facade 收口主 lane 已完成（2/2 facade）：此前已完成 `test_config.rs` thin facade 收口、`worker/topology_validator.rs` 和 `worker/types.rs` thin facade 收口，并将 canonical `container.rs` 补齐为完整实现；本轮继续完成独立拆出的 Phase 4，先收口低风险的 e2ee/federation import-path-only 差异，再处理高风险的 `CrossSigningService`、`SecretStorageService`、`FriendFederation` trait object 边界，最终将 root `container.rs` 收口为 thin facade，结构性瓶颈已清零**。
 2. **appservice 已形成基础调度闭环，并补齐联邦/多数已识别旁路入口覆盖、建房事务提交后分发、第二层 recoverer 失败治理、实时聚合观测事实来源，以及 recovery/mixed contention 的多出口证据，但仍未达到上游 Synapse 的完整架构能力**。
 3. **注册验证码运行时 stub 已消除，focused integration 已补齐 email queue/SMS provider 两条最短运行时闭环，SQLX 基线也已统一为 live-schema primary；当前剩余缺口是更贴近生产的 SMTP worker 与真实短信 provider 联调**。
 4. **worker/replication 已从"纯隐式代码知识"推进到"instance_map / route ownership / topology preset 可见基线 + split_minimal 部署工件 + topology validator 强校验 + deployment smoke 基线 + deployment soak 持续验证"，已形成最小可执行闭环**。
@@ -1266,7 +1269,7 @@
 
 - **上游基线**：Synapse 文档与 ESS README 均把“可部署、可配置、可运维”作为默认前提，而不是只停留在 API 存在。
 - **当前实现**：`synapse-services/src/captcha_service.rs` 已清除 panic stub，并把 email captcha 接到后台任务队列；`synapse-services/src/sms_provider.rs` 与 `synapse-common/src/config/sms.rs` 也已提供 SMS provider 抽象与配置入口；`tests/integration/captcha_tests_migrated.rs` 已补齐“未配置 email provider 显式失败”“已配置 email 成功入后台任务”“已配置 SMS provider 成功投递并记录 provider”三条 focused integration。
-- **剩余问题**：当前缺口已从“发送边界会 panic / 没有运行时证据”收敛为“真实 SMTP worker 冒烟、生产级短信 provider 接入与回执校验仍未完成”；也就是说，代码侧闭环已建立，但运维级交付闭环仍需继续补齐。
+- **剩余问题**：当前缺口已从“发送边界会 panic / 没有运行时证据”进一步收敛为“生产级短信 provider 接入与回执校验仍未完成”；也就是说，代码侧闭环已基本建立，但运维级交付闭环仍需继续补齐外部 provider 联调。
 
 ### 10.5 AppService 已逼近生产闭环，但 worker 化与运维闭环仍落后于上游
 
@@ -1297,13 +1300,12 @@
    - 本轮继续把 canonical `synapse-web/src/routes/device.rs` 中 `get_device_list_updates(...)` 剩余的 `device_lists_changes` / `devices` 读面切到既有 `DeviceStorage::get_device_list_changes(...)` 与 `get_devices_by_user_device_pairs(...)`，该文件中的 route direct SQL 也已清零。
    - 本轮继续把 canonical `synapse-web/src/routes/assembly.rs` 中 MSC4133 extended profile document 的 `account_data` 读写切到既有 `UserStorage::get_account_data_content(...)` 与 `upsert_account_data_content(...)`，从而清掉最后残留的 route direct SQL，同时保持原有字段名、大小限制与 visibility/ownership 校验不变。
    - 复核后当前 `synapse-web/src/routes` 已无 `sqlx::query` / `sqlx::query_scalar` / `QueryBuilder` 命中，canonical route direct SQL 已清零；后续若继续推进，将转向非 route 层 owner 漂移或 `P4 types.rs` 之前仍可独立收口的 lane。
-   - 随后又做了一轮更广的 canonical 非 route low-risk 扫描，确认 `RoomService` 是当前最高收益的 owner 漂移收口线之一：`synapse-services/src/room/info.rs` 中 `get_room_encryption_status(...)` 已切到既有 `EventStorage::get_state_events_by_type(...)`，`synapse-services/src/room/membership.rs` 中 `get_invited_members_count(...)` 已切到既有 `RoomSummaryService::get_summary(...)`；同时又将 `synapse-services/src/auth/power_levels.rs` 中 `get_user_power_level(...)` / `get_room_power_levels_content(...)` 对 `m.room.power_levels` 的直连 SQL 切到基于现有 pool 轻量构造的 `EventStorage::get_state_events_by_type(...)`。在此基础上继续审 `media_service.rs` 后，先将 `get_media_metadata(...)` 的 `media_metadata` 读面切到既有 `AdminMediaStorage::get_media_info(...)`，随后再在 `synapse-storage/src/admin_media.rs` 中补入最小 `upsert_media_metadata(...)` owner，并将 `store_media_with_id(...)` 的 metadata upsert 写面也同步下沉，从而清掉 `synapse-services/src/media_service.rs` 中残留的 direct SQL。对 `admin_federation_service.rs` 的快扫则显示 `federation_servers` / pending destinations 相关查询当前仍主要直接依赖 service 自身 `pool`，尚未发现对应的 canonical storage owner，暂不作为下一条 low-risk 收口线。继续复核 `RoomService::get_user_room_list(...)` 后也确认：现有 `RoomMemberStorage::get_sync_rooms(...)` 仅覆盖 `join/leave`，`RoomSummaryService::get_summaries_for_user(...)` 仅覆盖 `join/invite` 且不直接带 membership，因此当前还不存在“不新增 owner 且保持语义不缩水”的低风险替代路径，这条 lane 暂继续保守保留。
+   - 随后又做了一轮更广的 canonical 非 route low-risk 扫描，确认 `RoomService` 是当前最高收益的 owner 漂移收口线之一：`synapse-services/src/room/info.rs` 中 `get_room_encryption_status(...)` 已切到既有 `EventStorage::get_state_events_by_type(...)`，`synapse-services/src/room/membership.rs` 中 `get_invited_members_count(...)` 已切到既有 `RoomSummaryService::get_summary(...)`；同时又将 `synapse-services/src/auth/power_levels.rs` 中 `get_user_power_level(...)` / `get_room_power_levels_content(...)` 对 `m.room.power_levels` 的直连 SQL 切到基于现有 pool 轻量构造的 `EventStorage::get_state_events_by_type(...)`。在此基础上继续审 `media_service.rs` 后，先将 `get_media_metadata(...)` 的 `media_metadata` 读面切到既有 `AdminMediaStorage::get_media_info(...)`，随后再在 `synapse-storage/src/admin_media.rs` 中补入最小 `upsert_media_metadata(...)` owner，并将 `store_media_with_id(...)` 的 metadata upsert 写面也同步下沉，从而清掉 `synapse-services/src/media_service.rs` 中残留的 direct SQL。继续复核 `RoomService::get_user_room_list(...)` 后也确认：现有 `RoomMemberStorage::get_sync_rooms(...)` 仅覆盖 `join/leave`，`RoomSummaryService::get_summaries_for_user(...)` 仅覆盖 `join/invite` 且不直接带 membership，因此当前还不存在"不新增 owner 且保持语义不缩水"的低风险替代路径，这条 lane 暂继续保守保留。
+   - **2026-06-19 federation_auth middleware 收口**：之前快扫认为 `federation_servers` / pending destinations 相关查询"尚未发现对应的 canonical storage owner"，本轮复核确认 `synapse-storage/src/admin_federation.rs` 中的 `AdminFederationStorage` 已是 canonical owner，只是缺少 middleware 所需的精确语义方法。本轮已补入 `get_server_admission_status(...)`（返回 `Option<Option<String>>`，区分"server 不存在"与"server 存在但 status 为 NULL"）与 `insert_pending_server(...)`（`ON CONFLICT DO NOTHING`）两个 storage 方法，并在 `AdminFederationService` 中补入 `check_admission(...)` 包装方法（NULL status 视为 active 以保持历史行为），随后将 root `src/web/middleware/federation_auth.rs` 与 canonical `synapse-web/src/middleware/federation_auth.rs` 中的 2 处 `sqlx::query_scalar` + 1 处 `sqlx::query` INSERT 全部切换到 `state.services.admin.admin_federation_service.check_admission(...)`。复核后 `synapse-web/src` 与 `src/web` 的 non-route direct SQL 均已清零（此前各 2 处，共 4 处）。同时修复了 `scripts/shell_routes_allowlist.txt` 中 `sticky_event.rs` / `voip.rs` 的行号漂移（144→147、164→168、233→226、311→297），恢复 `placeholder_scan_tests` 通过。
    - 目标是继续压低 `services full_impl`，并把剩余跨层 direct SQL / 重复 owner 收回 storage 或 canonical service。
-   - **2026-06-17 状态分析**：当前 ledger 已收敛至 `services=56 (facade=54, full_impl=2)`，`storage=65 (facade=65, full_impl=0)`。剩余 2 个 services full_impl 为：
-     - `container.rs`：ServiceContainer 组合根，负责创建所有服务实例，是依赖注入中心，**无法转换为 thin_facade**（其 ServiceContainer 字段集与 canonical 不同，含 root 特有 feature-gated 字段如 `voice_service`、`friend_storage`、`saml_storage` 等）。
-     - `mod.rs`：模块根，含 `pub mod` 声明（`account_data_service`、`admin_media_service`、`admin_security_service`、`admin_server_service`、`admin_token_service`、`client_push_service`、`oidc_mapping_service`、`room_tag_service`、`auth`、`e2ee` 等 root-only 模块），**无法转换为 thin_facade**（这些 `pub mod` 声明无法改为 `pub use synapse_services::*`，因为 canonical 中不存在对应模块）。
-   - **本轮清理**：已从 `mod.rs` 中移除 3 条未使用的桥梁导出（`pub use crate::auth::*` / `pub use crate::cache::*` / `pub use crate::common::*`），搜索确认无消费者，`cargo check` 通过。这 3 条导出原本将 root crate 的 auth/cache/common 模块桥接到 `services::` 命名空间，但其功能已被 `pub mod auth;`（指向 `src/services/auth/mod.rs` → `pub use synapse_services::auth::*`）和 `pub use synapse_services::*` 完全覆盖，属于冗余桥接。
-   - **结论**：P1-03.1 的"逐个 facade 收口"主 lane 已基本完成（54/56 facade），剩余 2 个 full_impl 为结构性瓶颈，需配合更大范围的重构（如将 root-only 模块迁移至 canonical 或拆分 `mod.rs` 的职责）才能进一步收口。建议将剩余工作重心转向 P1-03.2（capability 治理，已完成）和 P4-01（types.rs 前置条件清理）等非结构性 lane。
+   - **2026-06-19 状态分析**：当前 ledger 已收敛至 `services=2 (facade=2, full_impl=0)`，`storage=55 (facade=55, full_impl=0)`。此前唯一剩余的 services full_impl `container.rs` 已完成收口，ServiceContainer 组合根已完全回归 canonical 作为唯一事实来源。
+   - **本轮 Phase 4 完成**：(1) root `cache` 已收口为 `synapse-cache` facade；(2) root `e2ee/federation` 中低风险的 import-path-only 差异已优先收口；(3) `CrossSigningService`、`SecretStorageService`、`FriendFederation` 的 trait object 构造边界已按 canonical 方式对齐；(4) root `container.rs` 已切换为 `pub use synapse_services::container::*;` thin facade。
+   - **结论**：P1-03.1 的 facade 收口主 lane 已完成 4/4 阶段，Phase 4 独立任务已落地完成。当前 root/canonical 双轨在 services 层已不存在 `full_impl` 重叠文件，后续重点从“清除结构性瓶颈”转向“维持 facade 边界、避免回归”和继续处理非 facade 方向的架构治理项。
 
 4. **P1-03.2 capability 声明治理**
    - ✅ 已完成：全部 17 个 capability 已归入 RouteSurface/ConfigControlled 两类治理，无遗留 StaticStable，由 `test_no_residual_static_stable_governance` 合约测试保障。后续可按需将 `m.change_password` 等 RouteSurface 能力从 route manifest 检查升级为更强的事实驱动（如 account compat 路由是否存在），但当前治理分类已完整闭环。
@@ -1313,23 +1315,36 @@
    - ✅ 本轮已确认：`SUPPORTED_MATRIX_SURFACE.md` 与 `versions.rs` 代码 capability 声明一致（10 public + 8 authenticated-only），治理规则、room version 矩阵、contract/snapshot 测试证据链均已同步。后续持续核对即可。
 
 6. **P1-10 captcha/注册安全交付链闭环**
-   - ✅ 已完成：focused integration 已覆盖“未配置 provider 显式报错”“email captcha 成功入后台任务”“SMS provider 成功投递并记录 provider”三条最短运行时链路。
-   - 待开始：为 email captcha 补真实 SMTP worker/smoke test，并把 SMS captcha 从通用 provider 抽象继续推进到生产级 provider/回执校验链路。
+   - ✅ 已完成：focused integration 已覆盖"未配置 provider 显式报错""email captcha 成功入后台任务""SMS provider 成功投递并记录 provider"三条最短运行时链路。
+   - ✅ 已完成（SMS 配置文档）：`homeserver.local.yaml` 已补齐 `sms:` 配置段（含 Aliyun/http provider 说明、安全建议、速率限制字段）。
+   - ✅ 已完成（Aliyun 测试）：`synapse-services/src/sms_provider/aliyun.rs` 已补齐 3 组 wiremock 测试（send_success、send_failure、signature_deterministic），覆盖签名请求参数与错误响应处理。
+   - ✅ 已完成（SMTP runbook）：`OPERATIONS.md` 已补齐"邮件投递 Smoke Test"runbook（worker 启动、SMTP 配置、触发 captcha、日志验证、MailHog 本地测试）。
+   - 进行中（运行时验证）：真实 SMTP worker 冒烟已由 `synapse_worker` fake SMTP server 自动化测试覆盖；剩余生产级 SMS provider 回执校验仍需真实 SMS 基础设施。
 
 7. **P1-11 OIDC/MAS 生产基线补齐**
    - ✅ 已完成（代码侧）：external OIDC（PKCE + state 管理 + 回调 URL 安全校验）与 builtin OIDC（discovery + JWKS + authorize/token/login）已明确区分，回调安全校验已实现（`is_safe_redirect_url`、`validate_state_pkce_binding`、one-time session、`security_audit` localpart 冲突追踪）。
+   - ✅ 已完成（安全加固）：external OIDC `verify_pkce` 已从非恒定时间字符串比较（`==`）切换为 `synapse_common::crypto::secure_compare`，与 builtin OIDC PKCE 验证保持一致，消除时序攻击风险。
    - ✅ 已完成（文档侧）：`homeserver.yaml` 已补充 OIDC 三种模式说明、回调安全校验清单与运维说明（HTTPS 要求、issuer 一致性、环境变量注入、builtin 模式 `.well-known` 行为、单元测试覆盖）。
-   - 待开始：生产级 IdP 对接压测与多 IdP 并发场景验证。
+   - ✅ 已完成（测试覆盖）：`is_safe_redirect_url` 已补齐 7 组单元测试（相对路径、HTTPS hostname、危险 scheme、localhost/loopback、raw IP、protocol-relative、空/未知 scheme），覆盖 root 与 canonical 两份 `oidc.rs`。
+   - ✅ 已完成（运维文档）：`OPERATIONS.md` §5.6 已补齐 OIDC/SSO 故障定位（5 步排查命令 + 常见问题表 + 生产 IdP 对接测试计划）。
+   - 待开始（运行时验证）：生产级 IdP 对接压测与多 IdP 并发场景验证（需真实 IdP 基础设施，测试计划已文档化于 OPERATIONS.md §5.6）。
 
 8. **P1-12 worker/replication 可运营模型闭环**
    - ✅ 已完成：`WORKER_TOPOLOGY_BASELINE_2026-06-14.md` 中的 listener / reverse proxy / smoke test 样板已转成可执行部署工件（`docker/docker-compose.split-minimal.yml`、`docker/nginx/split-minimal.conf`、`docker/run_split_minimal_smoke.sh`）。
    - ✅ 已完成：`src/worker/topology_validator.rs` 已实现 topology validator，启动时校验 route owner / stream writer / background owner。
    - ✅ 已完成：`scripts/deployment_smoke_test.sh`（827 行）已覆盖多实例下 heartbeat、replication position、task claim、claim_next_task、backlog drain、route owner probe、topology API 一致性、worker unregister/recovery 的 deployment smoke 基线。
    - ✅ 已完成：`scripts/deployment_soak_test.sh`（408 行）已实现持续运行 soak 流程：周期性验证（可配置间隔/时长）、拓扑漂移检测（跨周期快照比对）、worker 心跳连续性（>5min 视为 stale）、replication position 一致性、连续失败容忍与提前退出、SIGTERM/SIGINT 优雅关闭。
+   - ✅ 已完成（结构化输出）：`scripts/deployment_soak_test.sh` 已补齐 `SOAK_OUTPUT_DIR` 环境变量，设置后生成 `soak_report_<timestamp>.json`（结构化结果）和 `soak_report_<timestamp>.md`（人类可读摘要），含 per-cycle checks/warnings/errors。
+   - ✅ 已完成（缺失工件）：`docker/config/.env.split-minimal.example` 已创建，覆盖 split_minimal 部署所需全部环境变量（DB/Redis/安全密钥/worker replication/端口映射）。
+   - ✅ 已完成（运维 runbook）：`OPERATIONS.md` 已补齐"Soak Test 运行手册"（前置条件、基本运行、自定义参数表、输出报告说明、漂移解读、优雅关闭）。
+   - 待开始（运行时验证）：生产环境多实例 soak 运行结果收集（需真实多实例部署环境）。
 
 9. **P1-13 运维文档基线对齐上游部署心智**
-   - 对照上游 `README.rst` / `workers.md` 的安装、升级、反向代理、故障定位结构，补齐本项目缺失的运维文档骨架。
-   - 让部署文档不再依赖代码阅读与隐式团队知识。
+   - ✅ 已完成：`docs/synapse-rust/OPERATIONS.md`（v1.0, 2026-06-18）已对标上游 `element-hq/synapse` README.rst / workers.md 结构，覆盖安装部署、升级、反向代理、监控告警、故障定位、备份恢复、运维脚本索引 7 大章节。
+   - ✅ 已完成：监控告警章节已补齐 Prometheus metrics 端点、告警阈值参考表、OpenTelemetry 集成说明、日志配置（含 security_audit target）。
+   - ✅ 已完成：故障定位章节已补齐快速定位表（7 类症状 × 可能原因 × 排查步骤 × 相关命令）。
+   - ✅ 已完成：`docs/quality/PRODUCTION_DEPLOYMENT_GUIDE.md` stub 已归档至 `docs/synapse-rust/archive/`。
+   - 后续持续：随部署工件演进同步更新 OPERATIONS.md。
 
 10. **P4-01 `sync_service/types.rs` 前置条件清理**
    - ✅ 已完成：已单独比对 root/canonical `sync_service/types.rs`，确认当前不存在字段级或行为级漂移；root `src/services/sync_service/types.rs` 中原有的内联类型测试已迁出并去重到独立 `src/services/sync_service/tests.rs`，从而使 root/canonical 的测试承载形态一致。

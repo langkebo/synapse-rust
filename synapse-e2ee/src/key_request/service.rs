@@ -1,4 +1,4 @@
-use crate::key_request::models::{KeyRequestInfo, KeyShareResponse};
+use crate::key_request::models::{KeyRequestInfo, KeyRequestPagination, KeyShareResponse};
 use crate::key_request::storage::KeyRequestStorage;
 use crate::megolm::MegolmProvider;
 use synapse_common::ApiError;
@@ -151,6 +151,13 @@ impl KeyRequestService {
         let status_filter = KeyRequestStatusFilter::from_query(status)?;
         let requests = self.storage.get_requests_for_user(user_id).await?;
         Ok(requests.into_iter().filter(|request| request_matches_status(request, status_filter)).collect())
+    }
+
+    pub async fn get_requests_paginated(
+        &self,
+        pagination: KeyRequestPagination<'_>,
+    ) -> Result<Vec<KeyRequestInfo>, ApiError> {
+        self.storage.get_requests_paginated(pagination).await
     }
 
     pub async fn get_pending_requests(&self, user_id: Option<&str>) -> Result<Vec<KeyRequestInfo>, ApiError> {

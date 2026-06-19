@@ -32,6 +32,7 @@ fn benchmark_state_resolution(c: &mut Criterion) {
                     prev_events: vec![],
                     state_key: Some(json!("user:test")),
                     content: Some(json!({"type": "m.text", "body": "test"})),
+                    ..Default::default()
                 },
             );
         }
@@ -54,6 +55,7 @@ fn benchmark_state_resolution(c: &mut Criterion) {
                     prev_events: vec![],
                     state_key: Some(json!(format!("user:{}", i % 5))),
                     content: Some(json!({"type": "m.text", "body": format!("test{}", i)})),
+                    ..Default::default()
                 },
             );
         }
@@ -80,6 +82,7 @@ fn benchmark_event_auth_chain(c: &mut Criterion) {
                 prev_events: vec![],
                 state_key: None,
                 content: None,
+                ..Default::default()
             },
         );
         events.insert(
@@ -92,6 +95,7 @@ fn benchmark_event_auth_chain(c: &mut Criterion) {
                 prev_events: vec!["$create".to_string()],
                 state_key: Some(json!("@user:test")),
                 content: None,
+                ..Default::default()
             },
         );
 

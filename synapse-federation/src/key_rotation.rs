@@ -1,7 +1,6 @@
 use crate::signing::sign_json;
 use base64::Engine;
 use chrono::{Duration, Utc};
-use ed25519_dalek::Verifier;
 use parking_lot::RwLock as ParkingLotRwLock;
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -539,9 +538,9 @@ impl KeyRotationManager {
     fn derive_public_key(&self, secret_key: &str) -> Result<String, ApiError> {
         let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(secret_key)
-            .map_err(|_| ApiError::internal("Invalid secret key format"))?
+            .map_err(|e| ApiError::internal_with_log("Invalid secret key format", &e))?
             .try_into()
-            .map_err(|_| ApiError::internal("Secret key must be 32 bytes"))?;
+            .map_err(|_| ApiError::internal("Secret key must be 32 bytes".to_string()))?;
 
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -589,23 +588,23 @@ impl KeyRotationManager {
     fn verify_signature(&self, public_key: &str, signature: &str, content: &[u8]) -> Result<(), ApiError> {
         let pub_key_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
             .decode(public_key)
-            .map_err(|_| ApiError::internal("Invalid public key format"))?
+            .map_err(|e| ApiError::internal_with_log("Invalid public key format", &e))?
             .try_into()
-            .map_err(|_| ApiError::internal("Public key must be 32 bytes"))?;
+            .map_err(|_| ApiError::internal("Public key must be 32 bytes".to_string()))?;
 
         let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes)
-            .map_err(|_| ApiError::internal("Invalid verifying key"))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid verifying key", &e))?;
 
         let sig_bytes = base64::engine::general_purpose::STANDARD
             .decode(signature)
-            .map_err(|_| ApiError::internal("Invalid signature format"))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid signature format", &e))?;
 
         let dalek_signature = ed25519_dalek::Signature::from_slice(&sig_bytes)
-            .map_err(|_| ApiError::internal("Invalid signature length"))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid signature length", &e))?;
 
         verifying_key
-            .verify(content, &dalek_signature)
-            .map_err(|_| ApiError::internal("Signature verification failed"))?;
+            .verify_strict(content, &dalek_signature)
+            .map_err(|e| ApiError::internal_with_log("Signature verification failed", &e))?;
 
         Ok(())
     }

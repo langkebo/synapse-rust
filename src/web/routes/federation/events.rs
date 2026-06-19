@@ -329,7 +329,9 @@ async fn build_profile_query_response(
         Some("avatar_url") => json!({
             "avatar_url": avatar_url
         }),
-        Some(_) => unreachable!("field was validated above"),
+        // Defensive: validation above should reject unknown fields, but under
+        // `panic = "abort"` we must not crash if the invariant ever breaks.
+        Some(other) => return Err(ApiError::bad_request(format!("Invalid field parameter: {other}"))),
     };
 
     Ok(Json(response))
@@ -350,36 +352,11 @@ pub(super) async fn get_public_rooms(
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
-    let mut room_list = Vec::new();
-    for room in rooms {
-        room_list.push(json!({
-            "room_id": room.room_id,
-            "name": room.name,
-            "topic": room.topic,
-            "avatar_url": room.avatar_url,
-            "num_joined_members": room.member_count,
-            "world_readable": room.is_public,
-            "guest_can_join": false
-        }));
-    }
-
-    Ok(Json(json!({
-        "chunk": room_list,
-        "next_batch": null
-    })))
-}
-
-pub(super) async fn post_public_rooms(
-    State(state): State<AppState>,
-    Query(_params): Query<Value>,
-    Json(body): Json<Value>,
-) -> Result<Json<Value>, ApiError> {
-    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
-    let rooms = state
+    let total = state
         .services
         .rooms
         .room_storage
-        .get_public_rooms(limit)
+        .count_public_rooms()
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -398,7 +375,49 @@ pub(super) async fn post_public_rooms(
 
     Ok(Json(json!({
         "chunk": room_list,
-        "total_room_count_estimate": room_list.len()
+        "total_room_count_estimate": total,
+        "next_batch": null
+    })))
+}
+
+pub(super) async fn post_public_rooms(
+    State(state): State<AppState>,
+    Query(_params): Query<Value>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(20).min(1000);
+    let rooms = state
+        .services
+        .rooms
+        .room_storage
+        .get_public_rooms(limit)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    let total = state
+        .services
+        .rooms
+        .room_storage
+        .count_public_rooms()
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    let mut room_list = Vec::new();
+    for room in rooms {
+        room_list.push(json!({
+            "room_id": room.room_id,
+            "name": room.name,
+            "topic": room.topic,
+            "avatar_url": room.avatar_url,
+            "num_joined_members": room.member_count,
+            "world_readable": room.is_public,
+            "guest_can_join": false
+        }));
+    }
+
+    Ok(Json(json!({
+        "chunk": room_list,
+        "total_room_count_estimate": total
     })))
 }
 

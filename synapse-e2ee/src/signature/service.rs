@@ -2,7 +2,6 @@ use super::models::*;
 use super::storage::SignatureStorage;
 use crate::crypto::Ed25519KeyPair;
 use chrono::Utc;
-use ed25519_dalek::Verifier;
 use ed25519_dalek::VerifyingKey;
 use synapse_common::ApiError;
 
@@ -61,7 +60,7 @@ impl SignatureService {
 
         let public = VerifyingKey::from_bytes(public_key).map_err(|_| ApiError::invalid_input("Invalid public key"))?;
 
-        Ok(public.verify(message, &sig).is_ok())
+        Ok(public.verify_strict(message, &sig).is_ok())
     }
 
     pub fn sign_key(&self, key: &str, signing_key: &Ed25519KeyPair) -> Result<String, ApiError> {
@@ -85,6 +84,6 @@ impl SignatureService {
 
         let public = VerifyingKey::from_bytes(public_key).map_err(|_| ApiError::invalid_input("Invalid public key"))?;
 
-        Ok(public.verify(message, &sig).is_ok())
+        Ok(public.verify_strict(message, &sig).is_ok())
     }
 }

@@ -4,6 +4,14 @@ use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::Signature;
 use serde_json::Value;
 
+// Re-export the canonical canonical JSON implementation from synapse-common so
+// that all signature verification paths use a single, spec-compliant source of
+// truth.  Previously this module carried its own non-compliant copy that did
+// not escape U+2028/U+2029 and did not validate numeric ranges.
+pub use synapse_common::canonical_json;
+pub use synapse_common::canonical_json_bytes;
+pub use synapse_common::remove_signatures_and_unsigned;
+
 /// Matrix protocol uses "unpadded base64" for signatures and keys, but some
 /// clients (and our own historical encoding) emit padded variants. Accept
 /// either by configuring the engine to be `Indifferent` to padding on decode.
@@ -11,66 +19,6 @@ const MATRIX_BASE64: GeneralPurpose = GeneralPurpose::new(
     &alphabet::STANDARD,
     GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
 );
-
-pub fn canonical_json(value: &Value) -> String {
-    match value {
-        Value::Null => "null".to_string(),
-        Value::Bool(b) => {
-            if *b {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            }
-        }
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => serde_json::to_string(s).unwrap_or_else(|_| "\"\"".to_string()),
-        Value::Array(arr) => {
-            let mut out = String::from("[");
-            let mut first = true;
-            for v in arr {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&canonical_json(v));
-            }
-            out.push(']');
-            out
-        }
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            let mut out = String::from("{");
-            let mut first = true;
-            for k in keys {
-                if !first {
-                    out.push(',');
-                }
-                first = false;
-                out.push_str(&serde_json::to_string(k).unwrap_or_else(|_| "\"\"".to_string()));
-                out.push(':');
-                if let Some(v) = map.get(k) {
-                    out.push_str(&canonical_json(v));
-                } else {
-                    out.push_str("null");
-                }
-            }
-            out.push('}');
-            out
-        }
-    }
-}
-
-pub fn canonical_json_bytes(value: &Value) -> Vec<u8> {
-    canonical_json(value).into_bytes()
-}
-
-pub fn remove_signatures_and_unsigned(value: &mut Value) {
-    if let Some(obj) = value.as_object_mut() {
-        obj.remove("signatures");
-        obj.remove("unsigned");
-    }
-}
 
 pub fn verify_signed_json(
     _user_id: &str,
@@ -95,7 +43,7 @@ pub fn verify_signed_json(
     let mut json_copy = json_value.clone();
     remove_signatures_and_unsigned(&mut json_copy);
 
-    let message = canonical_json_bytes(&json_copy);
+    let message = canonical_json_bytes(&json_copy).map_err(|_| CryptoError::SignatureVerificationFailed)?;
 
     Ok(public_key.verify(&message, &ed25519_sig).is_ok())
 }
@@ -170,10 +118,10 @@ pub fn verify_one_time_key_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aes_gcm::aead::OsRng;
     use base64::Engine;
     use ed25519_dalek::Signer;
     use ed25519_dalek::SigningKey;
-    use aes_gcm::aead::OsRng;
 
     #[test]
     fn test_canonical_json_sorts_keys() {
@@ -182,7 +130,7 @@ mod tests {
             "a_key": 2,
             "m_key": 3
         });
-        let canonical = canonical_json(&json);
+        let canonical = canonical_json(&json).unwrap();
         assert_eq!(canonical, r#"{"a_key":2,"m_key":3,"z_key":1}"#);
     }
 
@@ -192,7 +140,7 @@ mod tests {
             "outer": {"z": 1, "a": 2},
             "inner": [3, 4]
         });
-        let canonical = canonical_json(&json);
+        let canonical = canonical_json(&json).unwrap();
         assert_eq!(canonical, r#"{"inner":[3,4],"outer":{"a":2,"z":1}}"#);
     }
 
@@ -201,17 +149,17 @@ mod tests {
         let json = serde_json::json!({
             "key": "value with \"quotes\""
         });
-        let canonical = canonical_json(&json);
+        let canonical = canonical_json(&json).unwrap();
         assert_eq!(canonical, r#"{"key":"value with \"quotes\""}"#);
     }
 
     #[test]
     fn test_canonical_json_primitives() {
-        assert_eq!(canonical_json(&Value::Null), "null");
-        assert_eq!(canonical_json(&Value::Bool(true)), "true");
-        assert_eq!(canonical_json(&Value::Bool(false)), "false");
-        assert_eq!(canonical_json(&serde_json::json!(42)), "42");
-        assert_eq!(canonical_json(&serde_json::json!("hello")), r#""hello""#);
+        assert_eq!(canonical_json(&Value::Null).unwrap(), "null");
+        assert_eq!(canonical_json(&Value::Bool(true)).unwrap(), "true");
+        assert_eq!(canonical_json(&Value::Bool(false)).unwrap(), "false");
+        assert_eq!(canonical_json(&serde_json::json!(42)).unwrap(), "42");
+        assert_eq!(canonical_json(&serde_json::json!("hello")).unwrap(), r#""hello""#);
     }
 
     #[test]
@@ -246,7 +194,7 @@ mod tests {
 
         let mut json_for_signing = json.clone();
         remove_signatures_and_unsigned(&mut json_for_signing);
-        let message = canonical_json_bytes(&json_for_signing);
+        let message = canonical_json_bytes(&json_for_signing).unwrap();
         let signature = signing_key.sign(&message);
 
         let sig_base64 = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
@@ -273,7 +221,7 @@ mod tests {
             "user_id": "@alice:example.com"
         });
 
-        let message = canonical_json_bytes(&json);
+        let message = canonical_json_bytes(&json).unwrap();
         let wrong_signature = signing_key2.sign(&message);
 
         let sig_base64 = base64::engine::general_purpose::STANDARD.encode(wrong_signature.to_bytes());
@@ -302,7 +250,7 @@ mod tests {
 
         let mut json_for_signing = device_keys.clone();
         remove_signatures_and_unsigned(&mut json_for_signing);
-        let message = canonical_json_bytes(&json_for_signing);
+        let message = canonical_json_bytes(&json_for_signing).unwrap();
         let signature = signing_key.sign(&message);
         let sig_base64 = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
 
@@ -345,7 +293,7 @@ mod tests {
 
         let mut json_for_signing = otk.clone();
         remove_signatures_and_unsigned(&mut json_for_signing);
-        let message = canonical_json_bytes(&json_for_signing);
+        let message = canonical_json_bytes(&json_for_signing).unwrap();
         let signature = signing_key.sign(&message);
         let sig_base64 = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
 

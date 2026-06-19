@@ -166,14 +166,13 @@ pub async fn call_invite(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session =
-        state
-            .services
-            .extensions
-            .rtc_domain_service
-            .call
-            .handle_invite(&room_id, &auth_user.user_id, content.clone())
-            .await?;
+    let _session = state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_invite(&room_id, &auth_user.user_id, content.clone())
+        .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -192,6 +191,7 @@ pub async fn call_invite(
                 content: content_value.clone(),
                 state_key: None,
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )
@@ -222,13 +222,7 @@ pub async fn call_candidates(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state
-        .services
-        .extensions
-        .rtc_domain_service
-        .call
-        .handle_candidates(&room_id, &auth_user.user_id, content)
-        .await?;
+    state.services.extensions.rtc_domain_service.call.handle_candidates(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -244,14 +238,13 @@ pub async fn call_answer(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    let _session =
-        state
-            .services
-            .extensions
-            .rtc_domain_service
-            .call
-            .handle_answer(&room_id, &auth_user.user_id, content.clone())
-            .await?;
+    let _session = state
+        .services
+        .extensions
+        .rtc_domain_service
+        .call
+        .handle_answer(&room_id, &auth_user.user_id, content.clone())
+        .await?;
 
     let event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
@@ -270,6 +263,7 @@ pub async fn call_answer(
                 content: content_value.clone(),
                 state_key: None,
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )
@@ -300,13 +294,7 @@ pub async fn call_hangup(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     ensure_call_room_member(&state, &auth_user, &room_id).await?;
 
-    state
-        .services
-        .extensions
-        .rtc_domain_service
-        .call
-        .handle_hangup(&room_id, &auth_user.user_id, content)
-        .await?;
+    state.services.extensions.rtc_domain_service.call.handle_hangup(&room_id, &auth_user.user_id, content).await?;
 
     Ok(empty_json())
 }
@@ -323,19 +311,14 @@ pub async fn get_call_session(
 
     let session = state
         .services
-        .extensions.rtc_domain_service
+        .extensions
+        .rtc_domain_service
         .call
         .get_session(&call_id, &room_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Call session not found"))?;
 
-    let candidates = state
-        .services
-        .extensions
-        .rtc_domain_service
-        .call
-        .get_candidates(&call_id, &room_id)
-        .await?;
+    let candidates = state.services.extensions.rtc_domain_service.call.get_candidates(&call_id, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "call_id": session.call_id,

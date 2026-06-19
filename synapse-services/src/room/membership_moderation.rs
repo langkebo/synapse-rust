@@ -51,6 +51,7 @@ impl RoomService {
                     }),
                     state_key: Some(invitee_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )
@@ -169,6 +170,7 @@ impl RoomService {
                     content,
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )
@@ -201,6 +203,7 @@ impl RoomService {
                     content,
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )
@@ -258,6 +261,7 @@ impl RoomService {
                     content,
                     state_key: Some(target_user_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )

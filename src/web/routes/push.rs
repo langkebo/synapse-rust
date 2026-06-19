@@ -374,8 +374,12 @@ async fn get_push_rule_enabled(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let result: Option<bool> =
-        state.services.core.client_push_service.get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id).await?;
+    let result: Option<bool> = state
+        .services
+        .core
+        .client_push_service
+        .get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id)
+        .await?;
 
     match result {
         Some(enabled) => Ok(Json(json!({

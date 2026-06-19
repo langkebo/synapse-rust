@@ -7,7 +7,7 @@ use super::Config;
 
 impl Config {
     /// Validate the configuration for correctness and security.
-    pub(crate) fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<(), String> {
         if self.admin_registration.enabled && self.admin_registration.shared_secret.is_empty() {
             return Err("admin_registration.enabled is true but shared_secret is not configured. \
                  Please set admin_registration.shared_secret in your configuration file."

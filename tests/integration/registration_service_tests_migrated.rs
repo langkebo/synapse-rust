@@ -124,7 +124,7 @@ async fn test_register_user_success() {
         ui_auth_session_timeout: 900,
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let canonical_cache = cache.clone();
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");
     let registration_service = RegistrationService::new(
@@ -167,7 +167,7 @@ async fn test_login_success() {
         ui_auth_session_timeout: 900,
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let canonical_cache = cache.clone();
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");
     let registration_service = RegistrationService::new(
@@ -195,7 +195,7 @@ async fn test_get_profile_success() {
     setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let canonical_cache = cache.clone();
     let id = unique_id();
     let user_id = format!("@alice_{}:localhost", id);
     let username = format!("alice_{}", id);

@@ -2,7 +2,7 @@ use crate::crypto::CryptoError;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use ed25519_dalek::ed25519::Error;
-use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -42,7 +42,7 @@ impl Ed25519PublicKey {
     pub fn verify(&self, message: &[u8], signature: &ed25519_dalek::Signature) -> Result<(), CryptoError> {
         let verifying_key =
             VerifyingKey::from_bytes(&self.bytes).map_err(|_| CryptoError::SignatureVerificationFailed)?;
-        verifying_key.verify(message, signature).map_err(|_| CryptoError::SignatureVerificationFailed)
+        verifying_key.verify_strict(message, signature).map_err(|_| CryptoError::SignatureVerificationFailed)
     }
 }
 
