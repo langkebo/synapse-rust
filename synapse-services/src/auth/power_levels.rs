@@ -66,6 +66,22 @@ impl AuthService {
         Ok(events.first().map(|event| event.content.clone()))
     }
 
+    /// Returns the room version string (e.g. `"10"`) from the `m.room.create`
+    /// state event, or `DEFAULT_ROOM_VERSION` if not set.
+    pub(crate) async fn get_room_version(&self, room_id: &str) -> ApiResult<String> {
+        let event_storage = EventStorage::new(&self.user_storage.pool, self.server_name.clone());
+        let events = event_storage
+            .get_state_events_by_type(room_id, "m.room.create")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        let version = events
+            .first()
+            .and_then(|event| event.content.get("room_version"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(synapse_common::room_versions::DEFAULT_ROOM_VERSION);
+        Ok(version.to_string())
+    }
+
     pub async fn get_required_state_event_power_level(&self, room_id: &str, event_type: &str) -> ApiResult<i64> {
         let power_levels_content = self.get_room_power_levels_content(room_id).await?;
         if let Some(content) = power_levels_content {
@@ -492,6 +508,16 @@ impl AuthService {
         Ok(())
     }
 
+    /// Checks whether `actor_user_id` may redact an event originally sent by
+    /// `event_sender_id` in `room_id` (P0-09).
+    ///
+    /// Matrix auth rules for `m.room.redaction`:
+    /// - **v1-v10**: the redactor must have power level >= `redact` (default
+    ///   50).  There is NO self-redaction exemption — even the original author
+    ///   must meet the `redact` threshold.
+    /// - **v11+** (MSC2174): the original author may redact their own event
+    ///   without meeting the `redact` threshold.  v11+ room creation is now
+    ///   enabled (the redaction chain is fully landed).
     pub async fn can_redact_event(&self, room_id: &str, actor_user_id: &str, event_sender_id: &str) -> ApiResult<()> {
         let actor_power = self.get_joined_user_power_level(room_id, actor_user_id).await?;
 
@@ -506,7 +532,20 @@ impl AuthService {
             return Err(ApiError::forbidden("You must be a member of this room to redact events".to_string()));
         }
 
-        if actor_user_id == event_sender_id {
+        // v11+ allows the original author to redact their own event without
+        // meeting the `redact` power level (MSC2174).  v1-v10 does not.
+        let room_version = self.get_room_version(room_id).await.unwrap_or_else(|_| {
+            ::tracing::warn!(
+                target: "security_audit",
+                room_id = %room_id,
+                "Failed to fetch room version for redaction auth; assuming v1-v10 rules"
+            );
+            synapse_common::room_versions::DEFAULT_ROOM_VERSION.to_string()
+        });
+
+        let supports_self_redact = room_version.parse::<u32>().map(|v| v >= 11).unwrap_or(false);
+
+        if supports_self_redact && actor_user_id == event_sender_id {
             return Ok(());
         }
 
@@ -524,11 +563,11 @@ impl AuthService {
                 event_sender_id = event_sender_id,
                 room_id = room_id,
                 actor_power = actor_power,
-                "User attempted to redact another user's event without moderator permission"
+                required_power = required_power,
+                room_version = %room_version,
+                "User attempted to redact an event without sufficient power level"
             );
-            return Err(ApiError::forbidden(
-                "Moderator permission required to redact other users' messages".to_string(),
-            ));
+            return Err(ApiError::forbidden("Moderator permission required to redact events".to_string()));
         }
 
         Ok(())

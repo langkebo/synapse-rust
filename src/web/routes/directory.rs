@@ -84,7 +84,8 @@ pub async fn get_directory_room(
 
     let room_id = state
         .services
-        .extensions.directory_service
+        .extensions
+        .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to lookup room", &e))?;
@@ -112,7 +113,8 @@ pub async fn set_room_alias_handler(
 
     state
         .services
-        .extensions.directory_service
+        .extensions
+        .directory_service
         .set_room_alias(room_id, &room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set alias", &e))?;
@@ -133,7 +135,8 @@ pub async fn remove_room_alias(
 
     let existing = state
         .services
-        .extensions.directory_service
+        .extensions
+        .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get alias", &e))?;
@@ -144,7 +147,8 @@ pub async fn remove_room_alias(
 
     state
         .services
-        .extensions.directory_service
+        .extensions
+        .directory_service
         .remove_room_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to remove alias", &e))?;
@@ -163,7 +167,8 @@ pub async fn get_alias_servers(
 
     let room_id = state
         .services
-        .extensions.directory_service
+        .extensions
+        .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed", &e))?;

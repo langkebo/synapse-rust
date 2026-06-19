@@ -588,7 +588,7 @@ async fn test_presence_list_hides_stale_unauthorized_subscriptions() {
     let (bob_token, bob_user_id) = register_user(&app, &format!("presence_stale_bob_{}", rand::random::<u32>())).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
+    let presence = PresenceStorage::new(pool.clone(), cache.clone());
     presence.add_subscription(&alice_user_id, &bob_user_id).await.expect("failed to create stale subscription");
 
     let set_request = Request::builder()
@@ -627,7 +627,7 @@ async fn test_presence_routes_remain_stable_under_concurrency() {
         return;
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence = PresenceStorage::new(pool.clone(), Arc::new(cache.to_synapse_cache_manager()));
+    let presence = PresenceStorage::new(pool.clone(), cache.clone());
     let suffix = rand::random::<u32>();
     let now = chrono::Utc::now().timestamp_millis();
     let mut user_ids = Vec::new();

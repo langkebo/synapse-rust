@@ -1,20 +1,17 @@
 use crate::auth::*;
 use synapse_cache::*;
 use synapse_common::config::Config;
-#[cfg(any(test, feature = "test-utils"))]
-use synapse_common::config::{
-    AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, RateLimitConfig, RedisConfig, SearchConfig,
-    SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
-};
 use synapse_common::metrics::MetricsCollector;
+
+use crate::worker::topology_validator::{
+    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
+};
 
 const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 #[cfg(feature = "burn-after-read")]
 use crate::burn_after_read_service::BurnAfterReadService;
 use std::sync::Arc;
 use std::{env, path::Path};
-#[cfg(any(test, feature = "test-utils"))]
-use synapse_common::config::PostgresFtsConfig;
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_e2ee::backup::KeyBackupService;
@@ -68,6 +65,8 @@ pub struct CoreServices {
     pub key_rotation_storage: KeyRotationStorage,
     pub event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
     pub event_notifier: crate::event_notifier::EventNotifier,
+    pub account_data_service: Arc<crate::account_data_service::AccountDataService>,
+    pub client_push_service: Arc<crate::client_push_service::ClientPushService>,
 }
 
 // =============================================================================
@@ -101,6 +100,7 @@ pub struct SsoServices {
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::cas_service::CasService>,
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
+    pub oidc_mapping_service: Arc<crate::oidc_mapping_service::OidcMappingService>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -255,6 +255,7 @@ pub struct RoomSyncServices {
     pub relations_service: Arc<crate::relations_service::RelationsService>,
     pub thread_storage: synapse_storage::thread::ThreadStorage,
     pub thread_service: Arc<crate::thread_service::ThreadService>,
+    pub room_tag_service: Arc<crate::room_tag_service::RoomTagService>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -345,6 +346,8 @@ fn assemble_room_and_sync(
     let thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
     let thread_service = Arc::new(crate::thread_service::ThreadService::new(Arc::new(thread_storage.clone())));
 
+    let room_tag_service = Arc::new(crate::room_tag_service::RoomTagService::new(pool.clone()));
+
     RoomSyncServices {
         room_storage,
         member_storage,
@@ -363,6 +366,7 @@ fn assemble_room_and_sync(
         relations_service,
         thread_storage,
         thread_service,
+        room_tag_service,
     }
 }
 
@@ -431,6 +435,11 @@ pub struct AdminServices {
     pub audit_storage: synapse_storage::audit::AuditEventStorage,
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
     pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
+    pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
+    pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
+    pub admin_server_service: Arc<crate::admin_server_service::AdminServerService>,
+    pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
+    pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub feature_flag_storage: synapse_storage::feature_flags::FeatureFlagStorage,
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: synapse_storage::event_report::EventReportStorage,
@@ -566,18 +575,40 @@ fn assemble_admin_support(
     ));
     let app_service_scheduler =
         Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
-    if !config.server.app_service_config_files.is_empty() {
+    let should_start_app_service_scheduler =
+        should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
+    if should_start_app_service_scheduler {
         app_service_scheduler.clone().start();
     } else {
         ::tracing::info!(
-            has_app_service_configs = false,
-            "Skipping application service scheduler startup because no appservice config files are declared"
+            worker_type = current_instance_worker_type(&config.worker).as_str(),
+            maintenance_owner = global_maintenance_owner(&config.worker).as_str(),
+            has_app_service_configs = !config.server.app_service_config_files.is_empty(),
+            "Skipping application service scheduler startup on this worker instance"
         );
     }
 
     let worker_storage = crate::worker::WorkerStorage::new(pool);
     let worker_manager =
         Arc::new(crate::worker::WorkerManager::new(Arc::new(worker_storage.clone()), config.server.name.clone()));
+
+    let admin_media_service = Arc::new(crate::admin_media_service::AdminMediaService::new(pool, user_storage.clone()));
+    let admin_security_service =
+        Arc::new(crate::admin_security_service::AdminSecurityService::new(user_storage.clone(), cache.clone()));
+    let admin_server_service = Arc::new(crate::admin_server_service::AdminServerService::new(pool.clone()));
+    let admin_token_service = Arc::new(crate::admin_token_service::AdminTokenService::new(
+        AccessTokenStorage::new(pool),
+        Arc::new(refresh_token_storage.clone()),
+        registration_token_service.clone(),
+    ));
+    let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
+        pool.clone(),
+        user_storage.clone(),
+        DeviceStorage::new(pool),
+        RoomStorage::new(pool),
+        RoomMemberStorage::new(pool, config.server.get_server_name()),
+        config.server.name.clone(),
+    ));
 
     AdminServices {
         admin_registration_service,
@@ -615,6 +646,11 @@ fn assemble_admin_support(
         app_service_scheduler,
         worker_storage,
         worker_manager,
+        admin_media_service,
+        admin_security_service,
+        admin_server_service,
+        admin_token_service,
+        admin_user_service,
     }
 }
 
@@ -623,6 +659,11 @@ fn assemble_admin_support(
 // =============================================================================
 
 impl ServiceContainer {
+    /// Returns a cloned handle to the underlying PostgreSQL connection pool.
+    pub fn database_pool(&self) -> Arc<sqlx::PgPool> {
+        self.account.user_storage.pool.clone()
+    }
+
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: Arc<CacheManager>,
@@ -925,6 +966,26 @@ impl ServiceContainer {
         let user_lock_service =
             Arc::new(crate::user_lock_service::UserLockService::new(Arc::new(user_storage.clone())));
 
+        // Account data service — needs user_storage and room_storage before they're moved
+        let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
+            pool,
+            user_storage.clone(),
+            RoomStorage::new(pool),
+            FilterStorage::new(pool),
+            OpenIdTokenStorage::new(pool),
+        ));
+
+        // Client push service
+        let client_push_service = Arc::new(crate::client_push_service::ClientPushService::new(pool.clone()));
+
+        // OIDC mapping service
+        let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(pool.clone()));
+
+        // Worker topology — compute before config is moved into the container
+        let run_global_maintenance = should_run_global_maintenance(&config.worker);
+        let current_worker_type = current_instance_worker_type(&config.worker);
+        let maintenance_owner = global_maintenance_owner(&config.worker);
+
         let container = Self {
             e2ee,
             rooms,
@@ -944,6 +1005,8 @@ impl ServiceContainer {
                 server_metrics,
                 event_broadcaster,
                 event_notifier: crate::event_notifier::EventNotifier::new(),
+                account_data_service,
+                client_push_service,
             },
             account: AccountServices {
                 user_storage,
@@ -966,6 +1029,7 @@ impl ServiceContainer {
                 cas_service,
                 oidc_service,
                 builtin_oidc_provider,
+                oidc_mapping_service,
             },
             extensions: ExtensionServices {
                 #[cfg(feature = "voice-extended")]
@@ -1001,13 +1065,15 @@ impl ServiceContainer {
         };
 
         #[cfg(feature = "burn-after-read")]
-        if burn_after_read_processor_enabled() {
+        if run_global_maintenance && burn_after_read_processor_enabled() {
             container.extensions.burn_after_read.recover_pending_burns().await;
             container.extensions.burn_after_read.clone().start_burn_processor().await;
         } else {
             ::tracing::info!(
-                processor_enabled = false,
-                "Skipping burn-after-read processor startup because it is disabled by environment"
+                worker_type = current_worker_type.as_str(),
+                maintenance_owner = maintenance_owner.as_str(),
+                processor_enabled = burn_after_read_processor_enabled(),
+                "Skipping burn-after-read processor startup on this worker instance"
             );
         }
 
@@ -1050,178 +1116,14 @@ impl ServiceContainer {
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool(pool: Arc<sqlx::PgPool>) -> Self {
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let config = build_test_config();
+        let config = crate::test_config::build_test_config();
         Self::new(&pool, cache, config, None).await
     }
 
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_test_with_pool_and_cache(pool: Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Self {
-        let config = build_test_config();
+        let config = crate::test_config::build_test_config();
         Self::new(&pool, cache, config, None).await
-    }
-}
-
-#[cfg(any(test, feature = "test-utils"))]
-fn build_test_config() -> Config {
-    let host = std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port: u16 = std::env::var("DATABASE_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(5432);
-    let user = std::env::var("DATABASE_USER").unwrap_or_else(|_| "synapse".to_string());
-    let pass = std::env::var("DATABASE_PASSWORD").unwrap_or_else(|_| "synapse".to_string());
-    let name = std::env::var("DATABASE_NAME").unwrap_or_else(|_| "synapse".to_string());
-    let test_pool_max_connections = crate::test_utils::configured_test_pool_max_connections();
-    let test_pool_min_connections = crate::test_utils::configured_test_pool_min_connections();
-
-    Config {
-        server: ServerConfig {
-            name: "localhost".to_string(),
-            host: "0.0.0.0".to_string(),
-            port: 8008,
-            public_baseurl: None,
-            signing_key_path: None,
-            macaroon_secret_key: None,
-            form_secret: None,
-            server_name: None,
-            suppress_key_server_warning: false,
-            serve_server_wellknown: false,
-            soft_file_limit: 0,
-            user_agent_suffix: None,
-            web_client_location: None,
-            registration_shared_secret: None,
-            admin_contact: None,
-            max_upload_size: 1000000,
-            max_image_resolution: 1000000,
-            remote_media_lifetime: 2592000,
-            local_media_lifetime: 0,
-            enable_registration: true,
-            enable_registration_captcha: false,
-            background_tasks_interval: 60,
-            dehydrated_device_cleanup_interval_secs: 3600,
-            expire_access_token: true,
-            expire_access_token_lifetime: 3600,
-            refresh_token_lifetime: 604800,
-            refresh_token_sliding_window_size: 1000,
-            session_duration: 86400,
-            warmup_pool: true,
-            allow_public_rooms_without_auth: false,
-            allow_public_rooms_over_federation: true,
-            auto_join_rooms: vec![],
-            autocreate_auto_join_rooms: true,
-            encryption_enabled_by_default_for_room_type: None,
-            app_service_config_files: vec![],
-            presence_enabled: true,
-        },
-        database: DatabaseConfig {
-            host,
-            port,
-            username: user,
-            password: pass,
-            name,
-            pool_size: test_pool_max_connections,
-            max_size: test_pool_max_connections,
-            min_idle: Some(test_pool_min_connections),
-            connection_timeout: crate::test_utils::configured_test_pool_acquire_timeout().as_secs(),
-        },
-        redis: RedisConfig {
-            host: "localhost".to_string(),
-            port: 6379,
-            password: None,
-            key_prefix: "test:".to_string(),
-            pool_size: 10,
-            enabled: false,
-            connection_timeout_ms: 5000,
-            command_timeout_ms: 3000,
-            circuit_breaker: synapse_common::config::CircuitBreakerConfig::default(),
-        },
-        logging: synapse_common::config::LoggingConfig {
-            level: "info".to_string(),
-            format: "json".to_string(),
-            log_file: None,
-            log_dir: None,
-        },
-        federation: FederationConfig {
-            enabled: true,
-            allow_ingress: false,
-            server_name: "test.example.com".to_string(),
-            federation_port: 8448,
-            connection_pool_size: 10,
-            max_transaction_payload: 50000,
-            ca_file: None,
-            client_ca_file: None,
-            signing_key: None,
-            key_id: None,
-            trusted_key_servers: vec![],
-            key_refresh_interval: 86400,
-            suppress_key_server_warning: false,
-            signature_cache_ttl: 3600,
-            key_cache_ttl: 3600,
-            key_rotation_grace_period_ms: 60_0000,
-            key_fetch_max_concurrency: 32,
-            key_fetch_timeout_ms: 5000,
-            process_inbound_edus: false,
-            inbound_edus_max_per_txn: 100,
-            inbound_edu_max_concurrency: 8,
-            inbound_edu_acquire_timeout_ms: 250,
-            inbound_edu_per_origin_max_concurrency: 2,
-            process_inbound_presence_edus: false,
-            inbound_presence_updates_max_per_txn: 50,
-            inbound_presence_backoff_ms: 3000,
-            join_max_concurrency: 16,
-            join_acquire_timeout_ms: 750,
-            admission_mode: false,
-            signing_key_master_key: None,
-        },
-        security: SecurityConfig {
-            secret: "test_secret".to_string(),
-            expiry_time: 3600,
-            refresh_token_expiry: 604800,
-            argon2_m_cost: 65536,
-            argon2_t_cost: 3,
-            argon2_p_cost: 1,
-            allow_legacy_hashes: false,
-            login_failure_lockout_threshold: 5,
-            login_lockout_duration_seconds: 900,
-            admin_mfa_required: false,
-            admin_mfa_shared_secret: String::new(),
-            admin_mfa_allowed_drift_steps: 1,
-            admin_rbac_enabled: true,
-            ui_auth_session_timeout: 900,
-        },
-        search: SearchConfig {
-            enabled: false,
-            elasticsearch_url: "http://localhost:9200".to_string(),
-            postgres_fts: PostgresFtsConfig { enabled: true, weights: Default::default() },
-            provider: "postgres".to_string(),
-        },
-        rate_limit: RateLimitConfig::default(),
-        admin_registration: AdminRegistrationConfig {
-            enabled: true,
-            shared_secret: "test_shared_secret".to_string(),
-            nonce_timeout_seconds: 60,
-            allow_external_access: false,
-            production_only: true,
-            ip_whitelist: Vec::new(),
-            require_captcha: false,
-            require_manual_approval: false,
-            approval_tokens: Vec::new(),
-        },
-        builtin_oidc: synapse_common::config::BuiltinOidcConfig::default(),
-        worker: WorkerConfig::default(),
-        cors: CorsConfig::default(),
-        smtp: SmtpConfig::default(),
-        sms: synapse_common::config::SmsConfig::default(),
-        voip: synapse_common::config::VoipConfig::default(),
-        livekit: synapse_common::config::LivekitConfig::default(),
-        push: synapse_common::config::PushConfig::default(),
-        url_preview: synapse_common::config::UrlPreviewConfig::default(),
-        oidc: synapse_common::config::OidcConfig::default(),
-        saml: synapse_common::config::SamlConfig::default(),
-        retention: synapse_common::config::RetentionConfig::default(),
-        telemetry: synapse_common::telemetry_config::OpenTelemetryConfig::default(),
-        prometheus: synapse_common::telemetry_config::PrometheusConfig::default(),
-        performance: synapse_common::config::PerformanceConfig::default(),
-        experimental: synapse_common::config::ExperimentalConfig::default(),
-        identity: synapse_common::config::IdentityConfig::default(),
-        translate: synapse_common::config::TranslateConfig::default(),
     }
 }
 

@@ -160,6 +160,10 @@ pub struct WorkerStorage {
 }
 
 impl WorkerStorage {
+    fn status_releases_in_flight_work(status: &str) -> bool {
+        matches!(status, "stopped" | "error")
+    }
+
     pub fn new(pool: &Arc<PgPool>) -> Self {
         Self { pool: pool.clone() }
     }
@@ -237,14 +241,18 @@ impl WorkerStorage {
 
     pub async fn get_active_workers(&self) -> Result<Vec<WorkerInfo>, sqlx::Error> {
         let rows: Vec<WorkerRow> = sqlx::query_as::<_, WorkerRow>(
-            r#"SELECT id, worker_id, worker_name,
-                      worker_type, host, port,
-                      status, last_heartbeat_ts,
-                      started_ts, stopped_ts,
-                      COALESCE(config, '{}'::jsonb) as config,
-                      COALESCE(metadata, '{}'::jsonb) as metadata,
-                      version
-               FROM active_workers"#,
+            r#"
+            SELECT id, worker_id, worker_name,
+                   worker_type, host, port,
+                   status, last_heartbeat_ts,
+                   started_ts, stopped_ts,
+                   COALESCE(config, '{}'::jsonb) as config,
+                   COALESCE(metadata, '{}'::jsonb) as metadata,
+                   version
+            FROM workers
+            WHERE status IN ('running', 'starting')
+            ORDER BY started_ts DESC
+            "#,
         )
         .fetch_all(&*self.pool)
         .await?;
@@ -254,18 +262,42 @@ impl WorkerStorage {
 
     pub async fn update_worker_status(&self, worker_id: &str, status: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        if Self::status_releases_in_flight_work(status) {
+            // A worker that explicitly transitions to a terminal state must not
+            // keep in-flight tasks pinned to itself.
+            sqlx::query(
+                r"
+                UPDATE worker_task_assignments
+                SET status = 'pending',
+                    assigned_worker_id = NULL,
+                    assigned_ts = NULL
+                WHERE assigned_worker_id = $1
+                  AND status IN ('pending', 'running')
+                ",
+            )
+            .bind(worker_id)
+            .execute(&mut *tx)
+            .await?;
+        }
 
         sqlx::query(
             r"
-            UPDATE workers SET status = $2, last_heartbeat_ts = $3
+            UPDATE workers
+            SET status = $2,
+                last_heartbeat_ts = $3,
+                stopped_ts = CASE WHEN $2 IN ('stopped', 'error') THEN $3 ELSE NULL END
             WHERE worker_id = $1
             ",
         )
         .bind(worker_id)
         .bind(status)
         .bind(now)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }
@@ -284,12 +316,31 @@ impl WorkerStorage {
 
     pub async fn unregister_worker(&self, worker_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+
+        // Release in-flight work before marking the worker stopped so another
+        // compatible worker can pick it up instead of leaving it stranded.
+        sqlx::query(
+            r"
+            UPDATE worker_task_assignments
+            SET status = 'pending',
+                assigned_worker_id = NULL,
+                assigned_ts = NULL
+            WHERE assigned_worker_id = $1
+              AND status IN ('pending', 'running')
+            ",
+        )
+        .bind(worker_id)
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query(r"UPDATE workers SET status = 'stopped', stopped_ts = $2 WHERE worker_id = $1")
             .bind(worker_id)
             .bind(now)
-            .execute(&*self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        tx.commit().await?;
 
         Ok(())
     }

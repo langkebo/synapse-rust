@@ -6756,7 +6756,7 @@
       "path_params": []
     },
     {
-      "method": "PUT",
+      "method": "POST",
       "path": "/_matrix/federation/v1/knock/{room_id}/{user_id}",
       "registered_by": "federation",
       "path_params": [

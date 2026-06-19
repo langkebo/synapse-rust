@@ -47,6 +47,11 @@ fn build_signing_payload(
 }
 
 /// Compute the hex-encoded HMAC-SHA256 signature for a room invite.
+///
+/// `new_from_slice` is infallible for HMAC (RFC 2104 accepts any key length),
+/// so the `expect` below cannot panic in practice. We allow the clippy lint
+/// rather than changing the public API to return `Result`.
+#[allow(clippy::expect_used)]
 pub fn sign_invite(
     secret: &[u8],
     invite_code: &str,
@@ -63,6 +68,9 @@ pub fn sign_invite(
 
 /// Constant-time verify. The runtime cost is identical to a non-MAC
 /// comparison; rejecting a forgery must not leak which byte differed.
+///
+/// See `sign_invite` for why `expect` is safe here.
+#[allow(clippy::expect_used)]
 pub fn verify_invite_signature(
     secret: &[u8],
     invite_code: &str,

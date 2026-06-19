@@ -178,6 +178,8 @@ impl AuthService {
             .exp((now + Duration::seconds(self.token_expiry)).timestamp())
             .iat(now.timestamp())
             .device_id(Some(device_id.to_string()))
+            .iss(&self.server_name)
+            .aud(&self.server_name)
             .build();
 
         let mut header = Header::new(Algorithm::HS256);
@@ -233,6 +235,11 @@ impl AuthService {
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 5;
         validation.set_required_spec_claims(&["exp", "iat", "sub"]);
+        // P1-18: Validate issuer and audience to prevent token confusion when
+        // jwt_secret is reused across services. server_name is both issuer and
+        // audience for self-issued access tokens.
+        validation.set_issuer(&[&self.server_name]);
+        validation.set_audience(&[&self.server_name]);
         jsonwebtoken::decode(token, &DecodingKey::from_secret(&self.jwt_secret), &validation).map(|e| e.claims)
     }
 }

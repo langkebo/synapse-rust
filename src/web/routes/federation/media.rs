@@ -68,7 +68,8 @@ pub(super) async fn media_thumbnail(
 
     let content = state
         .services
-        .core.media_service
+        .core
+        .media_service
         .get_thumbnail(&server_name, &media_id, width as u32, height as u32, method)
         .await?;
     let content_type = federation_guess_content_type(&media_id, &content).to_string();

@@ -6,7 +6,7 @@ use crate::worker::storage::WorkerStorage;
 use crate::worker::stream::StreamWriterManager;
 use crate::worker::tcp::ReplicationConnection;
 use crate::worker::types::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use synapse_common::ApiError;
@@ -25,6 +25,30 @@ pub struct WorkerManager {
 }
 
 impl WorkerManager {
+    fn select_most_recent_worker<'a>(candidates: &[&'a WorkerInfo]) -> Option<&'a WorkerInfo> {
+        candidates.iter().copied().max_by(|a, b| {
+            let a_heartbeat = a.last_heartbeat_ts.unwrap_or(0);
+            let b_heartbeat = b.last_heartbeat_ts.unwrap_or(0);
+            a_heartbeat.cmp(&b_heartbeat).then_with(|| b.started_ts.cmp(&a.started_ts))
+        })
+    }
+
+    fn select_fallback_candidate<'a>(
+        candidates: &[&'a WorkerInfo],
+        healthy_worker_ids: Option<&HashSet<String>>,
+    ) -> Option<&'a WorkerInfo> {
+        if let Some(healthy_worker_ids) = healthy_worker_ids {
+            let healthy_candidates: Vec<&WorkerInfo> =
+                candidates.iter().copied().filter(|worker| healthy_worker_ids.contains(&worker.worker_id)).collect();
+
+            if !healthy_candidates.is_empty() {
+                return Self::select_most_recent_worker(&healthy_candidates);
+            }
+        }
+
+        Self::select_most_recent_worker(candidates)
+    }
+
     pub fn new(storage: Arc<WorkerStorage>, server_name: String) -> Self {
         Self {
             storage,
@@ -176,6 +200,34 @@ impl WorkerManager {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update worker status", &e))?;
 
+        match status {
+            WorkerStatus::Starting | WorkerStatus::Running => {
+                if let Some(lb) = &self.load_balancer {
+                    if let Some(worker) = self
+                        .storage
+                        .get_worker(worker_id)
+                        .await
+                        .map_err(|e| ApiError::internal_with_log("Failed to refresh worker after heartbeat", &e))?
+                    {
+                        lb.register_worker(worker).await;
+                    }
+                }
+
+                if let Some(hc) = &self.health_checker {
+                    hc.register_worker(worker_id).await;
+                }
+            }
+            WorkerStatus::Stopping | WorkerStatus::Stopped | WorkerStatus::Error => {
+                if let Some(lb) = &self.load_balancer {
+                    lb.unregister_worker(worker_id).await;
+                }
+
+                if let Some(hc) = &self.health_checker {
+                    hc.unregister_worker(worker_id).await;
+                }
+            }
+        }
+
         if let Some(stats) = load_stats {
             let _ = self
                 .storage
@@ -204,8 +256,11 @@ impl WorkerManager {
             hc.unregister_worker(worker_id).await;
         }
 
-        let mut connections = self.connections.write().await;
-        if let Some(conn) = connections.remove(worker_id) {
+        let conn = {
+            let mut connections = self.connections.write().await;
+            connections.remove(worker_id)
+        };
+        if let Some(conn) = conn {
             conn.disconnect().await;
         }
 
@@ -503,8 +558,11 @@ impl WorkerManager {
     pub async fn disconnect_from_worker(&self, worker_id: &str) -> Result<(), ApiError> {
         info!(worker_id = %worker_id, "Disconnecting from worker");
 
-        let mut connections = self.connections.write().await;
-        if let Some(conn) = connections.remove(worker_id) {
+        let conn = {
+            let mut connections = self.connections.write().await;
+            connections.remove(worker_id)
+        };
+        if let Some(conn) = conn {
             conn.disconnect().await;
         }
 
@@ -568,11 +626,19 @@ impl WorkerManager {
             return Ok(None);
         }
 
-        let selected = candidates.iter().min_by(|a, b| {
-            let a_load = a.last_heartbeat_ts.unwrap_or(0);
-            let b_load = b.last_heartbeat_ts.unwrap_or(0);
-            a_load.cmp(&b_load)
-        });
+        let healthy_worker_ids = if let Some(hc) = &self.health_checker {
+            let mut healthy = HashSet::new();
+            for candidate in &candidates {
+                if hc.is_healthy(&candidate.worker_id).await {
+                    healthy.insert(candidate.worker_id.clone());
+                }
+            }
+            Some(healthy)
+        } else {
+            None
+        };
+
+        let selected = Self::select_fallback_candidate(&candidates, healthy_worker_ids.as_ref());
 
         Ok(selected.map(|w| w.worker_id.clone()))
     }

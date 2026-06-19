@@ -149,6 +149,7 @@ impl RoomService {
                 content: content.clone(),
                 state_key: None,
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )

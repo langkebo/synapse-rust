@@ -69,7 +69,18 @@ impl EventStorage {
                    COALESCE(is_redacted, false) as is_redacted,
                    COALESCE(origin_server_ts, 0) as origin_server_ts,
                    depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
-            FROM events WHERE room_id = $1 AND event_type = $2 AND state_key IS NOT NULL ORDER BY origin_server_ts DESC
+            FROM (
+                SELECT DISTINCT ON (state_key)
+                       event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                       unsigned, is_redacted, origin_server_ts, depth, not_before, status, reference_image, origin, user_id, stream_ordering
+                FROM events
+                WHERE room_id = $1
+                  AND event_type = $2
+                  AND state_key IS NOT NULL
+                ORDER BY state_key, origin_server_ts DESC
+                LIMIT 5000
+            ) s
+            ORDER BY origin_server_ts DESC
             ",
         )
         .bind(room_id)
@@ -105,6 +116,7 @@ impl EventStorage {
                 ORDER BY room_id, state_key, origin_server_ts DESC
             ) s
             ORDER BY room_id, origin_server_ts DESC
+            LIMIT 50000
             ",
         )
         .bind(room_ids)
@@ -142,6 +154,7 @@ impl EventStorage {
                 ORDER BY room_id, event_type, state_key, origin_server_ts DESC
             ) s
             ORDER BY room_id, origin_server_ts DESC
+            LIMIT 50000
             ",
         )
         .bind(room_ids)
@@ -179,6 +192,7 @@ impl EventStorage {
                 ORDER BY room_id, event_type, state_key, stream_ordering DESC
             ) s
             ORDER BY room_id, stream_ordering DESC
+            LIMIT 50000
             ",
         )
         .bind(room_ids)

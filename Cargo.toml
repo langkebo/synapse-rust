@@ -29,7 +29,7 @@ openclaw = ["openclaw-routes"]
 openclaw-routes = ["synapse-common/openclaw-routes", "synapse-services/openclaw-routes", "synapse-storage/openclaw-routes"]
 runtime-ddl = ["synapse-services/runtime-ddl", "synapse-storage/runtime-ddl"]
 performance-tests = []
-test-utils = []
+test-utils = ["synapse-services/test-utils"]
 
 # Non-core feature modules (can be disabled to produce a minimal build)
 core-private-chat = ["friends", "burn-after-read"]
@@ -202,7 +202,6 @@ members = [
     "synapse-e2ee",
     "synapse-federation",
     "synapse-services",
-    "synapse-web",
 ]
 
 [[test]]

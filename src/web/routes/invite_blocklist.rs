@@ -55,7 +55,8 @@ pub async fn get_invite_blocklist(
 
     let blocklist = state
         .services
-        .account.invite_blocklist_storage
+        .account
+        .invite_blocklist_storage
         .get_invite_blocklist(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get blocklist", &e))?;
@@ -84,7 +85,8 @@ pub async fn set_invite_blocklist(
 
     state
         .services
-        .account.invite_blocklist_storage
+        .account
+        .invite_blocklist_storage
         .set_invite_blocklist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set blocklist", &e))?;
@@ -108,7 +110,8 @@ pub async fn get_invite_allowlist(
 
     let allowlist = state
         .services
-        .account.invite_blocklist_storage
+        .account
+        .invite_blocklist_storage
         .get_invite_allowlist(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get allowlist", &e))?;
@@ -137,7 +140,8 @@ pub async fn set_invite_allowlist(
 
     state
         .services
-        .account.invite_blocklist_storage
+        .account
+        .invite_blocklist_storage
         .set_invite_allowlist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set allowlist", &e))?;

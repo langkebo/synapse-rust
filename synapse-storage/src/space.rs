@@ -1,6 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Row};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 fn escape_like_pattern(input: &str) -> String {
@@ -252,6 +253,23 @@ impl SpaceStorage {
             .bind(room_id)
             .fetch_optional(&*self.pool)
             .await
+    }
+
+    pub async fn get_spaces_by_rooms_batch(&self, room_ids: &[String]) -> Result<HashMap<String, Space>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let spaces = sqlx::query_as::<_, Space>(
+            r"SELECT space_id, room_id, name, topic, avatar_url, creator, join_rule, visibility, created_ts, updated_ts, is_public, parent_space_id, room_type FROM spaces WHERE room_id = ANY($1)",
+        )
+        .bind(room_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+        let mut map = HashMap::with_capacity(spaces.len());
+        for space in spaces {
+            map.insert(space.room_id.clone(), space);
+        }
+        Ok(map)
     }
 
     pub async fn update_space(&self, space_id: &str, request: &UpdateSpaceRequest) -> Result<Space, sqlx::Error> {
@@ -876,8 +894,12 @@ impl SpaceStorage {
             self.get_space_children(space_id).await?
         };
 
+        let child_room_ids: Vec<String> = children.iter().map(|c| c.room_id.clone()).collect();
+        let spaces_map = self.get_spaces_by_rooms_batch(&child_room_ids).await?;
+
         for child in children {
-            let is_space = self.get_space_by_room(&child.room_id).await?.is_some();
+            let child_space = spaces_map.get(&child.room_id);
+            let is_space = child_space.is_some();
 
             all_children.push(SpaceChildInfo {
                 space_id: child.space_id.clone(),
@@ -889,9 +911,9 @@ impl SpaceStorage {
             });
 
             if is_space {
-                if let Some(child_space) = self.get_space_by_room(&child.room_id).await? {
+                if let Some(child_space) = child_space {
                     Box::pin(self.collect_hierarchy_recursive(
-                        &child_space.space_id,
+                        &child_space.space_id.clone(),
                         current_depth + 1,
                         max_depth,
                         suggested_only,

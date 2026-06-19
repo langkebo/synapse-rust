@@ -40,7 +40,7 @@ impl EventAuthChain {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EventData {
     pub event_id: String,
     pub room_id: String,
@@ -49,6 +49,12 @@ pub struct EventData {
     pub prev_events: Vec<String>,
     pub state_key: Option<Value>,
     pub content: Option<Value>,
+    /// 事件发送者 (顶层 PDU 字段, 非 content 内).
+    pub sender: String,
+    /// 事件原始服务器时间戳 (顶层 PDU 字段, 毫秒).
+    pub origin_server_ts: i64,
+    /// 事件深度 (顶层 PDU 字段).
+    pub depth: i64,
 }
 
 #[derive(Debug, Clone)]

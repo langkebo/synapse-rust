@@ -7,12 +7,12 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::services::uia_service::{UiaFlow, UiaService, UiaSession};
 
 fn create_service() -> UiaService {
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()).to_synapse_cache_manager());
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     UiaService::new(cache, 3600)
 }
 
 fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()).to_synapse_cache_manager());
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let metrics = Arc::new(MetricsCollector::new());
     let security = SecurityConfig {
         secret: "test_secret".to_string(),

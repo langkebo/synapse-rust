@@ -127,14 +127,21 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "test-utils")]
     use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
+    #[cfg(feature = "test-utils")]
     use crate::services::ServiceContainer;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
+    #[cfg(feature = "test-utils")]
     use axum::http::StatusCode;
+    #[cfg(feature = "test-utils")]
     use axum::{middleware, routing::get, Router};
+    #[cfg(feature = "test-utils")]
     use std::sync::Arc;
+    #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
 
     #[test]
@@ -219,6 +226,7 @@ mod tests {
         assert_eq!(rule.per_second, config.default.per_second);
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_rate_limit_middleware_exempts_sync_endpoints() {
         async fn ok_handler() -> StatusCode {
@@ -275,6 +283,7 @@ mod tests {
         assert_eq!(normal_response_2.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_rate_limit_middleware_sets_retry_after_headers() {
         async fn ok_handler() -> StatusCode {

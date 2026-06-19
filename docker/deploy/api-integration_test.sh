@@ -6714,7 +6714,7 @@ fi
 echo ""
 echo "540. Federation Knock"
 FED_KNOCK_USER_ID_ENC=$(url_encode "${TARGET_USER_ID:-$USER_ID}")
-if federation_http_json "Federation Knock" PUT "$SERVER_URL/_matrix/federation/v1/knock/$FED_ROOM_ID_ENC/$FED_KNOCK_USER_ID_ENC" "{\"origin\":\"${USER_DOMAIN}\",\"room_id\":\"$ROOM_ID\",\"type\":\"m.room.member\",\"sender\":\"${TARGET_USER_ID:-$USER_ID}\",\"state_key\":\"${TARGET_USER_ID:-$USER_ID}\",\"content\":{\"membership\":\"knock\"}}"; then
+if federation_http_json "Federation Knock" POST "$SERVER_URL/_matrix/federation/v1/knock/$FED_ROOM_ID_ENC/$FED_KNOCK_USER_ID_ENC" "{\"origin\":\"${USER_DOMAIN}\",\"room_id\":\"$ROOM_ID\",\"type\":\"m.room.member\",\"sender\":\"${TARGET_USER_ID:-$USER_ID}\",\"state_key\":\"${TARGET_USER_ID:-$USER_ID}\",\"content\":{\"membership\":\"knock\"}}"; then
     federation_smoke "Federation Knock" "$HTTP_STATUS" "$HTTP_BODY"
 fi
 

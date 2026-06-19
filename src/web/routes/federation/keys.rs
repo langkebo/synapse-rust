@@ -1,3 +1,4 @@
+use crate::common::security::check_url_against_blacklist;
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;
@@ -286,23 +287,33 @@ async fn fetch_remote_server_keys_response(
         .clone()
         .acquire_owned()
         .await
-        .map_err(|_| ApiError::internal("Federation key fetch semaphore closed".to_string()))?;
+        .map_err(|e| ApiError::internal_with_log("Federation key fetch semaphore closed", &e))?;
 
     let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| ApiError::internal_with_log("Failed to build federation HTTP client", &e))?;
 
+    // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
+    let ip_blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
+
+    // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
+    // MITM attacks on server key retrieval.
     let urls = [
         format!("https://{server_name}/_matrix/key/v2/server"),
-        format!("http://{server_name}/_matrix/key/v2/server"),
         format!("https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
-        format!("http://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
     ];
 
-    for url in urls {
-        let response = match client.get(&url).send().await {
+    for url in &urls {
+        // Block requests to private/loopback/link-local IPs to prevent SSRF.
+        if let Err(reason) = check_url_against_blacklist(url, ip_blacklist) {
+            ::tracing::warn!(server_name = %server_name, url = %url, reason = %reason, "Blocked federation key fetch to blacklisted address");
+            continue;
+        }
+
+        let response = match client.get(url).send().await {
             Ok(response) if response.status().is_success() => response,
             _ => continue,
         };
@@ -316,15 +327,35 @@ async fn fetch_remote_server_keys_response(
             continue;
         };
 
+        // P2-16: Validate `valid_until_ts` before caching. A missing or
+        // already-expired value lets an attacker inject stale but
+        // correctly-signed key responses. Reject both cases.
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let Some(valid_until_ts) = body.get("valid_until_ts").and_then(|v| v.as_i64()) else {
+            ::tracing::warn!(
+                server_name = %server_name,
+                key_id = %key_id,
+                "Remote server key response missing valid_until_ts; refusing to cache"
+            );
+            continue;
+        };
+        if valid_until_ts <= now_ms {
+            ::tracing::warn!(
+                server_name = %server_name,
+                key_id = %key_id,
+                valid_until_ts = valid_until_ts,
+                now_ms = now_ms,
+                "Remote server key response has expired valid_until_ts; refusing to cache"
+            );
+            continue;
+        }
+
         let canonical_response = json!({
             "server_name": body
                 .get("server_name")
                 .and_then(|v| v.as_str())
                 .unwrap_or(server_name),
-            "valid_until_ts": body
-                .get("valid_until_ts")
-                .and_then(|v| v.as_i64())
-                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() + 3600 * 1000),
+            "valid_until_ts": valid_until_ts,
             "verify_keys": {
                 key_id: {
                     "key": key
@@ -340,7 +371,11 @@ async fn fetch_remote_server_keys_response(
                 .unwrap_or_else(|| json!({}))
         });
 
-        let ttl = state.services.core.config.federation.key_cache_ttl.max(60);
+        // Cache TTL = min(configured_ttl, remaining lifetime of the key).
+        // `valid_until_ts` is in ms; cache TTL is in seconds.
+        let configured_ttl = state.services.core.config.federation.key_cache_ttl.max(60);
+        let remaining_secs = ((valid_until_ts - now_ms) / 1000).max(1) as u64;
+        let ttl = configured_ttl.min(remaining_secs);
         if let Err(e) = state.cache.set(&cache_key, &canonical_response, ttl).await {
             ::tracing::debug!("Failed to cache federation key response: {}", e);
         }

@@ -90,6 +90,7 @@ impl RoomService {
                     content: create_content,
                     state_key: Some("".to_string()),
                     origin_server_ts: now,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -132,6 +133,7 @@ impl RoomService {
                     }),
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: now + 1,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -179,6 +181,7 @@ impl RoomService {
                     content: power_levels,
                     state_key: Some("".to_string()),
                     origin_server_ts: now + 2,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -199,6 +202,7 @@ impl RoomService {
                     content: json!({ "join_rule": join_rule }),
                     state_key: Some("".to_string()),
                     origin_server_ts: now + 3,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -226,6 +230,7 @@ impl RoomService {
                     content: json!({ "history_visibility": history_visibility }),
                     state_key: Some("".to_string()),
                     origin_server_ts: now + 4,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -247,6 +252,7 @@ impl RoomService {
                     content: json!({ "guest_access": guest_access }),
                     state_key: Some("".to_string()),
                     origin_server_ts: now + 5,
+                    redacts: None,
                 },
                 Some(&mut tx),
             )
@@ -307,6 +313,7 @@ impl RoomService {
                             content,
                             state_key: Some(state_key),
                             origin_server_ts: now + 9 + idx as i64,
+                            redacts: None,
                         },
                         Some(&mut tx),
                     )
@@ -345,6 +352,7 @@ impl RoomService {
                             content: json!({ "algorithm": algorithm }),
                             state_key: Some("".to_string()),
                             origin_server_ts: encryption_ts,
+                            redacts: None,
                         },
                         Some(&mut tx),
                     )
@@ -376,6 +384,7 @@ impl RoomService {
                         content: privacy_content,
                         state_key: Some("".to_string()),
                         origin_server_ts: now + 8,
+                        redacts: None,
                     },
                     Some(&mut tx),
                 )

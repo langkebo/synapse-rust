@@ -99,13 +99,20 @@ fn resolve_sliding_sync_rate_limit(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "test-utils")]
     use super::resolve_sliding_sync_rate_limit;
+    #[cfg(feature = "test-utils")]
     use crate::cache::CacheConfig;
+    #[cfg(feature = "test-utils")]
     use crate::common::rate_limit_config::RateLimitConfigFile;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::state::SyncRateLimitOverride;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
+    #[cfg(feature = "test-utils")]
     use std::sync::Arc;
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_prefers_file_config_when_enabled() {
         let mut services = crate::services::ServiceContainer::new_test().await;
@@ -130,6 +137,7 @@ mod tests {
         assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_resolve_sliding_sync_rate_limit_falls_back_to_runtime_config() {
         let mut services = crate::services::ServiceContainer::new_test().await;

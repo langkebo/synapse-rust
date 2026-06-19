@@ -221,7 +221,7 @@ async fn search(
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
-            .map_err(|_| ApiError::internal("Search request timed out"))??;
+            .map_err(|e| ApiError::internal_with_log("Search request timed out", &e))??;
 
         results["search_categories"]["room_events"] = room_results;
     }
@@ -231,7 +231,7 @@ async fn search(
 
         let user_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
-            .map_err(|_| ApiError::internal("User search request timed out"))??;
+            .map_err(|e| ApiError::internal_with_log("User search request timed out", &e))??;
 
         results["search_categories"]["users"] = user_results;
     }
@@ -266,7 +266,8 @@ async fn search_room_events(
 
     let page = state
         .services
-        .core.search_service
+        .core
+        .search_service
         .search_room_events(user_id, &search.search_term, filter.as_ref(), limit, next_batch)
         .await?;
 
@@ -304,7 +305,9 @@ async fn search_room_events(
         "next_batch": page.next_batch
     });
 
-    let _ = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await;
+    if let Err(e) = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
+        ::tracing::warn!("Failed to cache search room results: {e}");
+    }
 
     Ok(result)
 }
@@ -361,7 +364,9 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
         "limited": results.len() as i64 == limit
     });
 
-    let _ = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await;
+    if let Err(e) = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
+        ::tracing::warn!("Failed to cache search user results: {e}");
+    }
 
     Ok(result)
 }
@@ -464,7 +469,7 @@ async fn build_room_hierarchy_response(
                         .event_storage
                         .get_state_events_batch(&child_room_ids)
                         .await
-                        .unwrap_or_default();
+                        .map_err(|e| ApiError::internal_with_log("Failed to load child state events", &e))?;
 
                     let mut child_rooms = Vec::new();
                     for rid in &child_room_ids {
@@ -604,8 +609,13 @@ async fn build_room_hierarchy_response(
             map.insert(room.room_id.clone(), room);
         }
 
-        let state_batch =
-            state.services.rooms.event_storage.get_state_events_batch(&child_room_ids).await.unwrap_or_default();
+        let state_batch = state
+            .services
+            .rooms
+            .event_storage
+            .get_state_events_batch(&child_room_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load child state events", &e))?;
 
         let mut result = Vec::new();
         for rid in &child_room_ids {
@@ -1123,7 +1133,8 @@ async fn search_rooms(
         return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
-    let rooms = state.services.core.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
+    let rooms =
+        state.services.core.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
 
     let results: Vec<Value> = rooms
         .iter()

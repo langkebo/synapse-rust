@@ -37,6 +37,9 @@ impl StateResolutionService {
                 .unwrap_or_default();
             let state_key = evt.get("state_key").cloned();
             let content = evt.get("content").cloned();
+            let sender = evt.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let origin_server_ts = evt.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+            let depth = evt.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
 
             data.insert(
                 eid,
@@ -48,6 +51,9 @@ impl StateResolutionService {
                     prev_events,
                     state_key,
                     content,
+                    sender,
+                    origin_server_ts,
+                    depth,
                 },
             );
         }

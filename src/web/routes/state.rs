@@ -55,7 +55,7 @@ impl AppState {
         services.federation.key_rotation_manager.set_signature_cache(federation_signature_cache.clone());
 
         #[cfg(feature = "openclaw-routes")]
-        let canonical_cache = Arc::new(cache.as_ref().to_synapse_cache_manager());
+        let canonical_cache = cache.clone();
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
             let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));

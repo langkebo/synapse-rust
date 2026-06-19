@@ -165,6 +165,7 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
                 content: serde_json::json!({ "name": "Driver Updated" }),
                 state_key: Some(String::new()),
                 origin_server_ts: 100_i64,
+                redacts: None,
             },
             None,
         )
@@ -181,6 +182,7 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
                 content: serde_json::json!({ "topic": "Driver Topic" }),
                 state_key: Some(String::new()),
                 origin_server_ts: 110_i64,
+                redacts: None,
             },
             None,
         )
@@ -197,6 +199,7 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
                 content: serde_json::json!({ "body": "hello", "msgtype": "m.text" }),
                 state_key: None,
                 origin_server_ts: 200_i64,
+                redacts: None,
             },
             None,
         )
@@ -213,6 +216,7 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
                 content: serde_json::json!({ "body": "signal" }),
                 state_key: None,
                 origin_server_ts: 300_i64,
+                redacts: None,
             },
             None,
         )

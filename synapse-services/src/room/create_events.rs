@@ -73,6 +73,7 @@ impl RoomService {
                         content: json!({ "name": room_name }),
                         state_key: Some("".to_string()),
                         origin_server_ts: base_ts,
+                        redacts: None,
                     },
                     tx.as_deref_mut(),
                 )
@@ -102,6 +103,7 @@ impl RoomService {
                         content: json!({ "topic": room_topic }),
                         state_key: Some("".to_string()),
                         origin_server_ts: base_ts + 1,
+                        redacts: None,
                     },
                     tx.as_deref_mut(),
                 )
@@ -156,6 +158,7 @@ impl RoomService {
                                 }),
                                 state_key: Some(invitee.to_string()),
                                 origin_server_ts: base_ts + offset,
+                                redacts: None,
                             },
                             Some(&mut **t),
                         )
@@ -186,6 +189,7 @@ impl RoomService {
                                 }),
                                 state_key: Some(invitee.to_string()),
                                 origin_server_ts: base_ts + offset,
+                                redacts: None,
                             },
                             None,
                         )

@@ -90,3 +90,14 @@ pub struct KeyRequestInfo {
     pub fulfilled_by_device: Option<String>,
     pub fulfilled_ts: Option<i64>,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct KeyRequestPagination<'a> {
+    pub user_id: &'a str,
+    pub limit: i64,
+    pub from_ts: Option<i64>,
+    pub from_id: Option<&'a str>,
+    pub status: Option<&'a str>,
+    pub room_id: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+}

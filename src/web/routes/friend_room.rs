@@ -891,12 +891,7 @@ async fn add_friend_to_group(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    state
-        .services
-        .extensions
-        .friend_room_service
-        .add_friend_to_group(&auth_user.user_id, &group_id, &user_id)
-        .await?;
+    state.services.extensions.friend_room_service.add_friend_to_group(&auth_user.user_id, &group_id, &user_id).await?;
 
     Ok(Json(json!({
         "group_id": group_id,

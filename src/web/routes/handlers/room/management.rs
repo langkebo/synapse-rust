@@ -647,7 +647,12 @@ pub(crate) async fn set_room_account_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    state.services.core.account_data_service.set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body).await?;
+    state
+        .services
+        .core
+        .account_data_service
+        .set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -676,8 +681,12 @@ pub(crate) async fn get_room_account_data(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let result =
-        state.services.core.account_data_service.get_room_account_data(&auth_user.user_id, &room_id, &data_type).await?;
+    let result = state
+        .services
+        .core
+        .account_data_service
+        .get_room_account_data(&auth_user.user_id, &room_id, &data_type)
+        .await?;
 
     match result {
         Some(data) => Ok(Json(data)),
@@ -1030,7 +1039,8 @@ pub(crate) async fn get_room_device(
 
     let device = state
         .services
-        .account.device_storage
+        .account
+        .device_storage
         .get_device(&device_id)
         .await
         .map_err(map_internal!("Failed to get device"))?

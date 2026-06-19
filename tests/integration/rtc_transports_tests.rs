@@ -20,8 +20,7 @@ async fn setup_test_app_with_voip() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
     container.core.config.voip.turn_shared_secret = Some("test_secret".to_string());
     let voip_config = container.core.config.voip.clone();
     let rtc_domain_service = Arc::make_mut(&mut container.extensions.rtc_domain_service);
-    rtc_domain_service.infra =
-        Arc::new(synapse_rust::services::rtc::RtcInfraService::new(Arc::new(voip_config)));
+    rtc_domain_service.infra = Arc::new(synapse_rust::services::rtc::RtcInfraService::new(Arc::new(voip_config)));
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);

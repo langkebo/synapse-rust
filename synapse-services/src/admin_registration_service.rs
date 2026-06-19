@@ -199,7 +199,7 @@ impl AdminRegistrationService {
             .map_err(|_| ApiError::forbidden("HMAC incorrect".to_string()))?;
 
         let mut mac = HmacSha256::new_from_slice(self.config.shared_secret.as_bytes())
-            .map_err(|_| ApiError::internal("Invalid shared secret".to_string()))?;
+            .map_err(|e| ApiError::internal_with_log("Invalid shared secret", &e))?;
 
         mac.update(request.nonce.as_bytes());
         mac.update(b"\0");

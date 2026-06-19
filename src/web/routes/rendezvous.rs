@@ -277,10 +277,11 @@ async fn send_message(
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
     let message = RendezvousMessage { message_type: message_type.to_string(), content };
-    let message_storage =
-        crate::storage::RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
-    message_storage
+    state
+        .services
+        .admin
+        .rendezvous_storage
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
@@ -304,10 +305,11 @@ async fn get_messages(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read messages").await?;
-    let message_storage =
-        crate::storage::RendezvousMessageStorage::new(state.services.admin.rendezvous_storage.pool.clone());
 
-    let messages = message_storage
+    let messages = state
+        .services
+        .admin
+        .rendezvous_storage
         .get_messages(&session_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;

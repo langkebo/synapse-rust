@@ -3,8 +3,8 @@ use lettre::message::Mailbox;
 use lettre::{AsyncTransport, Message, Tokio1Executor};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::config::{Config, SmtpConfig};
+use synapse_rust::common::BackgroundJob;
 use synapse_rust::common::RedisTaskQueue;
 use synapse_rust::storage::event::EventStorage;
 use tokio::signal;
@@ -14,6 +14,8 @@ struct MetricsState {
     queue: Arc<RedisTaskQueue>,
     token: Option<String>,
 }
+
+type SmtpMailer = lettre::AsyncSmtpTransport<Tokio1Executor>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -72,56 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         async move {
             match job {
                 BackgroundJob::SendEmail { to, subject, body } => {
-                    tracing::info!("[EMAIL] Sending email to: {}", to);
-                    tracing::info!("[EMAIL] Subject: {}", subject);
-
-                    let mailer = match smtp_mailer.as_ref() {
-                        Some(m) => m,
-                        None => {
-                            tracing::error!("[EMAIL] SMTP not configured, cannot send email to {}", to);
-                            return Err("SMTP not configured".to_string());
-                        }
-                    };
-
-                    let from: Mailbox = match smtp_from.parse() {
-                        Ok(f) => f,
-                        Err(e) => {
-                            tracing::error!("[EMAIL] Invalid from address '{}': {}", smtp_from, e);
-                            return Err(format!("Invalid from address: {}", e));
-                        }
-                    };
-
-                    let to_mailbox: Mailbox = match to.parse() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            tracing::error!("[EMAIL] Invalid to address '{}': {}", to, e);
-                            return Err(format!("Invalid to address: {}", e));
-                        }
-                    };
-
-                    let email = match Message::builder()
-                        .from(from)
-                        .to(to_mailbox.clone())
-                        .subject(subject.clone())
-                        .body(body.clone())
-                    {
-                        Ok(e) => e,
-                        Err(e) => {
-                            tracing::error!("[EMAIL] Failed to build email message: {}", e);
-                            return Err(format!("Failed to build email: {}", e));
-                        }
-                    };
-
-                    match mailer.send(email).await {
-                        Ok(_) => {
-                            tracing::info!("[EMAIL] Sent successfully to {}", to);
-                            Ok(())
-                        }
-                        Err(e) => {
-                            tracing::error!("[EMAIL] Failed to send email to {}: {}", to, e);
-                            Err(format!("SMTP send error: {}", e))
-                        }
-                    }
+                    process_send_email_job(smtp_mailer.clone(), &smtp_from, &to, &subject, &body).await
                 }
                 BackgroundJob::ProcessMedia { file_id } => {
                     tracing::info!("[MEDIA] Processing media file: {}", file_id);
@@ -159,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         tracing::info!("[REDACT] Reason: {}", r);
                     }
 
-                    if let Err(e) = event_storage.redact_event_content(&event_id).await {
+                    if let Err(e) = event_storage.redact_event_content(&event_id, None).await {
                         tracing::error!("[REDACT] Failed to redact event {}: {}", event_id, e);
                         return Err(e.to_string());
                     }
@@ -286,31 +239,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_smtp_mailer(
-    config: &SmtpConfig,
-) -> Result<lettre::AsyncSmtpTransport<Tokio1Executor>, Box<dyn std::error::Error>> {
+fn build_smtp_mailer(config: &SmtpConfig) -> Result<SmtpMailer, Box<dyn std::error::Error>> {
     let tls = if config.tls {
-        lettre::transport::smtp::client::Tls::Required(
-            lettre::transport::smtp::client::TlsParameters::new(config.host.clone())?,
-        )
+        lettre::transport::smtp::client::Tls::Required(lettre::transport::smtp::client::TlsParameters::new(
+            config.host.clone(),
+        )?)
     } else {
         lettre::transport::smtp::client::Tls::None
     };
 
-    let mut builder = lettre::AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host)
-        .port(config.port)
-        .tls(tls);
+    let mut builder =
+        lettre::AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&config.host).port(config.port).tls(tls);
 
     if !config.username.is_empty() {
         let credentials =
-            lettre::transport::smtp::authentication::Credentials::new(
-                config.username.clone(),
-                config.password.clone(),
-            );
+            lettre::transport::smtp::authentication::Credentials::new(config.username.clone(), config.password.clone());
         builder = builder.credentials(credentials);
     }
 
     Ok(builder.build())
+}
+
+async fn process_send_email_job(
+    smtp_mailer: Option<Arc<SmtpMailer>>,
+    smtp_from: &str,
+    to: &str,
+    subject: &str,
+    body: &str,
+) -> Result<(), String> {
+    tracing::info!("[EMAIL] Sending email (recipient masked)");
+    tracing::debug!("[EMAIL] Recipient: {}", to);
+    tracing::debug!("[EMAIL] Subject: {}", subject);
+
+    let mailer = match smtp_mailer.as_ref() {
+        Some(m) => m,
+        None => {
+            tracing::error!("[EMAIL] SMTP not configured, cannot send email (recipient masked)");
+            return Err("SMTP not configured".to_string());
+        }
+    };
+
+    let from: Mailbox = match smtp_from.parse() {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("[EMAIL] Invalid from address '{}': {}", smtp_from, e);
+            return Err(format!("Invalid from address: {}", e));
+        }
+    };
+
+    let to_mailbox: Mailbox = match to.parse() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("[EMAIL] Invalid to address (recipient masked): {}", e);
+            return Err(format!("Invalid to address: {}", e));
+        }
+    };
+
+    let email = match Message::builder().from(from).to(to_mailbox).subject(subject.to_string()).body(body.to_string()) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::error!("[EMAIL] Failed to build email message: {}", e);
+            return Err(format!("Failed to build email: {}", e));
+        }
+    };
+
+    match mailer.send(email).await {
+        Ok(_) => {
+            tracing::info!("[EMAIL] Sent successfully (recipient masked)");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::error!("[EMAIL] Failed to send email (recipient masked): {}", e);
+            Err(format!("SMTP send error: {}", e))
+        }
+    }
 }
 
 async fn get_metrics(State(state): State<MetricsState>, headers: axum::http::HeaderMap) -> impl IntoResponse {
@@ -355,6 +357,8 @@ async fn get_metrics(State(state): State<MetricsState>, headers: axum::http::Hea
 #[cfg(test)]
 mod smtp_smoke_tests {
     use super::*;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
 
     #[test]
     fn test_build_smtp_mailer_with_tls() {
@@ -425,5 +429,75 @@ mod smtp_smoke_tests {
         // Verify message is well-formed
         let formatted = format!("{:?}", message);
         assert!(!formatted.is_empty(), "message debug output should not be empty");
+    }
+
+    #[tokio::test]
+    async fn test_process_send_email_job_smoke_against_fake_smtp_server() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake smtp listener");
+        let port = listener.local_addr().expect("read fake smtp addr").port();
+
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.expect("accept smtp client");
+            let (reader, mut writer) = stream.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut line = String::new();
+            let mut data_mode = false;
+            let mut message = String::new();
+
+            writer.write_all(b"220 localhost ESMTP test\r\n").await.expect("write greeting");
+
+            loop {
+                line.clear();
+                let read = reader.read_line(&mut line).await.expect("read smtp line");
+                if read == 0 {
+                    break;
+                }
+
+                if data_mode {
+                    if line == ".\r\n" || line == ".\n" {
+                        data_mode = false;
+                        writer.write_all(b"250 queued\r\n").await.expect("ack DATA");
+                    } else {
+                        message.push_str(&line);
+                    }
+                    continue;
+                }
+
+                if line.starts_with("EHLO") || line.starts_with("HELO") {
+                    writer.write_all(b"250-localhost\r\n250 PIPELINING\r\n").await.expect("reply ehlo");
+                } else if line.starts_with("MAIL FROM:") || line.starts_with("RCPT TO:") {
+                    writer.write_all(b"250 OK\r\n").await.expect("ack envelope");
+                } else if line.starts_with("DATA") {
+                    data_mode = true;
+                    writer.write_all(b"354 End data with <CR><LF>.<CR><LF>\r\n").await.expect("ack data");
+                } else if line.starts_with("QUIT") {
+                    writer.write_all(b"221 Bye\r\n").await.expect("ack quit");
+                    break;
+                } else {
+                    writer.write_all(b"250 OK\r\n").await.expect("ack generic");
+                }
+            }
+
+            message
+        });
+
+        let config = SmtpConfig {
+            enabled: true,
+            host: "127.0.0.1".to_string(),
+            port,
+            from: "noreply@example.com".to_string(),
+            tls: false,
+            ..Default::default()
+        };
+        let mailer = Arc::new(build_smtp_mailer(&config).expect("build fake smtp mailer"));
+
+        process_send_email_job(Some(mailer), &config.from, "user@example.com", "Smoke Test Subject", "Smoke Test Body")
+            .await
+            .expect("smtp send should succeed");
+
+        let message = server.await.expect("fake smtp server should finish");
+        assert!(message.contains("Subject: Smoke Test Subject"), "smtp payload should contain subject");
+        assert!(message.contains("Smoke Test Body"), "smtp payload should contain body");
+        assert!(message.contains("To: user@example.com"), "smtp payload should contain recipient");
     }
 }

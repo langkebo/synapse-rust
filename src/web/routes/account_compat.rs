@@ -39,10 +39,12 @@ pub(crate) async fn can_view_profile_for_requester_batch(
 ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
     #[cfg(feature = "privacy-ext")]
     {
-        return state.services.extensions.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        });
+        return state.services.extensions.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(
+            |e| {
+                tracing::error!("Database error: {e}");
+                ApiError::database("A database error occurred".to_string())
+            },
+        );
     }
 
     #[cfg(not(feature = "privacy-ext"))]
@@ -603,7 +605,8 @@ pub(crate) async fn add_threepid(
     {
         if let Err(e) = state
             .services
-            .extensions.identity_service
+            .extensions
+            .identity_service
             .bind_three_pid(id_server, id_access_token, is_sid, is_client_secret, user_id)
             .await
         {

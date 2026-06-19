@@ -478,6 +478,32 @@ impl DeviceKeyStorage {
         Ok(count)
     }
 
+    pub async fn get_device_counts_batch(&self, user_ids: &[String]) -> Result<HashMap<String, i64>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query(
+            r"
+            SELECT user_id, COUNT(DISTINCT device_id) AS device_count
+            FROM device_keys
+            WHERE user_id = ANY($1) AND (is_fallback = FALSE OR is_fallback IS NULL)
+            GROUP BY user_id
+            ",
+        )
+        .bind(user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        for row in rows {
+            let user_id: String = row.try_get("user_id")?;
+            let device_count: i64 = row.try_get("device_count")?;
+            counts.insert(user_id, device_count);
+        }
+        Ok(counts)
+    }
+
     pub async fn delete_device_keys(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
         sqlx::query(
             r"

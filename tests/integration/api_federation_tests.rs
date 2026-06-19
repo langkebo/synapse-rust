@@ -46,7 +46,7 @@ fn signed_federation_request(
     signing_key: &ed25519_dalek::SigningKey,
     content: Option<&Value>,
 ) -> Request<Body> {
-    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, origin, content);
+    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, origin, content).unwrap();
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 

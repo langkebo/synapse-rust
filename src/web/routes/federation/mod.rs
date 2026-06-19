@@ -152,7 +152,7 @@ async fn acquire_with_timeout(
     let permit = timeout(Duration::from_millis(acquire_timeout_ms.max(1)), semaphore.acquire_owned())
         .await
         .map_err(|_| ApiError::rate_limited_with_retry(acquire_timeout_ms.max(1)))?
-        .map_err(|_| ApiError::internal("Semaphore closed"))?;
+        .map_err(|e| ApiError::internal_with_log("Semaphore closed", &e))?;
 
     Ok((permit, started.elapsed().as_millis() as u64))
 }
@@ -239,7 +239,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/members/{room_id}/joined", get(membership::get_joined_room_members))
         .route("/_matrix/federation/v1/user/devices/{user_id}", get(membership::get_user_devices))
         .route("/_matrix/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
-        .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", put(membership::knock_room))
+        .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", post(membership::knock_room))
         .route("/_matrix/federation/v1/thirdparty/invite", post(membership::thirdparty_invite))
         .route("/_matrix/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
         .route("/_matrix/federation/v2/invite/{room_id}/{event_id}", put(membership::invite_v2))
@@ -310,7 +310,7 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::GET, "/_matrix/federation/v1/members/{room_id}/joined"),
         (Method::GET, "/_matrix/federation/v1/user/devices/{user_id}"),
         (Method::GET, "/_matrix/federation/v1/room_auth/{room_id}"),
-        (Method::PUT, "/_matrix/federation/v1/knock/{room_id}/{user_id}"),
+        (Method::POST, "/_matrix/federation/v1/knock/{room_id}/{user_id}"),
         (Method::POST, "/_matrix/federation/v1/thirdparty/invite"),
         (Method::GET, "/_matrix/federation/v1/get_joining_rules/{room_id}"),
         (Method::PUT, "/_matrix/federation/v2/invite/{room_id}/{event_id}"),

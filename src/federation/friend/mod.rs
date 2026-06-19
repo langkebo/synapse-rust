@@ -1,5 +1,3 @@
-pub mod client;
-pub mod friend_federation;
-
-pub use client::*;
-pub use friend_federation::*;
+pub use synapse_federation::friend::client;
+pub use synapse_federation::friend::friend_federation;
+pub use synapse_federation::friend::*;

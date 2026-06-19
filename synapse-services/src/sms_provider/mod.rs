@@ -219,11 +219,7 @@ mod tests {
 
     #[test]
     fn test_create_sms_provider_aliyun_missing_credentials_returns_noop() {
-        let config = SmsConfig {
-            enabled: true,
-            provider: "aliyun".to_string(),
-            ..Default::default()
-        };
+        let config = SmsConfig { enabled: true, provider: "aliyun".to_string(), ..Default::default() };
         let provider = create_sms_provider(&config);
         assert_eq!(provider.provider_name(), "noop");
     }

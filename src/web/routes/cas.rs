@@ -228,10 +228,12 @@ async fn service_validate(
     Query(query): Query<ValidateQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let result =
-        state.services.sso.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(|e| {
-            tracing::warn!("CAS service ticket validation error: {}", e);
-            None
-        });
+        state.services.sso.cas_service.validate_service_ticket(&query.ticket, &query.service).await.unwrap_or_else(
+            |e| {
+                tracing::warn!("CAS service ticket validation error: {}", e);
+                None
+            },
+        );
 
     match result {
         Some(ticket) => {
@@ -289,7 +291,8 @@ async fn p3_service_validate(
 ) -> Result<impl IntoResponse, ApiError> {
     let response = state
         .services
-        .sso.cas_service
+        .sso
+        .cas_service
         .validate_service_ticket_v3(
             &query.ticket,
             &query.service,
@@ -368,8 +371,12 @@ async fn set_user_attribute(
     Path(user_id): Path<String>,
     Json(body): Json<SetAttributeBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let attr =
-        state.services.sso.cas_service.set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value).await?;
+    let attr = state
+        .services
+        .sso
+        .cas_service
+        .set_user_attribute(&user_id, &body.attribute_name, &body.attribute_value)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "user_id": attr.user_id,

@@ -21,6 +21,9 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_DOWN="${SKIP_DOWN:-0}"
 ADMIN_USERNAME="${ADMIN_USERNAME:-split_smoke_admin}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-Admin@123}"
+RUN_APPSERVICE_P0_D2="${RUN_APPSERVICE_P0_D2:-0}"
+APPSERVICE_P0_D2_LABEL="${APPSERVICE_P0_D2_LABEL:-baseline}"
+APPSERVICE_D2_RESOURCE_SUMMARY="${APPSERVICE_D2_RESOURCE_SUMMARY:-split_minimal smoke run; 待补 CPU/RSS/连接池/慢查询摘要}"
 
 if [ ! -f "$COMPOSE_FILE" ]; then
     echo "Missing compose file: $COMPOSE_FILE" >&2
@@ -229,6 +232,19 @@ obtain_admin_token_with_retry() {
     return 1
 }
 
+run_appservice_p0_d2_if_enabled() {
+    if [ "$RUN_APPSERVICE_P0_D2" != "1" ]; then
+        return 0
+    fi
+
+    echo "==> Running appservice P0 D2 archive"
+    ADMIN_TOKEN="$ADMIN_TOKEN" \
+    BASE_URL="$ADMIN_ENDPOINT" \
+    PROMETHEUS_URL="${PROMETHEUS_URL:-http://127.0.0.1:9090/metrics}" \
+    APPSERVICE_D2_RESOURCE_SUMMARY="$APPSERVICE_D2_RESOURCE_SUMMARY" \
+    bash "$REPO_ROOT/scripts/run_appservice_p0_d2.sh" "$APPSERVICE_P0_D2_LABEL"
+}
+
 echo "==> Validating split_minimal compose config"
 echo "==> Using compose project: $COMPOSE_PROJECT_NAME"
 "${COMPOSE_CMD[@]}" config >/dev/null
@@ -257,6 +273,8 @@ export REPLICATION_SECRET="$WORKER_REPLICATION_SECRET"
 
 echo "==> Running deployment smoke test"
 bash "$REPO_ROOT/scripts/deployment_smoke_test.sh"
+
+run_appservice_p0_d2_if_enabled
 
 echo "==> Split minimal smoke test completed"
 if [ "$KEEP_RUNNING" = "1" ]; then

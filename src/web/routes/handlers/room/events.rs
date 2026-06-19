@@ -261,7 +261,9 @@ pub(crate) async fn send_message(
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        let _ = state.services.core.cache.set(&cache_key, &result.to_string(), 3600).await;
+        if let Err(e) = state.services.core.cache.set(&cache_key, &result.to_string(), 3600).await {
+            ::tracing::warn!("Failed to cache transaction ID dedup marker: {e}");
+        }
     }
 
     Ok(Json(result))
@@ -890,11 +892,17 @@ pub(crate) async fn redact_event(
     let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
+    // P0-05: redaction events must carry the target event_id in the `redacts`
+    // field.  For room versions 1-10 this is a top-level PDU field (stored in
+    // the `events.redacts` column); for v11+ it would live in
+    // `content.redacts` (MSC2174/MSC3820), but v11+ creation is disabled until
+    // the redaction chain is fully landed.
     let content = json!({
         "reason": reason
     });
     let user_id_for_as = auth_user.user_id.clone();
     let content_for_as = content.clone();
+    let redactor_user_id = auth_user.user_id.clone();
 
     state
         .services
@@ -909,6 +917,7 @@ pub(crate) async fn redact_event(
                 content,
                 state_key: None,
                 origin_server_ts: now,
+                redacts: Some(event_id.clone()),
             },
             None,
         )
@@ -921,7 +930,7 @@ pub(crate) async fn redact_event(
         .dispatch_appservice_event(&new_event_id, &room_id, "m.room.redaction", &user_id_for_as, &content_for_as, None)
         .await;
 
-    state.services.rooms.event_storage.redact_event_content(&event_id).await.map_err(|e| {
+    state.services.rooms.event_storage.redact_event_content(&event_id, Some(&redactor_user_id)).await.map_err(|e| {
         ::tracing::warn!(
             target: "security_audit",
             request_id = %request_id,

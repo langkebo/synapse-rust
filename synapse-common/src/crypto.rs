@@ -156,12 +156,61 @@ pub fn compute_hash(data: impl AsRef<[u8]>) -> String {
     URL_SAFE_NO_PAD.encode(&hasher.finalize()[..])
 }
 
+/// The known dev/test fallback secret. In production, this value must NEVER be used.
+const DEV_TEST_TOKEN_HASH_SECRET: &str = "dev-test-token-hash-secret-do-not-use-in-production";
+
+/// Validate that `TOKEN_HASH_SECRET` is properly configured for the current build mode.
+///
+/// In production (release builds): the secret must be set, at least 32 bytes, and must
+/// not equal the known dev/test fallback. Returns `Err` if any check fails.
+///
+/// In dev/test (debug builds): a missing or weak secret is allowed with a warning.
+///
+/// Call this at server startup before any request is processed.
+pub fn validate_token_hash_secret() -> Result<(), String> {
+    match std::env::var("TOKEN_HASH_SECRET") {
+        Ok(secret) => {
+            if secret.len() < 32 {
+                return Err(format!("TOKEN_HASH_SECRET must be at least 32 bytes, got {} bytes", secret.len()));
+            }
+            if secret == DEV_TEST_TOKEN_HASH_SECRET && !cfg!(debug_assertions) {
+                return Err("TOKEN_HASH_SECRET is set to the known dev/test fallback value. \
+                     This is NOT safe for production."
+                    .to_string());
+            }
+            if secret == DEV_TEST_TOKEN_HASH_SECRET {
+                tracing::warn!(
+                    "TOKEN_HASH_SECRET is set to the dev/test fallback. \
+                     This is NOT safe for production."
+                );
+            }
+            Ok(())
+        }
+        Err(_) => {
+            if cfg!(debug_assertions) {
+                tracing::warn!(
+                    "TOKEN_HASH_SECRET not set, using dev/test fallback. \
+                     This is NOT safe for production."
+                );
+                Ok(())
+            } else {
+                Err("TOKEN_HASH_SECRET environment variable must be set in production".to_string())
+            }
+        }
+    }
+}
+
+#[allow(clippy::expect_used, clippy::unnecessary_literal_unwrap)]
 pub fn hash_token(token: &str) -> String {
     let server_secret = std::env::var("TOKEN_HASH_SECRET").unwrap_or_else(|_| {
-        // In production, TOKEN_HASH_SECRET must be set via environment.
-        // The fallback below is only for dev/test convenience and
-        // produces a deterministic hash that is NOT suitable for production.
-        "dev-test-token-hash-secret-do-not-use-in-production".to_string()
+        if cfg!(debug_assertions) {
+            // Dev/test fallback only — never used in production (startup validation enforces this).
+            DEV_TEST_TOKEN_HASH_SECRET.to_string()
+        } else {
+            // Production: this should never be reached because validate_token_hash_secret()
+            // is called at startup. Defense in depth: fail rather than use a weak secret.
+            None::<String>.expect("TOKEN_HASH_SECRET environment variable must be set in production")
+        }
     });
     encode_base64(hmac_sha256(server_secret, token))
 }

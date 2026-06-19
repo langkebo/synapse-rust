@@ -152,7 +152,7 @@ async fn upload_device_keys(app: &axum::Router, token: &str, user_id: &str, devi
             format!("ed25519:{}", device_id): ed25519_pk_b64,
         }
     });
-    let dk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&device_keys);
+    let dk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&device_keys).unwrap();
     let dk_signature = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&dk_canonical).to_bytes());
     device_keys["signatures"] = json!({
         user_id: { format!("ed25519:{}", device_id): dk_signature }
@@ -160,7 +160,7 @@ async fn upload_device_keys(app: &axum::Router, token: &str, user_id: &str, devi
 
     let otk_id = format!("signed_curve25519:{}", key_suffix);
     let mut otk_payload = json!({ "key": otk_pk });
-    let otk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&otk_payload);
+    let otk_canonical = synapse_rust::e2ee::signed_json::canonical_json_bytes(&otk_payload).unwrap();
     let otk_signature = base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&otk_canonical).to_bytes());
     otk_payload["signatures"] = json!({
         user_id: { format!("ed25519:{}", device_id): otk_signature }
