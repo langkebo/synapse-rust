@@ -715,12 +715,22 @@ impl WorkerManager {
         }
 
         let healthy_worker_ids = if let Some(hc) = &self.health_checker {
-            let mut healthy = HashSet::new();
-            for candidate in &candidates {
-                if hc.is_healthy(&candidate.worker_id).await {
-                    healthy.insert(candidate.worker_id.clone());
+            // Parallelize health checks across all candidate workers since each
+            // is_healthy call is independent (no early exit, no inter-iteration deps).
+            let health_futures = candidates.iter().map(|candidate| {
+                let hc = Arc::clone(hc);
+                let worker_id = candidate.worker_id.clone();
+                async move {
+                    let is_healthy = hc.is_healthy(&worker_id).await;
+                    (worker_id, is_healthy)
                 }
-            }
+            });
+            let healthy: HashSet<String> = futures::future::join_all(health_futures)
+                .await
+                .into_iter()
+                .filter(|(_, is_healthy)| *is_healthy)
+                .map(|(worker_id, _)| worker_id)
+                .collect();
             Some(healthy)
         } else {
             None

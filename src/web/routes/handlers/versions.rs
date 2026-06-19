@@ -89,7 +89,6 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("org.matrix.msc3983", true),
     ("org.matrix.msc3245", true),
     ("org.matrix.msc3266", true),
-    ("org.matrix.msc3916", true),
     ("uk.tcpip.msc4133", true),
 ];
 
@@ -691,7 +690,6 @@ mod tests {
             "org.matrix.msc3983",
             "org.matrix.msc3245",
             "org.matrix.msc3266",
-            "org.matrix.msc3916",
             "uk.tcpip.msc4133",
             "org.matrix.msc3886.sliding_sync",
             "org.matrix.msc4261.widget",

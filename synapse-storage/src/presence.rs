@@ -144,9 +144,13 @@ impl PresenceStorage {
         let mut map = HashMap::new();
         let mut missing_ids = Vec::new();
 
-        for uid in user_ids {
-            let key = CacheKeyBuilder::user_presence(uid);
-            if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
+        let keys: Vec<String> = user_ids.iter().map(|uid| CacheKeyBuilder::user_presence(uid)).collect();
+        let snapshots = match self.cache.get_batch::<PresenceSnapshot>(&keys).await {
+            Ok(s) => s,
+            Err(_) => vec![None; keys.len()],
+        };
+        for (uid, snapshot) in user_ids.iter().zip(snapshots.into_iter()) {
+            if let Some(snapshot) = snapshot {
                 map.insert(uid.clone(), (snapshot.presence, snapshot.status_msg));
             } else {
                 missing_ids.push(uid.clone());
@@ -372,9 +376,13 @@ impl PresenceStorage {
         let mut results = Vec::new();
         let mut missing_ids = Vec::new();
 
-        for uid in user_ids {
-            let key = CacheKeyBuilder::user_presence(uid);
-            if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
+        let keys: Vec<String> = user_ids.iter().map(|uid| CacheKeyBuilder::user_presence(uid)).collect();
+        let snapshots = match self.cache.get_batch::<PresenceSnapshot>(&keys).await {
+            Ok(s) => s,
+            Err(_) => vec![None; keys.len()],
+        };
+        for (uid, snapshot) in user_ids.iter().zip(snapshots.into_iter()) {
+            if let Some(snapshot) = snapshot {
                 results.push((snapshot.user_id, snapshot.presence, snapshot.status_msg));
             } else {
                 missing_ids.push(uid.clone());
@@ -425,9 +433,13 @@ impl PresenceStorage {
         let mut results = Vec::new();
         let mut missing_ids = Vec::new();
 
-        for uid in user_ids {
-            let key = CacheKeyBuilder::user_presence(uid);
-            if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
+        let keys: Vec<String> = user_ids.iter().map(|uid| CacheKeyBuilder::user_presence(uid)).collect();
+        let snapshots = match self.cache.get_batch::<PresenceSnapshot>(&keys).await {
+            Ok(s) => s,
+            Err(_) => vec![None; keys.len()],
+        };
+        for (uid, snapshot) in user_ids.iter().zip(snapshots.into_iter()) {
+            if let Some(snapshot) = snapshot {
                 results.push((snapshot.user_id, snapshot.presence, snapshot.status_msg, snapshot.last_active_ts));
             } else {
                 missing_ids.push(uid.clone());
@@ -480,9 +492,13 @@ impl PresenceStorage {
         let mut map = HashMap::new();
         let mut missing_ids = Vec::new();
 
-        for uid in user_ids {
-            let key = CacheKeyBuilder::user_presence(uid);
-            if let Ok(Some(snapshot)) = self.cache.get::<PresenceSnapshot>(&key).await {
+        let keys: Vec<String> = user_ids.iter().map(|uid| CacheKeyBuilder::user_presence(uid)).collect();
+        let snapshots = match self.cache.get_batch::<PresenceSnapshot>(&keys).await {
+            Ok(s) => s,
+            Err(_) => vec![None; keys.len()],
+        };
+        for (uid, snapshot) in user_ids.iter().zip(snapshots.into_iter()) {
+            if let Some(snapshot) = snapshot {
                 map.insert(snapshot.user_id.clone(), snapshot);
             } else {
                 missing_ids.push(uid.clone());
