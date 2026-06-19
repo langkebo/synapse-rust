@@ -53,8 +53,7 @@ pub(crate) async fn filter_users_with_shared_rooms(
             continue;
         }
 
-        let shared =
-            state.services.rooms.member_storage.share_common_room(current_user_id, user_id).await.unwrap_or(false);
+        let shared = state.services.rooms.room_service.share_common_room(current_user_id, user_id).await.unwrap_or(false);
 
         if shared {
             allowed.push(user_id.clone());

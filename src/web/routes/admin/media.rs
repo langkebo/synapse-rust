@@ -16,6 +16,7 @@ pub fn create_media_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media/quota", get(get_media_quota))
         .route("/_synapse/admin/v1/users/{user_id}/media", get(get_user_media))
         .route("/_synapse/admin/v1/users/{user_id}/media", delete(delete_user_media))
+        .route("/_synapse/admin/v1/quarantine_media/{media_id}/changes", get(get_media_quarantine_changes))
 }
 
 pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -28,6 +29,7 @@ pub fn admin_media_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
         (Method::GET, "/_synapse/admin/v1/media/quota"),
         (Method::GET, "/_synapse/admin/v1/users/{user_id}/media"),
         (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/media"),
+        (Method::GET, "/_synapse/admin/v1/quarantine_media/{media_id}/changes"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::media"))
@@ -148,4 +150,15 @@ pub async fn delete_user_media(
     let deleted = state.services.admin.admin_media_service.delete_user_media(&user_id).await?;
 
     Ok(Json(json!({ "deleted": deleted })))
+}
+
+#[allow(clippy::unused_async)]
+pub async fn get_media_quarantine_changes(
+    _admin: AdminUser,
+    State(_state): State<AppState>,
+    Path(_media_id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    // No dedicated quarantine change history table exists yet; return an empty
+    // list to match Synapse behaviour for media with no recorded changes.
+    Ok(Json(json!({ "changes": [], "total": 0 })))
 }

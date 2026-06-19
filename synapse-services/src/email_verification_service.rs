@@ -15,7 +15,7 @@ use chrono::Utc;
 use serde_json::Value;
 
 use synapse_common::error::ApiError;
-use synapse_storage::email_verification::EmailVerificationStorage;
+use synapse_storage::email_verification::{EmailVerificationStorage, EmailVerificationToken};
 
 #[derive(Clone)]
 pub struct EmailVerificationService {
@@ -35,27 +35,19 @@ impl EmailVerificationService {
         user_id: Option<&str>,
         session_data: Option<Value>,
     ) -> Result<i64, ApiError> {
-        self.storage
-            .create_verification_token(email, token, ttl_seconds, user_id, session_data)
-            .await
-            .map_err(|e| {
-                ::tracing::error!(
-                    email = %email,
-                    user_id = ?user_id,
-                    ttl_seconds,
-                    error = %e,
-                    "Failed to store email verification token"
-                );
-                ApiError::internal("Failed to store verification token. Please try again later.".to_string())
-            })
+        self.storage.create_verification_token(email, token, ttl_seconds, user_id, session_data).await.map_err(|e| {
+            ::tracing::error!(
+                email = %email,
+                user_id = ?user_id,
+                ttl_seconds,
+                error = %e,
+                "Failed to store email verification token"
+            );
+            ApiError::internal("Failed to store verification token. Please try again later.".to_string())
+        })
     }
 
-    pub async fn submit_token(
-        &self,
-        sid: i64,
-        client_secret: &str,
-        token: &str,
-    ) -> Result<(), ApiError> {
+    pub async fn submit_token(&self, sid: i64, client_secret: &str, token: &str) -> Result<(), ApiError> {
         let verification_token = self
             .storage
             .get_verification_token_by_id(sid)
@@ -69,7 +61,8 @@ impl EmailVerificationService {
             return Err(ApiError::bad_request("Verification token has already been used".to_string()));
         }
 
-        if verification_token.expires_at < Utc::now() {
+        let now = Utc::now().timestamp_millis();
+        if verification_token.expires_at.is_none_or(|expires_at| expires_at < now) {
             return Err(ApiError::bad_request("Verification token has expired".to_string()));
         }
 
@@ -92,5 +85,12 @@ impl EmailVerificationService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;
         Ok(())
+    }
+
+    pub async fn claim_used_token(&self, sid: i64) -> Result<Option<EmailVerificationToken>, ApiError> {
+        self.storage
+            .claim_used_token(sid)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to claim verification token", &e))
     }
 }

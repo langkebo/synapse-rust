@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::storage::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
+    StoredRendezvousMessage,
 };
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
@@ -281,7 +282,7 @@ async fn send_message(
     state
         .services
         .admin
-        .rendezvous_storage
+        .rendezvous_message_storage
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
@@ -306,10 +307,10 @@ async fn get_messages(
     let request_id = resolve_request_id(&headers);
     ensure_rendezvous_session_access(&state, &request_id, &headers, &auth_user, &session_id, "read messages").await?;
 
-    let messages = state
+    let messages: Vec<StoredRendezvousMessage> = state
         .services
         .admin
-        .rendezvous_storage
+        .rendezvous_message_storage
         .get_messages(&session_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;

@@ -58,6 +58,7 @@ pub mod thread;
 pub mod threepid;
 pub mod token;
 pub mod user;
+pub mod worker;
 
 // =============================================================================
 // L3 — Feature-gated extension storage modules (off by default in core builds)
@@ -155,6 +156,7 @@ pub use self::sticky_event::*;
 pub use self::thread::*;
 pub use self::threepid::*;
 pub use self::token::*;
+pub use self::worker::*;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]
