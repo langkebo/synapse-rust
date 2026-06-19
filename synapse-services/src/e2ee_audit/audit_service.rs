@@ -107,8 +107,33 @@ impl CrossSigningVerificationService {
             unverified_count: 0,
         };
 
+        if devices.is_empty() {
+            return Ok(report);
+        }
+
+        // Batch the read queries: fetch all device signatures for the user in
+        // one query, and the self_signing cross-signing key once (it is the
+        // same for every device of the same user).
+        let signatures_map =
+            self.cross_signing_storage.get_device_signatures_batch(std::slice::from_ref(&user_id.to_string())).await?;
+        let user_signatures = signatures_map.get(user_id).cloned().unwrap_or_default();
+        let cross_signing_setup =
+            self.cross_signing_storage.get_cross_signing_key(user_id, "self_signing").await?.is_some();
+
         for device in &devices {
-            let status = self.verify_device(device).await?;
+            let signature_valid = user_signatures.iter().any(|sig| sig.target_device_id == device.device_id);
+            let is_verified = signature_valid && cross_signing_setup;
+
+            let status = DeviceVerificationStatus {
+                device_id: device.device_id.clone(),
+                user_id: device.user_id.clone(),
+                display_name: device.display_name.clone(),
+                is_verified,
+                is_cross_signed: cross_signing_setup,
+                signature_valid,
+                last_verified_ts: device.last_verified_ts,
+                verification_method: device.verification_method.clone(),
+            };
 
             if status.is_verified {
                 report.verified_count += 1;
@@ -120,6 +145,23 @@ impl CrossSigningVerificationService {
             if status.is_cross_signed {
                 report.cross_signing_setup = true;
             }
+
+            self.audit
+                .log_key_operation(KeyEvent {
+                    user_id: device.user_id.clone(),
+                    device_id: Some(device.device_id.clone()),
+                    operation: "verify_device".to_string(),
+                    key_id: None,
+                    room_id: None,
+                    details: Some(serde_json::json!({
+                        "is_verified": is_verified,
+                        "signature_valid": signature_valid,
+                        "cross_signed": cross_signing_setup,
+                    })),
+                    ip_address: None,
+                    timestamp: chrono::Utc::now().timestamp_millis(),
+                })
+                .await?;
 
             report.devices.push(status);
         }
@@ -237,15 +279,25 @@ impl CrossSigningVerificationService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get devices", &e))?;
 
+        if devices.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fetch all trust statuses for the user in a single query instead of
+        // one query per device.
+        let trust_statuses = self.device_trust_storage.get_all_devices_with_trust(user_id).await?;
+        let trust_map: std::collections::HashMap<String, _> =
+            trust_statuses.into_iter().map(|status| (status.device_id.clone(), status)).collect();
+
         let mut results = Vec::with_capacity(devices.len());
         for device in devices {
-            let trust = self.device_trust_storage.get_device_trust(&device.user_id, &device.device_id).await?;
+            let trust = trust_map.get(&device.device_id);
             results.push(DeviceInfo {
                 device_id: device.device_id,
                 user_id: device.user_id,
                 display_name: device.display_name,
-                last_verified_ts: trust.as_ref().and_then(|status| status.verified_at),
-                verification_method: trust.and_then(|status| status.verified_by_device_id),
+                last_verified_ts: trust.and_then(|status| status.verified_at),
+                verification_method: trust.and_then(|status| status.verified_by_device_id.clone()),
             });
         }
 
