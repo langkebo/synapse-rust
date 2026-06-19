@@ -1,3 +1,10 @@
+// Crate-level allow: several wildcard re-exports below (cache, common, federation,
+// storage, auth) intentionally overlap because they re-export items from sibling
+// crates that share identically-named types (e.g. error types, config structs).
+// Removing this attribute would produce `ambiguous_glob_reexports` warnings on
+// those lines. The per-line `#[allow(ambiguous_glob_reexports)]` attributes mark
+// the known-ambiguous sites. TODO: Replace wildcard re-exports with explicit
+// exports for better API control (P2-11).
 #![allow(ambiguous_glob_reexports)]
 
 pub mod auth;
@@ -14,6 +21,8 @@ pub use container::ServiceContainer;
 // L0 — Core Matrix services (always compiled, required for core-private-chat)
 // =============================================================================
 pub mod account_data_service;
+pub mod account_device_list_service;
+pub mod account_identity_service;
 pub mod admin_audit_service;
 pub mod admin_federation_service;
 pub mod admin_media_service;
@@ -36,6 +45,7 @@ pub mod event_notifier;
 pub mod event_report_service;
 pub mod feature_flag_service;
 pub mod federation_blacklist_service;
+pub mod federation_key_rotation_service;
 pub mod identity;
 pub mod media;
 pub mod media_quota_service;
@@ -61,30 +71,45 @@ pub mod thread_service;
 pub mod translation_service;
 
 pub mod directory_service;
+pub mod email_verification_service;
 pub mod typing_service;
 pub mod uia_service;
 pub mod user_lock_service;
 
-pub use admin_audit_service::*;
-pub use admin_federation_service::*;
-pub use admin_registration_service::*;
-pub use admin_user_service::*;
-pub use application_service::*;
-pub use database_initializer::*;
-pub use dehydrated_device_service::*;
-pub use directory_service::*;
-pub use feature_flag_service::*;
-pub use media_service::*;
+// =============================================================================
+// Wildcard re-exports of service types.
+//
+// Each `pub use <module>::*` below re-exports the public service structs/traits
+// (e.g. `AdminAuditService`, `RoomService`) so callers can write
+// `synapse_services::AdminAuditService` instead of the fully-qualified path.
+// These are wildcards for backward compatibility: the modules historically
+// exposed a flat surface and many call sites rely on the short paths.
+// TODO: Replace with explicit exports for better API control (P2-11).
+// =============================================================================
+pub use account_device_list_service::*; // account device list service types
+pub use account_identity_service::*; // account identity and threepid service types
+pub use admin_audit_service::*; // AdminAuditService
+pub use admin_federation_service::*; // admin federation management service
+pub use admin_registration_service::*; // admin registration management service
+pub use admin_user_service::*; // admin user management service
+pub use application_service::*; // application service integration types
+pub use database_initializer::*; // database initialization helpers
+pub use dehydrated_device_service::*; // dehydrated device service types
+pub use directory_service::*; // room directory service types
+pub use email_verification_service::*; // email verification service types
+pub use feature_flag_service::*; // feature flag service types
+pub use federation_key_rotation_service::*; // federation key rotation service types
+pub use media_service::*; // media service types
 pub use oidc_service::OidcService;
-pub use push::service::*;
-pub use registration_service::*;
-pub use room::service::*;
-pub use room::space::*;
-pub use room::summary::*;
-pub use search_service::*;
-pub use sliding_sync_service::*;
-pub use sync_service::*;
-pub use typing_service::*;
+pub use push::service::*; // push notification service types
+pub use registration_service::*; // registration service types
+pub use room::service::*; // RoomService and room config types
+pub use room::space::*; // SpaceService
+pub use room::summary::*; // RoomSummaryService
+pub use search_service::*; // search service types
+pub use sliding_sync_service::*; // sliding sync service types
+pub use sync_service::*; // sync service types
+pub use typing_service::*; // typing service types
 
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
 pub use room::service as room_service;
@@ -111,11 +136,13 @@ pub mod openclaw_service;
 
 #[cfg(feature = "friends")]
 pub mod friend_room_service;
+// Wildcard re-export: friend room service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "friends")]
 pub use friend_room_service::*;
 
 #[cfg(feature = "voice-extended")]
 pub mod voice_service;
+// Wildcard re-export: voice service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "voice-extended")]
 pub use voice_service::*;
 
@@ -127,6 +154,7 @@ pub mod cas_service;
 
 #[cfg(feature = "beacons")]
 pub mod beacon_service;
+// Wildcard re-export: beacon service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "beacons")]
 pub use beacon_service::*;
 
@@ -171,6 +199,7 @@ pub mod burn_after_read_service;
 
 #[cfg(feature = "external-services")]
 pub mod external_service_integration;
+// Wildcard re-export: external service integration types. TODO: explicit exports (P2-11).
 #[cfg(feature = "external-services")]
 pub use external_service_integration::*;
 
@@ -186,14 +215,22 @@ pub mod test_config;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-// Re-exports for backward compatibility
-pub use auth::*;
+// Re-exports for backward compatibility.
+//
+// The following wildcard re-exports re-export the public API of sibling crates
+// (auth, cache, common, federation, storage) so that downstream crates can
+// depend on `synapse_services` alone. These are the most coupling-prone
+// wildcards because the sibling crates share identically-named types
+// (error enums, config structs), which is why `ambiguous_glob_reexports`
+// is allowed on four of them. TODO: Replace with explicit exports for
+// better API control (P2-11).
+pub use auth::*; // AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
 #[allow(ambiguous_glob_reexports)]
-pub use cache::*;
+pub use cache::*; // ambiguous: overlaps with common/storage re-exports
 #[allow(ambiguous_glob_reexports)]
-pub use common::*;
+pub use common::*; // ambiguous: overlaps with cache/federation/storage re-exports
 #[allow(ambiguous_glob_reexports)]
-pub use federation::*;
+pub use federation::*; // ambiguous: overlaps with common re-exports
 pub use storage::PresenceStorage;
 #[allow(ambiguous_glob_reexports)]
-pub use storage::*;
+pub use storage::*; // ambiguous: overlaps with common re-exports

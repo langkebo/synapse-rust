@@ -74,6 +74,8 @@ pub struct CoreServices {
 
 #[derive(Clone)]
 pub struct AccountServices {
+    pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
+    pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
     pub user_storage: UserStorage,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
@@ -384,6 +386,7 @@ fn assemble_room_and_sync(
 pub struct FederationServices {
     pub event_auth_chain: EventAuthChain,
     pub key_rotation_manager: KeyRotationManager,
+    pub key_rotation_service: Arc<crate::federation_key_rotation_service::FederationKeyRotationService>,
     pub federation_client: Arc<FederationClient>,
     pub device_sync_manager: DeviceSyncManager,
     pub federation_server_name: String,
@@ -408,6 +411,10 @@ fn assemble_federation(
         config.server.signing_key_path.clone(),
         config.federation.signing_key_master_key.as_ref().map(|k| k.as_bytes().to_vec()),
     );
+    let key_rotation_service = Arc::new(crate::federation_key_rotation_service::FederationKeyRotationService::new(
+        Arc::new(key_rotation_manager.clone()),
+        Arc::new(KeyRotationStorage::new(pool.clone())),
+    ));
 
     let federation_client =
         Arc::new(FederationClient::new(server_name.clone(), Arc::new(key_rotation_manager.clone())));
@@ -417,6 +424,7 @@ fn assemble_federation(
     FederationServices {
         event_auth_chain,
         key_rotation_manager,
+        key_rotation_service,
         federation_client,
         device_sync_manager,
         federation_server_name: server_name,
@@ -476,7 +484,9 @@ pub struct AdminServices {
     pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
     pub telemetry_alert_service: Arc<crate::telemetry_service::TelemetryAlertService>,
     pub email_verification_storage: EmailVerificationStorage,
+    pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
     pub rendezvous_storage: synapse_storage::rendezvous::RendezvousStorage,
+    pub rendezvous_message_storage: synapse_storage::rendezvous::RendezvousMessageStorage,
     pub app_service_storage: ApplicationServiceStorage,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
@@ -502,6 +512,9 @@ fn assemble_admin_support(
     );
 
     let email_verification_storage = EmailVerificationStorage::new(pool);
+    let email_verification_service = Arc::new(crate::email_verification_service::EmailVerificationService::new(
+        Arc::new(email_verification_storage.clone()),
+    ));
     let audit_storage = synapse_storage::audit::AuditEventStorage::new(pool);
     let admin_audit_service =
         Arc::new(crate::admin_audit_service::AdminAuditService::new(Arc::new(audit_storage.clone())));
@@ -577,6 +590,7 @@ fn assemble_admin_support(
         Arc::new(crate::telemetry_service::TelemetryAlertService::new(pool.clone(), config.database.max_size));
 
     let rendezvous_storage = synapse_storage::rendezvous::RendezvousStorage::new(pool.clone());
+    let rendezvous_message_storage = synapse_storage::rendezvous::RendezvousMessageStorage::new(pool.clone());
 
     let app_service_storage = ApplicationServiceStorage::new(pool);
     let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
@@ -651,7 +665,9 @@ fn assemble_admin_support(
         media_quota_service,
         telemetry_alert_service,
         email_verification_storage,
+        email_verification_service,
         rendezvous_storage,
+        rendezvous_message_storage,
         app_service_storage,
         app_service_manager,
         app_service_scheduler,
@@ -871,10 +887,25 @@ impl ServiceContainer {
         #[cfg(feature = "server-notifications")]
         let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
             Arc::new(server_notification_storage.clone()),
+            Arc::new(user_storage.clone()),
         ));
 
         #[cfg(feature = "privacy-ext")]
         let privacy_storage = synapse_storage::privacy::PrivacyStorage::new(pool.clone());
+
+        #[cfg(feature = "privacy-ext")]
+        let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
+            user_storage.clone(),
+            threepid_storage.clone(),
+            privacy_storage.clone(),
+        ));
+        #[cfg(not(feature = "privacy-ext"))]
+        let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
+            user_storage.clone(),
+            threepid_storage.clone(),
+        ));
+        let account_device_list_service =
+            Arc::new(crate::account_device_list_service::AccountDeviceListService::new(DeviceStorage::new(pool)));
 
         #[cfg(feature = "widgets")]
         let widget_storage = synapse_storage::widget::WidgetStorage::new(pool.clone());
@@ -1026,6 +1057,8 @@ impl ServiceContainer {
                 client_push_service,
             },
             account: AccountServices {
+                account_device_list_service,
+                account_identity_service,
                 user_storage,
                 threepid_storage,
                 device_storage: DeviceStorage::new(pool),

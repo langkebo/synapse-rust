@@ -1,15 +1,43 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
+use synapse_storage::user::{User, UserStorage};
 use tracing::{info, instrument};
 
 pub struct ServerNotificationService {
     storage: Arc<ServerNotificationStorage>,
+    user_storage: Arc<UserStorage>,
 }
 
 impl ServerNotificationService {
-    pub fn new(storage: Arc<ServerNotificationStorage>) -> Self {
-        Self { storage }
+    pub fn new(storage: Arc<ServerNotificationStorage>, user_storage: Arc<UserStorage>) -> Self {
+        Self { storage, user_storage }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_by_identifier(&self, user_id: &str) -> Result<Option<User>, ApiError> {
+        self.user_storage.get_user_by_identifier(user_id).await.map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })
+    }
+
+    #[instrument(skip(self))]
+    pub async fn ensure_user_exists(&self, user_id: &str) -> Result<(), ApiError> {
+        if self.get_user_by_identifier(user_id).await?.is_none() {
+            return Err(ApiError::not_found("User not found".to_string()));
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    pub async fn ensure_target_users_exist(&self, user_ids: &[String]) -> Result<(), ApiError> {
+        for user_id in user_ids {
+            self.ensure_user_exists(user_id).await?;
+        }
+
+        Ok(())
     }
 
     #[instrument(skip(self))]
@@ -37,6 +65,26 @@ impl ServerNotificationService {
     #[instrument(skip(self))]
     pub async fn list_active_notifications(&self) -> Result<Vec<ServerNotification>, ApiError> {
         self.storage.list_active_notifications().await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_notification_setting(&self, user_id: &str) -> Result<Option<bool>, ApiError> {
+        self.storage.get_user_notification_setting(user_id).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn upsert_user_notification_setting(&self, user_id: &str, enabled: bool) -> Result<(), ApiError> {
+        self.storage.upsert_user_notification_setting(user_id, enabled).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_pushers(&self, user_id: &str) -> Result<Vec<serde_json::Value>, ApiError> {
+        self.storage.get_user_pushers(user_id).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn delete_user_pusher(&self, user_id: &str, pushkey: &str) -> Result<bool, ApiError> {
+        self.storage.delete_user_pusher(user_id, pushkey).await
     }
 
     #[instrument(skip(self))]
@@ -78,6 +126,40 @@ impl ServerNotificationService {
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
         info!(notification_id, "Deactivating notification");
         self.storage.deactivate_notification(notification_id).await
+    }
+
+    #[instrument(skip(self))]
+    #[allow(clippy::type_complexity)]
+    pub async fn get_server_notices_paginated(
+        &self,
+        cursor: Option<(i64, i64)>,
+        limit: i64,
+    ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), ApiError> {
+        self.storage.get_server_notices_paginated(cursor, limit).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_server_notice_by_id(&self, notice_id: i64) -> Result<Option<serde_json::Value>, ApiError> {
+        self.storage.get_server_notice_by_id(notice_id).await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn delete_server_notice(&self, notice_id: i64) -> Result<(), ApiError> {
+        let notice_info = self.storage.get_server_notice_with_room(notice_id).await?;
+
+        let Some((event_id, room_id)) = notice_info else {
+            return Err(ApiError::not_found("Server notice not found".to_string()));
+        };
+
+        self.storage.delete_server_notice_by_id(notice_id).await?;
+
+        if let Some(room_id) = room_id {
+            self.storage.delete_room_cascade(&room_id).await?;
+        } else if let Some(event_id) = event_id {
+            self.storage.delete_event_by_id(&event_id).await?;
+        }
+
+        Ok(())
     }
 
     #[instrument(skip(self))]
@@ -200,5 +282,38 @@ impl ServerNotificationService {
         self.storage.log_delivery(notification_id, None, delivery_method, "broadcast", None).await?;
 
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(self, target_displayname, target_avatar_url, body))]
+    pub async fn send_server_notice(
+        &self,
+        room_id: &str,
+        server_user: &str,
+        target_user_id: &str,
+        target_displayname: &Option<String>,
+        target_avatar_url: &Option<String>,
+        message_event_id: &str,
+        create_event_id: &str,
+        membership_event_id: &str,
+        msgtype: &str,
+        body: &str,
+        now: i64,
+    ) -> Result<i64, ApiError> {
+        self.storage
+            .send_server_notice(
+                room_id,
+                server_user,
+                target_user_id,
+                target_displayname,
+                target_avatar_url,
+                message_event_id,
+                create_event_id,
+                membership_event_id,
+                msgtype,
+                body,
+                now,
+            )
+            .await
     }
 }

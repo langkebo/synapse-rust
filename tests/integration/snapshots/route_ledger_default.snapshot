@@ -1,5 +1,5 @@
 # route-ledger snapshot: default
-count: 1234
+count: 1236
 
 DELETE /_matrix/client/r0/devices/{device_id} [device]
 DELETE /_matrix/client/r0/directory/room/{room_alias} [assembly::directory_compat]
@@ -88,6 +88,7 @@ DELETE /_synapse/admin/v1/reports/{report_id} [admin::report]
 DELETE /_synapse/admin/v1/rooms/{room_id} [admin::room]
 DELETE /_synapse/admin/v1/rooms/{room_id}/listings/public [admin::room]
 DELETE /_synapse/admin/v1/rooms/{room_id}/members/{user_id} [admin::room]
+DELETE /_synapse/admin/v1/rooms/{room_id}/reports/{report_id} [admin::report]
 DELETE /_synapse/admin/v1/server_notices/{notice_id} [admin::notification]
 DELETE /_synapse/admin/v1/spaces/{space_id} [admin::room]
 DELETE /_synapse/admin/v1/users/{user_id} [admin::user]
@@ -636,6 +637,7 @@ GET /_synapse/admin/v1/notifications/active [admin::notification]
 GET /_synapse/admin/v1/notifications/{notification_id} [admin::notification]
 GET /_synapse/admin/v1/password_auth_providers [module]
 GET /_synapse/admin/v1/presence_routes [module]
+GET /_synapse/admin/v1/quarantine_media/{media_id}/changes [admin::media]
 GET /_synapse/admin/v1/rate_limit_callbacks [module]
 GET /_synapse/admin/v1/register/nonce [admin::register]
 GET /_synapse/admin/v1/registration_tokens [admin::token]

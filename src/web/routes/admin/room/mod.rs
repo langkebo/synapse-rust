@@ -386,17 +386,39 @@ pub async fn get_room(
     })?;
 
     match room {
-        Some(r) => Ok(Json(json!({
-            "room_id": r.room_id,
-            "name": r.name.unwrap_or_default(),
-            "topic": r.topic.unwrap_or_default(),
-            "creator": r.creator_user_id.unwrap_or_default(),
-            "member_count": r.member_count,
-            "room_version": r.room_version,
-            "encryption": r.encryption,
-            "is_public": r.is_public,
-            "join_rule": r.join_rule
-        }))),
+        Some(r) => {
+            // Derive tombstone state from the m.room.tombstone state event.
+            let tombstone_events = state
+                .services
+                .rooms
+                .event_storage
+                .get_state_events_by_type(&room_id, "m.room.tombstone")
+                .await
+                .map_err(|e| {
+                    tracing::error!("Database error: {e}");
+                    ApiError::database("A database error occurred".to_string())
+                })?;
+            let tombstone_content = tombstone_events.first().map(|e| &e.content);
+            let tombstoned = tombstone_content.is_some();
+            let replacement_room = tombstone_content
+                .and_then(|c| c.get("replacement_room"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            Ok(Json(json!({
+                "room_id": r.room_id,
+                "name": r.name.unwrap_or_default(),
+                "topic": r.topic.unwrap_or_default(),
+                "creator": r.creator_user_id.unwrap_or_default(),
+                "member_count": r.member_count,
+                "room_version": r.room_version,
+                "encryption": r.encryption,
+                "is_public": r.is_public,
+                "join_rule": r.join_rule,
+                "tombstoned": tombstoned,
+                "replacement_room": replacement_room
+            })))
+        }
         None => Err(ApiError::not_found("Room not found".to_string())),
     }
 }
