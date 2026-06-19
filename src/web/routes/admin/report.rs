@@ -15,7 +15,10 @@ pub fn create_report_router(_state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/reports/{report_id}", get(get_report))
         .route("/_synapse/admin/v1/reports/{report_id}", delete(delete_report))
         .route("/_synapse/admin/v1/rooms/{room_id}/reports", get(get_room_reports))
-        .route("/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}", get(get_room_report))
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}",
+            get(get_room_report).delete(delete_room_report),
+        )
 }
 
 pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
@@ -27,6 +30,7 @@ pub fn admin_report_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
         (Method::DELETE, "/_synapse/admin/v1/reports/{report_id}"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports"),
         (Method::GET, "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}"),
+        (Method::DELETE, "/_synapse/admin/v1/rooms/{room_id}/reports/{report_id}"),
     ]
     .into_iter()
     .map(|(m, p)| RouteEntry::new(m, p, "admin::report"))
@@ -163,6 +167,35 @@ pub async fn get_room_report(
 
     match report {
         Some(report) if report.room_id == room_id => Ok(Json(report_to_json(&report))),
+        _ => Err(ApiError::not_found("Report not found".to_string())),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn delete_room_report(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path((room_id, report_id)): Path<(String, i64)>,
+) -> Result<Json<Value>, ApiError> {
+    let room_exists = state
+        .services
+        .rooms
+        .room_storage
+        .room_exists(&room_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+    if !room_exists {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let report = state.services.admin.event_report_service.get_report(report_id).await?;
+
+    match report {
+        Some(report) if report.room_id == room_id => {
+            state.services.admin.event_report_service.delete_report(report_id).await?;
+            Ok(Json(json!({})))
+        }
         _ => Err(ApiError::not_found("Report not found".to_string())),
     }
 }

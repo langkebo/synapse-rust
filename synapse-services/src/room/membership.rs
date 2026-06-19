@@ -73,6 +73,20 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get joined rooms", &e))
     }
 
+    pub async fn get_shared_room_users(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        self.member_storage
+            .get_shared_room_users(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get shared room users", &e))
+    }
+
+    pub async fn share_common_room(&self, user_id: &str, other_user_id: &str) -> ApiResult<bool> {
+        self.member_storage
+            .share_common_room(user_id, other_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check shared room membership", &e))
+    }
+
     pub async fn get_joined_members_with_profiles(&self, room_id: &str) -> ApiResult<Vec<storage::RoomMember>> {
         self.member_storage
             .get_joined_members(room_id)

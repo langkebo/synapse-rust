@@ -37,23 +37,7 @@ pub(crate) async fn can_view_profile_for_requester_batch(
     requester_id: Option<&str>,
     user_ids: &[String],
 ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
-    #[cfg(feature = "privacy-ext")]
-    {
-        return state.services.extensions.privacy_storage.batch_can_view_profile(requester_id, user_ids).await.map_err(
-            |e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            },
-        );
-    }
-
-    #[cfg(not(feature = "privacy-ext"))]
-    {
-        let _ = state;
-        let _ = requester_id;
-        let results = user_ids.iter().cloned().map(|user_id| (user_id, true)).collect();
-        Ok(results)
-    }
+    state.services.account.account_identity_service.can_view_profile_for_requester_batch(requester_id, user_ids).await
 }
 
 pub(crate) async fn enforce_profile_visibility(
@@ -141,14 +125,7 @@ pub(crate) async fn update_displayname(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let user_exists = state.services.account.user_storage.user_exists(&user_id).await.map_err(|e| {
-        tracing::error!("Failed to check user existence: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !user_exists {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    state.services.account.account_identity_service.ensure_active_user_exists(&user_id).await?;
 
     state.services.core.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
     Ok(Json(json!({})))
@@ -175,14 +152,7 @@ pub(crate) async fn update_avatar(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let user_exists = state.services.account.user_storage.user_exists(&user_id).await.map_err(|e| {
-        tracing::error!("Failed to check user existence: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !user_exists {
-        return Err(ApiError::not_found("User not found".to_string()));
-    }
+    state.services.account.account_identity_service.ensure_active_user_exists(&user_id).await?;
 
     state.services.core.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
     Ok(Json(json!({})))
@@ -284,7 +254,7 @@ pub(crate) async fn change_password_uia(
             let verification_token = state
                 .services
                 .admin
-                .email_verification_storage
+                .email_verification_service
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
@@ -361,35 +331,12 @@ pub(crate) async fn request_password_email_verification(
     // m.login.email.identity 分支显式拒绝 user_id 为空的 session，
     // 所以占位会话无法被用来重置任何账户的密码，但响应却与命中账户
     // 的情况完全一致 —— 切断 OWASP A07 类账户枚举通道。
-    let verified = state.services.account.threepid_storage.get_verified_threepid_by_address("email", email).await;
-    let resolved_user_id = match verified {
-        Ok(Some(threepid)) => Some(threepid.user_id),
-        Ok(None) => match state.services.account.user_storage.get_user_by_email(email).await {
-            Ok(user) => user.map(|u| u.user_id),
-            Err(e) => {
-                ::tracing::warn!(
-                    target: "security_audit",
-                    request_id = %request_id,
-                    event = "password_reset_email_lookup_failed",
-                    email = %email,
-                    error = %e,
-                    "Failed to resolve email owner during password reset request"
-                );
-                None
-            }
-        },
-        Err(e) => {
-            ::tracing::warn!(
-                target: "security_audit",
-                request_id = %request_id,
-                event = "password_reset_threepid_lookup_failed",
-                email = %email,
-                error = %e,
-                "Failed to resolve verified threepid during password reset request"
-            );
-            None
-        }
-    };
+    let resolved_user_id = state
+        .services
+        .account
+        .account_identity_service
+        .resolve_password_reset_user_id_by_email(email, &request_id)
+        .await;
 
     if resolved_user_id.is_none() {
         ::tracing::info!(
@@ -417,18 +364,16 @@ pub(crate) async fn deactivate_account(
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
-    let flows = UiaService::get_deactivate_account_flows();
     let auth = body.get("auth");
     if let Err(uia_response) = state
         .services
-        .extensions
-        .uia_service
-        .require_uia(
+        .account
+        .account_identity_service
+        .require_deactivate_account_uia(
+            &state.services.extensions.uia_service,
             auth,
             &auth_user.user_id,
-            flows,
             &state.services.core.auth_service,
-            &state.services.account.threepid_storage,
         )
         .await
     {
@@ -455,10 +400,7 @@ pub(crate) async fn get_threepids(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let threepids = state.services.account.threepid_storage.get_threepids_by_user(user_id).await.map_err(|e| {
-        tracing::error!("Failed to get threepids: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let threepids = state.services.account.account_identity_service.get_user_threepids(user_id).await?;
 
     let threepids_list: Vec<Value> = threepids
         .iter()
@@ -503,7 +445,7 @@ pub(crate) async fn add_threepid(
     let verification_token = state
         .services
         .admin
-        .email_verification_storage
+        .email_verification_service
         .claim_used_token(sid_int)
         .await
         .map_err(|e| {
@@ -567,7 +509,7 @@ pub(crate) async fn add_threepid(
     let rows_affected = state
         .services
         .account
-        .threepid_storage
+        .account_identity_service
         .add_verified_threepid(user_id, medium, address, now, now)
         .await
         .map_err(|e| {
@@ -656,12 +598,16 @@ pub(crate) async fn delete_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(
-        |e| {
+    state
+        .services
+        .account
+        .account_identity_service
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| {
             tracing::error!("Failed to delete threepid: {e}");
             ApiError::database("A database error occurred".to_string())
-        },
-    )?;
+        })?;
 
     Ok(Json(json!({})))
 }
@@ -673,12 +619,16 @@ pub(crate) async fn unbind_threepid(
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state.services.account.threepid_storage.remove_threepid(user_id, &body.medium, &body.address).await.map_err(
-        |e| {
+    state
+        .services
+        .account
+        .account_identity_service
+        .remove_threepid(user_id, &body.medium, &body.address)
+        .await
+        .map_err(|e| {
             tracing::error!("Failed to unbind threepid: {e}");
             ApiError::database("A database error occurred".to_string())
-        },
-    )?;
+        })?;
 
     Ok(Json(json!({})))
 }

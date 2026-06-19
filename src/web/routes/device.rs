@@ -8,7 +8,6 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
 
 async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, body: &Value) -> Result<(), Response> {
     let auth = body.get("auth");
@@ -167,10 +166,12 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = state.services.rooms.member_storage.get_joined_rooms(user_id).await {
+            if let Ok(shared_rooms) = state.services.rooms.room_service.get_joined_rooms(user_id).await {
                 let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for room_id in &shared_rooms {
-                    if let Ok(members) = state.services.rooms.member_storage.get_joined_members(room_id).await {
+                    if let Ok(members) =
+                        state.services.rooms.room_service.get_joined_members_with_profiles(room_id).await
+                    {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {
                                 let member_server = &member.user_id[mpos + 1..];
@@ -201,13 +202,7 @@ fn create_device_compat_router() -> Router<AppState> {
 }
 
 pub async fn get_devices(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let devices: Vec<crate::storage::device::Device> = state
-        .services
-        .account
-        .device_storage
-        .get_user_devices(&auth_user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get devices", &e))?;
+    let devices = state.services.account.account_device_list_service.get_user_devices(&auth_user.user_id).await?;
 
     let device_list: Vec<Value> = devices
         .into_iter()
@@ -231,13 +226,7 @@ pub async fn get_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let device: Option<crate::storage::device::Device> = state
-        .services
-        .account
-        .device_storage
-        .get_device(&device_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device", &e))?;
+    let device = state.services.account.account_device_list_service.get_device(&device_id).await?;
 
     match device {
         Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
@@ -268,23 +257,21 @@ pub async fn update_device(
         let rows_affected: u64 = state
             .services
             .account
-            .device_storage
+            .account_device_list_service
             .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update device", &e))?;
+            .await?;
 
         if rows_affected == 0 {
             return Err(ApiError::not_found("Device not found".to_string()));
         }
     }
 
-    let device: crate::storage::device::Device = state
+    let device = state
         .services
         .account
-        .device_storage
+        .account_device_list_service
         .get_device(&device_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get updated device", &e))?
+        .await?
         .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
 
     broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
@@ -354,131 +341,67 @@ pub async fn get_device_list_updates(
 
     let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
 
-    let mut changed: Vec<Value> = Vec::new();
-    let mut left: Vec<String> = Vec::new();
-
     if since.is_none() {
-        let devices_by_user = state
-            .services
-            .account
-            .device_storage
-            .get_users_devices_batch(&users)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get devices", &e))?;
-
-        for user_id in &users {
-            if let Some(devices) = devices_by_user.get(user_id) {
-                if devices.is_empty() {
-                    left.push(user_id.clone());
-                } else {
-                    for device in devices {
-                        changed.push(json!({
-                            "user_id": user_id,
-                            "device_id": device.device_id,
-                            "device_data": {
-                                "display_name": device.display_name,
-                                "last_seen_ts": device.last_seen_ts,
-                            }
-                        }));
+        let snapshot = state.services.account.account_device_list_service.get_device_list_snapshot(&users).await?;
+        let changed: Vec<Value> = snapshot
+            .changed
+            .into_iter()
+            .map(|device| {
+                json!({
+                    "user_id": device.user_id,
+                    "device_id": device.device_id,
+                    "device_data": {
+                        "display_name": device.display_name,
+                        "last_seen_ts": device.last_seen_ts,
                     }
-                }
-            } else {
-                left.push(user_id.clone());
-            }
-        }
+                })
+            })
+            .collect();
 
         return Ok(Json(json!({
             "changed": changed,
-            "left": left
+            "left": snapshot.left
         })));
     }
 
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
-
-    let max_stream_id = state
+    let delta = state
         .services
         .account
-        .device_storage
-        .get_max_device_list_stream_id()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device list stream position", &e))?;
-
-    let to = if to > 0 { to } else { max_stream_id };
-
-    let change_rows = state
-        .services
-        .account
-        .device_storage
-        .get_device_list_changes(since, to, &users)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get device list changes", &e))?;
-
-    let mut latest: HashMap<(String, String), String> = HashMap::new();
-    for (user_id, device_id, change_type, _stream_id) in change_rows {
-        let Some(device_id) = device_id else {
-            continue;
-        };
-        latest.insert((user_id, device_id), change_type);
-    }
-
-    let mut deleted: Vec<Value> = Vec::new();
-    let mut active_pairs: Vec<(String, String)> = Vec::new();
-    for ((user_id, device_id), change_type) in latest {
-        if change_type == "deleted" {
-            deleted.push(json!({
-                "user_id": user_id,
-                "device_id": device_id
-            }));
-            continue;
-        }
-
-        active_pairs.push((user_id, device_id));
-    }
-
-    if !active_pairs.is_empty() {
-        let user_ids: Vec<&str> = active_pairs.iter().map(|(user_id, _)| user_id.as_str()).collect();
-        let device_ids: Vec<&str> = active_pairs.iter().map(|(_, device_id)| device_id.as_str()).collect();
-        let device_rows = state
-            .services
-            .account
-            .device_storage
-            .get_devices_by_user_device_pairs(&user_ids, &device_ids)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get device data", &e))?;
-
-        for (user_id, device_id, display_name, last_seen_ts) in device_rows {
-            changed.push(json!({
-                "user_id": user_id,
-                "device_id": device_id,
+        .account_device_list_service
+        .get_device_list_delta(since, if to > 0 { Some(to) } else { None }, &users)
+        .await?;
+    let changed: Vec<Value> = delta
+        .changed
+        .into_iter()
+        .map(|device| {
+            json!({
+                "user_id": device.user_id,
+                "device_id": device.device_id,
                 "device_data": {
-                    "display_name": display_name,
-                    "last_seen_ts": last_seen_ts,
+                    "display_name": device.display_name,
+                    "last_seen_ts": device.last_seen_ts,
                 }
-            }));
-        }
-    }
-
-    let existing_users: Vec<String> = state
-        .services
-        .account
-        .device_storage
-        .filter_existing_users(&users)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to resolve left users", &e))?;
-
-    let existing: HashSet<String> = existing_users.into_iter().collect();
-    for user_id in &users {
-        if !existing.contains(user_id) {
-            left.push(user_id.clone());
-        }
-    }
+            })
+        })
+        .collect();
+    let deleted: Vec<Value> = delta
+        .deleted
+        .into_iter()
+        .map(|device| {
+            json!({
+                "user_id": device.user_id,
+                "device_id": device.device_id
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "changed": changed,
         "deleted": deleted,
-        "left": left,
-        "stream_id": to
+        "left": delta.left,
+        "stream_id": delta.stream_id
     })))
 }
 

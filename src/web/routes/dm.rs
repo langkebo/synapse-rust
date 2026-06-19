@@ -40,11 +40,7 @@ enum DirectMapUpdateAction {
 
 #[cfg(not(feature = "friends"))]
 async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let content =
-        state.services.account.user_storage.get_account_data_content(user_id, "m.direct").await.map_err(|e| {
-            tracing::error!("Failed to load m.direct account data: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let content = state.services.account.account_data_service.get_account_data(user_id, "m.direct").await?;
 
     match content {
         Some(Value::Object(map)) => Ok(map),
@@ -58,13 +54,9 @@ async fn save_direct_map(state: &AppState, user_id: &str, direct_map: &Map<Strin
     state
         .services
         .account
-        .user_storage
-        .upsert_account_data_content(user_id, "m.direct", &Value::Object(direct_map.clone()))
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to save m.direct account data: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        .account_data_service
+        .set_account_data(user_id, "m.direct", &Value::Object(direct_map.clone()))
+        .await?;
 
     Ok(())
 }
@@ -151,25 +143,15 @@ fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
 
 #[cfg(not(feature = "friends"))]
 async fn build_direct_map_from_memberships(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let rooms = state.services.rooms.room_storage.get_user_rooms(user_id).await.map_err(|e| {
-        tracing::error!("Failed to get user rooms: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let rooms = state.services.rooms.room_service.get_joined_rooms(user_id).await?;
 
     let mut direct_map = Map::new();
 
     for room_id in rooms {
-        let join_members =
-            state.services.rooms.member_storage.get_room_members(&room_id, "join").await.map_err(|e| {
-                tracing::error!("Failed to get room join members: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+        let join_members = state.services.rooms.room_service.get_room_members_by_membership(&room_id, "join").await?;
 
         let invited_members =
-            state.services.rooms.member_storage.get_room_members(&room_id, "invite").await.map_err(|e| {
-                tracing::error!("Failed to get room invite members: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            state.services.rooms.room_service.get_room_members_by_membership(&room_id, "invite").await?;
 
         let total_members = join_members.len() + invited_members.len();
         if total_members != 2 {
@@ -477,16 +459,9 @@ async fn load_dm_partner_info(
         })
         .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
 
-    let join_members = state.services.rooms.member_storage.get_room_members(room_id, "join").await.map_err(|e| {
-        tracing::error!("Failed to get room join members: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let join_members = state.services.rooms.room_service.get_room_members_by_membership(room_id, "join").await?;
 
-    let invited_members =
-        state.services.rooms.member_storage.get_room_members(room_id, "invite").await.map_err(|e| {
-            tracing::error!("Failed to get room invite members: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let invited_members = state.services.rooms.room_service.get_room_members_by_membership(room_id, "invite").await?;
 
     let other_member = join_members
         .iter()
