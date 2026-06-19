@@ -280,13 +280,14 @@ pub fn decode_base64_32(value: &str) -> Option<[u8; 32]> {
 /// Constant-time comparison for byte slices.
 /// Returns `true` if `a` and `b` are equal in both length and content.
 /// The comparison runs in time proportional to the longer slice, preventing timing attacks.
+/// Length differences are folded into the comparison result rather than returning early.
 pub fn secure_compare_bytes(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut result = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        result |= x ^ y;
+    let max_len = a.len().max(b.len());
+    let mut result: u8 = if a.len() != b.len() { 0xFF } else { 0 };
+    for i in 0..max_len {
+        let a_byte = a.get(i).copied().unwrap_or(0);
+        let b_byte = b.get(i).copied().unwrap_or(0);
+        result |= a_byte ^ b_byte;
     }
     result == 0
 }
@@ -308,6 +309,9 @@ pub struct ServerSigningKey {
     pub expired_ts: i64,
 }
 
+/// Generate an Ed25519 signing key pair for testing.
+/// Returns `(key_id, base64_public_key)`.
+#[cfg(test)]
 pub fn generate_signing_key() -> (String, String) {
     let key_id = format!("ed25519:{}", random_string(8));
     let key = random_string(44);

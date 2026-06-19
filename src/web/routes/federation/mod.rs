@@ -225,6 +225,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     let public = Router::new()
         .route("/_matrix/federation/v2/server", get(keys::server_key))
         .route("/_matrix/key/v2/server", get(keys::server_key))
+        // Non-standard extension: key clone for trusted-federation key replication.
         .route("/_matrix/federation/v2/key/clone", post(keys::key_clone))
         .route("/_matrix/federation/v2/query/{server_name}/{key_id}", get(keys::key_query))
         .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(keys::key_query))
@@ -238,9 +239,11 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/members/{room_id}", get(membership::get_room_members))
         .route("/_matrix/federation/v1/members/{room_id}/joined", get(membership::get_joined_room_members))
         .route("/_matrix/federation/v1/user/devices/{user_id}", get(membership::get_user_devices))
+        // Non-standard extension: room auth retrieval for trusted-federation audit.
         .route("/_matrix/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
         .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", post(membership::knock_room))
         .route("/_matrix/federation/v1/thirdparty/invite", post(membership::thirdparty_invite))
+        // Non-standard extension: joining rules query for trusted-federation.
         .route("/_matrix/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
         .route("/_matrix/federation/v2/invite/{room_id}/{event_id}", put(membership::invite_v2))
         .route("/_matrix/federation/v1/send/{txn_id}", put(transaction::send_transaction))
@@ -253,6 +256,7 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/room/{room_id}/{event_id}", get(events::get_room_event))
         .route("/_matrix/federation/v1/timestamp_to_event/{room_id}", get(events::timestamp_to_event))
         .route("/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}", get(events::get_event_auth))
+        // Non-standard extension: auth chain query for trusted-federation.
         .route("/_matrix/federation/v1/query/auth", get(keys::query_auth))
         .route("/_matrix/federation/v1/event_auth", get(keys::event_auth))
         .route("/_matrix/federation/v1/state/{room_id}", get(events::get_state))

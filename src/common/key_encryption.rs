@@ -3,13 +3,14 @@ use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
 use base64::Engine;
 
 const NONCE_SIZE: usize = 12;
+const KEY_DERIVATION_INFO: &[u8] = b"synapse-rust-signing-key-encryption-v1";
 
 /// Encrypt a plaintext string using AES-256-GCM.
 ///
 /// Returns a base64-encoded string of `nonce || ciphertext || tag`,
 /// prefixed with `enc:` to indicate encryption.
 pub fn encrypt_key(plaintext: &str, master_key: &[u8]) -> Result<String, String> {
-    let key = derive_key(master_key)?;
+    let key = derive_key(master_key, KEY_DERIVATION_INFO);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
@@ -42,7 +43,7 @@ pub fn decrypt_key(ciphertext: &str, master_key: &[u8]) -> Result<String, String
     let (nonce_bytes, encrypted_data) = combined.split_at(NONCE_SIZE);
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    let key = derive_key(master_key)?;
+    let key = derive_key(master_key, KEY_DERIVATION_INFO);
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| format!("Invalid key length: {e}"))?;
 
     let plaintext = cipher.decrypt(nonce, encrypted_data).map_err(|e| format!("Decryption failed: {e}"))?;
@@ -55,14 +56,20 @@ pub fn is_encrypted(value: &str) -> bool {
     value.starts_with("enc:")
 }
 
-/// Derive a 32-byte AES key from the master key using SHA-256.
-fn derive_key(master_key: &[u8]) -> Result<[u8; 32], String> {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"synapse-rust-signing-key-encryption-v1");
-    hasher.update(master_key);
-    let result = hasher.finalize();
-    Ok(result.into())
+/// Derive a 32-byte AES key from the master key using HKDF-SHA256 (RFC 5869).
+///
+/// NOTE: This is a breaking change from the previous non-standard derivation,
+/// which used a single `SHA-256(info ‖ master_key)` hash. HKDF is a standard
+/// KDF with an extract-then-expand structure. Existing encrypted data produced
+/// under the old derivation will NOT be decryptable with this implementation.
+#[allow(clippy::expect_used)]
+fn derive_key(master_key: &[u8], info: &[u8]) -> [u8; 32] {
+    // No salt: master_key is used directly as the input key material (IKM).
+    let hk = hkdf::Hkdf::<sha2::Sha256>::new(None, master_key);
+    let mut okm = [0u8; 32];
+    // expand only fails if output length > 255 * HashLen; 32 < 255 * 32, so this is safe.
+    hk.expand(info, &mut okm).expect("32 bytes is valid HKDF output length");
+    okm
 }
 
 #[cfg(test)]
@@ -125,11 +132,12 @@ mod tests {
 
     #[test]
     fn test_derive_key_deterministic() {
-        let key1 = derive_key(b"master").unwrap();
-        let key2 = derive_key(b"master").unwrap();
+        let info = b"synapse-rust-signing-key-encryption-v1";
+        let key1 = derive_key(b"master", info);
+        let key2 = derive_key(b"master", info);
         assert_eq!(key1, key2);
 
-        let key3 = derive_key(b"different").unwrap();
+        let key3 = derive_key(b"different", info);
         assert_ne!(key1, key3);
     }
 }

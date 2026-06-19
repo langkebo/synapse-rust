@@ -32,6 +32,20 @@ pub(super) async fn key_query(
     }
 
     let response = fetch_remote_server_keys_response(&state, &server_name, &key_id).await?;
+
+    // P2-15: Defensive validation of the response before returning it to the
+    // client. Invalid responses are never cached (see
+    // `fetch_remote_server_keys_response`); this check only logs a warning so
+    // we can observe stale/malformed keys slipping through (e.g. an expired
+    // cached entry). We still return the response rather than erroring.
+    if validate_server_key_response(&response, &server_name).is_none() {
+        ::tracing::warn!(
+            server_name = %server_name,
+            key_id = %key_id,
+            "Federation key query response failed validation; returning without caching"
+        );
+    }
+
     Ok(Json(response))
 }
 
@@ -327,28 +341,15 @@ async fn fetch_remote_server_keys_response(
             continue;
         };
 
-        // P2-16: Validate `valid_until_ts` before caching. A missing or
-        // already-expired value lets an attacker inject stale but
-        // correctly-signed key responses. Reject both cases.
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let Some(valid_until_ts) = body.get("valid_until_ts").and_then(|v| v.as_i64()) else {
-            ::tracing::warn!(
-                server_name = %server_name,
-                key_id = %key_id,
-                "Remote server key response missing valid_until_ts; refusing to cache"
-            );
+        // P2-15: Fully validate the remote server key response before caching.
+        // Rejects mismatched server_name, missing/expired valid_until_ts,
+        // empty/malformed verify_keys, and responses lacking a self-signature.
+        // On failure we log a warning and skip caching (continue to the next
+        // URL) rather than erroring the client request.
+        let Some(valid_until_ts) = validate_server_key_response(&body, server_name) else {
             continue;
         };
-        if valid_until_ts <= now_ms {
-            ::tracing::warn!(
-                server_name = %server_name,
-                key_id = %key_id,
-                valid_until_ts = valid_until_ts,
-                now_ms = now_ms,
-                "Remote server key response has expired valid_until_ts; refusing to cache"
-            );
-            continue;
-        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
 
         let canonical_response = json!({
             "server_name": body
@@ -386,6 +387,112 @@ async fn fetch_remote_server_keys_response(
         ::tracing::debug!("Failed to set federation backoff cache: {}", e);
     }
     Err(ApiError::not_found(format!("Remote server key '{key_id}' for '{server_name}' not found")))
+}
+
+/// Validate a federation server key response before caching or returning it.
+///
+/// Returns `Some(valid_until_ts)` when the response is structurally valid and
+/// safe to cache, or `None` (after logging a `warn!`) when validation fails.
+///
+/// This is defensive validation only — it does not verify the cryptographic
+/// signature itself (that requires the key, which we are in the process of
+/// trusting). It checks:
+/// - `server_name` (if present) matches the requested server
+/// - `valid_until_ts` is present, parseable, and in the future
+/// - `verify_keys` is present, is an object, and is non-empty
+/// - each verify key has a `key` field that is a base64-encoded 32-byte value
+/// - `signatures` is present, is an object, and contains at least one
+///   self-signature (an entry keyed by `server_name` with a non-empty object)
+fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> {
+    // `server_name` (if present) must match the requested server.
+    if let Some(actual) = body.get("server_name").and_then(|v| v.as_str()) {
+        if actual != server_name {
+            ::tracing::warn!(
+                server_name = %server_name,
+                actual_server_name = %actual,
+                "Remote server key response server_name mismatch; refusing to cache"
+            );
+            return None;
+        }
+    }
+
+    // `valid_until_ts` must be present and in the future.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let valid_until_ts = match body.get("valid_until_ts").and_then(|v| v.as_i64()) {
+        Some(ts) => ts,
+        None => {
+            ::tracing::warn!(
+                server_name = %server_name,
+                "Remote server key response missing valid_until_ts; refusing to cache"
+            );
+            return None;
+        }
+    };
+    if valid_until_ts <= now_ms {
+        ::tracing::warn!(
+            server_name = %server_name,
+            valid_until_ts = valid_until_ts,
+            now_ms = now_ms,
+            "Remote server key response has expired valid_until_ts; refusing to cache"
+        );
+        return None;
+    }
+
+    // `verify_keys` must be present, be an object, and be non-empty.
+    let verify_keys = match body.get("verify_keys").and_then(|v| v.as_object()) {
+        Some(obj) if !obj.is_empty() => obj,
+        _ => {
+            ::tracing::warn!(
+                server_name = %server_name,
+                "Remote server key response missing or empty verify_keys; refusing to cache"
+            );
+            return None;
+        }
+    };
+
+    // Each verify key must have a `key` field that is a base64-encoded 32-byte
+    // Ed25519 public key.
+    for (kid, entry) in verify_keys {
+        let Some(key_str) = entry.get("key").and_then(|v| v.as_str()) else {
+            ::tracing::warn!(
+                server_name = %server_name,
+                key_id = %kid,
+                "Remote verify key entry missing 'key' field; refusing to cache"
+            );
+            return None;
+        };
+        if decode_base64_32(key_str).is_none() {
+            ::tracing::warn!(
+                server_name = %server_name,
+                key_id = %kid,
+                "Remote verify key has invalid base64 32-byte key; refusing to cache"
+            );
+            return None;
+        }
+    }
+
+    // `signatures` must be present, be an object, and contain at least one
+    // self-signature (an entry keyed by `server_name` with a non-empty object).
+    let signatures = match body.get("signatures").and_then(|v| v.as_object()) {
+        Some(obj) => obj,
+        None => {
+            ::tracing::warn!(
+                server_name = %server_name,
+                "Remote server key response missing signatures; refusing to cache"
+            );
+            return None;
+        }
+    };
+    let has_self_signature = signatures.get(server_name).and_then(|v| v.as_object()).is_some_and(|sig| !sig.is_empty());
+    if !has_self_signature {
+        ::tracing::warn!(
+            server_name = %server_name,
+            "Remote server key response missing self-signature; refusing to cache"
+        );
+        return None;
+    }
+
+    Some(valid_until_ts)
 }
 
 fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> Option<String> {

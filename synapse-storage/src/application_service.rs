@@ -677,7 +677,9 @@ impl ApplicationServiceStorage {
         as_id: &str,
     ) -> Result<Vec<ApplicationServiceTransaction>, sqlx::Error> {
         sqlx::query_as::<_, ApplicationServiceTransaction>(
-            r"SELECT * FROM application_service_transactions WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC"
+            r"SELECT id, as_id, txn_id, transaction_id, events, sent_ts, completed_ts, retry_count, last_error
+              FROM application_service_transactions
+              WHERE as_id = $1 AND completed_ts IS NULL ORDER BY sent_ts ASC",
         )
         .bind(as_id)
         .fetch_all(&*self.pool)
