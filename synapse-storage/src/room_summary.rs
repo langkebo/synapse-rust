@@ -58,6 +58,15 @@ pub struct RoomSummaryState {
     pub updated_ts: i64,
 }
 
+/// Input entry for batch upserts via [`RoomSummaryStorage::set_states_batch`].
+#[derive(Debug, Clone)]
+pub struct RoomSummaryStateEntry {
+    pub event_type: String,
+    pub state_key: String,
+    pub event_id: Option<String>,
+    pub content: serde_json::Value,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RoomSummaryStats {
     pub id: i64,
@@ -504,6 +513,47 @@ impl RoomSummaryStorage {
         Ok(rows)
     }
 
+    /// Batch variant of [`get_heroes`] that fetches heroes for multiple rooms
+    /// in a single query, respecting the same per-room limit via a window
+    /// function. Returns heroes keyed by `room_id`.
+    pub async fn get_heroes_batch(
+        &self,
+        room_ids: &[String],
+        limit: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomSummaryMember>>, sqlx::Error> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, RoomSummaryMember>(
+            r"
+            SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts
+            FROM (
+                SELECT id, room_id, user_id, display_name, avatar_url, membership, is_hero, last_active_ts, updated_ts, created_ts,
+                       ROW_NUMBER() OVER (PARTITION BY room_id ORDER BY is_hero DESC, last_active_ts DESC NULLS LAST) AS rn
+                FROM room_summary_members
+                WHERE room_id = ANY($1) AND membership = 'join'
+            ) t
+            WHERE rn <= $2
+            ",
+        )
+        .bind(room_ids)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<RoomSummaryMember>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for member in rows {
+            if let Some(heroes) = result.get_mut(&member.room_id) {
+                heroes.push(member);
+            }
+        }
+
+        Ok(result)
+    }
+
     pub async fn get_hero_candidates(&self, room_id: &str, limit: i64) -> Result<Vec<RoomSummaryMember>, sqlx::Error> {
         let rows = sqlx::query_as::<_, RoomSummaryMember>(
             r"
@@ -569,6 +619,43 @@ impl RoomSummaryStorage {
         .await?;
 
         Ok(row)
+    }
+
+    /// Batch upsert for room summary state events, avoiding N+1 round trips when
+    /// syncing many state events for a room.
+    pub async fn set_states_batch(&self, room_id: &str, entries: &[RoomSummaryStateEntry]) -> Result<u64, sqlx::Error> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+
+        let now = Utc::now().timestamp_millis();
+        let event_types: Vec<String> = entries.iter().map(|e| e.event_type.clone()).collect();
+        let state_keys: Vec<String> = entries.iter().map(|e| e.state_key.clone()).collect();
+        let event_ids: Vec<Option<String>> = entries.iter().map(|e| e.event_id.clone()).collect();
+        let contents: Vec<serde_json::Value> = entries.iter().map(|e| e.content.clone()).collect();
+
+        let result = sqlx::query(
+            r"
+            INSERT INTO room_summary_state (room_id, event_type, state_key, event_id, content, updated_ts)
+            SELECT $1, et, sk, ei, co, $2
+            FROM UNNEST($3::TEXT[], $4::TEXT[], $5::TEXT[], $6::JSONB[])
+            AS t(et, sk, ei, co)
+            ON CONFLICT (room_id, event_type, state_key) DO UPDATE SET
+                event_id = EXCLUDED.event_id,
+                content = EXCLUDED.content,
+                updated_ts = EXCLUDED.updated_ts
+            ",
+        )
+        .bind(room_id)
+        .bind(now)
+        .bind(&event_types)
+        .bind(&state_keys)
+        .bind(&event_ids)
+        .bind(&contents)
+        .execute(&*self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     pub async fn get_state(

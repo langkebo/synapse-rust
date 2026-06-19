@@ -460,6 +460,7 @@ impl SynapseServer {
         let mut shutdown_rx4 = shutdown_tx.subscribe();
         let mut shutdown_rx5 = shutdown_tx.subscribe();
         let mut shutdown_rx6 = shutdown_tx.subscribe();
+        let mut shutdown_rx7 = shutdown_tx.subscribe();
 
         if run_global_maintenance {
             let bg_service = self.app_state.services.admin.background_update_service.clone();
@@ -601,6 +602,54 @@ impl SynapseServer {
                         }
                         _ = shutdown_rx6.recv() => {
                             ::tracing::info!("Megolm session cleanup task shutting down");
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        if run_global_maintenance {
+            // P3-11: Background pruning of append-only / stale tables to prevent
+            // disk bloat on long-running instances. Prunes:
+            //   - device_lists_changes older than 30 days
+            //   - presence records inactive beyond the presence prune timeout
+            //   - one-time keys that are used or older than 7 days
+            // Runs daily.
+            let pruning_pool = self.app_state.services.account.user_storage.pool.clone();
+            tokio::spawn(async move {
+                let mut interval_timer = tokio::time::interval(Duration::from_secs(86400));
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval_timer.tick().await; // skip immediate tick after startup
+
+                loop {
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            match synapse_storage::pruning::prune_old_device_list_changes(
+                                &pruning_pool,
+                                synapse_storage::pruning::DEVICE_LIST_CHANGES_RETENTION_DAYS,
+                            )
+                            .await
+                            {
+                                Ok(0) => ::tracing::debug!("Device list change pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old device list changes"),
+                                Err(e) => ::tracing::warn!("Device list change pruning failed: {e}"),
+                            }
+
+                            match synapse_storage::pruning::prune_expired_presence(&pruning_pool).await {
+                                Ok(0) => ::tracing::debug!("Presence pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired presence records"),
+                                Err(e) => ::tracing::warn!("Presence pruning failed: {e}"),
+                            }
+
+                            match synapse_storage::pruning::prune_expired_one_time_keys(&pruning_pool).await {
+                                Ok(0) => ::tracing::debug!("One-time key pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired one-time keys"),
+                                Err(e) => ::tracing::warn!("One-time key pruning failed: {e}"),
+                            }
+                        }
+                        _ = shutdown_rx7.recv() => {
+                            ::tracing::info!("Database pruning task shutting down");
                             break;
                         }
                     }

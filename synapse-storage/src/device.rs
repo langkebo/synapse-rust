@@ -76,6 +76,45 @@ impl DeviceStorage {
         let _ = self.record_device_list_change(user_id, device_id, change_type).await;
     }
 
+    async fn record_device_list_changes_batch(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+        change_type: &str,
+    ) -> Result<(), sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            WITH inserted AS (
+                INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+                SELECT $1, device_id, $2 FROM UNNEST($3::TEXT[]) AS device_id
+                RETURNING stream_id, device_id
+            )
+            INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+            SELECT $1, device_id, $4, stream_id, $2 FROM inserted
+            ",
+        )
+        .bind(user_id)
+        .bind(now)
+        .bind(device_ids)
+        .bind(change_type)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn record_device_list_changes_batch_best_effort(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+        change_type: &str,
+    ) {
+        let _ = self.record_device_list_changes_batch(user_id, device_ids, change_type).await;
+    }
+
     pub async fn get_lazy_loaded_members(
         &self,
         user_id: &str,
@@ -160,6 +199,27 @@ impl DeviceStorage {
         )
         .bind(user_id)
         .bind(device_id)
+        .execute(&*self.pool)
+        .await
+        .map(|result| result.rows_affected())
+    }
+
+    async fn delete_lazy_loaded_members_for_devices_batch(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        if device_ids.is_empty() {
+            return Ok(0);
+        }
+        sqlx::query(
+            r"
+            DELETE FROM lazy_loaded_members
+            WHERE user_id = $1 AND device_id = ANY($2)
+            ",
+        )
+        .bind(user_id)
+        .bind(device_ids)
         .execute(&*self.pool)
         .await
         .map(|result| result.rows_affected())
@@ -419,9 +479,7 @@ impl DeviceStorage {
             Ok(res) => {
                 if res.rows_affected() > 0 {
                     let _ = self.delete_lazy_loaded_members_for_user(user_id).await;
-                    for device_id in device_ids {
-                        let _ = self.record_device_list_change(user_id, Some(&device_id), "deleted").await;
-                    }
+                    self.record_device_list_changes_batch_best_effort(user_id, &device_ids, "deleted").await;
                 }
                 Ok(())
             }
@@ -472,10 +530,8 @@ impl DeviceStorage {
             .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            for device_id in device_ids {
-                let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
-                let _ = self.record_device_list_change(user_id, Some(device_id.as_str()), "deleted").await;
-            }
+            let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, device_ids).await;
+            self.record_device_list_changes_batch_best_effort(user_id, device_ids, "deleted").await;
         }
 
         Ok(rows_affected)

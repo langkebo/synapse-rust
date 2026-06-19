@@ -146,16 +146,29 @@ impl RoomSummaryService {
 
         info!(room_id = %room_id, state_event_count = states.len(), "Syncing room summary state events");
 
-        for state in states {
-            let event_type_str = state.event_type.as_deref().unwrap_or("");
-            self.update_state(
-                room_id,
-                event_type_str,
-                state.state_key.as_deref().unwrap_or(""),
-                Some(&state.event_id),
-                state.content.clone(),
-            )
-            .await?;
+        if !states.is_empty() {
+            // Batch upsert all state events in a single query to avoid N+1
+            // round trips. The per-event summary derivation still runs in a
+            // loop because each event type triggers different logic.
+            let entries: Vec<RoomSummaryStateEntry> = states
+                .iter()
+                .map(|state| RoomSummaryStateEntry {
+                    event_type: state.event_type.clone().unwrap_or_default(),
+                    state_key: state.state_key.clone().unwrap_or_default(),
+                    event_id: Some(state.event_id.clone()),
+                    content: state.content.clone(),
+                })
+                .collect();
+
+            if let Err(e) = self.storage.set_states_batch(room_id, &entries).await {
+                warn!(error = %e, room_id = %room_id, "Failed to batch upsert room summary state");
+            }
+
+            for state in &states {
+                let event_type_str = state.event_type.as_deref().unwrap_or("");
+                let state_key_str = state.state_key.as_deref().unwrap_or("");
+                self.update_summary_from_state(room_id, Some(event_type_str), state_key_str, &state.content).await?;
+            }
         }
 
         if let Some(member_storage) = self.member_storage.as_ref() {
