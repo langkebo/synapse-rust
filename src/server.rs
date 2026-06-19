@@ -104,7 +104,7 @@ impl SynapseServer {
                     Ok(())
                 })
             })
-            .test_before_acquire(true);
+            .test_before_acquire(false);
 
         ::tracing::info!("Connecting to database with optimized pool settings...");
         ::tracing::info!("  Max connections: {}", config.database.max_size);

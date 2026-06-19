@@ -444,6 +444,42 @@ impl RedisCache {
         }
     }
 
+    /// Batch fetch multiple keys from Redis using MGET in a single round-trip.
+    ///
+    /// Returns a `Vec<Option<String>>` with the same length as `keys`; missing
+    /// keys are `None`. On any Redis error (circuit breaker open, timeout, etc.),
+    /// returns a Vec of all `None` so callers can treat every key as a cache miss.
+    pub async fn get_batch(&self, keys: &[String]) -> Vec<Option<String>> {
+        if keys.is_empty() {
+            return Vec::new();
+        }
+
+        let result = self
+            .with_circuit_breaker("MGET", |mut conn| async move {
+                let mut cmd = redis::cmd("MGET");
+                for key in keys {
+                    cmd.arg(key);
+                }
+                cmd.query_async::<Vec<Option<String>>>(&mut conn).await.map_err(|_| CacheErrorWrapper::OperationFailed)
+            })
+            .await;
+
+        match result {
+            Ok(vals) => {
+                let mut metrics = self.degradation_metrics.write();
+                for val in &vals {
+                    if val.is_some() {
+                        metrics.record_redis_hit();
+                    } else {
+                        metrics.record_redis_miss();
+                    }
+                }
+                vals
+            }
+            Err(_) => vec![None; keys.len()],
+        }
+    }
+
     pub async fn set(&self, key: &str, value: &str, ttl: u64) -> Result<(), CacheError> {
         use redis::AsyncCommands;
         self.with_circuit_breaker("SET", |mut conn| async move {
@@ -577,6 +613,9 @@ return {allowed, retry_after, remaining}
     }
 }
 
+/// Per-key single-flight guard type used by `get_or_fetch`.
+type SingleFlightMap = Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>;
+
 #[derive(Clone, Debug)]
 pub struct CacheManager {
     local: LocalCache,
@@ -585,6 +624,10 @@ pub struct CacheManager {
     rate_limit_local: Arc<parking_lot::Mutex<HashMap<String, LocalRateLimitState>>>,
     invalidation_manager: Option<Arc<CacheInvalidationManager>>,
     local_cache_ttl: Duration,
+    /// Per-key single-flight guards used by `get_or_fetch` to prevent cache
+    /// stampede when a hot key expires. Each entry is an `Arc<Mutex<()>>` that
+    /// serializes concurrent fetches for the same key.
+    in_flight: SingleFlightMap,
 }
 
 impl CacheManager {
@@ -596,6 +639,7 @@ impl CacheManager {
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             invalidation_manager: None,
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+            in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -624,6 +668,7 @@ impl CacheManager {
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
                     invalidation_manager: Some(invalidation_manager),
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+                    in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 })
             }
             Err(e) => {
@@ -635,6 +680,7 @@ impl CacheManager {
                     rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
                     invalidation_manager: None,
                     local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+                    in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 })
             }
         }
@@ -663,6 +709,7 @@ impl CacheManager {
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(DEFAULT_LOCAL_CACHE_TTL_SECS),
+            in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -681,6 +728,7 @@ impl CacheManager {
             rate_limit_local: Arc::new(parking_lot::Mutex::new(HashMap::new())),
             invalidation_manager: Some(invalidation_manager),
             local_cache_ttl: Duration::from_secs(invalidation_config.local_cache_ttl_secs),
+            in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -898,6 +946,58 @@ impl CacheManager {
         Ok(None)
     }
 
+    /// Batch fetch multiple keys from the cache (L1 local + L2 Redis MGET).
+    ///
+    /// Returns a `Vec<Option<T>>` with the same length as `keys`; missing keys
+    /// are `None`. When Redis is enabled, all L1-missing keys are fetched via a
+    /// single MGET round-trip, eliminating N+1 cache queries. When Redis is
+    /// disabled, L1 is checked for each key centrally.
+    pub async fn get_batch<T: for<'de> Deserialize<'de>>(&self, keys: &[String]) -> Result<Vec<Option<T>>, ApiError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut results: Vec<Option<T>> = Vec::with_capacity(keys.len());
+        let mut missing_indices: Vec<usize> = Vec::new();
+        let mut missing_keys: Vec<String> = Vec::new();
+
+        // L1: Local Cache - check all keys first
+        for (i, key) in keys.iter().enumerate() {
+            if let Some(val) = self.local.get_raw(key) {
+                if let Ok(result) = serde_json::from_str::<T>(&val) {
+                    results.push(Some(result));
+                    continue;
+                }
+            }
+            results.push(None);
+            missing_indices.push(i);
+            missing_keys.push(key.clone());
+        }
+
+        if missing_keys.is_empty() {
+            return Ok(results);
+        }
+
+        // L2: Redis Cache - batch fetch missing keys via MGET
+        if self.use_redis {
+            if let Some(redis) = &self.redis {
+                let raw_values = redis.get_batch(&missing_keys).await;
+                for (idx, raw) in raw_values.into_iter().enumerate() {
+                    let result_index = missing_indices[idx];
+                    if let Some(val) = raw {
+                        if let Ok(result) = serde_json::from_str::<T>(&val) {
+                            // Populate L1
+                            self.local.set_raw(&missing_keys[idx], &val);
+                            results[result_index] = Some(result);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     pub async fn set<T: Serialize>(&self, key: &str, value: T, ttl: u64) -> Result<(), ApiError> {
         if let Ok(val) = serde_json::to_string(&value) {
             self.local.set_raw(key, &val);
@@ -908,6 +1008,46 @@ impl CacheManager {
             }
         }
         Ok(())
+    }
+
+    /// Get a value from the cache, or fetch and cache it on miss with single-flight protection.
+    ///
+    /// This prevents cache stampede when a hot key expires: only one fetch
+    /// operation runs for a given key, while concurrent requests wait for it to
+    /// complete and then reuse the cached result. On a cache miss the caller
+    /// supplied `fetch` closure is invoked; its result is written back to both
+    /// L1 (local) and L2 (Redis) caches with the provided `ttl` before being
+    /// returned. If the `fetch` fails the error is propagated and nothing is
+    /// cached, so the next request will retry.
+    pub async fn get_or_fetch<F, Fut, T>(&self, key: &str, ttl: u64, fetch: F) -> Result<T, ApiError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ApiError>>,
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone,
+    {
+        // Fast path: value already cached.
+        if let Some(cached) = self.get::<T>(key).await? {
+            return Ok(cached);
+        }
+
+        // Single-flight: get or create a per-key mutex so only one fetch runs.
+        let mutex = {
+            let mut in_flight = self.in_flight.lock().await;
+            in_flight.entry(key.to_string()).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
+        };
+
+        let _guard = mutex.lock().await;
+
+        // Double-check after acquiring the lock: another request may have
+        // already populated the cache while we were waiting.
+        if let Some(cached) = self.get::<T>(key).await? {
+            return Ok(cached);
+        }
+
+        // Cache miss confirmed under the guard — fetch, cache, and return.
+        let value = fetch().await?;
+        self.set(key, &value, ttl).await?;
+        Ok(value)
     }
 
     /// Set negative cache for "not found" results to prevent repeated lookups
@@ -1170,6 +1310,74 @@ mod tests {
         manager.delete_token("test_token").await;
         let result = manager.get_token("test_token").await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_or_fetch_miss_populates_cache() {
+        let config = CacheConfig::default();
+        let manager = CacheManager::new(&config);
+
+        // First call: cache miss → fetch → cache → return.
+        let result: String =
+            manager.get_or_fetch("gof_key", 60, || async { Ok("fetched_value".to_string()) }).await.unwrap();
+        assert_eq!(result, "fetched_value");
+
+        // Second call: cache hit → no fetch needed.
+        let fetch_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let fetch_called_clone = fetch_called.clone();
+        let result: String = manager
+            .get_or_fetch("gof_key", 60, || {
+                let flag = fetch_called_clone.clone();
+                async move {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Ok("should_not_be_called".to_string())
+                }
+            })
+            .await
+            .unwrap();
+        assert_eq!(result, "fetched_value");
+        assert!(!fetch_called.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_get_or_fetch_single_flight_only_one_fetch() {
+        // Verify that concurrent get_or_fetch calls for the same key trigger
+        // the fetch closure exactly once.
+        let config = CacheConfig::default();
+        let manager = Arc::new(CacheManager::new(&config));
+
+        let fetch_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let key = "gof_single_flight";
+
+        // Make the fetch slow so concurrent callers pile up waiting on the
+        // single-flight guard before the value is cached.
+        let mut handles = Vec::new();
+        for _ in 0..10 {
+            let manager = manager.clone();
+            let fetch_count = fetch_count.clone();
+            handles.push(tokio::spawn(async move {
+                manager
+                    .get_or_fetch::<_, _, String>(key, 60, || {
+                        let count = fetch_count.clone();
+                        async move {
+                            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                            Ok("single_flight_value".to_string())
+                        }
+                    })
+                    .await
+                    .unwrap()
+            }));
+        }
+
+        for handle in handles {
+            let value = handle.await.unwrap();
+            assert_eq!(value, "single_flight_value");
+        }
+
+        // Only the first request should have run the fetch; the rest reused
+        // the cached result via the double-check inside the single-flight guard.
+        assert_eq!(fetch_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]

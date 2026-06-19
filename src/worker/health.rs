@@ -228,9 +228,12 @@ impl HealthChecker {
                         status.keys().cloned().collect()
                     };
 
-                    for worker_id in workers {
-                        let _ = self.check_health(&worker_id).await;
-                    }
+                    // Parallelize health checks across all registered workers since
+                    // each check_health call is independent (different worker_id) and
+                    // mutates state through internal RwLocks.
+                    let check_futures =
+                        workers.iter().map(|worker_id| self.check_health(worker_id));
+                    futures::future::join_all(check_futures).await;
 
                     debug!("Completed health check cycle for {} workers",
                            self.health_status.read().await.len());

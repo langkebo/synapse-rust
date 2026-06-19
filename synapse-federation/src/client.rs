@@ -188,6 +188,9 @@ impl FederationClient {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
+            .pool_max_idle_per_host(20)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .tcp_keepalive(Duration::from_secs(60))
             .build()
             .unwrap_or_else(|e| {
                 tracing::error!("Failed to build HTTP client, using default: {}", e);
