@@ -17,10 +17,20 @@ pub struct SearchConfig {
     /// PostgreSQL 全文搜索配置
     #[serde(default)]
     pub postgres_fts: PostgresFtsConfig,
+    /// 搜索索引名称（Postgres FTS 索引或 Elasticsearch 索引）。
+    ///
+    /// 默认 `"synapse_search"`。历史实现硬编码为 `"synapse_messages"`，
+    /// 需要保留旧行为的部署可在配置中显式设置该值。
+    #[serde(default = "default_search_index_name")]
+    pub search_index_name: String,
 }
 
 fn default_search_provider() -> String {
     "postgres".to_string()
+}
+
+fn default_search_index_name() -> String {
+    "synapse_search".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -48,6 +58,7 @@ impl Default for SearchConfig {
             enabled: false,
             provider: default_search_provider(),
             postgres_fts: PostgresFtsConfig::default(),
+            search_index_name: default_search_index_name(),
         }
     }
 }

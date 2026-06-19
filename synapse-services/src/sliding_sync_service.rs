@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use synapse_cache::CacheManager;
+use synapse_common::config::PerformanceConfig;
 use synapse_common::error::ApiError;
+use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceStorage;
@@ -21,6 +24,13 @@ const CONNECTION_TTL_MS: i64 = 30 * 60 * 1000;
 /// Maximum number of tracked connections (LRU capacity cap).
 const MAX_TRACKED_CONNECTIONS: u64 = 10_000;
 
+/// Histogram name used to track sliding sync response latency (ms).
+const SLIDING_SYNC_LATENCY_HISTOGRAM: &str = "sliding_sync_request_duration_ms";
+
+/// Counter name used to track slow sliding sync requests (those exceeding
+/// the configured latency threshold).
+const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_total";
+
 #[derive(Clone)]
 pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
@@ -33,6 +43,14 @@ pub struct SlidingSyncService {
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
+    /// Metrics collector used to record sync latency histograms and slow
+    /// request counters. Acts as the performance rollback gate for
+    /// sliding sync (see Synapse v1.153.0rc3 revert lesson).
+    metrics: Arc<MetricsCollector>,
+    /// Sliding sync response latency threshold in milliseconds. Responses
+    /// slower than this trigger a warning log and increment the slow
+    /// request counter.
+    latency_threshold_ms: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -64,6 +82,8 @@ impl SlidingSyncService {
         member_storage: RoomMemberStorage,
         device_storage: DeviceStorage,
         to_device_storage: ToDeviceStorage,
+        metrics: Arc<MetricsCollector>,
+        performance: PerformanceConfig,
     ) -> Self {
         let connection_tracker = moka::sync::Cache::builder()
             .max_capacity(MAX_TRACKED_CONNECTIONS)
@@ -79,10 +99,99 @@ impl SlidingSyncService {
             device_storage,
             to_device_storage,
             connection_tracker: Arc::new(connection_tracker),
+            metrics,
+            latency_threshold_ms: performance.sliding_sync_latency_threshold_ms,
         }
     }
 
+    /// Returns the configured sliding sync latency threshold in milliseconds.
+    pub fn latency_threshold_ms(&self) -> u64 {
+        self.latency_threshold_ms
+    }
+
+    /// Returns the current p95 sliding sync response latency in milliseconds,
+    /// or `None` if no observations have been recorded yet. Used by the
+    /// performance rollback gate to detect regressions.
+    pub fn sync_latency_p95_ms(&self) -> Option<f64> {
+        self.metrics
+            .get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM)
+            .and_then(|h| h.get_percentile(95.0).ok())
+            .filter(|v| *v > 0.0)
+    }
+
+    /// Returns the total number of sliding sync requests that exceeded the
+    /// configured latency threshold since startup.
+    pub fn slow_sync_request_count(&self) -> u64 {
+        self.metrics.get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER).map_or(0, |c| c.get())
+    }
+
     pub async fn sync(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        request: SlidingSyncRequest,
+    ) -> Result<SlidingSyncResponse, ApiError> {
+        let started = Instant::now();
+        let conn_id_for_metrics = request.conn_id.clone();
+        let is_initial = request.pos.is_none();
+
+        let result = self.sync_inner(user_id, device_id, request).await;
+
+        let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.record_sync_latency_metrics(user_id, device_id, conn_id_for_metrics.as_deref(), total_ms, is_initial);
+
+        result
+    }
+
+    /// Records sliding sync latency into the metrics histogram and emits a
+    /// warning when the response time exceeds the configured threshold.
+    /// This is the performance rollback gate: a sustained increase in
+    /// `sliding_sync_slow_requests_total` or the p95 of
+    /// `sliding_sync_request_duration_ms` signals that a recent change
+    /// regressed sliding sync performance and should be rolled back.
+    fn record_sync_latency_metrics(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        conn_id: Option<&str>,
+        total_ms: f64,
+        is_initial: bool,
+    ) {
+        // Observe latency in the histogram (enables p95/p99 reporting).
+        if let Some(histogram) = self.metrics.get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM) {
+            histogram.observe(total_ms);
+        } else {
+            self.metrics.register_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM.to_string()).observe(total_ms);
+        }
+
+        if total_ms >= self.latency_threshold_ms as f64 {
+            if let Some(counter) = self.metrics.get_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER) {
+                counter.inc();
+            } else {
+                self.metrics.register_counter(SLIDING_SYNC_SLOW_REQUESTS_COUNTER.to_string()).inc();
+            }
+
+            let p95 = self
+                .metrics
+                .get_histogram(SLIDING_SYNC_LATENCY_HISTOGRAM)
+                .and_then(|h| h.get_percentile(95.0).ok())
+                .unwrap_or(0.0);
+
+            tracing::warn!(
+                target: "sliding_sync_performance",
+                user_id = %user_id,
+                device_id = %device_id,
+                conn_id = ?conn_id,
+                total_ms = total_ms,
+                threshold_ms = self.latency_threshold_ms,
+                is_initial = is_initial,
+                p95_ms = p95,
+                "Slow sliding sync request detected; consider rolling back recent sliding sync changes"
+            );
+        }
+    }
+
+    async fn sync_inner(
         &self,
         user_id: &str,
         device_id: &str,
@@ -1287,6 +1396,8 @@ mod tests {
                     .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
                     .build(),
             ),
+            metrics: Arc::new(MetricsCollector::new()),
+            latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
         }
     }
 

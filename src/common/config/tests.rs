@@ -52,6 +52,7 @@ mod tests {
                 encryption_enabled_by_default_for_room_type: None,
                 app_service_config_files: vec![],
                 presence_enabled: true,
+                ..Default::default()
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -112,6 +113,7 @@ mod tests {
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
                 signing_key_master_key: None,
+                ..Default::default()
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -134,6 +136,7 @@ mod tests {
                 enabled: false,
                 postgres_fts: PostgresFtsConfig::default(),
                 provider: "elasticsearch".to_string(),
+                ..Default::default()
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig::default(),
@@ -207,6 +210,7 @@ mod tests {
                 encryption_enabled_by_default_for_room_type: None,
                 app_service_config_files: vec![],
                 presence_enabled: true,
+                ..Default::default()
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -267,6 +271,7 @@ mod tests {
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
                 signing_key_master_key: None,
+                ..Default::default()
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -289,6 +294,7 @@ mod tests {
                 enabled: false,
                 postgres_fts: PostgresFtsConfig::default(),
                 provider: "elasticsearch".to_string(),
+                ..Default::default()
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig::default(),
@@ -360,6 +366,7 @@ mod tests {
             encryption_enabled_by_default_for_room_type: None,
             app_service_config_files: vec![],
             presence_enabled: true,
+            ..Default::default()
         };
 
         assert_eq!(config.name, "test");
@@ -476,6 +483,7 @@ mod tests {
                 encryption_enabled_by_default_for_room_type: None,
                 app_service_config_files: vec![],
                 presence_enabled: true,
+                ..Default::default()
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),
@@ -536,6 +544,7 @@ mod tests {
                 join_acquire_timeout_ms: 750,
                 admission_mode: false,
                 signing_key_master_key: None,
+                ..Default::default()
             },
             security: SecurityConfig {
                 secret: "test_secret".to_string(),
@@ -558,6 +567,7 @@ mod tests {
                 enabled: false,
                 postgres_fts: PostgresFtsConfig::default(),
                 provider: "elasticsearch".to_string(),
+                ..Default::default()
             },
             rate_limit: RateLimitConfig::default(),
             admin_registration: AdminRegistrationConfig::default(),
@@ -656,6 +666,7 @@ mod tests {
             join_acquire_timeout_ms: 750,
             admission_mode: false,
             signing_key_master_key: None,
+            ..Default::default()
         };
 
         assert!(config.enabled);
