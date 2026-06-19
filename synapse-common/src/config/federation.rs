@@ -111,6 +111,13 @@ pub struct FederationConfig {
     /// Generate with: `openssl rand -hex 32`
     #[serde(default)]
     pub signing_key_master_key: Option<String>,
+
+    /// 出站联邦事件批处理的最大事件数，默认 100。
+    ///
+    /// `EventBroadcaster` 在 flush 之前最多累积这么多事件。历史实现
+    /// 硬编码为 20，需要保留旧行为的部署可在配置中显式设置该值。
+    #[serde(default = "default_event_broadcast_batch_size")]
+    pub event_broadcast_batch_size: usize,
 }
 
 /// 信任的密钥服务器配置
@@ -173,6 +180,10 @@ fn default_federation_inbound_edu_per_origin_max_concurrency() -> usize {
 
 fn default_federation_inbound_presence_backoff_ms() -> u64 {
     3000
+}
+
+fn default_event_broadcast_batch_size() -> usize {
+    100
 }
 
 fn default_federation_join_max_concurrency() -> usize {

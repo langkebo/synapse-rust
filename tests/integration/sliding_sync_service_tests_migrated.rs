@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::config::PerformanceConfig;
+use synapse_rust::metrics::MetricsCollector;
 use synapse_rust::services::sliding_sync_service::SlidingSyncService;
 use synapse_rust::services::typing_service::TypingService;
 use synapse_rust::storage::device::DeviceStorage;
@@ -315,6 +317,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let member_storage = RoomMemberStorage::new(pool, "localhost");
     let device_storage = DeviceStorage::new(pool);
     let to_device_storage = ToDeviceStorage::new(pool);
+    let metrics = Arc::new(MetricsCollector::new());
 
     SlidingSyncService::new(
         storage,
@@ -325,6 +328,8 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         member_storage,
         device_storage,
         to_device_storage,
+        metrics,
+        PerformanceConfig::default(),
     )
 }
 
