@@ -1,6 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
+use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::ApiError;
 
@@ -341,14 +342,18 @@ impl ServerNotificationStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get user notifications", &e))?;
 
+        let notification_ids: Vec<i64> = notifications.iter().map(|n| n.id).collect();
+        let statuses = self.get_or_create_statuses_batch(user_id, &notification_ids).await?;
+
         let mut result = Vec::new();
         for notification in notifications {
-            let status = self.get_or_create_status(user_id, notification.id).await?;
-            result.push(NotificationWithStatus {
-                notification,
-                is_read: status.is_read,
-                is_dismissed: status.is_dismissed,
-            });
+            if let Some(status) = statuses.get(&notification.id) {
+                result.push(NotificationWithStatus {
+                    notification,
+                    is_read: status.is_read,
+                    is_dismissed: status.is_dismissed,
+                });
+            }
         }
 
         Ok(result)
@@ -389,6 +394,44 @@ impl ServerNotificationStorage {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get notification status", &e))
+    }
+
+    pub async fn get_or_create_statuses_batch(
+        &self,
+        user_id: &str,
+        notification_ids: &[i64],
+    ) -> Result<HashMap<i64, UserNotificationStatus>, ApiError> {
+        if notification_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO user_notification_status (user_id, notification_id)
+            SELECT $1, notification_id FROM UNNEST($2::BIGINT[]) AS notification_id
+            ON CONFLICT (user_id, notification_id) DO NOTHING
+            "#,
+        )
+        .bind(user_id)
+        .bind(notification_ids)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to create notification statuses", &e))?;
+
+        let statuses: Vec<UserNotificationStatus> = sqlx::query_as::<_, UserNotificationStatus>(
+            r#"
+            SELECT id, user_id, notification_id, is_read, is_dismissed, read_ts, dismissed_ts, created_ts
+            FROM user_notification_status
+            WHERE user_id = $1 AND notification_id = ANY($2)
+            "#,
+        )
+        .bind(user_id)
+        .bind(notification_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to get notification statuses", &e))?;
+
+        Ok(statuses.into_iter().map(|s| (s.notification_id, s)).collect())
     }
 
     pub async fn mark_as_read(&self, user_id: &str, notification_id: i64) -> Result<bool, ApiError> {

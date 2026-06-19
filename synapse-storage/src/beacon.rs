@@ -306,6 +306,49 @@ impl BeaconStorage {
         Ok(rows)
     }
 
+    /// Batch variant of [`get_beacon_locations`] that fetches locations for
+    /// multiple beacon info ids in a single query, respecting the same
+    /// per-beacon limit via a window function.
+    pub async fn get_beacon_locations_batch(
+        &self,
+        beacon_info_ids: &[String],
+        limit: Option<i64>,
+    ) -> Result<std::collections::HashMap<String, Vec<BeaconLocation>>, sqlx::Error> {
+        if beacon_info_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let limit = limit.unwrap_or(100);
+
+        let rows = sqlx::query_as::<_, BeaconLocation>(
+            r#"
+            SELECT id, room_id, event_id, beacon_info_id, sender, uri, description, timestamp, accuracy, created_ts
+            FROM (
+                SELECT id, room_id, event_id, beacon_info_id, sender, uri, description, timestamp, accuracy, created_ts,
+                       ROW_NUMBER() OVER (PARTITION BY beacon_info_id ORDER BY timestamp DESC) AS rn
+                FROM beacon_locations
+                WHERE beacon_info_id = ANY($1)
+            ) t
+            WHERE rn <= $2
+            "#,
+        )
+        .bind(beacon_info_ids)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<BeaconLocation>> =
+            beacon_info_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+        for location in rows {
+            if let Some(locations) = result.get_mut(&location.beacon_info_id) {
+                locations.push(location);
+            }
+        }
+
+        Ok(result)
+    }
+
     pub async fn get_latest_location(&self, beacon_info_id: &str) -> Result<Option<BeaconLocation>, sqlx::Error> {
         let row = sqlx::query_as::<_, BeaconLocation>(
             r#"
@@ -433,11 +476,16 @@ impl BeaconStorage {
             .await?
         };
 
-        let mut result = Vec::new();
-        for info in beacon_infos {
-            let locations = self.get_beacon_locations(&info.event_id, None).await?;
-            result.push(BeaconInfoWithLocations { beacon_info: info, locations });
-        }
+        let beacon_info_ids: Vec<String> = beacon_infos.iter().map(|info| info.event_id.clone()).collect();
+        let locations_map = self.get_beacon_locations_batch(&beacon_info_ids, None).await?;
+
+        let result = beacon_infos
+            .into_iter()
+            .map(|info| {
+                let locations = locations_map.get(&info.event_id).cloned().unwrap_or_default();
+                BeaconInfoWithLocations { beacon_info: info, locations }
+            })
+            .collect();
 
         Ok(result)
     }

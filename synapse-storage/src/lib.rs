@@ -33,6 +33,7 @@ pub mod monitoring;
 pub mod openid_token;
 pub mod performance;
 pub mod presence;
+pub mod pruning;
 pub mod push;
 pub mod push_notification;
 pub mod qr_login;

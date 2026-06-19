@@ -55,11 +55,20 @@ impl RoomSummaryService {
             Err(e) => return Err(ApiError::internal_with_log("Failed to get user room summaries", &e)),
         };
 
-        let mut responses = Vec::new();
-        for summary in summaries {
-            let heroes = self.get_heroes(&summary.room_id).await?;
-            responses.push(summary.to_response(heroes));
+        if summaries.is_empty() {
+            return Ok(Vec::new());
         }
+
+        let room_ids: Vec<String> = summaries.iter().map(|s| s.room_id.clone()).collect();
+        let heroes_map = self.get_heroes_batch(&room_ids).await?;
+
+        let responses = summaries
+            .into_iter()
+            .map(|summary| {
+                let heroes = heroes_map.get(&summary.room_id).cloned().unwrap_or_default();
+                summary.to_response(heroes)
+            })
+            .collect();
 
         Ok(responses)
     }
@@ -73,6 +82,29 @@ impl RoomSummaryService {
         };
 
         Ok(members.into_iter().map(RoomSummaryHero::from).collect())
+    }
+
+    /// Batch variant of [`get_heroes`] that fetches heroes for multiple rooms
+    /// in a single query, returning heroes keyed by `room_id`.
+    pub(crate) async fn get_heroes_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<RoomSummaryHero>>, ApiError> {
+        if room_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let members_res = self.storage.get_heroes_batch(room_ids, 5).await;
+
+        let members_map = match members_res {
+            Ok(m) => m,
+            Err(e) => return Err(ApiError::internal_with_log("Failed to get heroes batch", &e)),
+        };
+
+        Ok(members_map
+            .into_iter()
+            .map(|(room_id, members)| (room_id, members.into_iter().map(RoomSummaryHero::from).collect()))
+            .collect())
     }
 
     pub async fn create_summary(&self, request: CreateRoomSummaryRequest) -> ApiResult<RoomSummaryResponse> {
@@ -217,11 +249,20 @@ impl RoomSummaryService {
             Err(e) => return Err(ApiError::internal_with_log("Failed to get room summaries", &e)),
         };
 
-        let mut responses = Vec::with_capacity(summaries.len());
-        for summary in summaries {
-            let heroes = self.get_heroes(&summary.room_id).await?;
-            responses.push(summary.to_response(heroes));
+        if summaries.is_empty() {
+            return Ok(Vec::new());
         }
+
+        let fetched_room_ids: Vec<String> = summaries.iter().map(|s| s.room_id.clone()).collect();
+        let heroes_map = self.get_heroes_batch(&fetched_room_ids).await?;
+
+        let responses = summaries
+            .into_iter()
+            .map(|summary| {
+                let heroes = heroes_map.get(&summary.room_id).cloned().unwrap_or_default();
+                summary.to_response(heroes)
+            })
+            .collect();
 
         Ok(responses)
     }
