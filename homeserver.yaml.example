@@ -24,6 +24,18 @@ server:
   refresh_token_sliding_window_size: 2592000
   session_duration: 86400
   warmup_pool: true
+  # Media storage path. Falls back to SYNAPSE_MEDIA_PATH env var, then
+  # /app/data/media (if present) or ./data/media.
+  # media_path: "/app/data/media"
+  # Megolm encryption key path. Falls back to SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH
+  # env var. If unset, an ephemeral key is generated and encrypted megolm
+  # sessions will be unreadable after restart.
+  # megolm_encryption_key_path: "/app/data/megolm.key"
+  # Whether to start the burn-after-read processor (default true).
+  # Honors SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR env var for backward compat.
+  # enable_burn_after_read_processor: true
+  # Refresh token TTL in seconds used by RefreshTokenService (default 2592000 = 30d).
+  # refresh_token_ttl_secs: 2592000
 
 database:
   host: "${DB_HOST}"
@@ -57,6 +69,17 @@ federation:
   federation_port: 8448
   connection_pool_size: 100
   max_transaction_payload: 10485760
+  # Max events accumulated before flushing an outbound federation transaction
+  # (default 100).
+  # event_broadcast_batch_size: 100
+
+# Search service configuration.
+# search:
+#   enabled: false
+#   provider: "postgres"            # postgres | elasticsearch
+#   elasticsearch_url: "http://localhost:9200"
+#   # Index name for Postgres FTS or Elasticsearch (default "synapse_search").
+#   # search_index_name: "synapse_search"
 
 # Translation service configuration
 # When disabled (enabled: false), the translate endpoint returns the original text (passthrough mode).

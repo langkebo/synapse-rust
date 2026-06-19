@@ -7,7 +7,6 @@ use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
 
-const DEFAULT_REFRESH_TOKEN_TTL_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 #[cfg(feature = "burn-after-read")]
 use crate::burn_after_read_service::BurnAfterReadService;
 use std::sync::Arc;
@@ -164,7 +163,12 @@ pub struct E2eeServices {
     pub to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
 }
 
-fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_storage: &UserStorage) -> E2eeServices {
+fn assemble_e2ee(
+    pool: &Arc<sqlx::PgPool>,
+    cache: &Arc<CacheManager>,
+    user_storage: &UserStorage,
+    megolm_encryption_key_path: Option<&str>,
+) -> E2eeServices {
     let device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(pool);
     let device_key_storage_for_cs = Arc::new(device_key_storage.clone());
     let backup_device_key_storage = device_key_storage.clone();
@@ -177,7 +181,7 @@ fn assemble_e2ee(pool: &Arc<sqlx::PgPool>, cache: &Arc<CacheManager>, user_stora
         .with_dehydrated_device_storage(dehydrated_device_storage.clone());
 
     let megolm_storage = synapse_e2ee::megolm::MegolmSessionStorage::new(pool);
-    let encryption_key = generate_encryption_key();
+    let encryption_key = generate_encryption_key(megolm_encryption_key_path);
     let megolm_service = MegolmProvider::from_env(megolm_storage, cache.clone(), encryption_key);
 
     let key_request_storage = synapse_e2ee::key_request::KeyRequestStorage::new(pool.as_ref());
@@ -329,6 +333,8 @@ fn assemble_room_and_sync(
         member_storage.clone(),
         device_storage,
         to_device_storage.clone(),
+        metrics.clone(),
+        config.performance.clone(),
     ));
 
     let space_storage = SpaceStorage::new(pool);
@@ -418,7 +424,12 @@ fn assemble_federation(
 }
 
 #[cfg(feature = "burn-after-read")]
-fn burn_after_read_processor_enabled() -> bool {
+fn burn_after_read_processor_enabled(config_enabled: bool) -> bool {
+    if !config_enabled {
+        return false;
+    }
+    // Backward compatibility: honor SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR when
+    // the config field is left at its default (true).
     !matches!(
         env::var("SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR").ok().as_deref(),
         Some("0" | "false" | "FALSE" | "False" | "off" | "OFF" | "Off")
@@ -526,7 +537,7 @@ fn assemble_admin_support(
     let refresh_token_storage = synapse_storage::refresh_token::RefreshTokenStorage::new(pool);
     let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
         Arc::new(refresh_token_storage.clone()),
-        DEFAULT_REFRESH_TOKEN_TTL_MS,
+        config.server.refresh_token_ttl_secs.saturating_mul(1000),
     ));
 
     let registration_token_storage = synapse_storage::registration_token::RegistrationTokenStorage::new(pool);
@@ -670,16 +681,18 @@ impl ServiceContainer {
         config: Config,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
-        let media_path = env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
-            if Path::new("/app/data/media").exists() {
-                "/app/data/media".to_string()
-            } else {
-                "./data/media".to_string()
-            }
+        let media_path = config.server.media_path.clone().unwrap_or_else(|| {
+            env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
+                if Path::new("/app/data/media").exists() {
+                    "/app/data/media".to_string()
+                } else {
+                    "./data/media".to_string()
+                }
+            })
         });
 
         let ui_auth_session_timeout = config.security.ui_auth_session_timeout;
-        let broadcaster_server_name = config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+        let broadcaster_server_name = config.server.get_server_name().to_string();
 
         // Shared infrastructure — metrics and server_metrics
         let metrics = Arc::new(MetricsCollector::new());
@@ -705,13 +718,13 @@ impl ServiceContainer {
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
 
         // E2EE — domain assembly
-        let e2ee = assemble_e2ee(pool, &cache, &user_storage);
+        let e2ee = assemble_e2ee(pool, &cache, &user_storage, config.server.megolm_encryption_key_path.as_deref());
 
         // Search service
         let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
             &config.search.elasticsearch_url,
             config.search.enabled,
-            "synapse_messages",
+            &config.search.search_index_name,
             Some(pool.as_ref().clone()),
             config.search.provider.clone(),
         ));
@@ -951,12 +964,13 @@ impl ServiceContainer {
         let broadcaster_federation_client = federation.federation_client.clone();
         let broadcaster_member_storage = rooms.member_storage.clone();
         let broadcaster_origin = config.server.get_server_name().to_string();
+        let broadcaster_batch_size = config.federation.event_broadcast_batch_size;
         let event_broadcaster = {
             let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
                 .with_client(broadcaster_federation_client)
                 .with_pool(pool.as_ref().clone())
                 .with_membership_storage(Arc::new(broadcaster_member_storage));
-            broadcaster.start_batch_sender(broadcaster_origin, 20, 100).await;
+            broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
             Arc::new(broadcaster)
         };
 
@@ -980,6 +994,9 @@ impl ServiceContainer {
 
         // OIDC mapping service
         let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(pool.clone()));
+
+        #[cfg(feature = "burn-after-read")]
+        let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;
 
         // Worker topology — compute before config is moved into the container
         let run_global_maintenance = should_run_global_maintenance(&config.worker);
@@ -1065,14 +1082,14 @@ impl ServiceContainer {
         };
 
         #[cfg(feature = "burn-after-read")]
-        if run_global_maintenance && burn_after_read_processor_enabled() {
+        if run_global_maintenance && burn_after_read_processor_enabled(burn_after_read_processor_cfg) {
             container.extensions.burn_after_read.recover_pending_burns().await;
             container.extensions.burn_after_read.clone().start_burn_processor().await;
         } else {
             ::tracing::info!(
                 worker_type = current_worker_type.as_str(),
                 maintenance_owner = maintenance_owner.as_str(),
-                processor_enabled = burn_after_read_processor_enabled(),
+                processor_enabled = burn_after_read_processor_enabled(burn_after_read_processor_cfg),
                 "Skipping burn-after-read processor startup on this worker instance"
             );
         }
@@ -1127,10 +1144,11 @@ impl ServiceContainer {
     }
 }
 
-fn generate_encryption_key() -> [u8; 32] {
+fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
-    let path = std::env::var("SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH").ok();
+    // Config takes precedence; fall back to env var for backward compatibility.
+    let path = config_path.map(|p| p.to_string()).or_else(|| std::env::var("SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH").ok());
 
     if let Some(ref p) = path {
         let path_buf = std::path::PathBuf::from(p);

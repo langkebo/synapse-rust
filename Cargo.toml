@@ -194,6 +194,12 @@ name = "performance_federation_benchmarks"
 path = "benches/performance_federation_benchmarks.rs"
 harness = false
 
+[[bench]]
+name = "performance_sliding_sync_benchmarks"
+path = "benches/performance_sliding_sync_benchmarks.rs"
+harness = false
+required-features = ["test-utils"]
+
 [workspace]
 members = [
     "synapse-common",

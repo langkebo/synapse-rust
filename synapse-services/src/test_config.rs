@@ -81,6 +81,10 @@ pub fn build_test_config() -> Config {
             encryption_enabled_by_default_for_room_type: None,
             app_service_config_files: vec![],
             presence_enabled: true,
+            media_path: None,
+            megolm_encryption_key_path: None,
+            enable_burn_after_read_processor: true,
+            refresh_token_ttl_secs: 2_592_000,
         },
         database: DatabaseConfig {
             host,
@@ -141,6 +145,7 @@ pub fn build_test_config() -> Config {
             join_acquire_timeout_ms: 750,
             admission_mode: false,
             signing_key_master_key: None,
+            event_broadcast_batch_size: 100,
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),
@@ -163,6 +168,7 @@ pub fn build_test_config() -> Config {
             elasticsearch_url: "http://localhost:9200".to_string(),
             postgres_fts: PostgresFtsConfig { enabled: true, weights: Default::default() },
             provider: "postgres".to_string(),
+            search_index_name: "synapse_search".to_string(),
         },
         rate_limit: RateLimitConfig::default(),
         admin_registration: AdminRegistrationConfig {

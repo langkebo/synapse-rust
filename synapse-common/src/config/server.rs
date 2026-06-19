@@ -200,6 +200,36 @@ pub struct ServerConfig {
     /// 是否启用 Presence 功能
     #[serde(default = "default_true")]
     pub presence_enabled: bool,
+
+    /// 媒体文件存储路径。
+    ///
+    /// 控制媒体服务把上传的文件写到哪个目录。未设置时回退到
+    /// `SYNAPSE_MEDIA_PATH` 环境变量，再回退到 `/app/data/media`
+    /// （存在时）或 `./data/media`。
+    #[serde(default)]
+    pub media_path: Option<String>,
+
+    /// Megolm 加密密钥文件路径。
+    ///
+    /// 用于持久化 E2EE megolm 会话的加密密钥。未设置时回退到
+    /// `SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH` 环境变量；两者都未设置时
+    /// 服务器会生成临时密钥并在重启后丢失已加密的会话。
+    #[serde(default)]
+    pub megolm_encryption_key_path: Option<String>,
+
+    /// 是否启动 burn-after-read 处理器。
+    ///
+    /// 默认 `true`。未在配置中显式设置为 `false` 时，会进一步参考
+    /// `SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR` 环境变量以保持向后兼容。
+    #[serde(default = "default_true")]
+    pub enable_burn_after_read_processor: bool,
+
+    /// 刷新令牌 TTL（秒），默认 30 天。
+    ///
+    /// 仅在 `ServiceContainer` 装配 `RefreshTokenService` 时使用，
+    /// 与 `refresh_token_lifetime` 字段独立。
+    #[serde(default = "default_refresh_token_ttl_secs")]
+    pub refresh_token_ttl_secs: i64,
 }
 
 fn default_suppress_key_server_warning() -> bool {
@@ -232,6 +262,10 @@ fn default_warmup_pool() -> bool {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_refresh_token_ttl_secs() -> i64 {
+    2_592_000
 }
 
 impl ServerConfig {
