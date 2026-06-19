@@ -69,7 +69,8 @@ pub async fn request_token(
 
     let _id: i64 = state
         .services
-        .account.threepid_storage
+        .account
+        .threepid_storage
         .create_validation_session(
             &session_id,
             "email",
@@ -85,7 +86,7 @@ pub async fn request_token(
 
     // In a full implementation, send email here
     // For now, return the token in the response for testing
-    tracing::info!("3PID validation session created: sid={}, token={}, email={}", session_id, token, email);
+    tracing::debug!("3PID validation session created: sid={}", session_id);
 
     let submit_url = req.next_link;
 
@@ -102,7 +103,8 @@ pub async fn submit_token(
 
     let session: crate::storage::threepid::ThreepidValidationSession = state
         .services
-        .account.threepid_storage
+        .account
+        .threepid_storage
         .get_validation_session(&req.sid, &req.client_secret, &req.token)
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?
@@ -110,12 +112,13 @@ pub async fn submit_token(
 
     state
         .services
-        .account.threepid_storage
+        .account
+        .threepid_storage
         .mark_validation_validated(session.id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark session validated", &e))?;
 
-    tracing::info!("3PID validation successful: email={}, sid={}", session.address, session.session_id);
+    tracing::info!("3PID validation successful: sid={}", session.session_id);
 
     Ok(Json(SubmitTokenResponse { is_success: true }))
 }

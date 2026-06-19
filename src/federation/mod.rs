@@ -1,14 +1,14 @@
-pub mod client;
-pub mod device_sync;
+pub use synapse_federation::client;
+pub use synapse_federation::device_sync;
 pub mod edu;
-pub mod event_auth;
-pub mod event_broadcaster;
+pub use synapse_federation::event_auth;
+pub use synapse_federation::event_broadcaster;
 #[cfg(feature = "friends")]
 pub mod friend;
-pub mod key_rotation;
-pub mod memory_tracker;
-pub mod signing;
-pub mod state_resolution;
+pub use synapse_federation::key_rotation;
+pub use synapse_federation::memory_tracker;
+pub use synapse_federation::signing;
+pub use synapse_federation::state_resolution;
 
 pub use client::FederationClient;
 pub use device_sync::DeviceSyncManager;

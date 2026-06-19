@@ -58,6 +58,7 @@ impl RoomService {
                     }),
                     state_key: Some("".to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )

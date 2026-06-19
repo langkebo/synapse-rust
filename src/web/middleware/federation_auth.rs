@@ -1,3 +1,4 @@
+use crate::common::security::check_url_against_blacklist;
 use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::utils::encoding::decode_base64_32;
@@ -110,41 +111,25 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
     let origin_server = &params.origin;
 
     if state.services.core.config.federation.admission_mode {
-        let server_status =
-            sqlx::query_scalar::<_, String>("SELECT status FROM federation_servers WHERE server_name = $1")
-                .bind(origin_server)
-                .fetch_optional(&*state.services.account.user_storage.pool)
-                .await
-                .ok()
-                .flatten();
-
-        match server_status {
-            Some(status) if status != "active" => {
+        match state.services.admin.admin_federation_service.check_admission(origin_server).await {
+            Ok(Some(status)) if status != "active" => {
                 tracing::warn!("Federation request rejected from server '{}' with status '{}'", origin_server, status);
                 return ApiError::forbidden(format!(
                     "Server '{origin_server}' is not authorized for federation (status: {status})"
                 ))
                 .into_response();
             }
-            None => {
-                let now = chrono::Utc::now().timestamp_millis();
-                let _ = sqlx::query(
-                    "INSERT INTO federation_servers (server_name, status, updated_ts) \
-                     VALUES ($1, 'pending', $2) \
-                     ON CONFLICT (server_name) DO NOTHING",
-                )
-                .bind(origin_server)
-                .bind(now)
-                .execute(&*state.services.account.user_storage.pool)
-                .await;
-
-                tracing::info!("New federation server '{}' registered as pending", origin_server);
+            Ok(None) => {
                 return ApiError::forbidden(format!(
                     "Server '{origin_server}' is pending federation admission approval"
                 ))
                 .into_response();
             }
-            _ => {}
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("Federation admission check failed for server '{}': {}", origin_server, e);
+                return ApiError::internal("Federation admission check failed".to_string()).into_response();
+            }
         }
     }
 
@@ -245,10 +230,16 @@ fn canonical_federation_request_bytes(
     destination: &str,
     content: Option<&Value>,
 ) -> Vec<u8> {
-    let result =
-        crate::federation::signing::canonical_federation_request_bytes(method, uri, origin, destination, content);
-    tracing::debug!("Canonical request bytes: {}", String::from_utf8_lossy(&result));
-    result
+    match crate::federation::signing::canonical_federation_request_bytes(method, uri, origin, destination, content) {
+        Ok(result) => {
+            tracing::debug!("Canonical request bytes: {}", String::from_utf8_lossy(&result));
+            result
+        }
+        Err(e) => {
+            tracing::warn!("Canonical JSON error for federation request: {e}");
+            Vec::new()
+        }
+    }
 }
 
 pub(crate) async fn verify_federation_signature_with_cache(
@@ -342,14 +333,18 @@ async fn get_federation_verify_key(
         if let Some(key) = get_local_verify_key(state, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
             let ttl = 3600u64;
-            let _ = state.cache.set(&cache_key, &key_str, ttl).await;
+            if let Err(e) = state.cache.set(&cache_key, &key_str, ttl).await {
+                tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache local federation verify key: {e}");
+            }
             return Ok(key);
         }
     }
 
     let fetched = fetch_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
     let ttl = 3600u64;
-    let _ = state.cache.set(&cache_key, &fetched, ttl).await;
+    if let Err(e) = state.cache.set(&cache_key, &fetched, ttl).await {
+        tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache fetched federation verify key: {e}");
+    }
     decode_ed25519_public_key(&fetched).map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
 }
 
@@ -415,23 +410,33 @@ async fn fetch_federation_verify_key(
         .clone()
         .acquire_owned()
         .await
-        .map_err(|_| ApiError::internal("Rate limit semaphore closed".to_string()))?;
+        .map_err(|e| ApiError::internal_with_log("Rate limit semaphore closed", &e))?;
 
     let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
+    // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
+    let ip_blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
+
+    // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
+    // MITM attacks on server key retrieval.
     let urls = [
         format!("https://{origin}/_matrix/key/v2/server"),
-        format!("http://{origin}/_matrix/key/v2/server"),
         format!("https://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
-        format!("http://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
     ];
 
-    for url in urls {
-        let resp = match client.get(&url).send().await {
+    for url in &urls {
+        // Block requests to private/loopback/link-local IPs to prevent SSRF.
+        if let Err(reason) = check_url_against_blacklist(url, ip_blacklist) {
+            tracing::warn!(origin = %origin, url = %url, reason = %reason, "Blocked federation key fetch to blacklisted address");
+            continue;
+        }
+
+        let resp = match client.get(url).send().await {
             Ok(r) => r,
             Err(_) => continue,
         };
@@ -450,7 +455,9 @@ async fn fetch_federation_verify_key(
         }
     }
 
-    let _ = state.cache.set(&backoff_key, true, 30).await;
+    if let Err(e) = state.cache.set(&backoff_key, true, 30).await {
+        tracing::warn!(origin = %origin, key_id = %key_id, "Failed to set federation key backoff marker: {e}");
+    }
     Err(ApiError::unauthorized("Public key not found".to_string()))
 }
 
@@ -513,10 +520,15 @@ fn verify_server_keys_signature(body: &Value, origin: &str, key_id: &str, verify
         obj.remove("signatures");
         obj.remove("unsigned");
     }
-    let canonical = crate::federation::signing::canonical_json_string(&unsigned);
+    let canonical = match synapse_common::canonical_json(&unsigned) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Canonical JSON error during signature verification: {e}");
+            return false;
+        }
+    };
 
-    use ed25519_dalek::Verifier;
-    verifying_key.verify(canonical.as_bytes(), &sig).is_ok()
+    verifying_key.verify_strict(canonical.as_bytes(), &sig).is_ok()
 }
 
 fn decode_ed25519_public_key(key: &str) -> Result<[u8; 32], ()> {
@@ -557,10 +569,15 @@ fn decode_ed25519_signature(sig: &str) -> Result<ed25519_dalek::Signature, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "test-utils")]
     use crate::cache::{CacheConfig, CacheManager};
+    #[cfg(feature = "test-utils")]
     use crate::services::ServiceContainer;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
+    #[cfg(feature = "test-utils")]
     use ed25519_dalek::Signer;
+    #[cfg(feature = "test-utils")]
     use std::sync::Arc;
 
     #[test]
@@ -617,6 +634,7 @@ mod tests {
         assert_eq!(params.sig, "abc123");
     }
 
+    #[cfg(feature = "test-utils")]
     #[tokio::test]
     async fn test_verify_federation_signature_with_local_config_key() {
         let signing_key_bytes = [7u8; 32];

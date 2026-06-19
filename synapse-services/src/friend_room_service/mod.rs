@@ -999,6 +999,7 @@ impl FriendRoomService {
                 content,
                 state_key: Some(state_key.to_string()),
                 origin_server_ts: now,
+                redacts: None,
             })
             .await
             .map_err(|e| {

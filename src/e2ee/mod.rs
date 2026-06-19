@@ -1,18 +1,18 @@
-pub mod backup;
+pub use synapse_e2ee::backup;
 pub mod cross_signing;
-pub mod crypto;
+pub use synapse_e2ee::crypto;
 pub mod device_keys;
-pub mod device_trust;
-pub mod key_request;
+pub use synapse_e2ee::device_trust;
+pub use synapse_e2ee::key_request;
 pub mod key_rotation;
 pub mod megolm;
-pub mod olm;
-pub mod secure_backup;
-pub mod signature;
-pub mod signed_json;
+pub use synapse_e2ee::olm;
+pub use synapse_e2ee::secure_backup;
+pub use synapse_e2ee::signature;
+pub use synapse_e2ee::signed_json;
 pub mod ssss;
-pub mod to_device;
-pub mod vodozemac_megolm;
+pub use synapse_e2ee::to_device;
+pub use synapse_e2ee::vodozemac_megolm;
 
 // 跨客户端互操作测试（Phase 3）。所有 case 需 `E2EE_INTEROP=1` 显式启用，
 // 不会拖慢默认 `cargo test` 速度；本地 Element 互操作通过
@@ -60,9 +60,8 @@ pub use signature::EventSignature;
 pub use signature::SignatureService;
 pub use ssss::SecretStorage;
 pub use ssss::SecretStorageService;
+pub use synapse_e2ee::verification;
 pub use verification::{
     QrCodeData, QrState, SasData, SasRepresentation, SasResult, SasState, VerificationMethod as VerifMethod,
     VerificationState,
 };
-
-pub mod verification;

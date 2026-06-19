@@ -179,7 +179,8 @@ async fn update_widget(
 
     let widget = state
         .services
-        .extensions.widget_service
+        .extensions
+        .widget_service
         .update_widget(&widget_id, request)
         .await?
         .ok_or(ApiError::not_found("Widget not found"))?;
@@ -308,7 +309,8 @@ async fn get_widget_session(
 ) -> Result<Json<SessionResponse>, ApiError> {
     let session = state
         .services
-        .extensions.widget_service
+        .extensions
+        .widget_service
         .get_session(&session_id)
         .await?
         .ok_or(ApiError::not_found("Session not found"))?;
@@ -335,7 +337,8 @@ async fn terminate_widget_session(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let session = state
         .services
-        .extensions.widget_service
+        .extensions
+        .widget_service
         .get_session(&session_id)
         .await?
         .ok_or(ApiError::not_found("Session not found"))?;
@@ -384,8 +387,13 @@ async fn get_widget_with_access(
     widget_id: &str,
     required_permission: &str,
 ) -> Result<crate::storage::widget::Widget, ApiError> {
-    let widget =
-        state.services.extensions.widget_service.get_widget(widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.user_id == auth_user.user_id {
         return Ok(widget);
@@ -398,8 +406,12 @@ async fn get_widget_with_access(
         }
     }
 
-    let has_direct_permission =
-        state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, required_permission).await?;
+    let has_direct_permission = state
+        .services
+        .extensions
+        .widget_service
+        .check_permission(widget_id, &auth_user.user_id, required_permission)
+        .await?;
     let has_wildcard_permission =
         state.services.extensions.widget_service.check_permission(widget_id, &auth_user.user_id, "*").await?;
     let has_write_permission = required_permission == "read"
@@ -443,8 +455,13 @@ async fn get_room_widget_capabilities(
     )
     .await?;
 
-    let widget =
-        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
@@ -511,8 +528,13 @@ async fn send_room_widget_message(
     )
     .await?;
 
-    let widget =
-        state.services.extensions.widget_service.get_widget(&widget_id).await?.ok_or(ApiError::not_found("Widget not found"))?;
+    let widget = state
+        .services
+        .extensions
+        .widget_service
+        .get_widget(&widget_id)
+        .await?
+        .ok_or(ApiError::not_found("Widget not found"))?;
 
     if widget.room_id.as_deref() != Some(&room_id) {
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));

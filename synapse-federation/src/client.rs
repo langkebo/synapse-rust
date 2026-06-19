@@ -238,7 +238,8 @@ impl FederationClient {
             &self.server_name,
             destination,
             body.and_then(|s| serde_json::from_str(s).ok()).as_ref(),
-        );
+        )
+        .map_err(|e| FederationClientError::Authentication(format!("Canonical JSON error: {e}")))?;
 
         let signature = signing_key.sign(&message);
         let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());

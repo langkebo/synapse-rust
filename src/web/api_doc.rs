@@ -8164,10 +8164,10 @@ pub fn get_room_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `PUT /_matrix/federation/v1/knock/{room_id}/{user_id}` — Submit a knock request to a room.
+/// `POST /_matrix/federation/v1/knock/{room_id}/{user_id}` — Submit a knock request to a room.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
-    put,
+    post,
     path = "/_matrix/federation/v1/knock/{room_id}/{user_id}",
     tag = "Federation",
     params(

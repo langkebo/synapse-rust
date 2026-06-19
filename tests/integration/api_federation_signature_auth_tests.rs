@@ -54,7 +54,7 @@ fn signed_request(
     signing_key: &ed25519_dalek::SigningKey,
     content: Option<&Value>,
 ) -> Request<Body> {
-    let signed_bytes = canonical_federation_request_bytes(method, uri, server_name, server_name, content);
+    let signed_bytes = canonical_federation_request_bytes(method, uri, server_name, server_name, content).unwrap();
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
@@ -79,7 +79,7 @@ fn signed_request_with_destination_header(
     signing_key: &ed25519_dalek::SigningKey,
     content: Option<&Value>,
 ) -> Request<Body> {
-    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, destination, content);
+    let signed_bytes = canonical_federation_request_bytes(method, uri, origin, destination, content).unwrap();
     let sig = signing_key.sign(&signed_bytes);
     let sig_b64 = STANDARD_NO_PAD.encode(sig.to_bytes());
 
@@ -571,6 +571,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
                     content,
                     state_key: Some(String::new()),
                     origin_server_ts: ts,
+                    redacts: None,
                 },
                 None,
             )
@@ -598,6 +599,7 @@ async fn test_federation_state_and_backfill_endpoints_return_spec_shaped_minimal
                     content: json!({ "msgtype": "m.text", "body": event_id }),
                     state_key: None,
                     origin_server_ts: ts,
+                    redacts: None,
                 },
                 None,
             )
@@ -818,6 +820,7 @@ async fn test_federation_state_endpoints_reject_event_ids_from_other_rooms() {
                 content: json!({ "msgtype": "m.text", "body": "wrong room" }),
                 state_key: None,
                 origin_server_ts: 123_i64,
+                redacts: None,
             },
             None,
         )
@@ -1091,6 +1094,7 @@ async fn test_federation_get_room_event_rejects_server_without_joined_member() {
                 content: json!({ "topic": "secret" }),
                 state_key: Some(String::new()),
                 origin_server_ts: 1_717_171_717_000i64,
+                redacts: None,
             },
             None,
         )
@@ -1148,6 +1152,7 @@ async fn test_federation_event_endpoints_return_spec_shaped_pdu_response() {
                 content: json!({ "topic": "spec shape" }),
                 state_key: Some(String::new()),
                 origin_server_ts: 1_717_171_718_000i64,
+                redacts: None,
             },
             None,
         )
@@ -1341,6 +1346,7 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
                 }),
                 state_key: Some(String::new()),
                 origin_server_ts: 1_717_171_717_000i64,
+                redacts: None,
             },
             None,
         )
@@ -2288,7 +2294,8 @@ async fn test_federation_send_transaction_processes_presence_edu_when_enabled() 
     assert_eq!(presence.0, "online");
     assert_eq!(presence.1.as_deref(), Some("ready"));
 
-    let processed = state.services.core.metrics.get_counter("federation_inbound_presence_processed_total").unwrap().get();
+    let processed =
+        state.services.core.metrics.get_counter("federation_inbound_presence_processed_total").unwrap().get();
     assert_eq!(processed, 1);
 }
 

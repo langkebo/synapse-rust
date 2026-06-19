@@ -23,7 +23,7 @@ pub use guest::GuestAuthExt;
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
 
-const TOKEN_CACHE_TTL_SECS: u64 = 3600;
+const TOKEN_CACHE_TTL_SECS: u64 = 300; // 5 min - must be short to respect revocation
 const USER_ACTIVE_CACHE_TTL_SECS: u64 = 60;
 const ADMIN_CACHE_TTL_SECS: u64 = 60;
 const DEFAULT_POWER_LEVEL: i64 = 50;

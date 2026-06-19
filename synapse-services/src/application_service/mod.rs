@@ -955,15 +955,51 @@ impl ApplicationServiceManager {
         &self,
         pending_events: &[ApplicationServiceEvent],
     ) -> Result<Vec<serde_json::Value>, ApiError> {
-        let mut events = Vec::with_capacity(pending_events.len());
+        let source_event_ids: Vec<String> =
+            pending_events.iter().map(|pe| Self::source_event_id(&pe.event_id)).collect();
 
-        for pending_event in pending_events {
-            events.push(self.build_transaction_event(pending_event).await?);
+        let source_events = self.event_storage.get_events_map(&source_event_ids).await.map_err(|e| {
+            ApiError::internal_with_log("Failed to load source room events for application service", &e)
+        })?;
+
+        let mut events = Vec::with_capacity(pending_events.len());
+        for (pending_event, source_event_id) in pending_events.iter().zip(source_event_ids.iter()) {
+            if let Some(source_event) = source_events.get(source_event_id) {
+                events.push(json!({
+                    "event_id": source_event.event_id,
+                    "queue_event_id": pending_event.event_id,
+                    "room_id": source_event.room_id,
+                    "type": source_event.event_type,
+                    "sender": source_event.user_id,
+                    "content": source_event.content,
+                    "state_key": source_event.state_key,
+                    "origin_server_ts": source_event.origin_server_ts,
+                }));
+                continue;
+            }
+
+            warn!(
+                queue_event_id = %pending_event.event_id,
+                source_event_id = %source_event_id,
+                "Falling back to minimal application service event payload because source room event was not found"
+            );
+
+            events.push(json!({
+                "event_id": source_event_id,
+                "queue_event_id": pending_event.event_id,
+                "room_id": pending_event.room_id,
+                "type": pending_event.event_type,
+                "sender": pending_event.sender,
+                "content": pending_event.content,
+                "state_key": pending_event.state_key,
+                "origin_server_ts": pending_event.origin_server_ts,
+            }));
         }
 
         Ok(events)
     }
 
+    #[allow(dead_code)]
     async fn build_transaction_event(
         &self,
         pending_event: &ApplicationServiceEvent,

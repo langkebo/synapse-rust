@@ -1158,6 +1158,8 @@ mod tests {
             device_id: Some("DEVICE123".to_string()),
             exp: now + 3600,
             iat: now,
+            iss: None,
+            aud: None,
         };
 
         manager.set_token("test_token", &claims, 3600).await;
@@ -1180,6 +1182,8 @@ mod tests {
             device_id: Some("DEVICE456".to_string()),
             exp: 1234567890,
             iat: 1234567890,
+            iss: None,
+            aud: None,
         };
         assert_eq!(claims.user_id, "@user:example.com");
         assert_eq!(claims.device_id, Some("DEVICE456".to_string()));

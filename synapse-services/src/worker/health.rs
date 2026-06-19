@@ -72,15 +72,12 @@ impl HealthChecker {
 
     pub async fn register_worker(&self, worker_id: &str) {
         let mut status = self.health_status.write().await;
-        status.insert(
-            worker_id.to_string(),
-            HealthCheckResult {
-                worker_id: worker_id.to_string(),
-                status: HealthStatus::Unknown,
-                last_check_ts: chrono::Utc::now().timestamp_millis(),
-                ..Default::default()
-            },
-        );
+        status.entry(worker_id.to_string()).or_insert_with(|| HealthCheckResult {
+            worker_id: worker_id.to_string(),
+            status: HealthStatus::Unknown,
+            last_check_ts: chrono::Utc::now().timestamp_millis(),
+            ..Default::default()
+        });
 
         debug!("Worker registered for health checks: {}", worker_id);
     }

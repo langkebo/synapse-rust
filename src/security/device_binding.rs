@@ -35,6 +35,11 @@ fn build_binding_payload(user_id: &str, device_id: &str, key_type: &str, added_t
 }
 
 /// Compute the hex-encoded HMAC-SHA256 binding token for a device upload.
+///
+/// `new_from_slice` is infallible for HMAC (RFC 2104 accepts any key length),
+/// so the `expect` below cannot panic in practice. We allow the clippy lint
+/// rather than changing the public API to return `Result`.
+#[allow(clippy::expect_used)]
 pub fn sign_device_binding(
     secret: &[u8],
     user_id: &str,
@@ -48,6 +53,9 @@ pub fn sign_device_binding(
 }
 
 /// Constant-time verify a binding token against the row's claimed fields.
+///
+/// See `sign_device_binding` for why `expect` is safe here.
+#[allow(clippy::expect_used)]
 pub fn verify_device_binding(
     secret: &[u8],
     user_id: &str,

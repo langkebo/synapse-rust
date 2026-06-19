@@ -68,11 +68,7 @@ impl AliyunSmsProvider {
     /// Build the canonical query string for Aliyun SMS API signature.
     fn build_query(&self, phone_numbers: &str, template_param: &str) -> String {
         let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let nonce: String = rand::rng()
-            .sample_iter(&rand::distr::Alphanumeric)
-            .take(32)
-            .map(char::from)
-            .collect();
+        let nonce: String = rand::rng().sample_iter(&rand::distr::Alphanumeric).take(32).map(char::from).collect();
 
         let mut params: Vec<(&str, &str)> = vec![
             ("AccessKeyId", &self.access_key_id),
@@ -107,9 +103,8 @@ impl AliyunSmsProvider {
     #[allow(clippy::expect_used)]
     fn sign(&self, query: &str) -> String {
         let string_to_sign = format!("GET&{}&{}", aliyun_percent_encode("/"), aliyun_percent_encode(query));
-        let mut mac =
-            Hmac::<Sha1>::new_from_slice(format!("{}&", self.access_key_secret).as_bytes())
-                .expect("HMAC key should be valid");
+        let mut mac = Hmac::<Sha1>::new_from_slice(format!("{}&", self.access_key_secret).as_bytes())
+            .expect("HMAC key should be valid");
         mac.update(string_to_sign.as_bytes());
         let result = mac.finalize();
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, result.into_bytes())
@@ -125,12 +120,13 @@ impl SmsProvider for AliyunSmsProvider {
         let query = self.build_query(to, &template_param);
         let signature = self.sign(&query);
 
-        let url = format!(
-            "https://{}/?{}&Signature={}",
-            self.endpoint,
-            query,
-            aliyun_percent_encode(&signature)
-        );
+        // Allow endpoints with an explicit scheme (e.g. for tests pointing at a
+        // mock server). Bare hostnames default to HTTPS as required by Aliyun.
+        let url = if self.endpoint.starts_with("http://") || self.endpoint.starts_with("https://") {
+            format!("{}/?{}&Signature={}", self.endpoint, query, aliyun_percent_encode(&signature))
+        } else {
+            format!("https://{}/?{}&Signature={}", self.endpoint, query, aliyun_percent_encode(&signature))
+        };
 
         let response = self
             .client
@@ -143,16 +139,8 @@ impl SmsProvider for AliyunSmsProvider {
         let body = response.text().await.unwrap_or_default();
 
         if !status.is_success() {
-            let truncated = if body.len() > 200 {
-                format!("{}...", &body[..200])
-            } else {
-                body
-            };
-            return Err(ApiError::internal(format!(
-                "Aliyun SMS API returned HTTP {}: {}",
-                status.as_u16(),
-                truncated
-            )));
+            let truncated = if body.len() > 200 { format!("{}...", &body[..200]) } else { body };
+            return Err(ApiError::internal(format!("Aliyun SMS API returned HTTP {}: {}", status.as_u16(), truncated)));
         }
 
         // Parse response — Aliyun returns {"Code":"OK",...} or {"Code":"isv.*",...}
@@ -168,10 +156,7 @@ impl SmsProvider for AliyunSmsProvider {
             }
 
             let message = parsed.get("Message").and_then(|v| v.as_str()).unwrap_or("unknown error");
-            return Err(ApiError::internal(format!(
-                "Aliyun SMS API error: Code={}, Message={}",
-                code, message
-            )));
+            return Err(ApiError::internal(format!("Aliyun SMS API error: Code={}, Message={}", code, message)));
         }
 
         Err(ApiError::internal(format!("Aliyun SMS API unexpected response: {}", body)))
@@ -185,6 +170,9 @@ impl SmsProvider for AliyunSmsProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use wiremock::matchers::{method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn test_aliyun_percent_encode() {
@@ -240,5 +228,97 @@ mod tests {
         assert!(query.contains("TemplateCode=SMS_001"));
         assert!(query.contains("SignatureMethod=HMAC-SHA1"));
         assert!(query.contains("Version=2017-05-25"));
+    }
+
+    #[tokio::test]
+    async fn test_aliyun_send_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .and(query_param("AccessKeyId", "test-access-key"))
+            .and(query_param("Action", "SendSms"))
+            .and(query_param("SignName", "TestSign"))
+            .and(query_param("TemplateCode", "SMS_123456789"))
+            .and(query_param("PhoneNumbers", "13800138000"))
+            .and(query_param("TemplateParam", r#"{"code":"123456"}"#))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "Code": "OK",
+                "Message": "OK",
+                "RequestId": "test-123",
+                "BizId": "biz-456"
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AliyunSmsProvider::new(&SmsConfig {
+            enabled: true,
+            provider: "aliyun".to_string(),
+            api_key: "test-access-key".to_string(),
+            api_secret: "test-access-secret".to_string(),
+            sender_id: "TestSign".to_string(),
+            template_code: "SMS_123456789".to_string(),
+            endpoint: server.uri(),
+            ..Default::default()
+        });
+
+        provider.send("13800138000", "123456").await.expect("aliyun sms send should succeed when API returns Code=OK");
+    }
+
+    #[tokio::test]
+    async fn test_aliyun_send_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "Code": "isv.BUSINESS_LIMIT_CONTROL",
+                "Message": "Minutes: Limit Reached",
+                "RequestId": "test-456"
+            })))
+            .mount(&server)
+            .await;
+
+        let provider = AliyunSmsProvider::new(&SmsConfig {
+            enabled: true,
+            provider: "aliyun".to_string(),
+            api_key: "test-access-key".to_string(),
+            api_secret: "test-access-secret".to_string(),
+            sender_id: "TestSign".to_string(),
+            template_code: "SMS_123456789".to_string(),
+            endpoint: server.uri(),
+            ..Default::default()
+        });
+
+        let err = provider
+            .send("13800138000", "123456")
+            .await
+            .expect_err("aliyun sms send should fail when API returns non-OK Code");
+        assert!(err.is_internal(), "error should be internal, got: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains("isv.BUSINESS_LIMIT_CONTROL"), "error should contain Aliyun Code, got: {msg}");
+        assert!(msg.contains("Minutes: Limit Reached"), "error should contain Aliyun Message, got: {msg}");
+    }
+
+    #[test]
+    fn test_aliyun_signature_deterministic() {
+        let config = SmsConfig {
+            enabled: true,
+            provider: "aliyun".to_string(),
+            api_key: "test-access-key".to_string(),
+            api_secret: "test-access-secret".to_string(),
+            sender_id: "TestSign".to_string(),
+            template_code: "SMS_123456789".to_string(),
+            ..Default::default()
+        };
+        let provider = AliyunSmsProvider::new(&config);
+
+        // build_query generates a unique nonce and timestamp per call, so we
+        // verify determinism of the HMAC-SHA1 sign() on a fixed query string.
+        // The signature must be reproducible for the same input.
+        let query = provider.build_query("13800138000", r#"{"code":"123456"}"#);
+        let signature1 = provider.sign(&query);
+        let signature2 = provider.sign(&query);
+
+        assert_eq!(signature1, signature2, "HMAC-SHA1 signature must be deterministic for the same query");
+        assert!(!signature1.is_empty(), "signature should not be empty");
     }
 }

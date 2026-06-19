@@ -145,6 +145,7 @@ impl RoomService {
                 content: json!({ "pinned": pinned_event_ids }),
                 state_key: Some(String::new()),
                 origin_server_ts: now,
+                redacts: None,
             },
             None,
         )

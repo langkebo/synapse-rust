@@ -200,6 +200,8 @@ server {
 - `ADMIN_AUTH_HEADER="Authorization: Bearer <admin_access_token>"`
 - `REPLICATION_SECRET="<worker_replication_secret>"`
 
+针对 `split_minimal` 样板部署，仓库还提供了 `docker/run_split_minimal_smoke.sh`；当设置 `RUN_APPSERVICE_P0_D2=1` 时，该脚本会在自动完成 admin token 获取与 deployment smoke 后，继续调用 `scripts/run_appservice_p0_d2.sh baseline`，把 `appservice` 的 `D2` 样本直接归档到 `artifacts/appservice/<date>/baseline/`。
+
 当前脚本已覆盖以下检查：
 
 | 检查项 | 目标 | 通过标准 |

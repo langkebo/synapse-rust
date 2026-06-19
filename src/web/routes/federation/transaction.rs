@@ -311,6 +311,16 @@ pub(super) async fn send_transaction(
 
         let content_for_as = content.clone();
 
+        // P0-05/P0-08: extract `redacts` target from redaction PDUs.  For
+        // v1-v10 this is a top-level field; for v11+ it lives in
+        // `content.redacts` (MSC2174/MSC3820).  The shared helper checks both
+        // locations.
+        let redacts_target = if event_type == "m.room.redaction" {
+            synapse_common::redaction::extract_redacts(pdu).map(|s| s.to_string())
+        } else {
+            None
+        };
+
         let params = crate::storage::event::CreateEventParams {
             event_id: event_id.clone(),
             room_id: room_id.to_string(),
@@ -319,6 +329,7 @@ pub(super) async fn send_transaction(
             content,
             state_key: state_key.map(|s| s.to_string()),
             origin_server_ts,
+            redacts: redacts_target.clone(),
         };
 
         match state.services.rooms.event_storage.create_event(params, None).await {
@@ -329,6 +340,30 @@ pub(super) async fn send_transaction(
                     .room_service
                     .dispatch_appservice_event(&event_id, room_id, event_type, user_id, &content_for_as, state_key)
                     .await;
+
+                // P0-08: if this was a redaction PDU, apply the content
+                // stripping to the target event.  This is what makes
+                // redactions from remote servers actually take effect on
+                // events stored locally.  We do this after the redaction
+                // event itself is persisted so that the redaction is
+                // recorded even if the target is missing.
+                if let Some(target_event_id) = &redacts_target {
+                    if let Err(e) =
+                        state.services.rooms.event_storage.redact_event_content(target_event_id, Some(user_id)).await
+                    {
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            request_id = %request_id,
+                            txn_id = %txn_id,
+                            origin = %origin,
+                            redaction_event_id = %event_id,
+                            target_event_id = %target_event_id,
+                            error = %e,
+                            "Federation redaction PDU persisted but target content redaction failed"
+                        );
+                    }
+                }
+
                 super::increment_counter(&state, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({
                     "event_id": event_id,
@@ -427,7 +462,12 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
         obj.remove("signatures");
         obj.remove("unsigned");
     }
-    let signed_bytes = crate::federation::signing::canonical_json_string(&signing_payload).into_bytes();
+    let signed_bytes = match synapse_common::canonical_json_bytes(&signing_payload) {
+        Ok(b) => b,
+        Err(e) => {
+            return Err(format!("Canonical JSON error for PDU signature verification: {e}"));
+        }
+    };
 
     let mut last_error: Option<String> = None;
     for (key_id, sig_value) in server_sigs {

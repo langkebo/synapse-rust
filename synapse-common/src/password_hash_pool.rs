@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use argon2::password_hash::rand_core::OsRng;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 

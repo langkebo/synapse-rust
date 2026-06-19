@@ -18,6 +18,9 @@ pub struct RoomEvent {
     pub reference_image: Option<String>,
     pub origin: String,
     pub stream_ordering: Option<i64>,
+    /// Target event_id for `m.room.redaction` events (P0-05).  `None` for
+    /// non-redaction events or redaction events that do not specify a target.
+    pub redacts: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -66,6 +69,10 @@ pub struct CreateEventParams {
     pub content: serde_json::Value,
     pub state_key: Option<String>,
     pub origin_server_ts: i64,
+    /// Target event_id for `m.room.redaction` events (P0-05).  Set to `None`
+    /// for non-redaction events.  For v1-v10 this is populated from the
+    /// top-level `redacts` PDU field; for v11+ from `content.redacts`.
+    pub redacts: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]

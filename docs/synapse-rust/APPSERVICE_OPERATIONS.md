@@ -476,12 +476,16 @@ artifacts/appservice/<date>/
   baseline/
   after-change/
   decision.md
+  decision.autofill.md
 ```
 
 其中：
 
 - `baseline/`、`after-change/` 下会保存 `daily-report.json`、`daily-report.md`、场景原始 `json`、`resource-summary.txt`、`run-metadata.json`
-- `decision.md` 会在首次执行时自动生成，作为本轮调优结论和回退记录模板
+- `decision.md` 会在首次执行时自动生成，作为人工维护的决策模板
+- `decision.autofill.md` 会在每次执行后自动刷新，预填当前已有 `baseline/after-change` 结论、场景状态、资源摘要和下一步建议
+- 当 `baseline` 与 `after-change` 同时存在时，`decision.autofill.md` 还会自动输出结论对比、场景逐项对比和总体趋势
+- 如需手工补一份更完整的决策记录，可参考 [APPSERVICE_D2_DECISION_TEMPLATE.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/APPSERVICE_D2_DECISION_TEMPLATE.md)
 
 可选环境变量：
 

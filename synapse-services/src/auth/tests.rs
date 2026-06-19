@@ -15,6 +15,8 @@ fn test_claims_struct() {
         exp: 1234567890,
         iat: 1234567889,
         device_id: Some("DEVICE123".to_string()),
+        iss: None,
+        aud: None,
     };
     assert_eq!(claims.sub, "@test:example.com");
     assert_eq!(claims.user_id, "@test:example.com");
@@ -32,6 +34,8 @@ fn test_claims_with_admin() {
         exp: 1234567890,
         iat: 1234567890,
         device_id: None,
+        iss: None,
+        aud: None,
     };
     assert!(claims.is_admin);
     assert!(claims.device_id.is_none());
@@ -63,6 +67,8 @@ fn test_claims_serialization() {
         exp: 1234567890,
         iat: 1234567890,
         device_id: Some("DEVICE123".to_string()),
+        iss: None,
+        aud: None,
     };
     let json = serde_json::to_string(&claims).unwrap();
     let deserialized: Claims = serde_json::from_str(&json).unwrap();
@@ -170,6 +176,8 @@ fn test_claims_expiration_validation() {
         exp: now + 3600,
         iat: now,
         device_id: None,
+        iss: None,
+        aud: None,
     };
     assert!(valid_claims.exp > now);
 
@@ -181,6 +189,8 @@ fn test_claims_expiration_validation() {
         exp: now - 3600,
         iat: now - 7200,
         device_id: None,
+        iss: None,
+        aud: None,
     };
     assert!(expired_claims.exp < now);
 }
@@ -195,6 +205,8 @@ fn test_claims_device_id_optional() {
         exp: 1234567890,
         iat: 1234567890,
         device_id: Some("DEVICE123".to_string()),
+        iss: None,
+        aud: None,
     };
     assert!(claims_with_device.device_id.is_some());
 
@@ -206,6 +218,8 @@ fn test_claims_device_id_optional() {
         exp: 1234567890,
         iat: 1234567890,
         device_id: None,
+        iss: None,
+        aud: None,
     };
     assert!(claims_without_device.device_id.is_none());
 }
@@ -222,6 +236,8 @@ fn test_jwt_encode_decode() {
         exp: (now + Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
         device_id: Some("DEVICE456".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -252,6 +268,8 @@ fn test_jwt_decode_wrong_secret() {
         exp: (now + Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
         device_id: None,
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -277,6 +295,8 @@ fn test_jwt_expired_token() {
         exp: (now - Duration::hours(1)).timestamp(),
         iat: (now - Duration::hours(2)).timestamp(),
         device_id: None,
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -302,6 +322,8 @@ fn test_jwt_tampered_token() {
         exp: (now + Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
         device_id: None,
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -348,6 +370,8 @@ fn test_claims_json_roundtrip() {
         exp: 9999999999,
         iat: 1000000000,
         device_id: Some("MYDEVICE".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let json = serde_json::to_string(&original).unwrap();
@@ -371,6 +395,8 @@ fn test_claims_json_structure() {
         exp: 1234567890,
         iat: 1234567800,
         device_id: Some("DEV1".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let json = serde_json::to_string(&claims).unwrap();
@@ -441,6 +467,8 @@ fn test_auth_service_jwt_generation_direct() {
         exp: (now + Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
         device_id: Some("DEVICE1".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -472,6 +500,8 @@ fn test_auth_service_jwt_admin_flag_direct() {
         exp: (now + Duration::hours(1)).timestamp(),
         iat: now.timestamp(),
         device_id: Some("DEVICE2".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -500,6 +530,8 @@ fn test_auth_service_jwt_expiration_direct() {
         exp: now + token_expiry,
         iat: now,
         device_id: Some("DEVICE".to_string()),
+        iss: None,
+        aud: None,
     };
 
     let token = encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(jwt_secret)).unwrap();

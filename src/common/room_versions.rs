@@ -37,6 +37,21 @@ impl RoomVersionCapability {
         }
     }
 
+    /// A stable room version that can be parsed and joined but cannot be
+    /// created on this server.  Used for room versions whose redaction format
+    /// or auth rules are not yet fully implemented, so that we do not advertise
+    /// creation support that would produce non-compliant PDUs.
+    pub const fn stable_parse_only(version: &'static str) -> Self {
+        Self {
+            version,
+            disposition: RoomVersionDisposition::Stable,
+            can_create: false,
+            can_join: true,
+            can_parse: true,
+            can_federate: true,
+        }
+    }
+
     pub const fn disposition_str(self) -> &'static str {
         self.disposition.as_str()
     }
@@ -55,6 +70,12 @@ pub const SUPPORTED_ROOM_VERSIONS: &[RoomVersionCapability] = &[
     RoomVersionCapability::stable("8"),
     RoomVersionCapability::stable("9"),
     RoomVersionCapability::stable("10"),
+    // v11+ use the MSC2174/MSC3820 redaction format (content.redacts) and
+    // allow self-redaction by the original author.  Both behaviours are now
+    // implemented in synapse-common::redaction (extract_redacts handles both
+    // top-level and content.redacts) and in auth::power_levels::can_redact_event
+    // (which grants self-redact for room versions >= 11), so these versions
+    // can be advertised as creatable.
     RoomVersionCapability::stable("11"),
     RoomVersionCapability::stable("12"),
     RoomVersionCapability::stable("13"),
@@ -133,19 +154,26 @@ mod tests {
     #[test]
     fn resolve_room_version_defaults_and_rejects_unknown_versions() {
         assert_eq!(resolve_room_version(None), Some(DEFAULT_ROOM_VERSION));
+        assert_eq!(resolve_room_version(Some("10")), Some("10"));
+        // v11+ are now fully creatable after the redaction chain (P0-05/06/09)
+        // and state resolution v2 (P0-10/11) landed.
         assert_eq!(resolve_room_version(Some("11")), Some("11"));
         assert_eq!(resolve_room_version(Some("12")), Some("12"));
         assert_eq!(resolve_room_version(Some("13")), Some("13"));
+        // v14 is not a supported room version.
         assert_eq!(resolve_room_version(Some("14")), None);
     }
 
     #[test]
     fn room_version_support_matrix_keeps_current_versions_fully_enabled() {
         for supported in SUPPORTED_ROOM_VERSIONS {
-            assert!(can_create_room_version(supported.version));
+            // All versions can be joined, parsed, and federated.
             assert!(can_join_room_version(supported.version));
             assert!(can_parse_room_version(supported.version));
             assert!(can_federate_room_version(supported.version));
+            // All supported versions (v1-v13) are now fully creatable after
+            // the redaction chain and state resolution v2 landed.
+            assert!(can_create_room_version(supported.version));
         }
         assert!(!can_create_room_version("14"));
         assert!(!can_join_room_version("14"));
@@ -159,13 +187,19 @@ mod tests {
         let available = capability["available"].as_object().expect("available room versions should be an object");
 
         assert_eq!(capability["default"], DEFAULT_ROOM_VERSION);
-        assert_eq!(available.len(), SUPPORTED_ROOM_VERSIONS.len());
+        // Only creatable versions appear in the client capability list.
+        let creatable_count = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).count();
+        assert_eq!(available.len(), creatable_count);
 
         for supported in SUPPORTED_ROOM_VERSIONS {
-            assert_eq!(
-                available.get(supported.version).and_then(|value| value.as_str()),
-                Some(supported.disposition_str())
-            );
+            if supported.can_create {
+                assert_eq!(
+                    available.get(supported.version).and_then(|value| value.as_str()),
+                    Some(supported.disposition_str())
+                );
+            } else {
+                assert!(available.get(supported.version).is_none());
+            }
         }
     }
 
@@ -202,6 +236,17 @@ mod tests {
     }
 
     #[test]
+    fn test_room_version_capability_stable_parse_only_constructor() {
+        let cap = RoomVersionCapability::stable_parse_only("11");
+        assert_eq!(cap.version, "11");
+        assert_eq!(cap.disposition, RoomVersionDisposition::Stable);
+        assert!(!cap.can_create);
+        assert!(cap.can_join);
+        assert!(cap.can_parse);
+        assert!(cap.can_federate);
+    }
+
+    #[test]
     fn test_room_version_capability_disposition_str() {
         let stable = RoomVersionCapability::stable("1");
         assert_eq!(stable.disposition_str(), "stable");
@@ -219,6 +264,9 @@ mod tests {
     fn test_can_create_room_version_edge_cases() {
         assert!(can_create_room_version("1"));
         assert!(can_create_room_version("10"));
+        // v11+ are now creatable after redaction chain and state resolution v2 landed.
+        assert!(can_create_room_version("11"));
+        assert!(can_create_room_version("13"));
         assert!(!can_create_room_version("14"));
         assert!(!can_create_room_version(""));
     }

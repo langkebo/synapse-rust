@@ -252,15 +252,18 @@ impl SyncService {
         let mut user_device_counts = serde_json::Map::new();
         let device_key_storage = DeviceKeyStorage::new(&self.device_storage.pool);
 
-        for uid in &changed_users {
-            if let Ok(count) = device_key_storage.get_device_count(uid).await {
-                user_device_counts.insert(
-                    uid.clone(),
-                    json!({
-                        "device_count": count,
-                        "change_type": "changed"
-                    }),
-                );
+        if !changed_users.is_empty() {
+            let counts = device_key_storage.get_device_counts_batch(&changed_users).await.unwrap_or_default();
+            for uid in &changed_users {
+                if let Some(count) = counts.get(uid) {
+                    user_device_counts.insert(
+                        uid.clone(),
+                        json!({
+                            "device_count": count,
+                            "change_type": "changed"
+                        }),
+                    );
+                }
             }
         }
 

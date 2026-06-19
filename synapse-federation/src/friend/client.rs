@@ -54,16 +54,17 @@ impl FriendFederationClient {
         path: &str,
         destination: &str,
         content: Option<&Value>,
-    ) -> String {
-        let message = canonical_federation_request_bytes(method, path, &self.server_name, destination, content);
+    ) -> Result<String, ApiError> {
+        let message = canonical_federation_request_bytes(method, path, &self.server_name, destination, content)
+            .map_err(|e| ApiError::internal(format!("Canonical JSON error: {e}")))?;
 
         let signature = signing_key.sign(&message);
         let sig_b64 = STANDARD_NO_PAD.encode(signature.to_bytes());
 
-        format!(
+        Ok(format!(
             "X-Matrix origin={},destination={},key=\"{}\",sig=\"{}\"",
             self.server_name, destination, key_id, sig_b64
-        )
+        ))
     }
 
     async fn sign_request(
@@ -74,7 +75,7 @@ impl FriendFederationClient {
         content: Option<&Value>,
     ) -> Result<String, ApiError> {
         if let Some(signing_key) = self.signing_key.as_ref() {
-            return Ok(self.build_auth_header(&self.signing_key_id, signing_key, method, path, destination, content));
+            return self.build_auth_header(&self.signing_key_id, signing_key, method, path, destination, content);
         }
 
         if let Some(key_rotation_manager) = &self.key_rotation_manager {
@@ -84,14 +85,14 @@ impl FriendFederationClient {
                 .map_err(|e| ApiError::internal_with_log("Failed to load federation signing key", &e))?
             {
                 if let Some(signing_key) = Self::decode_signing_key(&current_key.secret_key) {
-                    return Ok(self.build_auth_header(
+                    return self.build_auth_header(
                         &current_key.key_id,
                         &signing_key,
                         method,
                         path,
                         destination,
                         content,
-                    ));
+                    );
                 }
             }
         }

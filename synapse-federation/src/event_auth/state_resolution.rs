@@ -297,34 +297,36 @@ impl EventAuthChain {
         let mainline_map: HashMap<&str, usize> =
             mainline.iter().enumerate().map(|(i, eid)| (eid.as_str(), i)).collect();
 
-        let power_event = |eid: &str| -> i64 {
+        // 返回事件发送者的 power level: 优先用 power_levels 映射 (user_id -> power),
+        // 否则尝试从事件 content.users 读取 (针对 m.room.power_levels 事件自身).
+        let power_of = |eid: &str| -> i64 {
             if let Some(event) = events.get(eid) {
-                if let Some(content) = &event.content {
-                    if let Some(users) = content.get("users") {
-                        if let Some(user_power) =
-                            users.get(event.state_key.as_ref().and_then(|v| v.as_str()).unwrap_or(""))
-                        {
-                            return user_power.as_i64().unwrap_or(0);
+                if let Some(pl) = power_levels.get(&event.sender).copied() {
+                    return pl;
+                }
+                // 对于 m.room.power_levels 事件自身, 其 sender 的 power 可能在自己的 content.users 中.
+                if event.event_type == "m.room.power_levels" {
+                    if let Some(content) = &event.content {
+                        if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
+                            if let Some(user_power) = users.get(&event.sender) {
+                                return user_power.as_i64().unwrap_or(0);
+                            }
                         }
                     }
                 }
-                power_levels.get(eid).copied().unwrap_or(0)
-            } else {
-                0
             }
+            0
         };
 
         sorted.sort_by(|a, b| {
-            let power_a = power_event(a);
-            let power_b = power_event(b);
+            let power_a = power_of(a);
+            let power_b = power_of(b);
 
             power_b
                 .cmp(&power_a)
                 .then_with(|| {
-                    let ts_a =
-                        events.get(a).and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64()).unwrap_or(0);
-                    let ts_b =
-                        events.get(b).and_then(|e| e.content.as_ref()?.get("origin_server_ts")?.as_i64()).unwrap_or(0);
+                    let ts_a = events.get(a).map(|e| e.origin_server_ts).unwrap_or(0);
+                    let ts_b = events.get(b).map(|e| e.origin_server_ts).unwrap_or(0);
                     ts_a.cmp(&ts_b)
                 })
                 .then_with(|| {
@@ -373,38 +375,111 @@ impl EventAuthChain {
             resolved.insert(key.clone(), (*val).clone());
         }
 
+        if conflicted_keys.is_empty() {
+            return resolved;
+        }
+
+        // 收集所有冲突事件 (event_id), 按状态键分组.
+        let mut conflicted_events_by_key: HashMap<String, Vec<String>> = HashMap::new();
         for key in &conflicted_keys {
             let mut candidates: Vec<String> = Vec::new();
             for state_set in state_sets {
                 if let Some(val) = state_set.get(key) {
                     if let Some(event_id) = val.get("event_id").and_then(|v| v.as_str()) {
-                        candidates.push(event_id.to_string());
+                        if !candidates.contains(&event_id.to_string()) {
+                            candidates.push(event_id.to_string());
+                        }
                     }
                 }
             }
+            conflicted_events_by_key.insert(key.clone(), candidates);
+        }
 
+        // 单候选的键直接采用.
+        let mut multi_conflict_keys: Vec<String> = Vec::new();
+        for (key, candidates) in &conflicted_events_by_key {
             if candidates.len() == 1 {
-                if let Some(val) = state_sets[0].get(key) {
-                    resolved.insert(key.clone(), (*val).clone());
+                if let Some(event) = events.get(&candidates[0]) {
+                    if let Some(content) = &event.content {
+                        resolved.insert(key.clone(), content.clone());
+                    }
                 }
-                continue;
+            } else {
+                multi_conflict_keys.push(key.clone());
             }
+        }
 
-            let power_levels: HashMap<String, i64> = events
-                .iter()
-                .filter(|(_, e)| e.event_type == "m.room.power_levels")
-                .map(|(eid, _)| (eid.clone(), 0))
-                .collect();
+        if multi_conflict_keys.is_empty() {
+            return resolved;
+        }
 
-            let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
+        // P0-11: power_levels 映射必须是 user_id -> power_level,
+        // 从冲突集合中最新的 m.room.power_levels 事件 content.users 提取.
+        let power_levels: HashMap<String, i64> = {
+            let mut pl_events: Vec<&EventData> =
+                events.values().filter(|e| e.event_type == "m.room.power_levels").collect();
+            // 按深度排序, 取最深 (最新) 的 power_levels 事件作为基准.
+            pl_events.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| b.origin_server_ts.cmp(&a.origin_server_ts)));
+            let mut map: HashMap<String, i64> = HashMap::new();
+            if let Some(pl_event) = pl_events.first() {
+                if let Some(content) = &pl_event.content {
+                    if let Some(users) = content.get("users").and_then(|u| u.as_object()) {
+                        for (user_id, power) in users {
+                            if let Some(p) = power.as_i64() {
+                                map.insert(user_id.clone(), p);
+                            }
+                        }
+                    }
+                }
+            }
+            map
+        };
 
-            let mainline =
-                if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
+        // 构建主链 (mainline): 从 m.room.create 开始, 沿 auth_events 链
+        // 收集 m.room.power_levels 事件序列.
+        let room_create = events.iter().find(|(_, e)| e.event_type == "m.room.create").map(|(eid, _)| eid.clone());
+        let mainline =
+            if let Some(create_id) = &room_create { self.compute_mainline(events, create_id) } else { Vec::new() };
 
-            let sorted = self.sort_by_reverse_topological_power(events, &candidates, &mainline, &power_levels);
+        // 将冲突事件分为 auth 事件和非 auth 事件.
+        let auth_event_types: &[&str] = &[
+            "m.room.create",
+            "m.room.member",
+            "m.room.power_levels",
+            "m.room.join_rules",
+            "m.room.history_visibility",
+        ];
 
-            if let Some(winner) = sorted.first() {
-                if let Some(event) = events.get(winner) {
+        let is_auth_event = |eid: &str| -> bool {
+            events.get(eid).map(|e| auth_event_types.contains(&e.event_type.as_str())).unwrap_or(false)
+        };
+
+        // 收集所有多候选冲突事件的 event_id.
+        let all_conflicted_eids: Vec<String> = multi_conflict_keys
+            .iter()
+            .flat_map(|k| conflicted_events_by_key.get(k).cloned().unwrap_or_default())
+            .collect();
+
+        let auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| is_auth_event(e)).cloned().collect();
+        let non_auth_eids: Vec<String> = all_conflicted_eids.iter().filter(|e| !is_auth_event(e)).cloned().collect();
+
+        // 解析 auth 事件: 使用 reverse topological power ordering.
+        let sorted_auth = self.sort_by_reverse_topological_power(events, &auth_eids, &mainline, &power_levels);
+
+        // 解析非 auth 事件: 使用 mainline ordering.
+        let sorted_non_auth = self.sort_by_reverse_topological_power(events, &non_auth_eids, &mainline, &power_levels);
+
+        // 合并排序结果, auth 事件优先, 然后非 auth 事件.
+        // 对每个状态键, 第一个出现的事件获胜.
+        let mut ordered_all: Vec<String> = sorted_auth;
+        ordered_all.extend(sorted_non_auth);
+
+        // 按排序顺序填充 resolved: 对每个状态键, 第一个匹配的事件获胜.
+        for key in &multi_conflict_keys {
+            let candidates = conflicted_events_by_key.get(key).cloned().unwrap_or_default();
+            // 在 ordered_all 中找到第一个属于该 key 候选集的事件.
+            if let Some(winner_id) = ordered_all.iter().find(|eid| candidates.contains(eid)) {
+                if let Some(event) = events.get(winner_id) {
                     if let Some(content) = &event.content {
                         resolved.insert(key.clone(), content.clone());
                     }

@@ -217,7 +217,7 @@ impl SamlService {
             let mut guard = self
                 .runtime_overrides
                 .lock()
-                .map_err(|_| ApiError::internal("SAML runtime overrides lock poisoned".to_string()))?;
+                .map_err(|e| ApiError::internal_with_log("SAML runtime overrides lock poisoned", &e))?;
             for (k, v) in patch_map {
                 guard.insert(k, v);
             }
@@ -236,7 +236,7 @@ impl SamlService {
         let mut guard = self
             .runtime_overrides
             .lock()
-            .map_err(|_| ApiError::internal("SAML runtime overrides lock poisoned".to_string()))?;
+            .map_err(|e| ApiError::internal_with_log("SAML runtime overrides lock poisoned", &e))?;
         guard.clear();
         for (k, v) in persisted {
             guard.insert(k, v);
@@ -273,10 +273,29 @@ impl SamlService {
     ) -> Result<SamlAuthResponse, ApiError> {
         let decoded = Self::decode_saml_response(saml_response)?;
 
-        let (name_id, issuer, attributes, session_index) = Self::parse_saml_assertion(&decoded)?;
+        // XSW (XML Signature Wrapping) protection: verify the SAML signature BEFORE
+        // parsing assertion data. Previously, parse_saml_assertion was called before
+        // validate_response, allowing an attacker to extract data from an unsigned
+        // assertion while the signature on a different (wrapped) element validates.
+        let response_issuers = Self::extract_response_issuers(&decoded);
+        let issuer =
+            response_issuers.first().ok_or_else(|| ApiError::bad_request("No issuer in SAML response"))?.clone();
 
         let expected_in_response_to = self.consume_pending_request(relay_state)?;
+
+        // Validate (including signature verification) before trusting any assertion data.
         self.validate_response(&issuer, &decoded, expected_in_response_to.as_deref())?;
+
+        // Only parse the assertion after signature verification has passed.
+        let (name_id, parsed_issuer, attributes, session_index) = Self::parse_saml_assertion(&decoded)?;
+
+        // Defense in depth: verify the assertion issuer matches the response issuer.
+        // In an XSW attack, the wrapped (unsigned) assertion may have a different issuer.
+        if parsed_issuer != issuer {
+            return Err(ApiError::unauthorized(
+                "SAML assertion issuer does not match response issuer (possible XSW attack)",
+            ));
+        }
 
         let user = self.map_user(&name_id, &issuer, &attributes)?;
 
@@ -573,22 +592,45 @@ impl SamlService {
             Err(e) => return Err(format!("Invalid digest base64: {}", e)),
         };
 
-        let canonicalized_info = Self::canonicalize_xml(&signed_info_xml);
+        // P0-01: XSW 防护 — 提取 Reference URI 并验证它指向的元素.
+        // DigestValue 是被引用元素 (如 Assertion) 的摘要, 而非 SignedInfo 自身的摘要.
+        // 旧实现错误地摘要 SignedInfo, 导致攻击者可包装签名断言并注入恶意断言.
+        let reference_uri = Self::extract_reference_uri(&signed_info_xml)
+            .ok_or_else(|| "SAML signature missing Reference URI — cannot verify signed element".to_string())?;
 
-        let computed_digest = {
+        // 获取被引用的元素 (URI 格式为 "#<ID>", 去掉 # 前缀获取元素 ID).
+        let referenced_id = reference_uri.strip_prefix('#').unwrap_or(&reference_uri);
+        let referenced_element = Self::extract_element_by_id(xml, referenced_id)
+            .ok_or_else(|| {
+                format!(
+                    "SAML XSW protection: Reference URI '{}' does not point to any element in the response — possible signature wrapping attack",
+                    reference_uri
+                )
+            })?;
+
+        // 验证被引用元素的摘要匹配 DigestValue.
+        let canonicalized_referenced = Self::canonicalize_xml(&referenced_element);
+        let computed_element_digest = {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
-            hasher.update(canonicalized_info.as_bytes());
+            hasher.update(canonicalized_referenced.as_bytes());
             hasher.finalize().to_vec()
         };
 
-        if !synapse_common::crypto::secure_compare_bytes(&digest_bytes, &computed_digest) {
-            return Err("SAML digest verification failed - response may be tampered with".to_string());
+        if !synapse_common::crypto::secure_compare_bytes(&digest_bytes, &computed_element_digest) {
+            return Err("SAML XSW protection: digest of referenced element does not match DigestValue — response may be tampered with".to_string());
         }
 
+        // 验证 RSA 签名覆盖 SignedInfo (包含 DigestValue, 防止篡改).
+        let canonicalized_info = Self::canonicalize_xml(&signed_info_xml);
         Self::verify_rsa_signature(&cert_der, &sig_bytes, canonicalized_info.as_bytes())?;
 
-        tracing::info!(signature_algorithm = %"RSA-SHA256", digest_algorithm = %"SHA-256", "SAML signature verified");
+        tracing::info!(
+            signature_algorithm = %"RSA-SHA256",
+            digest_algorithm = %"SHA-256",
+            reference_uri = %reference_uri,
+            "SAML signature verified with XSW protection (Reference URI validated)"
+        );
         Ok(())
     }
 
@@ -608,6 +650,34 @@ impl SamlService {
         Regex::new(r#"<(?:\w+:)?DigestValue>\s*([^<]+?)\s*</(?:\w+:)?DigestValue>"#)
             .ok()
             .and_then(|regex| regex.captures(xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string())))
+    }
+
+    /// P0-01: 从 SignedInfo 中提取 Reference 元素的 URI 属性.
+    /// URI 格式通常为 "#<ID>", 指向被签名的元素 (如 Assertion).
+    fn extract_reference_uri(signed_info_xml: &str) -> Option<String> {
+        Regex::new(r#"<(?:\w+:)?Reference\s+[^>]*?URI="([^"]*)""#).ok().and_then(|regex| {
+            regex.captures(signed_info_xml).and_then(|captures| captures.get(1).map(|m| m.as_str().to_string()))
+        })
+    }
+
+    /// P0-01: 根据 ID 属性提取 XML 中对应的元素 (含开闭标签).
+    /// 用于验证 Reference URI 指向的元素确实存在, 防止 XSW 攻击.
+    fn extract_element_by_id(xml: &str, element_id: &str) -> Option<String> {
+        // 查找带有 ID="element_id" 属性的元素开始标签.
+        let id_pattern = format!(r#"<(?:\w+:)?(\w+)\s+[^>]*?ID="{}"[^>]*>"#, regex::escape(element_id));
+        let open_regex = Regex::new(&id_pattern).ok()?;
+        let open_match = open_regex.find(xml)?;
+        let tag_name = open_regex.captures(xml)?.get(1).map(|m| m.as_str().to_string())?;
+
+        let start = open_match.start();
+        let local_name = tag_name.as_str();
+
+        // 查找匹配的闭合标签 (支持命名空间前缀).
+        let close_pattern = format!(r#"</(?:\w+:)?{}>"#, regex::escape(local_name));
+        let close_regex = Regex::new(&close_pattern).ok()?;
+        let close_match = close_regex.find_at(xml, start)?;
+
+        Some(xml[start..close_match.end()].to_string())
     }
 
     fn canonicalize_xml(xml: &str) -> String {
@@ -963,8 +1033,9 @@ impl SamlService {
         };
 
         let now = current_unix_seconds();
-        let mut requests =
-            saml_pending_requests().lock().map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        let mut requests = saml_pending_requests()
+            .lock()
+            .map_err(|e| ApiError::internal_with_log("Failed to acquire SAML request lock", &e))?;
         cleanup_expired_saml_requests(&mut requests, now);
         requests.insert(
             relay_state.to_string(),
@@ -979,8 +1050,9 @@ impl SamlService {
         };
 
         let now = current_unix_seconds();
-        let mut requests =
-            saml_pending_requests().lock().map_err(|_| ApiError::internal("Failed to acquire SAML request lock"))?;
+        let mut requests = saml_pending_requests()
+            .lock()
+            .map_err(|e| ApiError::internal_with_log("Failed to acquire SAML request lock", &e))?;
         cleanup_expired_saml_requests(&mut requests, now);
         let request =
             requests.remove(relay_state).ok_or_else(|| ApiError::unauthorized("Unknown or expired RelayState"))?;

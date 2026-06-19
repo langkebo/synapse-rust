@@ -6,7 +6,6 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_rust::common::Validator;
 use synapse_rust::services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
@@ -16,9 +15,9 @@ use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::user::UserStorage;
 use synapse_rust::storage::CreateEventParams;
+use synapse_rust::storage::RoomSummaryStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -293,7 +292,7 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
     let member_storage = RoomMemberStorage::new(pool, "localhost");
     let event_storage = EventStorage::new(pool, "localhost".to_string());
-    let canonical_cache = Arc::new(cache.to_synapse_cache_manager());
+    let canonical_cache = cache.clone();
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service = Arc::new(RoomSummaryService::new(
         room_summary_storage,
@@ -477,7 +476,7 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig {
-        room_version: Some("11".to_string()),
+        room_version: Some("10".to_string()),
         creation_content: Some(json!({
             "creator": "@mallory:localhost",
             "room_version": "1",
@@ -496,7 +495,7 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
         .expect("room should have create state");
 
     assert_eq!(create_event.content["creator"].as_str(), Some(alice_id.as_str()));
-    assert_eq!(create_event.content["room_version"].as_str(), Some("11"));
+    assert_eq!(create_event.content["room_version"].as_str(), Some("10"));
     assert_eq!(create_event.content["m.federate"].as_bool(), Some(false));
 }
 
@@ -638,6 +637,7 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
                     content: json!({"msgtype": "m.text", "body": format!("msg-{ts}")}),
                     state_key: None,
                     origin_server_ts: ts,
+                    redacts: None,
                 },
                 None,
             )
@@ -688,6 +688,7 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
                     content: json!({"msgtype": "m.text", "body": format!("msg-{ts}")}),
                     state_key: None,
                     origin_server_ts: ts,
+                    redacts: None,
                 },
                 None,
             )
@@ -823,11 +824,11 @@ async fn test_upgrade_room_success() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache.clone());
 
-    let config = CreateRoomConfig::default();
+    let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
     let room_val = room_service.create_room(&alice_id, config).await.unwrap();
     let old_room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.upgrade_room(old_room_id, "11", &alice_id).await;
+    let result = room_service.upgrade_room(old_room_id, "10", &alice_id).await;
 
     assert!(result.is_ok());
     let new_room_id = result.unwrap();
@@ -836,10 +837,10 @@ async fn test_upgrade_room_success() {
 
     let room_storage = RoomStorage::new(&pool);
     let old_room = room_storage.get_room(old_room_id).await.unwrap().expect("old room should still exist");
-    assert_eq!(old_room.room_version, DEFAULT_ROOM_VERSION);
+    assert_eq!(old_room.room_version, "9");
 
     let new_room = room_storage.get_room(&new_room_id).await.unwrap().expect("replacement room should exist");
-    assert_eq!(new_room.room_version, "11");
+    assert_eq!(new_room.room_version, "10");
 
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let tombstone_events = event_storage.get_state_events_by_type(old_room_id, "m.room.tombstone").await.unwrap();
@@ -4013,10 +4014,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
     assert_eq!(failing_statistics["pending_transaction_count"], 0);
     assert_eq!(failing_statistics["scheduler"]["available"], true);
     assert!(
-        matches!(
-            failing_statistics["scheduler"]["last_result"].as_str(),
-            Some("success" | "dispatched")
-        ),
+        matches!(failing_statistics["scheduler"]["last_result"].as_str(), Some("success" | "dispatched")),
         "statistics should report the recovering service in a healthy dispatched/success state"
     );
     assert_eq!(failing_statistics["scheduler"]["transaction_state"], "idle");

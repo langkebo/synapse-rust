@@ -150,7 +150,8 @@ pub async fn get_devices(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let devices: Vec<PushDevice> = state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
+    let devices: Vec<PushDevice> =
+        state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -206,7 +207,8 @@ pub async fn get_rules(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let rules: Vec<PushRule> = state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
+    let rules: Vec<PushRule> =
+        state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 

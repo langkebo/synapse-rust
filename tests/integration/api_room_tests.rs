@@ -2471,7 +2471,7 @@ async fn test_creation_content_cannot_override_create_fields() {
         .body(Body::from(
             json!({
                 "name": "Creation Content Version Test Room",
-                "room_version": "11",
+                "room_version": "10",
                 "creation_content": {
                     "room_version": "1",
                     "creator": "@attacker:localhost",
@@ -2502,7 +2502,7 @@ async fn test_creation_content_cannot_override_create_fields() {
 
     let body = axum::body::to_bytes(create_state_response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["room_version"], "11");
+    assert_eq!(json["room_version"], "10");
     assert_eq!(json["creator"], user_id);
     assert!(json.get("predecessor").is_none());
     assert_eq!(json["m.federate"], false);

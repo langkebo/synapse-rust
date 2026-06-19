@@ -226,8 +226,13 @@ async fn query_keys(
     let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     let device_keys = if requested_users.is_empty() {
-        let mut shared =
-            state.services.rooms.member_storage.get_shared_room_users(&auth_user.user_id).await.unwrap_or_default();
+        let mut shared = state
+            .services
+            .rooms
+            .member_storage
+            .get_shared_room_users(&auth_user.user_id)
+            .await
+            .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
         shared.push(auth_user.user_id.clone());
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)
@@ -251,13 +256,10 @@ async fn query_keys(
     if let Some(device_keys_obj) = response.device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
-            let batch_result = state
-                .services
-                .e2ee
-                .cross_signing_service
-                .get_verified_devices_batch(&user_ids)
-                .await
-                .unwrap_or_default();
+            let batch_result =
+                state.services.e2ee.cross_signing_service.get_verified_devices_batch(&user_ids).await.map_err(|e| {
+                    crate::error::ApiError::internal_with_log("Failed to load verified devices batch", &e)
+                })?;
 
             for (user_id, vd_map) in batch_result {
                 let devices: Vec<serde_json::Value> = vd_map

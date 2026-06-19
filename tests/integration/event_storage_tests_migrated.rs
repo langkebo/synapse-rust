@@ -58,6 +58,7 @@ async fn test_create_event_success() {
         content: serde_json::json!({"body": "Hello"}),
         state_key: None,
         origin_server_ts: chrono::Utc::now().timestamp_millis(),
+        redacts: None,
     };
 
     let result = storage.create_event(params, None).await;
@@ -100,6 +101,7 @@ async fn test_get_room_events_batch_multiple_rooms() {
             content: serde_json::json!({"body": format!("Message {}", i)}),
             state_key: None,
             origin_server_ts: ts + i,
+            redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
     }
@@ -138,6 +140,7 @@ async fn test_get_room_events_since_batch() {
             content: serde_json::json!({"body": format!("Message {}", i)}),
             state_key: None,
             origin_server_ts: base_ts + i * 1000,
+            redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
     }
@@ -173,6 +176,7 @@ async fn test_get_room_events_batch_limit_per_room() {
             content: serde_json::json!({"body": format!("Message {}", i)}),
             state_key: None,
             origin_server_ts: base_ts + i,
+            redacts: None,
         };
         storage.create_event(params, None).await.unwrap();
     }

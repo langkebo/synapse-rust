@@ -150,6 +150,7 @@ artifacts/appservice/<date>/
   baseline/
   after-change/
   decision.md
+  decision.autofill.md
 ```
 
 ### 8.1 部署后门禁
@@ -196,6 +197,12 @@ APPSERVICE_D2_NEXT_PLAN="先保持默认值，继续累计 D2 样本后再决定
 bash scripts/run_appservice_p0_d2.sh baseline
 ```
 
+说明：
+
+- `decision.md` 用于人工维护最终结论
+- `decision.autofill.md` 由脚本自动刷新，可作为填写 `decision.md` 的初稿
+- 当 `baseline` 与 `after-change` 都已生成时，`decision.autofill.md` 会自动补出结论与场景逐项对比
+
 ## 9. 每轮交付物
 
 每轮调优结束后，至少提交以下交付物：
@@ -228,6 +235,10 @@ artifacts/appservice/
 - 三出口一致性是否可信？
 - 回退阈值是什么？
 - 负责人是谁？预计观察窗口多久？
+
+可直接复用的填写模板见：
+
+- [APPSERVICE_D2_DECISION_TEMPLATE.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/APPSERVICE_D2_DECISION_TEMPLATE.md)
 
 ## 11. 完成定义
 

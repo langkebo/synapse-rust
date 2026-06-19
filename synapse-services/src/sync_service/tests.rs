@@ -607,6 +607,7 @@ fn test_apply_lazy_load_members_keeps_only_timeline_members_and_self() {
         reference_image: None,
         origin: "self".to_string(),
         stream_ordering: Some(1),
+        redacts: None,
     }];
 
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -662,6 +663,7 @@ fn test_apply_lazy_load_members_skips_cached_members_by_default() {
         reference_image: None,
         origin: "self".to_string(),
         stream_ordering: Some(1),
+        redacts: None,
     }];
 
     let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
@@ -710,6 +712,7 @@ fn test_apply_lazy_load_members_can_include_redundant_members() {
         reference_image: None,
         origin: "self".to_string(),
         stream_ordering: Some(1),
+        redacts: None,
     }];
 
     let (filtered, _) = SyncService::apply_lazy_load_members_with_cache(
@@ -803,6 +806,7 @@ fn test_rooms_to_include_keeps_rooms_with_state_delta_membership() {
                 reference_image: None,
                 origin: "self".to_string(),
                 stream_ordering: Some(1),
+                redacts: None,
             }],
         ),
         ("!state:localhost".to_string(), Vec::new()),
@@ -869,5 +873,6 @@ fn sample_room_event(event_id_suffix: &str) -> RoomEvent {
         reference_image: None,
         origin: "example.com".to_string(),
         stream_ordering: Some(1),
+        redacts: None,
     }
 }

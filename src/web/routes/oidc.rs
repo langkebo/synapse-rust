@@ -55,7 +55,7 @@ fn store_oidc_auth_session(
     let now = current_unix_ts();
     let mut sessions = oidc_auth_sessions()
         .lock()
-        .map_err(|_| ApiError::internal("Failed to acquire OIDC auth session lock".to_string()))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to acquire OIDC auth session lock", &e))?;
     cleanup_expired_oidc_sessions(&mut sessions, now);
     sessions.insert(
         state.to_string(),
@@ -75,7 +75,7 @@ fn consume_oidc_auth_session(state: &str) -> Result<OidcAuthSession, ApiError> {
     let now = current_unix_ts();
     let mut sessions = oidc_auth_sessions()
         .lock()
-        .map_err(|_| ApiError::internal("Failed to acquire OIDC auth session lock".to_string()))?;
+        .map_err(|e| ApiError::internal_with_log("Failed to acquire OIDC auth session lock", &e))?;
     cleanup_expired_oidc_sessions(&mut sessions, now);
     let session = sessions
         .remove(state)
@@ -117,11 +117,18 @@ fn is_safe_redirect_url(url: &str) -> bool {
     if url.starts_with("http://") || url.starts_with("https://") {
         let host_part = url.trim_start_matches("http://").trim_start_matches("https://");
         let host = host_part.split('/').next().unwrap_or("");
-        let host = host.split(':').next().unwrap_or("");
-        if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "0.0.0.0" {
+        // Extract hostname: handle IPv6 brackets [::1]:port or [::1]
+        let ip_str = if host.starts_with('[') {
+            // IPv6: extract content between [ and ]
+            host.find(']').map_or("", |end| &host[1..end])
+        } else {
+            // IPv4 or hostname: strip port
+            host.split(':').next().unwrap_or("")
+        };
+        if ip_str == "localhost" || ip_str == "127.0.0.1" || ip_str == "0.0.0.0" {
             return false;
         }
-        if host.parse::<std::net::IpAddr>().is_ok() {
+        if ip_str.parse::<std::net::IpAddr>().is_ok() {
             return false;
         }
         return true;
@@ -535,7 +542,12 @@ async fn oidc_token(
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                state.services.sso.oidc_mapping_service.create_mapping(&issuer, &subject, &matrix_user_id, now_ts).await?;
+                state
+                    .services
+                    .sso
+                    .oidc_mapping_service
+                    .create_mapping(&issuer, &subject, &matrix_user_id, now_ts)
+                    .await?;
                 matrix_user_id
             };
 
@@ -892,10 +904,10 @@ async fn oidc_callback(
     let oidc_user: crate::services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
 
     tracing::info!(
-        "OIDC callback successful for sub: {}, localpart: {}, email: {:?}, nonce_len: {}",
+        "OIDC callback successful for sub: {}, localpart: {}, email_present: {}, nonce_len: {}",
         oidc_user.subject,
         oidc_user.localpart,
-        oidc_user.email,
+        oidc_user.email.is_some(),
         auth_session.nonce.len()
     );
 
@@ -1110,5 +1122,49 @@ mod tests {
         };
 
         assert_eq!(discovery.issuer, "https://example.com");
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_accepts_relative_paths() {
+        assert!(is_safe_redirect_url("/_matrix/client/v3/oidc/callback"));
+        assert!(is_safe_redirect_url("/home"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_accepts_https_with_hostname() {
+        assert!(is_safe_redirect_url("https://example.com/callback"));
+        assert!(is_safe_redirect_url("https://matrix.example.org/_matrix/client/v3/oidc/callback"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_rejects_dangerous_schemes() {
+        assert!(!is_safe_redirect_url("javascript:alert(1)"));
+        assert!(!is_safe_redirect_url("data:text/html,<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_rejects_localhost_and_loopback() {
+        assert!(!is_safe_redirect_url("http://localhost/callback"));
+        assert!(!is_safe_redirect_url("http://127.0.0.1/callback"));
+        assert!(!is_safe_redirect_url("http://[::1]/callback"));
+        assert!(!is_safe_redirect_url("http://0.0.0.0/callback"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_rejects_raw_ips() {
+        assert!(!is_safe_redirect_url("http://192.168.1.1/callback"));
+        assert!(!is_safe_redirect_url("https://10.0.0.1/callback"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_rejects_protocol_relative_urls() {
+        assert!(!is_safe_redirect_url("//evil.com/callback"));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_rejects_empty_and_unknown_schemes() {
+        assert!(!is_safe_redirect_url(""));
+        assert!(!is_safe_redirect_url("ftp://example.com/file"));
+        assert!(!is_safe_redirect_url("mailto:test@example.com"));
     }
 }

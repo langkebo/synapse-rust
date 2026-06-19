@@ -31,6 +31,7 @@ usage() {
     resource-summary.txt
     run-metadata.json
   <output_root>/<date>/decision.md
+  <output_root>/<date>/decision.autofill.md
 EOF
 }
 
@@ -58,6 +59,7 @@ RUN_DIR="$DATE_DIR/$RUN_LABEL"
 RESOURCE_FILE="$RUN_DIR/resource-summary.txt"
 METADATA_FILE="$RUN_DIR/run-metadata.json"
 DECISION_FILE="$DATE_DIR/decision.md"
+DECISION_AUTOFILL_FILE="$DATE_DIR/decision.autofill.md"
 
 mkdir -p "$RUN_DIR"
 
@@ -113,6 +115,185 @@ write_decision_template_if_missing() {
 EOF
 }
 
+write_decision_autofill() {
+    python3 - "$DATE_DIR" "$DECISION_AUTOFILL_FILE" "$RUN_DATE" "$NEXT_PLAN" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+date_dir = Path(sys.argv[1])
+output_file = Path(sys.argv[2])
+run_date = sys.argv[3]
+fallback_next_plan = sys.argv[4]
+
+
+def load_report(label: str):
+    path = date_dir / label / "daily-report.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def scenario_line(report, display_name: str) -> str:
+    for item in report.get("scenario_summaries", []):
+        if item.get("display_name") == display_name:
+            reasons = "；".join(item.get("reasons", [])) if item.get("reasons") else "无"
+            return f"{item.get('status', '待补')}；{reasons}"
+    return "待补"
+
+
+def scenario_status(report, display_name: str) -> str:
+    for item in report.get("scenario_summaries", []):
+        if item.get("display_name") == display_name:
+            return item.get("status", "待补")
+    return "待补"
+
+
+def report_present(label: str, report) -> str:
+    return "是" if report and (date_dir / label / "daily-report.md").exists() else "否"
+
+
+def raw_samples_present(label: str) -> str:
+    required = ["continuous-ingress.json", "mixed-backoff.json", "recovery.json"]
+    return "是" if all((date_dir / label / name).exists() for name in required) else "否"
+
+
+baseline = load_report("baseline")
+after_change = load_report("after-change")
+
+primary = after_change or baseline or {}
+conclusion = primary.get("conclusion", "待补")
+resource_summary = primary.get("resource_summary", "待补")
+observability = primary.get("observability_conclusion", "待补")
+core_metrics = primary.get("core_metrics_summary", "待补")
+risk_and_blockers = primary.get("risk_and_blockers", "待补")
+service_samples = primary.get("service_samples", "待补")
+next_plan = primary.get("next_plan", fallback_next_plan)
+
+allow_next_round = "否" if conclusion == "进入参数评审" else "是"
+change_flag = "是" if after_change else "否"
+
+rank = {"保持默认值": 3, "继续观察": 2, "进入参数评审": 1}
+if baseline and after_change:
+    baseline_conclusion = baseline.get("conclusion", "待补")
+    after_conclusion = after_change.get("conclusion", "待补")
+    if rank.get(after_conclusion, 0) > rank.get(baseline_conclusion, 0):
+        overall_change = "改善"
+    elif rank.get(after_conclusion, 0) < rank.get(baseline_conclusion, 0):
+        overall_change = "变差"
+    else:
+        overall_change = "持平"
+
+    compare_lines = []
+    for display_name in ("Continuous ingress", "Mixed + backoff", "Recovery burst"):
+        base_status = scenario_status(baseline, display_name)
+        after_status = scenario_status(after_change, display_name)
+        if rank.get(after_status, 0) > rank.get(base_status, 0):
+            trend = "改善"
+        elif rank.get(after_status, 0) < rank.get(base_status, 0):
+            trend = "变差"
+        else:
+            trend = "持平"
+        compare_lines.append(
+            f"- `{display_name}`：baseline={base_status}，after-change={after_status}，趋势={trend}"
+        )
+
+    compare_block = "\n".join(
+        [
+            "## baseline / after-change 对比",
+            "",
+            f"- baseline 结论：{baseline_conclusion}",
+            f"- after-change 结论：{after_conclusion}",
+            f"- 总体变化：{overall_change}",
+            f"- baseline 风险与阻塞：{baseline.get('risk_and_blockers', '待补')}",
+            f"- after-change 风险与阻塞：{after_change.get('risk_and_blockers', '待补')}",
+            f"- baseline 核心指标摘要：{baseline.get('core_metrics_summary', '待补')}",
+            f"- after-change 核心指标摘要：{after_change.get('core_metrics_summary', '待补')}",
+            "",
+            "### 场景逐项对比",
+            "",
+            *compare_lines,
+            "",
+        ]
+    )
+else:
+    compare_block = "\n".join(
+        [
+            "## baseline / after-change 对比",
+            "",
+            "- 当前仅检测到单侧样本，待补另一侧结果后再生成自动对比摘要",
+            "",
+        ]
+    )
+
+content = f"""# AppService D2 决策记录（自动预填）
+
+> 说明: 本文件由 `scripts/run_appservice_p0_d2.sh` 自动生成，用于给人工决策提供初稿。
+> 人工可编辑版本建议写入: `decision.md`
+
+- 日期：{run_date}
+- 基线目录：`{date_dir / 'baseline'}`
+- 变更后目录：`{date_dir / 'after-change'}`
+- 当前推荐下一步：{next_plan}
+
+## 当前默认值
+
+- `MAX_SERVICES_PER_TICK`：待补
+- `HIGH_PENDING_TRANSACTION_THRESHOLD`：待补
+- `HIGH_PENDING_EVENT_THRESHOLD`：待补
+
+## 本轮变更
+
+- 是否改参数：{change_flag}
+- 若改参数，本轮只改了哪个参数：待补
+- 改动前值：待补
+- 改动后值：待补
+- 改动理由：待补
+
+## 样本完整性检查
+
+- `baseline` 已生成 `daily-report.md`：{report_present('baseline', baseline)}
+- `baseline` 已生成 3 个 `D2` 场景原始样本：{raw_samples_present('baseline')}
+- `after-change` 是否已生成：{"是" if after_change else "否"}
+- 三出口一致性是否可信：{"是" if observability == "可信" else "否" if observability else "待补"}
+- 资源摘要是否已补齐：{"否" if resource_summary.startswith("待补") else "是"}
+
+## 关键观测
+
+- `continuous-ingress`：{scenario_line(primary, 'Continuous ingress')}
+- `mixed-backoff`：{scenario_line(primary, 'Mixed + backoff')}
+- `recovery`：{scenario_line(primary, 'Recovery burst')}
+- 核心指标摘要：{core_metrics}
+- 单服务抽样：{service_samples}
+- 资源与稳定性：{resource_summary}
+- 风险与阻塞：{risk_and_blockers}
+
+{compare_block}
+
+## 结论
+
+- 最终结论：{conclusion}
+- 结论理由：待补
+- 是否允许继续下一轮参数调整：{allow_next_round}
+
+## 回退条件
+
+- 日报门禁从 `通过` 退化为 `预警` 或 `失败`
+- 资源占用较基线恶化超过 `20%`
+- 健康 AS 成功推进下降
+- 恢复窗口结束后仍无法回到 `idle`
+
+## 下一步
+
+- 下一步计划：{next_plan}
+- 预计再次复测时间：待补
+- 需要谁参与评审：待补
+"""
+
+output_file.write_text(content + "\n", encoding="utf-8")
+PY
+}
+
 RESOURCE_SUMMARY="$(resolve_resource_summary)"
 printf '%s\n' "$RESOURCE_SUMMARY" >"$RESOURCE_FILE"
 
@@ -149,8 +330,10 @@ metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n
 PY
 
 write_decision_template_if_missing
+write_decision_autofill
 
 echo "[appservice-d2] completed"
 echo "[appservice-d2] report: $RUN_DIR/daily-report.md"
 echo "[appservice-d2] metadata: $METADATA_FILE"
 echo "[appservice-d2] decision template: $DECISION_FILE"
+echo "[appservice-d2] decision autofill: $DECISION_AUTOFILL_FILE"

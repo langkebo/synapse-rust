@@ -95,6 +95,7 @@ impl RoomService {
                     }),
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )
@@ -126,6 +127,7 @@ impl RoomService {
                     content: json!({ "membership": "leave" }),
                     state_key: Some(user_id.to_string()),
                     origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                    redacts: None,
                 },
                 None,
             )

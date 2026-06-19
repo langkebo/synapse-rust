@@ -143,6 +143,37 @@ impl AdminFederationStorage {
         .await
     }
 
+    /// Returns the raw `status` column for a federation server (no COALESCE).
+    ///
+    /// Returns `None` when the server is not present in `federation_servers`.
+    /// Returns `Some(None)` when the row exists but `status` is NULL.
+    /// Used by the federation admission middleware to distinguish "unknown
+    /// server" from "known server with explicit status".
+    pub async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<Option<String>>, sqlx::Error> {
+        sqlx::query_scalar::<_, Option<String>>("SELECT status FROM federation_servers WHERE server_name = $1")
+            .bind(server_name)
+            .fetch_optional(&*self.pool)
+            .await
+    }
+
+    /// Inserts a new federation server row with `status = 'pending'`.
+    ///
+    /// Uses `ON CONFLICT DO NOTHING` so concurrent admission probes for the
+    /// same server do not clobber an existing row. Returns the number of
+    /// rows actually inserted (0 if the server already existed).
+    pub async fn insert_pending_server(&self, server_name: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "INSERT INTO federation_servers (server_name, status, updated_ts) \
+             VALUES ($1, 'pending', $2) \
+             ON CONFLICT (server_name) DO NOTHING",
+        )
+        .bind(server_name)
+        .bind(now_ts)
+        .execute(&*self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn update_destination_status(
         &self,
         server_name: &str,
