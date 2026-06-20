@@ -1398,16 +1398,68 @@
 | **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
 | **意义** | 确保 logout 后 access token 立即从所有缓存层移除，释放内存并保持缓存与 DB 一致。`change_password()` 和 `logout_all()` 不需要额外修改，因为 `validate_token()` 的 `is_token_revoked` DB 检查和 logout marker 机制已正确覆盖 |
 
-### 12.3 研究发现但未实施的改进（需更大范围改动或外部基础设施）
+### 12.3 已实施的第二轮优化（2026-06-20 第二批）
+
+#### OPT-04 `m.direct_to_device` 联邦 EDU 处理 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Matrix Spec v1.18 § Federation API → EDUs |
+| **问题** | `EduType` 枚举仅支持 `m.typing`/`m.presence`/`m.device_list_update`，`m.direct_to_device` EDU 被当作未知类型静默跳过，导致来自其他联邦服务器的 to-device 消息被直接丢弃，破坏跨服务器 E2EE 密钥交换 |
+| **位置** | [edu.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/federation/edu.rs#L285-L426) |
+| **改动** | (1) `EduType` 新增 `DirectToDevice` 变体 + `FromStr` 匹配；(2) 新增 `handle_direct_to_device_edu()` 处理函数，验证 sender 匹配 origin、解析 `content.messages` 映射、逐收件人调用 `to_device_service.send_messages()` 持久化；(3) 新增 `MAX_FEDERATION_TO_DEVICE_RECIPIENTS=5000` 和 `MAX_FEDERATION_TO_DEVICE_MSG_BYTES=65536` 两层大小限制；(4) 新增 3 个 metrics counter（processed/dropped/error） |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
+| **意义** | 修复跨服务器 E2EE 密钥交换的联邦互通缺口，使 room key sharing、verification 等 to-device 流程在联邦场景下正常工作 |
+
+#### OPT-05 MSC4452 Preview URL Capability ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse v1.154 #19715（MSC4452 Preview URL capabilities API） |
+| **问题** | 缺少 capability 驱动的功能开关，客户端无法通过 `/capabilities` 发现 preview_url 功能是否可用 |
+| **位置** | [experimental.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/config/experimental.rs#L12-L22)（配置）、[versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs#L428-L435)（capability 声明）、[media.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/media.rs#L628-L633)（端点） |
+| **改动** | (1) `ExperimentalConfig` 新增 `msc4452_enabled: bool` 配置项（默认 false）；(2) `/capabilities` 响应新增 `io.element.msc4452.preview_url` capability，值由 `msc4452_enabled` 驱动；(3) `preview_url` 端点添加 MSC4452 说明注释 |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` |
+| **意义** | 实现 capability 驱动的功能开关，客户端可通过 `/capabilities` 发现 preview_url 可用性，与 Synapse v1.154 行为对齐 |
+
+#### OPT-07 后台剪枝 job 框架扩展 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse v1.152+ `device_lists_changes_in_room` 剪枝策略 |
+| **问题** | 现有剪枝框架仅覆盖 3 个表（device_lists_changes/presence/one_time_keys），`to_device_transactions`、`token_blacklist`、`federation_queue` 等 append-only 表无剪枝，长期运行实例磁盘膨胀 |
+| **位置** | [pruning.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/pruning.rs#L79-L127)（新增 3 个剪枝函数）、[server.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/server.rs#L651-L670)（定时任务调用） |
+| **改动** | (1) 新增 `prune_old_to_device_transactions()`（24h 保留，匹配 `TRANSACTION_MAX_AGE_MS`）；(2) 新增 `prune_expired_token_blacklist()`（仅删除有 expires_at 且已过期的条目，保留永久撤销）；(3) 新增 `prune_old_federation_queue()`（7 天保留，仅删除 sent/failed 终态条目）；(4) 3 个新函数已接入 server.rs 每日定时任务；(5) 新增 2 个单元测试验证保留常量正确性 |
+| **验证** | `cargo test --lib -p synapse-storage`（265 passed，含新剪枝测试） |
+| **意义** | 扩展剪枝覆盖到 6 个 append-only 表，防止长期运行实例磁盘膨胀，与 Synapse v1.152+ 剪枝策略对齐 |
+
+#### OPT-08 Sliding Sync 性能闸门 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse v1.153.0rc3 MSC4186 回滚教训（性能回归未被及时发现） |
+| **问题** | sliding sync 无性能监控，无法检测 p50/p95/p99 延迟变化和慢请求，性能回归可能被遗漏直到影响用户 |
+| **位置** | [sliding_sync.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/sliding_sync.rs#L69-L117) |
+| **改动** | (1) 在 `sync()` 调用前后测量耗时；(2) 记录到 `sliding_sync_duration_ms` histogram（p50/p95/p99 可观测）；(3) 递增 `sliding_sync_requests_total` counter；(4) 当耗时超过 `performance.sliding_sync_latency_threshold_ms`（默认 5000ms）时记录 warn 日志 + 递增 `sliding_sync_slow_requests_total` counter |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
+| **意义** | 提供 sliding sync 性能可观测性和慢请求告警，作为性能回滚闸门，避免重蹈 Synapse v1.153 MSC4186 回滚覆辙 |
+
+#### OPT-09 Worker Lock 可配置重试 + Metrics ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse v1.153.0 `WORKER_LOCK_MAX_RETRY_INTERVAL` 降至 5 秒 |
+| **问题** | `acquire_lock()` 单次尝试即返回，无重试机制，高并发 worker 场景下锁争用导致频繁失败；无锁等待时间 metrics |
+| **位置** | [worker.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/config/worker.rs#L22-L35)（配置）、[background_update.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/background_update.rs#L338-L376)（重试方法）、[background_update_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/background_update_service.rs#L127-L156)（服务层） |
+| **改动** | (1) `WorkerConfig` 新增 `lock_max_retry_interval_ms`（默认 5000ms）和 `lock_max_retries`（默认 3）配置项；(2) `BackgroundUpdateStorage` 新增 `acquire_lock_with_retry()` 方法，指数退避（100ms→200ms→400ms...，上限 `max_retry_interval_ms`）；(3) `BackgroundUpdateService` 新增 `with_lock_retry_config()` builder 方法，`start_update()` 使用带重试的锁获取 + 记录 lock_wait_ms 日志；(4) 容器构造传入 WorkerConfig 参数 |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
+| **意义** | 防止 worker lock 争用下的 CPU starvation / DoS，提供锁等待时间可观测性，与 Synapse v1.153 锁退避策略对齐 |
+
+### 12.4 研究发现但未实施的改进
 
 | 编号 | 改进 | 原因 |
 |------|------|------|
-| OPT-04 | `m.direct_to_device` 联邦 EDU 处理 | 需在 `src/federation/edu.rs` 的 `EduType` 枚举新增变体并实现完整处理链路，属于功能新增而非优化，需独立规划 |
-| OPT-05 | MSC4452 Preview URL capability | 需新增 capability 声明 + 端点 + 配置开关，属于功能新增 |
 | OPT-06 | MSC3266 稳定化对齐（移除实验开关） | 当前已实现 MSC3266，需审查是否仍有实验开关残留 |
-| OPT-07 | 后台剪枝 job 框架 | 需为 `device_lists_changes_in_room` 等 append-only 表设计保留窗口 + 剪枝 job，属于架构级改动 |
-| OPT-08 | Sliding Sync 性能闸门 | 需在合并 `sync_service + sliding_sync_service` 时前置引入 benchmark，属于性能治理改动 |
-| OPT-09 | worker lock 可配置重试 + metrics | 需新增配置项 + metrics 暴露，属于运维治理改动 |
 | OPT-10 | backfill 选点优化（绝对距离优先） | 需修改联邦回填算法，属于协议实现改动 |
 
 ### 12.4 Synapse Rust 化趋势对本项目的启示

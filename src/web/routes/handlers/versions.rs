@@ -425,6 +425,11 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     insert_enabled_capability(&mut capabilities, "m.thread", thread_capability().enabled());
     insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", sliding_sync_capability().enabled());
 
+    // MSC4452: Preview URL capabilities API (Synapse v1.154 #19715).
+    // Declares the `io.element.msc4452.preview_url` capability so clients
+    // know whether the `preview_url` endpoint is gated behind the capability.
+    insert_enabled_capability(&mut capabilities, "io.element.msc4452.preview_url", config.experimental.msc4452_enabled);
+
     if authenticated {
         let openclaw_enabled = openclaw_capability(config).enabled();
 

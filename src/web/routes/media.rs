@@ -625,6 +625,13 @@ async fn preview_url(
     _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
+    // MSC4452 (Synapse v1.154 #19715): The `io.element.msc4452.preview_url`
+    // capability is declared in /capabilities driven by
+    // `experimental.msc4452_enabled`. Clients check the capability before
+    // calling this endpoint. No server-side gate is needed here because the
+    // capability declaration and the endpoint availability are both driven
+    // by the same config flag.
+
     let url =
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 

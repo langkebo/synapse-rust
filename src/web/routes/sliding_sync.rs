@@ -67,8 +67,52 @@ async fn sliding_sync(
     }
 
     // Call the sliding sync service
+    //
+    // OPT-08: Performance gate for sliding sync. Records request duration
+    // in a histogram and logs a warning when the response exceeds the
+    // configured latency threshold. This provides p50/p95/p99 visibility
+    // and slow-request alerting, acting as a performance rollback gate
+    // inspired by Synapse v1.153.0rc3 which reverted a sliding-sync
+    // optimisation after performance regressions went unnoticed.
+    let sync_start = std::time::Instant::now();
     let response: SlidingSyncResponse =
         state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
+    let elapsed_ms = sync_start.elapsed().as_millis() as u64;
+
+    // Record duration in histogram for p50/p95/p99 observability.
+    let histogram = state
+        .services
+        .core
+        .metrics
+        .get_histogram("sliding_sync_duration_ms")
+        .unwrap_or_else(|| state.services.core.metrics.register_histogram("sliding_sync_duration_ms".to_string()));
+    histogram.observe(elapsed_ms as f64);
+
+    // Increment total request counter.
+    let total_counter = state
+        .services
+        .core
+        .metrics
+        .get_counter("sliding_sync_requests_total")
+        .unwrap_or_else(|| state.services.core.metrics.register_counter("sliding_sync_requests_total".to_string()));
+    total_counter.inc();
+
+    // Slow-request gate: warn + counter when threshold exceeded.
+    let threshold_ms = state.services.core.config.performance.sliding_sync_latency_threshold_ms;
+    if elapsed_ms > threshold_ms {
+        ::tracing::warn!(
+            user_id = %auth_user.user_id,
+            device_id = %device_id,
+            elapsed_ms = elapsed_ms,
+            threshold_ms = threshold_ms,
+            "Sliding sync response exceeded latency threshold"
+        );
+        let slow_counter =
+            state.services.core.metrics.get_counter("sliding_sync_slow_requests_total").unwrap_or_else(|| {
+                state.services.core.metrics.register_counter("sliding_sync_slow_requests_total".to_string())
+            });
+        slow_counter.inc();
+    }
 
     Ok(Json(response))
 }
