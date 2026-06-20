@@ -335,6 +335,46 @@ impl BackgroundUpdateStorage {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Acquire a background update lock with exponential backoff retry.
+    ///
+    /// This method retries lock acquisition up to `max_retries` times, with
+    /// exponential backoff capped at `max_retry_interval_ms`. This prevents
+    /// CPU starvation / DoS under lock contention while still allowing
+    /// workers to eventually acquire the lock.
+    ///
+    /// Aligned with Synapse v1.153.0 which lowered
+    /// `WORKER_LOCK_MAX_RETRY_INTERVAL` to 5 seconds.
+    ///
+    /// Returns `Ok(true)` if the lock was acquired, `Ok(false)` if all
+    /// retries were exhausted without acquiring the lock.
+    pub async fn acquire_lock_with_retry(
+        &self,
+        job_name: &str,
+        locked_by: &str,
+        lock_duration_ms: i64,
+        max_retries: u32,
+        max_retry_interval_ms: u64,
+    ) -> Result<bool, sqlx::Error> {
+        // First attempt without delay.
+        if self.acquire_lock(job_name, locked_by, lock_duration_ms).await? {
+            return Ok(true);
+        }
+
+        // Retry with exponential backoff: 100ms, 200ms, 400ms, ..., capped.
+        let mut delay_ms: u64 = 100;
+        for _attempt in 0..max_retries {
+            let sleep_ms = delay_ms.min(max_retry_interval_ms);
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+
+            if self.acquire_lock(job_name, locked_by, lock_duration_ms).await? {
+                return Ok(true);
+            }
+            delay_ms = delay_ms.saturating_mul(2);
+        }
+
+        Ok(false)
+    }
+
     pub async fn release_lock(&self, job_name: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM background_update_locks WHERE lock_name = $1")
             .bind(job_name)

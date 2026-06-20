@@ -647,6 +647,27 @@ impl SynapseServer {
                                 Ok(n) => ::tracing::info!(deleted = n, "Pruned expired one-time keys"),
                                 Err(e) => ::tracing::warn!("One-time key pruning failed: {e}"),
                             }
+
+                            // OPT-07: Extended pruning for additional append-only
+                            // tables that accumulate without bound on long-running
+                            // instances. Aligned with Synapse v1.152+ pruning strategy.
+                            match synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool).await {
+                                Ok(0) => ::tracing::debug!("To-device transaction pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old to-device transactions"),
+                                Err(e) => ::tracing::warn!("To-device transaction pruning failed: {e}"),
+                            }
+
+                            match synapse_storage::pruning::prune_expired_token_blacklist(&pruning_pool).await {
+                                Ok(0) => ::tracing::debug!("Token blacklist pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired token blacklist entries"),
+                                Err(e) => ::tracing::warn!("Token blacklist pruning failed: {e}"),
+                            }
+
+                            match synapse_storage::pruning::prune_old_federation_queue(&pruning_pool).await {
+                                Ok(0) => ::tracing::debug!("Federation queue pruning: no rows deleted"),
+                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old federation queue entries"),
+                                Err(e) => ::tracing::warn!("Federation queue pruning failed: {e}"),
+                            }
                         }
                         _ = shutdown_rx7.recv() => {
                             ::tracing::info!("Database pruning task shutting down");

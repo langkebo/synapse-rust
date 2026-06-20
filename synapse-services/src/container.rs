@@ -550,9 +550,10 @@ fn assemble_admin_support(
         Arc::new(crate::event_report_service::EventReportService::new(Arc::new(event_report_storage.clone())));
 
     let background_update_storage = synapse_storage::background_update::BackgroundUpdateStorage::new(pool);
-    let background_update_service = Arc::new(crate::background_update_service::BackgroundUpdateService::new(Arc::new(
-        background_update_storage.clone(),
-    )));
+    let background_update_service = Arc::new(
+        crate::background_update_service::BackgroundUpdateService::new(Arc::new(background_update_storage.clone()))
+            .with_lock_retry_config(config.worker.lock_max_retries, config.worker.lock_max_retry_interval_ms),
+    );
 
     let module_storage = synapse_storage::module::ModuleStorage::new(pool);
     let module_service = Arc::new(crate::module_service::ModuleService::new(Arc::new(module_storage.clone())));

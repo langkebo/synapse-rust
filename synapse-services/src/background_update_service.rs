@@ -4,13 +4,36 @@ use synapse_storage::background_update::*;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
+/// Default lock retry parameters. These can be overridden via WorkerConfig.
+const DEFAULT_LOCK_MAX_RETRIES: u32 = 3;
+const DEFAULT_LOCK_MAX_RETRY_INTERVAL_MS: u64 = 5000;
+
 pub struct BackgroundUpdateService {
     storage: Arc<BackgroundUpdateStorage>,
+    /// Maximum retry attempts for lock acquisition (from WorkerConfig).
+    lock_max_retries: u32,
+    /// Maximum interval between lock retries in ms (from WorkerConfig).
+    lock_max_retry_interval_ms: u64,
 }
 
 impl BackgroundUpdateService {
     pub fn new(storage: Arc<BackgroundUpdateStorage>) -> Self {
-        Self { storage }
+        Self {
+            storage,
+            lock_max_retries: DEFAULT_LOCK_MAX_RETRIES,
+            lock_max_retry_interval_ms: DEFAULT_LOCK_MAX_RETRY_INTERVAL_MS,
+        }
+    }
+
+    /// Configure lock retry parameters from WorkerConfig.
+    ///
+    /// Aligned with Synapse v1.153.0 which lowered
+    /// `WORKER_LOCK_MAX_RETRY_INTERVAL` to 5 seconds to reduce lock
+    /// contention CPU starvation.
+    pub fn with_lock_retry_config(mut self, max_retries: u32, max_retry_interval_ms: u64) -> Self {
+        self.lock_max_retries = max_retries;
+        self.lock_max_retry_interval_ms = max_retry_interval_ms;
+        self
     }
 
     #[instrument(skip(self))]
@@ -101,13 +124,34 @@ impl BackgroundUpdateService {
             return Err(ApiError::bad_request("Update is not in pending status"));
         }
 
+        // OPT-09: Use configurable exponential backoff retry for lock
+        // acquisition. This prevents CPU starvation under lock contention
+        // while still allowing workers to eventually acquire the lock.
+        // Aligned with Synapse v1.153.0 WORKER_LOCK_MAX_RETRY_INTERVAL.
+        let lock_start = std::time::Instant::now();
         let locked = self
             .storage
-            .acquire_lock(job_name, &Uuid::new_v4().to_string(), 300000)
+            .acquire_lock_with_retry(
+                job_name,
+                &Uuid::new_v4().to_string(),
+                300000,
+                self.lock_max_retries,
+                self.lock_max_retry_interval_ms,
+            )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to acquire lock", &e))?;
 
-        if !locked {
+        let lock_wait_ms = lock_start.elapsed().as_millis();
+        if locked {
+            info!(job_name = %job_name, lock_wait_ms = lock_wait_ms, "Acquired background update lock");
+        } else {
+            warn!(
+                job_name = %job_name,
+                lock_wait_ms = lock_wait_ms,
+                max_retries = self.lock_max_retries,
+                max_retry_interval_ms = self.lock_max_retry_interval_ms,
+                "Failed to acquire background update lock after retries"
+            );
             return Err(ApiError::bad_request("Failed to acquire lock, job may be locked by another process"));
         }
 

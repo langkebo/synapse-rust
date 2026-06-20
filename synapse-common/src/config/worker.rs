@@ -19,10 +19,32 @@ pub struct WorkerConfig {
     pub stream_writers: StreamWriters,
     #[serde(default)]
     pub replication: ReplicationConfig,
+    /// Maximum interval (in milliseconds) between lock acquisition retries.
+    ///
+    /// When a worker fails to acquire a background update lock, it retries
+    /// with exponential backoff capped at this interval. This prevents CPU
+    /// starvation / DoS under lock contention.
+    ///
+    /// Aligned with Synapse v1.153.0 which lowered
+    /// `WORKER_LOCK_MAX_RETRY_INTERVAL` to 5 seconds.
+    #[serde(default = "default_lock_max_retry_interval_ms")]
+    pub lock_max_retry_interval_ms: u64,
+    /// Maximum number of retry attempts before giving up on lock
+    /// acquisition. Default 3.
+    #[serde(default = "default_lock_max_retries")]
+    pub lock_max_retries: u32,
 }
 
 fn default_worker_instance_name() -> String {
     "master".to_string()
+}
+
+fn default_lock_max_retry_interval_ms() -> u64 {
+    5000
+}
+
+fn default_lock_max_retries() -> u32 {
+    3
 }
 
 impl Default for WorkerConfig {
@@ -34,6 +56,8 @@ impl Default for WorkerConfig {
             instance_map: HashMap::new(),
             stream_writers: StreamWriters::default(),
             replication: ReplicationConfig::default(),
+            lock_max_retry_interval_ms: default_lock_max_retry_interval_ms(),
+            lock_max_retries: default_lock_max_retries(),
         }
     }
 }
