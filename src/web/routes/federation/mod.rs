@@ -42,13 +42,7 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
 }
 
 async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_members = state
-        .services
-        .rooms
-        .member_storage
-        .get_room_members(room_id, "join")
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
+    let joined_members = state.services.rooms.room_service.get_room_members_by_membership(room_id, "join").await?;
 
     if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
         return Ok(());
@@ -63,13 +57,7 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
     // Previously only checked "join" membership, which was overly
     // restrictive and could cause federation issues for servers that
     // have invited or previously-left members.
-    let has_member = state
-        .services
-        .rooms
-        .member_storage
-        .has_any_non_banned_member_from_server(room_id, origin)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
+    let has_member = state.services.rooms.room_service.has_any_non_banned_member_from_server(room_id, origin).await?;
 
     if has_member {
         return Ok(());
@@ -79,13 +67,7 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
 }
 
 async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_room_ids = state
-        .services
-        .rooms
-        .room_storage
-        .get_user_rooms(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load user rooms", &e))?;
+    let joined_room_ids = state.services.rooms.room_service.get_joined_rooms(user_id).await?;
 
     if joined_room_ids.is_empty() {
         return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
@@ -96,13 +78,7 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
     }
 
     for room_id in joined_room_ids {
-        let joined_members = state
-            .services
-            .rooms
-            .member_storage
-            .get_room_members(&room_id, "join")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room members", &e))?;
+        let joined_members = state.services.rooms.room_service.get_room_members_by_membership(&room_id, "join").await?;
 
         if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
             return Ok(());

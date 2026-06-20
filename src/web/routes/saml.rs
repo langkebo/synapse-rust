@@ -108,7 +108,7 @@ async fn handle_saml_callback(
     let user = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_id(&auth_result.user_id)
         .await?
         .ok_or_else(|| ApiError::internal("User not found after SAML auth"))?;
@@ -137,7 +137,7 @@ pub async fn saml_logout(
     let mapping = state.services.sso.saml_service.get_user_mapping(&_auth_user.user_id).await?;
 
     if let Some(_mapping) = mapping {
-        let sessions = state.services.sso.saml_storage.get_session_by_user(&_auth_user.user_id).await?;
+        let sessions = state.services.sso.saml_service.get_session_by_user(&_auth_user.user_id).await?;
 
         if let Some(session) = sessions {
             let redirect_url = state
@@ -307,7 +307,7 @@ pub async fn list_saml_mappings_admin(
     Query(query): Query<SamlMappingListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
-    let rows = state.services.sso.saml_storage.list_user_mappings(limit, query.from.as_deref()).await?;
+    let rows = state.services.sso.saml_service.list_user_mappings(limit, query.from.as_deref()).await?;
 
     let next_token = if rows.len() as i64 == limit { rows.last().map(|r| r.name_id.clone()) } else { None };
 
@@ -321,7 +321,7 @@ pub async fn get_saml_mapping_admin(
     let row = state
         .services
         .sso
-        .saml_storage
+        .saml_service
         .get_user_mapping_any_issuer(&name_id)
         .await?
         .ok_or_else(|| ApiError::not_found("SAML user mapping not found"))?;
@@ -339,7 +339,7 @@ pub async fn update_saml_mapping_admin(
     let row = state
         .services
         .sso
-        .saml_storage
+        .saml_service
         .update_user_mapping_by_name_id(&name_id, body.user_id.as_deref(), body.attributes.as_ref())
         .await?
         .ok_or_else(|| ApiError::not_found("SAML user mapping not found"))?;
@@ -350,7 +350,7 @@ pub async fn delete_saml_mapping_admin(
     State(state): State<AppState>,
     Path(name_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let removed = state.services.sso.saml_storage.delete_user_mapping_by_name_id(&name_id).await?;
+    let removed = state.services.sso.saml_service.delete_user_mapping_by_name_id(&name_id).await?;
     if removed == 0 {
         return Err(ApiError::not_found("SAML user mapping not found"));
     }
@@ -368,7 +368,7 @@ pub async fn saml_logout_admin(
         return Err(ApiError::bad_request("SAML authentication is not enabled"));
     }
 
-    let session = state.services.sso.saml_storage.get_session_by_user(&body.user_id).await?;
+    let session = state.services.sso.saml_service.get_session_by_user(&body.user_id).await?;
 
     let Some(session) = session else {
         return Ok(Json(SamlLogoutAdminResponse {

@@ -2,6 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 
 use super::service::RoomService;
 
@@ -90,6 +91,13 @@ impl RoomService {
             .collect())
     }
 
+    pub async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> ApiResult<serde_json::Value> {
+        self.room_storage
+            .cleanup_abnormal_data(min_age_ms)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Cleanup failed", &e))
+    }
+
     pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
         let exists = self
             .room_storage
@@ -97,6 +105,166 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::database_with_log("Failed to check room existence", &e))?;
         Ok(exists)
+    }
+
+    pub async fn block_room(&self, room_id: &str, blocked_by: &str, reason: Option<&str>) -> ApiResult<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.room_storage
+            .block_room(room_id, now, blocked_by, reason)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to block room", &e))
+    }
+
+    pub async fn get_room_block_status(&self, room_id: &str) -> ApiResult<Option<i64>> {
+        self.room_storage
+            .get_room_block_status(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room block status", &e))
+    }
+
+    pub async fn unblock_room(&self, room_id: &str) -> ApiResult<()> {
+        self.room_storage
+            .unblock_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to unblock room", &e))
+    }
+
+    pub async fn get_public_rooms_paginated(
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_room_id: Option<&str>,
+    ) -> ApiResult<Vec<synapse_storage::Room>> {
+        self.room_storage
+            .get_public_rooms_paginated(limit, since_ts, since_room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get public rooms", &e))
+    }
+
+    pub async fn count_public_rooms(&self) -> ApiResult<i64> {
+        self.room_storage
+            .count_public_rooms()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to count public rooms", &e))
+    }
+
+    pub async fn get_room_stats_overview(&self) -> ApiResult<serde_json::Value> {
+        self.room_storage
+            .get_room_stats_overview()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room statistics overview", &e))
+    }
+
+    pub async fn get_single_room_stats(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
+        self.room_storage
+            .get_single_room_stats(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room statistics", &e))
+    }
+
+    pub async fn get_all_rooms_with_members(
+        &self,
+        limit: i64,
+        from: Option<RoomSearchCursor>,
+        order_by: RoomSearchOrder,
+    ) -> ApiResult<(Vec<(Room, i64)>, Option<String>)> {
+        self.room_storage
+            .get_all_rooms_with_members(limit, from, order_by)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to list rooms", &e))
+    }
+
+    pub async fn get_room_count(&self) -> ApiResult<i64> {
+        self.room_storage.get_room_count().await.map_err(|e| ApiError::database_with_log("Failed to count rooms", &e))
+    }
+
+    pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<Room>> {
+        self.room_storage.get_room(room_id).await.map_err(|e| ApiError::database_with_log("Failed to get room", &e))
+    }
+
+    pub async fn get_room_listings_status(&self, room_id: &str) -> ApiResult<Option<(bool, bool)>> {
+        self.room_storage
+            .get_room_listings_status(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room listing status", &e))
+    }
+
+    pub async fn set_room_public_with_directory(&self, room_id: &str) -> ApiResult<bool> {
+        self.room_storage
+            .set_room_public_with_directory(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to set room public", &e))
+    }
+
+    pub async fn set_room_private_with_directory(&self, room_id: &str) -> ApiResult<bool> {
+        self.room_storage
+            .set_room_private_with_directory(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to set room private", &e))
+    }
+
+    pub async fn shutdown_room_and_remove_members(&self, room_id: &str) -> ApiResult<()> {
+        self.room_storage
+            .shutdown_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to shutdown room", &e))?;
+        self.member_storage
+            .remove_all_members(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to remove room members", &e))?;
+        Ok(())
+    }
+
+    pub async fn grant_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        let event_id = synapse_common::generate_event_id(&self.server_name);
+        let sender = format!("@admin:{}", self.server_name);
+        let now = chrono::Utc::now().timestamp_millis();
+        let power_levels = json!({
+            "users": {
+                user_id: 100
+            },
+            "users_default": 0,
+            "events_default": 0,
+            "state_default": 50,
+            "ban": 50,
+            "kick": 50,
+            "redact": 50,
+            "invite": 0
+        });
+
+        self.event_storage
+            .upsert_power_levels_event(&event_id, room_id, user_id, power_levels, now, &sender)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to grant room admin", &e))
+    }
+
+    pub async fn purge_history_before(&self, room_id: &str, timestamp: i64) -> ApiResult<u64> {
+        self.event_storage
+            .delete_events_before(room_id, timestamp)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to purge history", &e))
+    }
+
+    pub async fn get_room_version(&self, room_id: &str) -> ApiResult<Option<String>> {
+        self.room_storage
+            .get_room_version_only(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get room version", &e))
+    }
+
+    pub async fn search_all_rooms_admin(
+        &self,
+        search_term: Option<&str>,
+        limit: i64,
+        order_by: RoomSearchOrder,
+        cursor: Option<RoomSearchCursor>,
+        is_public: Option<bool>,
+        is_encrypted: Option<bool>,
+    ) -> ApiResult<(Vec<serde_json::Value>, i64, Option<String>)> {
+        self.room_storage
+            .search_all_rooms_admin(search_term, limit, order_by, cursor, is_public, is_encrypted)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Search failed", &e))
     }
 
     pub async fn is_room_creator(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {

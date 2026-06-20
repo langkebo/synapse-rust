@@ -404,7 +404,9 @@ impl SamlService {
         self.storage.process_logout_request(&request_id).await?;
 
         if let Some(session_id) = logout_request.session_id {
-            let _ = self.storage.invalidate_session(&session_id).await;
+            if let Err(e) = self.storage.invalidate_session(&session_id).await {
+                tracing::warn!(session_id = %session_id, error = %e, "Failed to invalidate SAML session during logout");
+            }
         }
 
         info!(request_id = %request_id, "Processed SAML logout response");
@@ -428,6 +430,31 @@ impl SamlService {
 
     pub async fn get_user_mapping(&self, user_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
         self.storage.get_user_mapping_by_user_id(user_id).await
+    }
+
+    pub async fn get_session_by_user(&self, user_id: &str) -> Result<Option<SamlSession>, ApiError> {
+        self.storage.get_session_by_user(user_id).await
+    }
+
+    pub async fn list_user_mappings(&self, limit: i64, after: Option<&str>) -> Result<Vec<SamlUserMapping>, ApiError> {
+        self.storage.list_user_mappings(limit, after).await
+    }
+
+    pub async fn get_user_mapping_any_issuer(&self, name_id: &str) -> Result<Option<SamlUserMapping>, ApiError> {
+        self.storage.get_user_mapping_any_issuer(name_id).await
+    }
+
+    pub async fn update_user_mapping_by_name_id(
+        &self,
+        name_id: &str,
+        new_user_id: Option<&str>,
+        attributes: Option<&serde_json::Value>,
+    ) -> Result<Option<SamlUserMapping>, ApiError> {
+        self.storage.update_user_mapping_by_name_id(name_id, new_user_id, attributes).await
+    }
+
+    pub async fn delete_user_mapping_by_name_id(&self, name_id: &str) -> Result<u64, ApiError> {
+        self.storage.delete_user_mapping_by_name_id(name_id).await
     }
 
     pub async fn get_idp_metadata(&self) -> Result<SamlMetadata, ApiError> {

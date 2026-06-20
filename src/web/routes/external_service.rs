@@ -69,6 +69,10 @@ impl From<crate::storage::application_service::ApplicationService> for ExternalS
     }
 }
 
+fn external_service_integration(state: &AppState) -> Arc<ExternalServiceIntegration> {
+    state.services.admin.external_service_integration.clone()
+}
+
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
     match s.to_lowercase().as_str() {
         "trendradar" => Ok(ExternalServiceType::TrendRadar),
@@ -119,10 +123,7 @@ pub async fn register_external_service(
         is_enabled: true,
     };
 
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     let service = integration.register_external_service(&request_id, config).await?;
@@ -140,10 +141,7 @@ pub async fn list_external_services(
         Some(s) => Some(parse_service_type(s)?),
     };
 
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let services = integration.list_external_services(stype).await?;
 
@@ -157,10 +155,7 @@ pub async fn get_external_service_health(
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let health = integration
         .get_service_health(&as_id)
@@ -184,10 +179,7 @@ pub async fn check_service_health(
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     let is_healthy = integration.check_service_health(&request_id, &as_id).await?;
@@ -204,10 +196,7 @@ pub async fn unregister_external_service(
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     integration.unregister_external_service(&request_id, &as_id).await?;
@@ -222,10 +211,7 @@ pub async fn update_external_service(
     _admin: AdminUser,
     Json(body): Json<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
@@ -252,10 +238,7 @@ pub async fn handle_trendradar_webhook(
     headers: HeaderMap,
     Json(payload): Json<TrendRadarPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -275,10 +258,7 @@ pub async fn handle_openclaw_webhook(
     headers: HeaderMap,
     Json(payload): Json<OpenClawPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -297,10 +277,7 @@ pub async fn handle_generic_webhook(
     headers: HeaderMap,
     Json(payload): Json<WebhookPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -322,10 +299,7 @@ pub async fn get_all_health_status(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let status_list = integration.get_all_health_status().await;
 
@@ -339,10 +313,7 @@ pub async fn client_update_external_service(
     Path(service_id): Path<String>,
     Json(body): Json<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
@@ -369,10 +340,7 @@ pub async fn client_delete_external_service(
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let request_id = resolve_request_id(&headers);
     integration.unregister_external_service(&request_id, &service_id).await?;
@@ -384,10 +352,7 @@ pub async fn client_health_check_all(
     State(state): State<AppState>,
     _user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = ExternalServiceIntegration::new(
-        Arc::new(state.services.admin.app_service_storage.clone()),
-        state.services.core.server_name.clone(),
-    );
+    let integration = external_service_integration(&state);
 
     let status_list = integration.get_all_health_status().await;
 

@@ -97,6 +97,44 @@ impl ThreadService {
         Self { storage }
     }
 
+    pub async fn get_thread_root(&self, room_id: &str, thread_id: &str) -> Result<Option<ThreadRoot>, ApiError> {
+        self.storage
+            .get_thread_root(room_id, thread_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get thread root", &e))
+    }
+
+    pub async fn get_thread_root_by_event(
+        &self,
+        room_id: &str,
+        event_id: &str,
+    ) -> Result<Option<ThreadRoot>, ApiError> {
+        self.storage
+            .get_thread_root_by_event(room_id, event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get thread root", &e))
+    }
+
+    pub async fn get_thread_replies(
+        &self,
+        room_id: &str,
+        thread_id: &str,
+        limit: Option<i32>,
+        from: Option<String>,
+    ) -> Result<Vec<ThreadReply>, ApiError> {
+        self.storage
+            .get_thread_replies(room_id, thread_id, limit, from)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get replies", &e))
+    }
+
+    pub async fn get_thread_participants(&self, room_id: &str, thread_id: &str) -> Result<Vec<String>, ApiError> {
+        self.storage
+            .get_thread_participants(room_id, thread_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get participants", &e))
+    }
+
     pub async fn create_thread(&self, sender: &str, request: CreateThreadRequest) -> Result<ThreadRoot, ApiError> {
         info!(
             room_id = %request.room_id,

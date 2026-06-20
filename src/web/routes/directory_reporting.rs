@@ -62,10 +62,9 @@ pub(crate) async fn get_user_directory_profile(
     let user = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to lookup user", &e))?
+        .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     Ok(Json(json!({
@@ -87,7 +86,7 @@ pub(crate) async fn search_user_directory(
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10).clamp(1, 100) as i64;
 
-    let results = state.services.account.user_storage.search_users(&search_query, limit).await?;
+    let results = state.services.account.account_identity_service.search_users(&search_query, limit).await?;
 
     let target_user_ids: Vec<String> = results.iter().map(|u| u.user_id.clone()).collect();
     let visibility = can_view_profile_for_requester_batch(&state, Some(&requester_id), &target_user_ids).await?;
@@ -136,12 +135,12 @@ pub(crate) async fn list_user_directory(
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
 
-    let total_count = state.services.account.user_storage.get_user_count().await?;
+    let total_count = state.services.account.account_identity_service.get_user_count().await?;
 
     let users = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_users_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, user_id)| user_id))
         .await?;
 
@@ -186,13 +185,7 @@ pub(crate) async fn report_event(
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report events in this room").await?;
 
-    let event = state
-        .services
-        .rooms
-        .event_storage
-        .get_event(&event_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load event", &e))?;
+    let event = state.services.rooms.room_service.get_event_record(&event_id).await?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -203,8 +196,8 @@ pub(crate) async fn report_event(
     let report_id = state
         .services
         .rooms
-        .event_storage
-        .report_event(&event.event_id, &event.room_id, "", &auth_user.user_id, reason, score)
+        .room_service
+        .report_event(&event.event_id, &event.room_id, &auth_user.user_id, reason, score)
         .await?;
 
     ::tracing::info!(
@@ -282,13 +275,7 @@ pub(crate) async fn get_scanner_info(
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view scanner info").await?;
 
-    let event = state
-        .services
-        .rooms
-        .event_storage
-        .get_event(&event_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load event", &e))?;
+    let event = state.services.rooms.room_service.get_event_record(&event_id).await?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -309,14 +296,7 @@ pub(crate) async fn get_room_aliases(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -339,14 +319,7 @@ pub(crate) async fn set_room_alias(
         return Err(ApiError::bad_request("Alias too long (max 255 characters)".to_string()));
     }
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -412,14 +385,7 @@ pub(crate) async fn set_room_alias_direct(
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     }
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -473,20 +439,11 @@ pub(crate) async fn get_public_rooms(
             state
                 .services
                 .rooms
-                .room_storage
+                .room_service
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
-        async {
-            state
-                .services
-                .rooms
-                .room_storage
-                .count_public_rooms()
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
-        }
+        async { state.services.rooms.room_service.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -560,20 +517,11 @@ pub(crate) async fn query_public_rooms(
             state
                 .services
                 .rooms
-                .room_storage
+                .room_service
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
-        async {
-            state
-                .services
-                .rooms
-                .room_storage
-                .count_public_rooms()
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
-        }
+        async { state.services.rooms.room_service.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {

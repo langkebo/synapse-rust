@@ -310,13 +310,7 @@ async fn list_visible_threads(
     limit: Option<i32>,
     from: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
-    let room_ids = state
-        .services
-        .rooms
-        .room_storage
-        .get_user_rooms(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to list user rooms", &e))?;
+    let room_ids = state.services.rooms.room_service.get_joined_rooms(user_id).await?;
 
     let mut threads = Vec::new();
     for room_id in room_ids {
@@ -429,13 +423,7 @@ async fn delete_thread(
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
-    let thread = state
-        .services
-        .rooms
-        .thread_storage
-        .get_thread_root(&room_id, &thread_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let thread = state.services.rooms.thread_service.get_thread_root(&room_id, &thread_id).await?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
@@ -452,13 +440,7 @@ async fn freeze_thread(
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
-    let thread = state
-        .services
-        .rooms
-        .thread_storage
-        .get_thread_root(&room_id, &thread_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let thread = state.services.rooms.thread_service.get_thread_root(&room_id, &thread_id).await?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
@@ -475,13 +457,7 @@ async fn unfreeze_thread(
 ) -> Result<StatusCode, ApiError> {
     ensure_thread_management_access(&state, &auth_user, &room_id).await?;
 
-    let thread = state
-        .services
-        .rooms
-        .thread_storage
-        .get_thread_root(&room_id, &thread_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let thread = state.services.rooms.thread_service.get_thread_root(&room_id, &thread_id).await?;
 
     if thread.is_none() {
         return Err(ApiError::not_found(format!("Thread '{thread_id}' not found")));
@@ -523,12 +499,8 @@ async fn get_replies(
 ) -> Result<Json<Vec<ReplyResponse>>, ApiError> {
     ensure_thread_room_access(&state, &auth_user, &room_id).await?;
 
-    let storage = &state.services.rooms.thread_storage;
-
-    let replies = storage
-        .get_thread_replies(&room_id, &thread_id, query.limit, query.from)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get replies", &e))?;
+    let replies =
+        state.services.rooms.thread_service.get_thread_replies(&room_id, &thread_id, query.limit, query.from).await?;
 
     Ok(Json(replies.into_iter().map(ReplyResponse::from).collect()))
 }

@@ -8,22 +8,17 @@ use serde_json::{json, Value};
 
 async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, ApiError> {
     state
-        .services.rooms.space_storage
+        .services
+        .rooms
+        .space_service
         .resolve_space_id(identifier)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
         .ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
 
 #[axum::debug_handler]
 pub async fn get_spaces(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let spaces = state.services.rooms.space_storage.get_all_spaces_for_admin().await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let spaces = state.services.rooms.space_service.get_all_spaces_for_admin().await?;
 
     let space_list: Vec<Value> = spaces
         .iter()
@@ -48,10 +43,7 @@ pub async fn get_space(
     State(state): State<AppState>,
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let space = state.services.rooms.space_storage.get_space_by_identifier(&space_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let space = state.services.rooms.space_service.get_space_by_identifier(&space_id).await?;
 
     match space {
         Some(s) => Ok(Json(json!({
@@ -73,11 +65,7 @@ pub async fn delete_space(
     Path(space_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
-    let rows_affected =
-        state.services.rooms.space_storage.delete_space_returning_count(&resolved_space_id).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let rows_affected = state.services.rooms.space_service.delete_space_returning_count(&resolved_space_id).await?;
 
     if rows_affected == 0 {
         return Err(ApiError::not_found("Space not found".to_string()));
@@ -94,10 +82,7 @@ pub async fn get_space_users(
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
-    let user_list = state.services.rooms.space_storage.get_space_user_ids(&resolved_space_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let user_list = state.services.rooms.space_service.get_space_user_ids(&resolved_space_id).await?;
 
     Ok(Json(json!({ "users": user_list, "total": user_list.len() })))
 }
@@ -110,10 +95,7 @@ pub async fn get_space_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
-    let room_list = state.services.rooms.space_storage.get_space_room_ids(&resolved_space_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let room_list = state.services.rooms.space_service.get_space_room_ids(&resolved_space_id).await?;
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -127,10 +109,7 @@ pub async fn get_space_stats(
     let resolved_space_id = resolve_space_id(&state, &space_id).await?;
 
     let (member_count, child_count) =
-        state.services.rooms.space_storage.get_space_member_and_child_count(&resolved_space_id).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        state.services.rooms.space_service.get_space_member_and_child_count(&resolved_space_id).await?;
 
     Ok(Json(json!({
         "space_id": resolved_space_id,
@@ -142,10 +121,7 @@ pub async fn get_space_stats(
 /// Get overall room statistics
 #[axum::debug_handler]
 pub async fn get_room_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.rooms.room_storage.get_room_stats_overview().await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let stats = state.services.rooms.room_service.get_room_stats_overview().await?;
 
     Ok(Json(stats))
 }
@@ -157,10 +133,7 @@ pub async fn get_single_room_stats(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.rooms.room_storage.get_single_room_stats(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let stats = state.services.rooms.room_service.get_single_room_stats(&room_id).await?;
 
     match stats {
         Some(stats) => Ok(Json(stats)),
@@ -175,10 +148,7 @@ pub async fn get_room_listings(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let listing = state.services.rooms.room_storage.get_room_listings_status(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let listing = state.services.rooms.room_service.get_room_listings_status(&room_id).await?;
 
     let Some((is_public, in_directory)) = listing else {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -198,10 +168,7 @@ pub async fn set_room_public(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let found = state.services.rooms.room_storage.set_room_public_with_directory(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let found = state.services.rooms.room_service.set_room_public_with_directory(&room_id).await?;
 
     if !found {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -220,10 +187,7 @@ pub async fn set_room_private(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let found = state.services.rooms.room_storage.set_room_private_with_directory(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let found = state.services.rooms.room_service.set_room_private_with_directory(&room_id).await?;
 
     if !found {
         return Err(ApiError::not_found("Room not found".to_string()));

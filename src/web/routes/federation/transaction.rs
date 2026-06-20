@@ -253,10 +253,12 @@ pub(super) async fn send_transaction(
 
         if origin != state.services.core.config.server.name {
             if let Ok(create_events) =
-                state.services.rooms.event_storage.get_state_events_by_type(room_id, "m.room.create").await
+                state.services.rooms.room_service.get_state_events_by_type(room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
-                    if !crate::federation::signing::check_event_federate(&create_event.content) {
+                    if !crate::federation::signing::check_event_federate(
+                        create_event.get("content").unwrap_or(&serde_json::Value::Null),
+                    ) {
                         super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
                         ::tracing::warn!(
                             target: "security_audit",
@@ -332,7 +334,7 @@ pub(super) async fn send_transaction(
             redacts: redacts_target.clone(),
         };
 
-        match state.services.rooms.event_storage.create_event(params, None).await {
+        match state.services.rooms.room_service.create_event(params, None).await {
             Ok(_) => {
                 state
                     .services
@@ -349,7 +351,7 @@ pub(super) async fn send_transaction(
                 // recorded even if the target is missing.
                 if let Some(target_event_id) = &redacts_target {
                     if let Err(e) =
-                        state.services.rooms.event_storage.redact_event_content(target_event_id, Some(user_id)).await
+                        state.services.rooms.room_service.redact_event_content(target_event_id, Some(user_id)).await
                     {
                         ::tracing::warn!(
                             target: "security_audit",

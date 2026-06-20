@@ -135,31 +135,22 @@ async fn evict_user(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-
-    let joined_rooms = state
-        .services
-        .rooms
-        .member_storage
-        .get_joined_rooms(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let mut failures: Vec<Value> = Vec::new();
-    for room_id in &joined_rooms {
-        if let Err(e) = state.services.rooms.member_storage.remove_member(room_id, &user.user_id).await {
-            failures.push(json!({
-                "room_id": room_id,
-                "error": e.to_string()
-            }));
-        } else {
-            let _ = state.services.rooms.room_storage.decrement_member_count(room_id).await;
-        }
-    }
+    let eviction = state.services.admin.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
+    let failures: Vec<Value> = eviction
+        .failures
+        .into_iter()
+        .map(|failure| {
+            json!({
+                "room_id": failure.room_id,
+                "error": failure.error
+            })
+        })
+        .collect();
 
     Ok(Json(json!({
         "user_id": user.user_id,
-        "rooms_evicted": joined_rooms.len(),
-        "rooms": joined_rooms,
+        "rooms_evicted": eviction.joined_rooms.len(),
+        "rooms": eviction.joined_rooms,
         "failures": failures
     })))
 }
@@ -186,14 +177,7 @@ pub struct CreateUpdateUserRequest {
 }
 
 async fn resolve_user(state: &AppState, identifier: &str) -> Result<AdminUserRecord, ApiError> {
-    state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(identifier)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-        .ok_or_else(|| ApiError::not_found("User not found".to_string()))
+    state.services.admin.admin_user_service.get_user_or_not_found(identifier).await
 }
 
 // Moved to admin/mod.rs
@@ -218,25 +202,18 @@ pub async fn get_users(
         ));
     }
 
-    let users = state
+    let page = state
         .services
-        .account
-        .user_storage
-        .get_users_paginated(
+        .admin
+        .admin_user_service
+        .list_users_legacy(
             limit,
             cursor.as_ref().map(|cursor| cursor.created_ts),
             cursor.as_ref().map(|cursor| cursor.user_id.as_str()),
         )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-
-    let total = state
-        .services
-        .account
-        .user_storage
-        .get_user_count()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .await?;
+    let users = page.users;
+    let total = page.total;
 
     let user_list: Vec<Value> = users
         .iter()
@@ -275,13 +252,7 @@ async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let user = state.services.admin.admin_user_service.get_user_by_identifier(&user_id).await?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -313,14 +284,14 @@ async fn delete_user(
         "Admin deleting user"
     );
 
-    state.services.account.user_storage.delete_user(&user.user_id).await.map_err(|e| {
+    state.services.admin.admin_user_service.delete_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
             error = %e,
             "Failed to delete user"
         );
-        ApiError::internal_with_log("Database error", &e)
+        e
     })?;
 
     // 记录审计日志
@@ -378,14 +349,14 @@ pub async fn set_admin(
         "Admin changing user admin status"
     );
 
-    state.services.account.user_storage.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
+    state.services.admin.admin_user_service.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
             error = %e,
             "Failed to set admin status"
         );
-        ApiError::internal_with_log("Database error", &e)
+        e
     })?;
     state.cache.set(&format!("user:admin:{}", user.user_id), admin_status, 3600).await?;
 
@@ -518,17 +489,7 @@ pub async fn get_user_rooms_admin(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
     let from = params.get("from").map(|s| s.as_str());
 
-    let room_ids = crate::storage::RoomStorage::get_user_rooms_paginated(
-        &state.services.rooms.room_storage,
-        &user.user_id,
-        limit,
-        from,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let room_ids = state.services.admin.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
 
     let next_batch = if room_ids.len() as i64 == limit { room_ids.last().cloned() } else { None };
 
@@ -546,13 +507,7 @@ pub async fn get_user_devices_admin(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let devices = state
-        .services
-        .account
-        .device_storage
-        .get_user_devices(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let devices = state.services.admin.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let device_list: Vec<Value> = devices
         .iter()
@@ -624,14 +579,7 @@ pub async fn login_as_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-        .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
+    let user = state.services.admin.admin_user_service.get_user_or_not_found(&user_id).await?;
 
     if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
@@ -663,13 +611,7 @@ pub async fn logout_user_devices(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let device_count: i64 = state
-        .services
-        .account
-        .device_storage
-        .get_device_count(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let device_count = state.services.admin.admin_user_service.get_user_device_count(&user.user_id).await?;
 
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
@@ -921,13 +863,7 @@ pub async fn get_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let devices = state
-        .services
-        .account
-        .device_storage
-        .get_user_devices(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let devices = state.services.admin.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let sessions: Vec<Value> = devices
         .iter()
@@ -958,13 +894,7 @@ pub async fn invalidate_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed: i64 = state
-        .services
-        .account
-        .device_storage
-        .get_device_count(&canonical_user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let sessions_removed = state.services.admin.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
     state.services.core.auth_service.logout_all(&canonical_user_id).await?;
 
@@ -984,21 +914,9 @@ pub async fn get_account_details(
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
-    let device_count: i64 = state
-        .services
-        .account
-        .device_storage
-        .get_device_count(canonical_user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let device_count = state.services.admin.admin_user_service.get_user_device_count(canonical_user_id).await?;
 
-    let room_count: i64 = state
-        .services
-        .rooms
-        .member_storage
-        .get_joined_room_count(canonical_user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let room_count = state.services.admin.admin_user_service.get_joined_room_count(canonical_user_id).await?;
 
     Ok(Json(json!({
         "name": user.username,

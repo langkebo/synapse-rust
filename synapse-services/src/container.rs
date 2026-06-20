@@ -76,6 +76,7 @@ pub struct CoreServices {
 pub struct AccountServices {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    pub presence_service: Arc<crate::presence_service::PresenceService>,
     pub user_storage: UserStorage,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
@@ -490,6 +491,8 @@ pub struct AdminServices {
     pub app_service_storage: ApplicationServiceStorage,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
+    #[cfg(feature = "external-services")]
+    pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
     pub worker_storage: crate::worker::WorkerStorage,
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }
@@ -600,6 +603,11 @@ fn assemble_admin_support(
     ));
     let app_service_scheduler =
         Arc::new(crate::application_service::ApplicationServiceScheduler::new(app_service_manager.clone()));
+    #[cfg(feature = "external-services")]
+    let external_service_integration = Arc::new(crate::external_service_integration::ExternalServiceIntegration::new(
+        Arc::new(app_service_storage.clone()),
+        config.server.get_server_name().to_owned(),
+    ));
     let should_start_app_service_scheduler =
         should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
     if should_start_app_service_scheduler {
@@ -671,6 +679,8 @@ fn assemble_admin_support(
         app_service_storage,
         app_service_manager,
         app_service_scheduler,
+        #[cfg(feature = "external-services")]
+        external_service_integration,
         worker_storage,
         worker_manager,
         admin_media_service,
@@ -906,6 +916,7 @@ impl ServiceContainer {
         ));
         let account_device_list_service =
             Arc::new(crate::account_device_list_service::AccountDeviceListService::new(DeviceStorage::new(pool)));
+        let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
 
         #[cfg(feature = "widgets")]
         let widget_storage = synapse_storage::widget::WidgetStorage::new(pool.clone());
@@ -1059,6 +1070,7 @@ impl ServiceContainer {
             account: AccountServices {
                 account_device_list_service,
                 account_identity_service,
+                presence_service,
                 user_storage,
                 threepid_storage,
                 device_storage: DeviceStorage::new(pool),
@@ -1241,7 +1253,9 @@ fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let _ = std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600));
+                        if let Err(e) = std::fs::set_permissions(&path_buf, std::fs::Permissions::from_mode(0o600)) {
+                            ::tracing::warn!(path = %path_buf.display(), error = %e, "Failed to set 0600 permissions on megolm key file");
+                        }
                     }
                     ::tracing::info!(path = %path_buf.display(), "Persisted new megolm encryption key");
                 }
