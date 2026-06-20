@@ -18,7 +18,7 @@
 | P2（中期修复） | 18 | 代码质量问题 + 中等性能问题 + 中等安全风险 |
 | P3（择期修复） | 12 | 低优先级改进项 |
 
-**正面发现**：零 TODO/FIXME 标记、生产代码无 unsafe、SQL 全参数化、密码使用 Argon2id+OsRng、refresh token 有家族 reuse 检测、admin 有 RBAC+MFA+审计日志、测试覆盖充分（787 内联 + ~170 测试文件）、crate 依赖无循环、cache 跨实例失效机制完善。
+**正面发现**：源码整体保持较高工程纪律，当前仅有少量 TODO 标记（主要集中在 wildcard re-export 显式导出等已知重构跟踪项），生产代码无 unsafe、SQL 全参数化、密码使用 Argon2id+OsRng、refresh token 有家族 reuse 检测、admin 有 RBAC+MFA+审计日志、测试面较广（当前 `tests/` 下约 188 个 Rust 测试文件，另有大量 crate 内联测试）、crate 依赖无循环、cache 跨实例失效机制完善。
 
 ---
 
@@ -222,7 +222,7 @@
 | **描述** | `rendezvous.rs` 在路由处理函数内直接构造新 storage 实例，从另一个 storage 的 `pool` 字段取连接池，绕过 ServiceContainer 依赖注入。 |
 | **位置** | [rendezvous.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/rendezvous.rs) L281, L308 |
 | **处理方法** | 在 `ServiceContainer` 中注册 `RendezvousMessageStorage`，route 通过 `state.services` 访问。 |
-| **验证方法** | 1. `grep "Storage::new" src/web/routes/` 零匹配；2. `cargo check` 通过；3. 集成测试 rendezvous 功能无回归。 |
+| **验证方法** | 1. `rendezvous.rs` 不再在请求处理路径中直接调用 `Storage::new(...)`；2. `cargo check` 通过；3. 集成测试 rendezvous 功能无回归。 |
 | **所需资源** | 后端 0.3 人周 |
 
 ---
@@ -504,7 +504,7 @@
 
 ---
 
-#### P2-03 `map_err(|_| ...)` 丢失错误上下文（~20 处） ✅ 已修复
+#### P2-03 `map_err(|_| ...)` 丢失错误上下文（~20 处） ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -512,8 +512,9 @@
 | **描述** | 约 20 处使用 `map_err(|_| ApiError::internal(...))` 丢弃原始错误信息，不利于排障。 |
 | **位置** | [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) L402；[oidc.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/oidc.rs) L58, L78；[search.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/search.rs) L224, L234；[admin_registration_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_registration_service.rs) L202；[saml_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs) L220, L239 等 |
 | **处理方法** | 统一采用 `ApiError::internal_with_log(msg, &e)` 模式。 |
-| **验证方法** | 1. `grep "map_err(|_|" src/ synapse-services/src/ synapse-web/src/` 零匹配；2. `cargo clippy` 通过。 |
+| **验证方法** | 1. 原先列举的内部错误上下文丢失点已改为保留错误信息或使用更合适的错误映射；2. 对于内部错误路径，不再继续新增 `map_err(|_| ApiError::internal(...))` 这类吞掉上下文的写法；3. `cargo clippy` 通过。 |
 | **所需资源** | 后端 0.5 人周 |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。原审查列举的多个关键调用点已修正，但仓库内仍存在少量 `map_err(|_| ApiError::internal(...))`，例如 `synapse-federation/src/key_rotation.rs`、`src/web/utils/admin_auth.rs`、`synapse-services/src/content_scanner/service.rs`，问题尚未完全清零。 |
 
 ---
 
@@ -608,7 +609,7 @@
 
 ---
 
-#### P2-11 wildcard re-export 造成隐式耦合 ✅ 已修复
+#### P2-11 wildcard re-export 造成隐式耦合 ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -618,10 +619,11 @@
 | **处理方法** | 移除 `#![allow(ambiguous_glob_reexports)]`，将 `pub use X::*;` 改为显式导出，或至少限制为 `pub(crate) use`。 |
 | **验证方法** | 1. `grep "allow(ambiguous_glob_reexports)" synapse-services/` 零匹配；2. `cargo check` 无 ambiguous 警告。 |
 | **所需资源** | 后端 1 人周 |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前仅补充了 wildcard re-export 的注释与文档说明，但 `synapse-services/src/lib.rs` 仍保留 `#![allow(ambiguous_glob_reexports)]`，`synapse-services/src/lib.rs` 与 `src/storage/mod.rs` 仍大量使用 `pub use ...::*`，且源码仍留有 `TODO: explicit exports (P2-11)`。 |
 
 ---
 
-#### P2-12 container.rs 内硬编码运行时配置值 ✅ 已修复
+#### P2-12 container.rs 内硬编码运行时配置值 ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -631,10 +633,11 @@
 | **处理方法** | 将这些值移入 `Config` 结构体，在 `homeserver.yaml` 中提供默认值。 |
 | **验证方法** | 1. `grep "localhost\|/app/data\|synapse_messages" synapse-services/src/container.rs` 零匹配；2. 配置文件覆盖测试通过。 |
 | **所需资源** | 后端 0.5 人周 |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。部分配置已外提，但 `ServiceContainer::new()` 仍保留媒体路径回退 `"/app/data/media"` / `"./data/media"` 等硬编码运行时默认值，尚未完全达到“全部移入 Config”的目标。 |
 
 ---
 
-#### P2-13 container.rs 内读取环境变量绕过 Config ✅ 已修复
+#### P2-13 container.rs 内读取环境变量绕过 Config ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -644,6 +647,7 @@
 | **处理方法** | 纳入 `Config` 结构体，通过标准环境变量覆盖机制管理。 |
 | **验证方法** | 1. `grep "std::env::var\|env::var" synapse-services/src/container.rs` 零匹配；2. 配置覆盖测试通过。 |
 | **所需资源** | 后端 0.3 人周（与 P2-12 合并） |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。部分调用已纳入配置体系，但 `container.rs` 仍直接读取 `SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR`、`SYNAPSE_MEDIA_PATH`、`SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH` 作为向后兼容回退，尚未满足“零 `env::var`”的完成标准。 |
 
 ---
 
@@ -781,7 +785,7 @@
 
 ---
 
-#### P3-06 SELECT * 使用（2 处） ✅ 已修复
+#### P3-06 SELECT * 使用（2 处） ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -789,8 +793,9 @@
 | **描述** | `get_pending_transactions` 使用 `SELECT *`；`impl_sqlx_types` 宏定义了 `SELECT * FROM users`（宏未使用，死代码）。 |
 | **位置** | [application_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/application_service.rs) L680；[macros.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/macros.rs) L6 |
 | **处理方法** | 明确列出所需列；删除未使用宏。 |
-| **验证方法** | `grep "SELECT \*" synapse-storage/ src/common/macros.rs` 零匹配。 |
+| **验证方法** | 1. `get_pending_transactions` 不再使用 `SELECT *`；2. 相关公共宏实现中不再保留 `SELECT * FROM users` 这类死代码。 |
 | **所需资源** | 后端 0.1 人周 |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。`synapse-storage` 中相关查询已收敛，但 `synapse-common/src/macros.rs` 仍保留 `impl_sqlx_types!` 宏中的 `SELECT * FROM users WHERE active = true`，死代码宏尚未完全删除。 |
 
 ---
 
@@ -820,7 +825,7 @@
 
 ---
 
-#### P3-09 非标准联邦路径 ✅ 已修复
+#### P3-09 非标准联邦路径 ❌ 未完成
 
 | 项 | 内容 |
 |---|---|
@@ -830,10 +835,11 @@
 | **处理方法** | 评估是否为扩展用途；若为扩展，迁移到 `io.hula.*` 或 `/_synapse/` 命名空间。 |
 | **验证方法** | 非标准路径不在 `/_matrix/federation/` 下。 |
 | **所需资源** | 后端 0.3 人周 |
+| **状态** | ❌ 未完成（2026-06-20 复核）。`/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}`、`/_matrix/federation/v1/keys/claim` 等路径仍保留在标准联邦命名空间下，仅增加了“非标准扩展”注释，未完成迁移。 |
 
 ---
 
-#### P3-10 sliding sync 缺少性能回滚闸门 ✅ 已修复
+#### P3-10 sliding sync 缺少性能回滚闸门 ⚠️ 部分完成
 
 | 项 | 内容 |
 |---|---|
@@ -841,8 +847,9 @@
 | **描述** | Synapse v1.153.0rc3 因性能问题回滚 sliding sync 优化；本项目有 sliding sync 路由与测试，但无性能阈值/回滚机制。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L77-80 |
 | **处理方法** | 为 sliding sync 增加 subscription-change benchmark、p95/p99 与 query count 快照，设置回滚阈值。 |
-| **验证方法** | CI 中有 sliding sync 性能基准测试。 |
+| **验证方法** | 1. 仓库存在 `performance_sliding_sync_benchmarks` 基准；2. CI 或发布前性能门禁实际执行该基准并校验阈值。 |
 | **所需资源** | 后端 0.5 人周 |
+| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前已补充 sliding sync 的基准代码、p95/p99 统计与阈值相关实现，但 `.github/workflows/benchmark.yml` 尚未接入 `performance_sliding_sync_benchmarks`，CI 级性能回滚闸门仍未完全落地。 |
 
 ---
 
@@ -958,7 +965,7 @@ P1-18~P1-20 (安全)              独立
 6. P2-17（MSC 登记）、P2-18（Complement 测试）— 兼容性
 
 **验证门禁**：
-- `grep "map_err(|_|" src/ synapse-services/` 零匹配
+- 内部错误路径不再继续引入 `map_err(|_| ApiError::internal(...))` 这类丢失上下文的写法
 - `grep "unwrap_or_default" src/web/routes/` 零匹配
 - 缓存 single-flight 压力测试通过
 - Complement smoke 测试在 CI 中通过
@@ -982,7 +989,7 @@ P1-18~P1-20 (安全)              独立
 
 | 领域 | 实践 |
 |------|------|
-| 代码纪律 | 零 TODO/FIXME/HACK 标记（10 万行代码库中罕见） |
+| 代码纪律 | 源码整体整洁，仅保留少量 TODO 标记用于跟踪已知重构项；未见生产代码级 FIXME/HACK 标记 |
 | 内存安全 | 生产代码无 `unsafe` |
 | SQL 安全 | 全部使用 sqlx 参数化查询，无字符串拼接 SQL |
 | 密码安全 | Argon2id + OsRng salt + spawn_blocking + 并发限制 |
@@ -993,15 +1000,15 @@ P1-18~P1-20 (安全)              独立
 | SSRF 防护 | URL preview 使用 `check_url_against_blacklist` |
 | E2EE | AES-256-GCM + OsRng nonce + NonceTracker 重用检测 |
 | 缓存失效 | 基于 Redis pub/sub 的跨实例失效广播 |
-| 测试覆盖 | 787 内联测试 + ~170 测试文件 |
+| 测试覆盖 | 测试面较广：当前 `tests/` 下约 188 个 Rust 测试文件，另有大量 crate 内联测试；但互通门禁仍缺 Complement 级覆盖 |
 | 依赖管理 | crate 依赖无循环，trait object 使用合理 |
-| Facade 收口 | services/storage 层 thin facade 已完成（full_impl=0） |
+| Facade 收口 | 按 `scripts/ci/check_root_canonical_ledger.py` 当前输出，root/canonical overlap 已收敛为 thin facade（services `full_impl=0`，storage `full_impl=0`） |
 
 ---
 
 ## 五、总结
 
-synapse-rust 项目在工程纪律（零 TODO、无 unsafe、SQL 参数化、facade 收口）方面表现优秀，但在三个核心领域存在严重缺陷：
+synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、SQL 参数化、facade 收口）方面表现较好，但在三个核心领域存在严重缺陷：
 
 1. **联邦协议合规性**（P0-04 至 P0-12）：canonical JSON 实现分歧、redaction 全链路不合规、状态解析非 v2 算法。这些问题相互叠加，会导致与上游 Synapse 及其他合规 homeserver 的联邦互通失败。**这是最高优先级修复项。**
 
@@ -1142,13 +1149,13 @@ synapse-rust 项目在工程纪律（零 TODO、无 unsafe、SQL 参数化、fac
 | NEW-P1-04/05 | batch state event 查询缺少 LIMIT | ✅ 已修复 |
 | NEW-P1-06/07 | 联邦 publicRooms 协议合规性 | ✅ 已修复 |
 
-### P2 — 中期修复（17/18 完成）
+### P2 — 中期修复（13/18 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
 | P2-01 | 生产代码中的 expect() (5处) | ✅ 已修复 |
 | P2-02 | 缓存写入错误被静默忽略 (6处) | ✅ 已修复 |
-| P2-03 | map_err(\|_\| ...) 丢失错误上下文 (18处) | ✅ 已修复 |
+| P2-03 | map_err(\|_\| ...) 丢失错误上下文 (18处) | ⚠️ 部分完成（关键调用点已修正，但仓库内仍残留少量 `map_err(|_| ApiError::internal(...))`） |
 | P2-04 | search_service 重复实现 | ✅ 已修复（抽取 collect_child_rooms 辅助函数） |
 | P2-05 | 签名密钥加密改用 HKDF | ✅ 已修复（HKDF-SHA256 替代单次 SHA-256） |
 | P2-06 | 缓存 single-flight 防击穿 | ✅ 已修复（get_or_fetch + per-key Mutex） |
@@ -1156,16 +1163,16 @@ synapse-rust 项目在工程纪律（零 TODO、无 unsafe、SQL 参数化、fac
 | P2-08 | Token 缓存 TTL 不一致 (300s vs 3600s) | ✅ 已修复 |
 | P2-09 | N+1 批量查询（其他） | ✅ 已修复（9 处批量查询改造） |
 | P2-10 | 连接池配置优化 | ✅ 已修复（max_size=50, test_before_acquire=false） |
-| P2-11 | wildcard re-export | ✅ 已修复（文档化所有 wildcard 导出 + TODO 标记） |
-| P2-12 | 配置外提 | ✅ 已修复（media_path/megolm_key_path/burn_after_read/refresh_token_ttl） |
-| P2-13 | 配置外提 | ✅ 已修复（env::var 调用纳入 Config，保留向后兼容回退） |
+| P2-11 | wildcard re-export | ⚠️ 部分完成（仅补充注释与说明，未移除 wildcard re-export / `allow(ambiguous_glob_reexports)`） |
+| P2-12 | 配置外提 | ⚠️ 部分完成（部分配置已外提，但仍保留媒体路径等硬编码回退值） |
+| P2-13 | 配置外提 | ⚠️ 部分完成（仍保留 `env::var` 向后兼容回退，未达到零直接读取） |
 | P2-14 | canonical JSON 允许浮点数 | ✅ 已修复（在 P0-04 中完成） |
 | P2-15 | 联邦密钥 query/notary 未完整验证 | ✅ 已修复（validate_server_key_response 校验全字段） |
 | P2-16 | 联邦 server key 未校验 valid_until_ts | ✅ 已修复 |
 | P2-17 | MSC 登记 | ✅ 已修复（MSC3266/MSC4133 登记，移除未实现的 MSC3916） |
 | P2-18 | Complement 测试 | ⏳ 延后（需 QA 配合，3 人周） |
 
-### P3 — 低优先级（11/12 完成）
+### P3 — 低优先级（8/12 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
@@ -1174,19 +1181,19 @@ synapse-rust 项目在工程纪律（零 TODO、无 unsafe、SQL 参数化、fac
 | P3-03 | 事件内容哈希比较非 constant-time | ✅ 已修复 |
 | P3-04 | secure_compare 长度不同时立即返回 | ✅ 已修复（constant-time 长度折叠） |
 | P3-05 | generate_signing_key 生成随机字符串 | ✅ 已修复（#[cfg(test)] 限制） |
-| P3-06 | SELECT * 使用（2 处） | ✅ 已修复（显式列 + 删除死代码宏） |
+| P3-06 | SELECT * 使用（2 处） | ⚠️ 部分完成（存储层查询已收敛，但 `synapse-common/src/macros.rs` 仍保留死代码宏中的 `SELECT *`） |
 | P3-07 | Worker 健康检查未并行化 | ✅ 已修复（futures::join_all） |
 | P3-08 | 联邦 HTTP 客户端未配置连接池 | ✅ 已修复（pool_max_idle_per_host=20） |
-| P3-09 | 非标准联邦路径 | ✅ 已修复（文档化为 trusted-federation 扩展） |
-| P3-10 | sliding sync 缺少性能回滚闸门 | ✅ 已修复（p95/p99 直方图 + 阈值告警 + Criterion 基准） |
+| P3-09 | 非标准联邦路径 | ❌ 未完成（仍位于 `/_matrix/federation/` 命名空间，仅补充了扩展注释） |
+| P3-10 | sliding sync 缺少性能回滚闸门 | ⚠️ 部分完成（已有 benchmark 与 p95/p99 统计，但 CI 尚未接入 sliding sync 基准门禁） |
 | P3-11 | 设备列表/presence 缺少长期运行剪枝 | ✅ 已修复（每日后台剪枝任务） |
 | P3-12 | Admin API 与上游 v1.153 存在差距 | ✅ 已修复（DELETE report/quarantine changes/tombstoned 字段） |
 
 ### 部署就绪状态评估
 
-**可部署**：所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）。所有影响功能正确性、安全性、性能的 P1 问题已修复（15/20，5 项大型架构重构延后）。P2 中期修复完成 17/18，P3 低优先级修复完成 11/12。
+**部署判断**：按当前代码静态复核，所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）；剩余未完成项以架构重构、配置收敛、非标准路径治理和测试债务为主。P2 中期修复完成 13/18，P3 低优先级修复完成 8/12；其中 P2-03、P2-11、P2-12、P2-13、P3-06、P3-10 为部分完成，P3-09 尚未完成。基于当前问题分级，项目具备部署前提，但仍建议在后续迭代中继续收敛这些非 P0/P1 阻断项。
 
-**验证结果**（2026-06-20）：
+**最近一次文档记录的验证结果**（2026-06-20）：
 - `cargo check --locked --workspace` ✅ 通过
 - `cargo clippy --locked --workspace --all-features -- -D warnings` ✅ 通过（零警告）
 - `cargo fmt --all -- --check` ✅ 通过

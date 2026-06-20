@@ -1,22 +1,21 @@
-use sqlx::PgPool;
-use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::oidc_user_mapping::OidcUserMappingStorage;
 use tracing::instrument;
 
 #[derive(Clone)]
 pub struct OidcMappingService {
-    pool: Arc<PgPool>,
+    storage: OidcUserMappingStorage,
 }
 
 impl OidcMappingService {
-    pub fn new(pool: Arc<PgPool>) -> Self {
-        Self { pool }
+    pub fn new(storage: OidcUserMappingStorage) -> Self {
+        Self { storage }
     }
 
     #[instrument(skip(self))]
     pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, ApiError> {
-        OidcUserMappingStorage::get_bound_user_id(&self.pool, issuer, subject)
+        self.storage
+            .get_bound_user_id(issuer, subject)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))
     }
@@ -28,7 +27,8 @@ impl OidcMappingService {
         subject: &str,
         authenticated_ts: i64,
     ) -> Result<(), ApiError> {
-        OidcUserMappingStorage::update_last_authenticated(&self.pool, issuer, subject, authenticated_ts)
+        self.storage
+            .update_last_authenticated(issuer, subject, authenticated_ts)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
         Ok(())
@@ -42,7 +42,8 @@ impl OidcMappingService {
         user_id: &str,
         first_seen_ts: i64,
     ) -> Result<(), ApiError> {
-        OidcUserMappingStorage::insert_mapping(&self.pool, issuer, subject, user_id, first_seen_ts)
+        self.storage
+            .insert_mapping(issuer, subject, user_id, first_seen_ts)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;
         Ok(())

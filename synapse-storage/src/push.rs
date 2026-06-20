@@ -1,12 +1,20 @@
 use serde_json::Value;
+use std::sync::Arc;
 
-pub struct PushStorage;
+#[derive(Clone)]
+pub struct PushStorage {
+    pool: Arc<sqlx::PgPool>,
+}
 
 impl PushStorage {
+    pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
+        Self { pool }
+    }
+
     // ── pushers ──────────────────────────────────────────────────────────
 
     pub async fn get_pushers(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         device_id: Option<&str>,
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
@@ -17,13 +25,13 @@ impl PushStorage {
         )
         .bind(user_id)
         .bind(device_id)
-        .fetch_all(pool)
+        .fetch_all(&*self.pool)
         .await
     }
 
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_pusher(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         device_id: &str,
         pushkey: &str,
@@ -57,22 +65,17 @@ impl PushStorage {
         .bind(data)
         .bind(now)
         .bind(now)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
-    pub async fn delete_pusher(
-        pool: &sqlx::PgPool,
-        user_id: &str,
-        device_id: &str,
-        pushkey: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM pushers WHERE user_id = $1 AND pushkey = $2 AND device_id = $3")
             .bind(user_id)
             .bind(pushkey)
             .bind(device_id)
-            .execute(pool)
+            .execute(&*self.pool)
             .await?;
         Ok(())
     }
@@ -81,7 +84,7 @@ impl PushStorage {
 
     #[allow(clippy::too_many_arguments)]
     pub async fn upsert_push_rule(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -106,13 +109,13 @@ impl PushStorage {
         .bind(conditions)
         .bind(actions)
         .bind(now)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn delete_push_rule(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -124,13 +127,13 @@ impl PushStorage {
                 .bind(scope)
                 .bind(kind)
                 .bind(rule_id)
-                .execute(pool)
+                .execute(&*self.pool)
                 .await?;
         Ok(result.rows_affected())
     }
 
     pub async fn update_push_rule_actions(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -145,13 +148,13 @@ impl PushStorage {
         .bind(kind)
         .bind(actions)
         .bind(rule_id)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_push_rule_enabled(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -164,12 +167,12 @@ impl PushStorage {
         .bind(scope)
         .bind(kind)
         .bind(rule_id)
-        .fetch_optional(pool)
+        .fetch_optional(&*self.pool)
         .await
     }
 
     pub async fn set_push_rule_enabled(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -184,13 +187,13 @@ impl PushStorage {
         .bind(kind)
         .bind(enabled)
         .bind(rule_id)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_user_push_rules(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         scope: &str,
         kind: &str,
@@ -204,14 +207,14 @@ impl PushStorage {
         .bind(user_id)
         .bind(scope)
         .bind(kind)
-        .fetch_all(pool)
+        .fetch_all(&*self.pool)
         .await
     }
 
     // ── notifications ────────────────────────────────────────────────────
 
     pub async fn get_notifications(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         limit: i64,
     ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
@@ -221,12 +224,12 @@ impl PushStorage {
         )
         .bind(user_id)
         .bind(limit)
-        .fetch_all(pool)
+        .fetch_all(&*self.pool)
         .await
     }
 
     pub async fn ack_notification(
-        pool: &sqlx::PgPool,
+        &self,
         id: i64,
         user_id: &str,
         now: i64,
@@ -238,7 +241,7 @@ impl PushStorage {
         .bind(id)
         .bind(user_id)
         .bind(now)
-        .fetch_optional(pool)
+        .fetch_optional(&*self.pool)
         .await
     }
 }

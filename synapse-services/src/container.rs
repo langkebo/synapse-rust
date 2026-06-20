@@ -355,7 +355,9 @@ fn assemble_room_and_sync(
     let thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
     let thread_service = Arc::new(crate::thread_service::ThreadService::new(Arc::new(thread_storage.clone())));
 
-    let room_tag_service = Arc::new(crate::room_tag_service::RoomTagService::new(pool.clone()));
+    let room_tag_service = Arc::new(crate::room_tag_service::RoomTagService::new(
+        synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+    ));
 
     RoomSyncServices {
         room_storage,
@@ -1035,7 +1037,9 @@ impl ServiceContainer {
         let client_push_service = Arc::new(crate::client_push_service::ClientPushService::new(pool.clone()));
 
         // OIDC mapping service
-        let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(pool.clone()));
+        let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(
+            synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()),
+        ));
 
         #[cfg(feature = "burn-after-read")]
         let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;
