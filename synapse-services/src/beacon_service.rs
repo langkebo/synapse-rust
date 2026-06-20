@@ -31,16 +31,18 @@ impl BeaconService {
         self.storage.deactivate_beacons_by_state_key(&params.room_id, &params.state_key).await?;
         for old in existing {
             let old_cache_key = format!("beacon:info:{}", old.event_id);
-            let _ = self.cache.delete(&old_cache_key).await;
+            self.cache.delete(&old_cache_key).await;
         }
 
         let beacon = self.storage.create_beacon_info(params).await?;
 
         let cache_key = format!("beacon:info:{}", beacon.event_id);
-        let _ = self.cache.set(&cache_key, &beacon, 60).await;
+        if let Err(e) = self.cache.set(&cache_key, &beacon, 60).await {
+            ::tracing::warn!(cache_key = %cache_key, event_id = %beacon.event_id, error = %e, "Failed to cache beacon info");
+        }
 
         let room_cache_key = format!("beacon:room:{}", beacon.room_id);
-        let _ = self.cache.delete(&room_cache_key).await;
+        self.cache.delete(&room_cache_key).await;
 
         Ok(beacon)
     }
@@ -59,7 +61,9 @@ impl BeaconService {
         let beacon = self.storage.get_beacon_info(room_id, event_id).await?;
 
         if let Some(ref b) = beacon {
-            let _ = self.cache.set(&cache_key, b, 60).await;
+            if let Err(e) = self.cache.set(&cache_key, b, 60).await {
+                ::tracing::warn!(cache_key = %cache_key, room_id = %room_id, event_id = %event_id, error = %e, "Failed to cache beacon info lookup");
+            }
         }
 
         Ok(beacon)
@@ -77,7 +81,9 @@ impl BeaconService {
 
         let beacons = self.storage.get_active_beacons(room_id).await?;
 
-        let _ = self.cache.set(&cache_key, &beacons, 30).await;
+        if let Err(e) = self.cache.set(&cache_key, &beacons, 30).await {
+            ::tracing::warn!(cache_key = %cache_key, room_id = %room_id, error = %e, "Failed to cache active beacons");
+        }
 
         Ok(beacons)
     }
@@ -93,10 +99,12 @@ impl BeaconService {
 
         if let Some(ref b) = beacon {
             let cache_key = format!("beacon:info:{}", event_id);
-            let _ = self.cache.set(&cache_key, b, 60).await;
+            if let Err(e) = self.cache.set(&cache_key, b, 60).await {
+                ::tracing::warn!(cache_key = %cache_key, room_id = %room_id, event_id = %event_id, error = %e, "Failed to cache updated beacon info");
+            }
 
             let room_cache_key = format!("beacon:room:active:{}", room_id);
-            let _ = self.cache.delete(&room_cache_key).await;
+            self.cache.delete(&room_cache_key).await;
         }
 
         Ok(beacon)
@@ -111,10 +119,10 @@ impl BeaconService {
 
         if deleted {
             let cache_key = format!("beacon:info:{}", event_id);
-            let _ = self.cache.delete(&cache_key).await;
+            self.cache.delete(&cache_key).await;
 
             let room_cache_key = format!("beacon:room:active:{}", room_id);
-            let _ = self.cache.delete(&room_cache_key).await;
+            self.cache.delete(&room_cache_key).await;
         }
 
         Ok(deleted)
@@ -127,10 +135,17 @@ impl BeaconService {
         let location = self.storage.create_beacon_location(params.clone()).await?;
 
         let cache_key = format!("beacon:location:latest:{}", params.beacon_info_id);
-        let _ = self.cache.set(&cache_key, &location, 30).await;
+        if let Err(e) = self.cache.set(&cache_key, &location, 30).await {
+            ::tracing::warn!(
+                cache_key = %cache_key,
+                beacon_info_id = %params.beacon_info_id,
+                error = %e,
+                "Failed to cache latest beacon location"
+            );
+        }
 
         let locations_cache_key = format!("beacon:locations:{}", params.beacon_info_id);
-        let _ = self.cache.delete(&locations_cache_key).await;
+        self.cache.delete(&locations_cache_key).await;
 
         Ok(location)
     }
@@ -148,7 +163,9 @@ impl BeaconService {
 
         let locations = self.storage.get_beacon_locations(beacon_info_id, limit).await?;
 
-        let _ = self.cache.set(&cache_key, &locations, 30).await;
+        if let Err(e) = self.cache.set(&cache_key, &locations, 30).await {
+            ::tracing::warn!(cache_key = %cache_key, beacon_info_id = %beacon_info_id, error = %e, "Failed to cache beacon locations");
+        }
 
         Ok(locations)
     }
@@ -166,7 +183,9 @@ impl BeaconService {
         let location = self.storage.get_latest_location(beacon_info_id).await?;
 
         if let Some(ref l) = location {
-            let _ = self.cache.set(&cache_key, l, 30).await;
+            if let Err(e) = self.cache.set(&cache_key, l, 30).await {
+                ::tracing::warn!(cache_key = %cache_key, beacon_info_id = %beacon_info_id, error = %e, "Failed to cache latest beacon location lookup");
+            }
         }
 
         Ok(location)

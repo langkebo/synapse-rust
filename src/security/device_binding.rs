@@ -21,12 +21,17 @@
 //! Pre-Sprint 5 rows have `binding_token = NULL` and are accepted during
 //! the migration window.
 
+use hmac::digest::InvalidLength;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 use crate::common::crypto::{decode_hex, encode_hex};
 
 type HmacSha256 = Hmac<Sha256>;
+
+fn init_hmac(secret: &[u8]) -> Result<HmacSha256, InvalidLength> {
+    HmacSha256::new_from_slice(secret)
+}
 
 /// Domain-separated payload. Bump the `v1|` prefix on any change to keep
 /// the verification contract well-defined.
@@ -36,26 +41,20 @@ fn build_binding_payload(user_id: &str, device_id: &str, key_type: &str, added_t
 
 /// Compute the hex-encoded HMAC-SHA256 binding token for a device upload.
 ///
-/// `new_from_slice` is infallible for HMAC (RFC 2104 accepts any key length),
-/// so the `expect` below cannot panic in practice. We allow the clippy lint
-/// rather than changing the public API to return `Result`.
-#[allow(clippy::expect_used)]
 pub fn sign_device_binding(
     secret: &[u8],
     user_id: &str,
     device_id: &str,
     key_type: &str,
     added_ts: i64,
-) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");
+) -> Result<String, InvalidLength> {
+    let mut mac = init_hmac(secret)?;
     mac.update(&build_binding_payload(user_id, device_id, key_type, added_ts));
-    encode_hex(mac.finalize().into_bytes())
+    Ok(encode_hex(mac.finalize().into_bytes()))
 }
 
 /// Constant-time verify a binding token against the row's claimed fields.
 ///
-/// See `sign_device_binding` for why `expect` is safe here.
-#[allow(clippy::expect_used)]
 pub fn verify_device_binding(
     secret: &[u8],
     user_id: &str,
@@ -63,13 +62,13 @@ pub fn verify_device_binding(
     key_type: &str,
     added_ts: i64,
     provided_hex: &str,
-) -> bool {
+) -> Result<bool, InvalidLength> {
     let Ok(provided) = decode_hex(provided_hex) else {
-        return false;
+        return Ok(false);
     };
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts keys of any size");
+    let mut mac = init_hmac(secret)?;
     mac.update(&build_binding_payload(user_id, device_id, key_type, added_ts));
-    mac.verify_slice(&provided).is_ok()
+    Ok(mac.verify_slice(&provided).is_ok())
 }
 
 #[cfg(test)]
@@ -83,36 +82,38 @@ mod tests {
     #[test]
     fn sign_and_verify_round_trip() {
         let s = secret();
-        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000);
-        assert!(verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000, &t));
+        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
+        assert!(verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000, &t).unwrap());
     }
 
     #[test]
     fn rejects_tampered_device() {
         let s = secret();
-        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000);
-        assert!(!verify_device_binding(&s, "@alice:hs", "OTHER", "master", 1_700_000_000_000, &t));
+        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
+        assert!(!verify_device_binding(&s, "@alice:hs", "OTHER", "master", 1_700_000_000_000, &t).unwrap());
     }
 
     #[test]
     fn rejects_tampered_key_type() {
         let s = secret();
-        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000);
-        assert!(!verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "self_signing", 1_700_000_000_000, &t));
+        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
+        assert!(
+            !verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "self_signing", 1_700_000_000_000, &t).unwrap()
+        );
     }
 
     #[test]
     fn rejects_tampered_ts() {
         let s = secret();
-        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000);
-        assert!(!verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_001, &t));
+        let t = sign_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
+        assert!(!verify_device_binding(&s, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_001, &t).unwrap());
     }
 
     #[test]
     fn rejects_wrong_secret() {
         let s1 = secret();
         let s2 = b"unit-test-device-binding-key-B".to_vec();
-        let t = sign_device_binding(&s1, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000);
-        assert!(!verify_device_binding(&s2, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000, &t));
+        let t = sign_device_binding(&s1, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000).unwrap();
+        assert!(!verify_device_binding(&s2, "@alice:hs", "ABCDEFGH", "master", 1_700_000_000_000, &t).unwrap());
     }
 }

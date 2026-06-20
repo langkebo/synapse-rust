@@ -111,7 +111,7 @@ impl UiaService {
 
     pub async fn remove_session(&self, session_id: &str) {
         let key = format!("uia:session:{session_id}");
-        let _ = self.cache.delete(&key).await;
+        self.cache.delete(&key).await;
     }
 
     pub fn is_session_complete(&self, session: &UiaSession) -> bool {

@@ -90,7 +90,15 @@ impl DeviceSyncManager {
 
         if let Some(cache) = &self.cache_manager {
             if let Ok(devices_json) = serde_json::to_string(devices) {
-                let _ = cache.set(&cache_key, devices_json, DEVICE_SYNC_CACHE_TTL).await;
+                if let Err(e) = cache.set(&cache_key, devices_json, DEVICE_SYNC_CACHE_TTL).await {
+                    ::tracing::warn!(
+                        origin = %origin,
+                        user_id = %user_id,
+                        cache_key = %cache_key,
+                        error = %e,
+                        "Failed to cache remote device sync payload"
+                    );
+                }
             }
         }
 
@@ -335,7 +343,7 @@ impl DeviceSyncManager {
         local.retain(|key, _| !key.starts_with(&cache_pattern));
 
         if let Some(cache) = &self.cache_manager {
-            let _ = cache.delete(&cache_pattern).await;
+            cache.delete(&cache_pattern).await;
         }
 
         Ok(())
@@ -347,7 +355,7 @@ impl DeviceSyncManager {
         local.retain(|key, _| !key.starts_with(&cache_pattern));
 
         if let Some(cache) = &self.cache_manager {
-            let _ = cache.delete(&cache_pattern).await;
+            cache.delete(&cache_pattern).await;
         }
 
         tracing::info!("Invalidated device cache for user: {}", user_id);

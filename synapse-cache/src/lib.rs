@@ -894,7 +894,9 @@ impl CacheManager {
     pub async fn delete(&self, key: &str) {
         self.local.remove(key);
         if let Some(redis) = &self.redis {
-            let _ = redis.delete(key).await;
+            if let Err(e) = redis.delete(key).await {
+                ::tracing::warn!(target: "cache", cache_key = %key, error = %e, "Failed to delete cache entry from Redis");
+            }
         }
         if let Err(e) = self.broadcast_invalidation(key, InvalidationType::Key).await {
             tracing::warn!("Failed to broadcast key invalidation: {}", e);

@@ -120,7 +120,7 @@ impl ContentScanner {
 
         let response = timeout(Duration::from_millis(self.config.scan_timeout_ms), req_builder.send())
             .await
-            .map_err(|_| ApiError::internal("Webhook request timeout".to_string()))?
+            .map_err(|e| ApiError::internal_with_log("Webhook request timeout", &e))?
             .map_err(|e| ApiError::internal_with_log("Webhook request failed", &e))?;
 
         if !response.status().is_success() {

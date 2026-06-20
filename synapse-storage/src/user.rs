@@ -434,7 +434,9 @@ impl UserStorage {
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
             let key = format!("user:profile:{user_id}");
-            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+            if let Err(e) = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await {
+                ::tracing::warn!(target: "cache", user_id = %user_id, cache_key = %key, error = %e, "Failed to cache updated user displayname profile");
+            }
         }
 
         Ok(())
@@ -449,7 +451,9 @@ impl UserStorage {
 
         if let Ok(Some(profile)) = self.get_user_profile(user_id).await {
             let key = format!("user:profile:{user_id}");
-            let _ = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await;
+            if let Err(e) = self.cache.set(&key, &profile, USER_PROFILE_CACHE_TTL).await {
+                ::tracing::warn!(target: "cache", user_id = %user_id, cache_key = %key, error = %e, "Failed to cache updated user avatar profile");
+            }
         }
 
         Ok(())
@@ -680,7 +684,9 @@ impl UserStorage {
         .await?;
 
         if let Some(profile) = &result {
-            let _ = self.cache.set(&key, profile, USER_PROFILE_CACHE_TTL).await;
+            if let Err(e) = self.cache.set(&key, profile, USER_PROFILE_CACHE_TTL).await {
+                ::tracing::warn!(target: "cache", user_id = %user_id, cache_key = %key, error = %e, "Failed to cache user profile");
+            }
         }
 
         Ok(result)
@@ -720,7 +726,9 @@ impl UserStorage {
 
         for profile in &fetched {
             let key = format!("user:profile:{}", profile.user_id);
-            let _ = self.cache.set(&key, profile, USER_PROFILE_BATCH_CACHE_TTL).await;
+            if let Err(e) = self.cache.set(&key, profile, USER_PROFILE_BATCH_CACHE_TTL).await {
+                ::tracing::warn!(target: "cache", user_id = %profile.user_id, cache_key = %key, error = %e, "Failed to cache batch user profile");
+            }
         }
 
         let mut all_profiles = cached_profiles;
@@ -1094,7 +1102,9 @@ impl UserStorage {
         .fetch_all(&*self.pool)
         .await?;
 
-        let _ = self.cache.set(&cache_key, rows.clone(), USER_DIRECTORY_SEARCH_CACHE_TTL_SECS).await;
+        if let Err(e) = self.cache.set(&cache_key, rows.clone(), USER_DIRECTORY_SEARCH_CACHE_TTL_SECS).await {
+            ::tracing::warn!(target: "cache", cache_key = %cache_key, error = %e, "Failed to cache user directory search result");
+        }
 
         Ok(rows)
     }
@@ -1209,7 +1219,7 @@ impl UserStorage {
             .await?;
 
         let guest_cache_key = format!("user:guest:{user_id}");
-        let _ = self.cache.delete(&guest_cache_key).await;
+        self.cache.delete(&guest_cache_key).await;
         Ok(())
     }
 
@@ -1247,7 +1257,7 @@ impl UserStorage {
         .await?;
 
         let guest_cache_key = format!("user:guest:{user_id}");
-        let _ = self.cache.delete(&guest_cache_key).await;
+        self.cache.delete(&guest_cache_key).await;
         Ok(())
     }
 }
