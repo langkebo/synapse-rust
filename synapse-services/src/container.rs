@@ -694,6 +694,374 @@ fn assemble_admin_support(
 }
 
 // =============================================================================
+// SSO assembly — SAML, CAS, OIDC providers and mapping
+// =============================================================================
+
+fn assemble_sso(pool: &Arc<sqlx::PgPool>, config: &Config) -> SsoServices {
+    #[cfg(feature = "saml-sso")]
+    let saml_storage = synapse_storage::saml::SamlStorage::new(pool);
+    #[cfg(feature = "saml-sso")]
+    let saml_service = Arc::new(crate::saml_service::SamlService::new(
+        Arc::new(config.saml.clone()),
+        Arc::new(saml_storage.clone()),
+        config.server.name.clone(),
+    ));
+
+    #[cfg(feature = "cas-sso")]
+    let cas_storage = synapse_storage::cas::CasStorage::new(pool);
+    #[cfg(feature = "cas-sso")]
+    let cas_service =
+        Arc::new(crate::cas_service::CasService::new(Arc::new(cas_storage.clone()), config.server.name.clone()));
+
+    // OIDC services (runtime-config-driven, not feature-gated)
+    let oidc_service = if config.oidc.is_enabled() {
+        Some(Arc::new(crate::oidc_service::OidcService::new(Arc::new(config.oidc.clone()))))
+    } else {
+        None
+    };
+
+    #[cfg(feature = "builtin-oidc")]
+    let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
+        match crate::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(config.builtin_oidc.clone())) {
+            Ok(p) => Some(Arc::new(p)),
+            Err(e) => {
+                ::tracing::error!(
+                    error = %e,
+                    builtin_oidc_enabled = true,
+                    issuer = %config.builtin_oidc.issuer,
+                    "Failed to initialize BuiltinOidcProvider, disabling"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    #[cfg(not(feature = "builtin-oidc"))]
+    let builtin_oidc_provider: Option<()> = None;
+
+    // OIDC dual-mode startup check
+    #[cfg(feature = "builtin-oidc")]
+    {
+        let external_enabled = oidc_service.is_some();
+        let builtin_enabled = builtin_oidc_provider.is_some();
+        if external_enabled && builtin_enabled {
+            ::tracing::warn!(
+                "Both external OIDC (oidc.issuer) and builtin OIDC provider are enabled. \
+                 Builtin OIDC is intended for development/testing only. \
+                 In production, use an external IdP and disable builtin OIDC."
+            );
+        }
+    }
+    #[cfg(not(feature = "builtin-oidc"))]
+    {
+        if oidc_service.is_some() {
+            ::tracing::info!(
+                external_oidc_enabled = true,
+                builtin_oidc_compiled = false,
+                "External OIDC provider enabled"
+            );
+        }
+    }
+
+    // OIDC mapping service
+    let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(
+        synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()),
+    ));
+
+    SsoServices {
+        #[cfg(feature = "saml-sso")]
+        saml_storage,
+        #[cfg(feature = "saml-sso")]
+        saml_service,
+        #[cfg(feature = "cas-sso")]
+        cas_storage,
+        #[cfg(feature = "cas-sso")]
+        cas_service,
+        oidc_service,
+        builtin_oidc_provider,
+        oidc_mapping_service,
+    }
+}
+
+// =============================================================================
+// Core assembly — search, media, registration, event broadcast, push
+// =============================================================================
+
+#[allow(clippy::too_many_arguments)]
+async fn assemble_core(
+    pool: &Arc<sqlx::PgPool>,
+    cache: &Arc<CacheManager>,
+    config: &Config,
+    task_queue: &Option<Arc<RedisTaskQueue>>,
+    metrics: &Arc<MetricsCollector>,
+    auth_service: &AuthService,
+    user_storage: &UserStorage,
+    rooms: &RoomSyncServices,
+    federation: &FederationServices,
+    server_metrics: &Arc<ServerMetrics>,
+) -> CoreServices {
+    // Search service
+    let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
+        &config.search.elasticsearch_url,
+        config.search.enabled,
+        &config.search.search_index_name,
+        Some(pool.as_ref().clone()),
+        config.search.provider.clone(),
+    ));
+    if config.search.provider == "postgres" && config.search.enabled {
+        let search_service_clone = search_service.clone();
+        tokio::spawn(async move {
+            if let Err(e) = search_service_clone.create_fts_index().await {
+                ::tracing::warn!(
+                    error = %e,
+                    search_provider = %"postgres",
+                    search_enabled = true,
+                    "Failed to create FTS index"
+                );
+            }
+        });
+    }
+
+    // Media service
+    let media_path = config.server.media_path.clone().unwrap_or_else(|| {
+        env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
+            if Path::new("/app/data/media").exists() {
+                "/app/data/media".to_string()
+            } else {
+                "./data/media".to_string()
+            }
+        })
+    });
+    let media_service = crate::media_service::MediaService::with_pool(
+        media_path.as_str(),
+        task_queue.clone(),
+        &config.server.name,
+        Some(pool.clone()),
+    );
+
+    // Registration service
+    let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
+        user_storage.clone(),
+        auth_service.clone(),
+        metrics.clone(),
+        &config.server.name,
+        config.server.enable_registration,
+        task_queue.clone(),
+    ));
+
+    // Event broadcaster (federation)
+    let broadcaster_server_name = config.server.get_server_name().to_string();
+    let broadcaster_federation_client = federation.federation_client.clone();
+    let broadcaster_member_storage = rooms.member_storage.clone();
+    let broadcaster_origin = config.server.get_server_name().to_string();
+    let broadcaster_batch_size = config.federation.event_broadcast_batch_size;
+    let event_broadcaster = {
+        let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
+            .with_client(broadcaster_federation_client)
+            .with_pool(pool.as_ref().clone())
+            .with_membership_storage(Arc::new(broadcaster_member_storage));
+        broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
+        Arc::new(broadcaster)
+    };
+
+    // Account data service
+    let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
+        pool,
+        user_storage.clone(),
+        RoomStorage::new(pool),
+        FilterStorage::new(pool),
+        OpenIdTokenStorage::new(pool),
+    ));
+
+    // Client push service
+    let client_push_service = Arc::new(crate::client_push_service::ClientPushService::new(pool.clone()));
+
+    CoreServices {
+        auth_service: auth_service.clone(),
+        registration_service,
+        search_service,
+        media_service,
+        cache: cache.clone(),
+        task_queue: task_queue.clone(),
+        metrics: metrics.clone(),
+        server_metrics: server_metrics.clone(),
+        server_name: config.server.name.clone(),
+        config: config.clone(),
+        key_rotation_storage: KeyRotationStorage::new(pool.clone()),
+        event_broadcaster,
+        event_notifier: crate::event_notifier::EventNotifier::new(),
+        account_data_service,
+        client_push_service,
+    }
+}
+
+// =============================================================================
+// Extensions assembly — feature-gated domain services and cross-cutting helpers
+// =============================================================================
+
+#[allow(clippy::too_many_arguments)]
+async fn assemble_extensions(
+    pool: &Arc<sqlx::PgPool>,
+    cache: &Arc<CacheManager>,
+    config: &Config,
+    rooms: &RoomSyncServices,
+    user_storage: &UserStorage,
+    _threepid_storage: &ThreepidStorage,
+    presence_storage: &PresenceStorage,
+    federation: &FederationServices,
+    media_service: &crate::media_service::MediaService,
+    media_domain_service: &Arc<crate::media::MediaDomainService>,
+    ui_auth_session_timeout: i64,
+) -> ExtensionServices {
+    // Friends (feature-gated)
+    #[cfg(feature = "friends")]
+    let friend_storage = FriendRoomStorage::new(pool.clone());
+    #[cfg(feature = "friends")]
+    let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
+    #[cfg(feature = "friends")]
+    let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
+        friend_storage.clone(),
+        rooms.room_service.clone(),
+        user_storage.clone(),
+        presence_storage.clone(),
+        account_data_storage,
+        cache.clone(),
+        config.server.name.clone(),
+        Arc::new(federation.key_rotation_manager.clone()),
+    ));
+    #[cfg(feature = "friends")]
+    let friend_federation = Arc::new(FriendFederation::new(
+        friend_room_service.clone() as Arc<dyn synapse_common::traits::FriendRoomProvider>
+    ));
+
+    // VoIP tracking (feature-gated)
+    #[cfg(feature = "voip-tracking")]
+    let call_session_storage = synapse_storage::call_session::CallSessionStorage::new(pool.clone());
+    #[cfg(feature = "voip-tracking")]
+    let matrixrtc_storage = synapse_storage::matrixrtc::MatrixRTCStorage::new(pool.clone());
+
+    // Voice service (feature-gated, depends on media_service)
+    #[cfg(feature = "voice-extended")]
+    let voice_storage = synapse_storage::voice::VoiceStorage::new(pool.clone());
+    #[cfg(feature = "voice-extended")]
+    let voice_service =
+        crate::voice_service::VoiceService::new(media_service.clone(), voice_storage, &config.server.name);
+    #[cfg(not(feature = "voice-extended"))]
+    let _ = media_service;
+
+    // RTC domain service — unified real-time communication
+    let rtc_infra = Arc::new(crate::rtc::RtcInfraService::new(Arc::new(config.voip.clone())));
+    #[cfg(feature = "voip-tracking")]
+    let rtc_call = Arc::new(crate::rtc::CallOrchestrationService::new(Arc::new(call_session_storage)));
+    #[cfg(feature = "voip-tracking")]
+    let rtc_session = Arc::new(crate::rtc::RtcSessionService::new(matrixrtc_storage, cache.clone()));
+    #[cfg(feature = "voip-tracking")]
+    let rtc_sfu = Arc::new(crate::rtc::LivekitClient::new(config.livekit.clone()));
+    let rtc_domain_service = Arc::new(crate::rtc::RtcDomainService::new(
+        rtc_infra,
+        #[cfg(feature = "voip-tracking")]
+        rtc_call,
+        #[cfg(feature = "voip-tracking")]
+        rtc_session,
+        #[cfg(feature = "voip-tracking")]
+        rtc_sfu,
+    ));
+
+    // Openclaw (feature-gated)
+    #[cfg(feature = "openclaw-routes")]
+    let ai_connection_storage = synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone());
+
+    // Server notifications (feature-gated)
+    #[cfg(feature = "server-notifications")]
+    let server_notification_storage = synapse_storage::server_notification::ServerNotificationStorage::new(pool);
+    #[cfg(feature = "server-notifications")]
+    let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
+        Arc::new(server_notification_storage.clone()),
+        Arc::new(user_storage.clone()),
+    ));
+
+    // Privacy (feature-gated)
+    #[cfg(feature = "privacy-ext")]
+    let privacy_storage = synapse_storage::privacy::PrivacyStorage::new(pool.clone());
+
+    // Widgets (feature-gated)
+    #[cfg(feature = "widgets")]
+    let widget_storage = synapse_storage::widget::WidgetStorage::new(pool.clone());
+    #[cfg(feature = "widgets")]
+    let widget_service = Arc::new(crate::widget_service::WidgetService::new(Arc::new(widget_storage.clone())));
+
+    // Burn-after-read (feature-gated)
+    #[cfg(feature = "burn-after-read")]
+    let burn_after_read = {
+        let burn_storage = synapse_storage::burn_after_read::BurnAfterReadStorage::new(pool);
+        Arc::new(BurnAfterReadService::new(burn_storage, rooms.event_storage.clone(), config.server.name.clone()))
+    };
+
+    // Identity service
+    let identity_storage = crate::identity::IdentityStorage::new(pool);
+    let identity_service =
+        Arc::new(crate::identity::IdentityService::new(identity_storage, config.identity.trusted_servers.clone()));
+
+    // Translation service
+    let translation_service = Arc::new(crate::translation_service::TranslationService::new(config.translate.clone()));
+    if config.translate.is_configured() {
+        ::tracing::info!(
+            translation_configured = true,
+            provider = %config.translate.provider,
+            "Translation service enabled"
+        );
+    } else {
+        ::tracing::info!(
+            translation_configured = false,
+            mode = %"passthrough",
+            "Translation service disabled"
+        );
+    }
+
+    // Directory service
+    let directory_service = Arc::new(crate::directory_service::DirectoryService::new());
+
+    // UIA service
+    let uia_service = Arc::new(crate::uia_service::UiaService::new(cache.clone(), ui_auth_session_timeout));
+
+    // User lock service
+    let user_lock_service = Arc::new(crate::user_lock_service::UserLockService::new(Arc::new(user_storage.clone())));
+
+    ExtensionServices {
+        #[cfg(feature = "voice-extended")]
+        voice_service,
+        #[cfg(feature = "friends")]
+        friend_storage,
+        #[cfg(feature = "friends")]
+        friend_room_service,
+        #[cfg(feature = "friends")]
+        friend_federation,
+        rtc_domain_service,
+        directory_service,
+        media_domain_service: media_domain_service.clone(),
+        #[cfg(feature = "openclaw-routes")]
+        ai_connection_storage,
+        #[cfg(feature = "server-notifications")]
+        server_notification_storage,
+        #[cfg(feature = "server-notifications")]
+        server_notification_service,
+        #[cfg(feature = "privacy-ext")]
+        privacy_storage,
+        #[cfg(feature = "widgets")]
+        widget_storage,
+        #[cfg(feature = "widgets")]
+        widget_service,
+        #[cfg(feature = "burn-after-read")]
+        burn_after_read,
+        identity_service,
+        translation_service,
+        uia_service,
+        user_lock_service,
+    }
+}
+
+// =============================================================================
 // ServiceContainer — orchestrated assembly
 // =============================================================================
 
@@ -709,18 +1077,7 @@ impl ServiceContainer {
         config: Config,
         task_queue: Option<Arc<RedisTaskQueue>>,
     ) -> Self {
-        let media_path = config.server.media_path.clone().unwrap_or_else(|| {
-            env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
-                if Path::new("/app/data/media").exists() {
-                    "/app/data/media".to_string()
-                } else {
-                    "./data/media".to_string()
-                }
-            })
-        });
-
         let ui_auth_session_timeout = config.security.ui_auth_session_timeout;
-        let broadcaster_server_name = config.server.get_server_name().to_string();
 
         // Shared infrastructure — metrics and server_metrics
         let metrics = Arc::new(MetricsCollector::new());
@@ -745,32 +1102,8 @@ impl ServiceContainer {
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
 
-        // E2EE — domain assembly
+        // Domain assemblies
         let e2ee = assemble_e2ee(pool, &cache, &user_storage, config.server.megolm_encryption_key_path.as_deref());
-
-        // Search service
-        let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
-            &config.search.elasticsearch_url,
-            config.search.enabled,
-            &config.search.search_index_name,
-            Some(pool.as_ref().clone()),
-            config.search.provider.clone(),
-        ));
-        if config.search.provider == "postgres" && config.search.enabled {
-            let search_service_clone = search_service.clone();
-            tokio::spawn(async move {
-                if let Err(e) = search_service_clone.create_fts_index().await {
-                    ::tracing::warn!(
-                        error = %e,
-                        search_provider = %"postgres",
-                        search_enabled = true,
-                        "Failed to create FTS index"
-                    );
-                }
-            });
-        }
-
-        // Room & Sync — domain assembly
         let rooms = assemble_room_and_sync(
             pool,
             &cache,
@@ -781,135 +1114,60 @@ impl ServiceContainer {
             &e2ee.to_device_storage,
             &metrics,
         );
-
-        // Media service
-        let media_service = crate::media_service::MediaService::with_pool(
-            media_path.as_str(),
-            task_queue.clone(),
-            &config.server.name,
-            Some(pool.clone()),
-        );
-        let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
-
-        #[cfg(feature = "voice-extended")]
-        let voice_storage = synapse_storage::voice::VoiceStorage::new(pool.clone());
-
-        #[cfg(feature = "voice-extended")]
-        let voice_service =
-            crate::voice_service::VoiceService::new(media_service.clone(), voice_storage, &config.server.name);
-
-        // Admin & support services — domain assembly
         let admin = assemble_admin_support(pool, &cache, &config, &task_queue, &metrics, &auth_service, &user_storage);
         rooms.room_service.set_app_service_manager(admin.app_service_manager.clone()).await;
-        let media_domain_service = {
+        let federation = assemble_federation(pool, &cache, &config, &task_queue);
+        let sso = assemble_sso(pool, &config);
+        let core = assemble_core(
+            pool,
+            &cache,
+            &config,
+            &task_queue,
+            &metrics,
+            &auth_service,
+            &user_storage,
+            &rooms,
+            &federation,
+            &server_metrics,
+        )
+        .await;
+        rooms.room_service.set_event_broadcaster(core.event_broadcaster.clone()).await;
+
+        // Media domain service (needs core.media_service and admin.media_quota_service)
+        let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
+        let media_domain_service = Arc::new({
             let svc = crate::media::MediaDomainService::new(
-                media_service.clone(),
+                core.media_service.clone(),
                 admin.media_quota_service.clone(),
                 chunked_upload_service.clone(),
             );
             let quarantine_storage = Arc::new(synapse_storage::media::QuarantinedMediaChangeStorage::new(pool));
             let cache_invalidation = cache.invalidation_manager().cloned();
             svc.with_quarantine_stream(quarantine_storage, cache_invalidation)
-        };
-        let media_domain_service = Arc::new(media_domain_service);
+        });
 
-        // Federation — domain assembly
-        let federation = assemble_federation(pool, &cache, &config, &task_queue);
+        // Extensions
+        let extensions = assemble_extensions(
+            pool,
+            &cache,
+            &config,
+            &rooms,
+            &user_storage,
+            &threepid_storage,
+            &presence_storage,
+            &federation,
+            &core.media_service,
+            &media_domain_service,
+            ui_auth_session_timeout,
+        )
+        .await;
 
-        // Registration service
-        let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
-            user_storage.clone(),
-            auth_service.clone(),
-            metrics.clone(),
-            &config.server.name,
-            config.server.enable_registration,
-            task_queue.clone(),
-        ));
-
-        // Directory service
-        let directory_service = Arc::new(crate::directory_service::DirectoryService::new());
-
-        // =========================================================================
-        // Feature-gated extensions (L3 — off by default in core-private-chat)
-        // =========================================================================
-
-        #[cfg(feature = "friends")]
-        let friend_storage = FriendRoomStorage::new(pool.clone());
-        #[cfg(feature = "friends")]
-        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
-        #[cfg(feature = "friends")]
-        let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
-            friend_storage.clone(),
-            rooms.room_service.clone(),
-            user_storage.clone(),
-            presence_storage.clone(),
-            account_data_storage,
-            cache.clone(),
-            config.server.name.clone(),
-            Arc::new(federation.key_rotation_manager.clone()),
-        ));
-        #[cfg(feature = "friends")]
-        let friend_federation = Arc::new(FriendFederation::new(
-            friend_room_service.clone() as Arc<dyn synapse_common::traits::FriendRoomProvider>
-        ));
-
-        #[cfg(feature = "voip-tracking")]
-        let call_session_storage = synapse_storage::call_session::CallSessionStorage::new(pool.clone());
-        #[cfg(feature = "voip-tracking")]
-        let matrixrtc_storage = synapse_storage::matrixrtc::MatrixRTCStorage::new(pool.clone());
-
-        // RTC domain service — unified real-time communication
-        let rtc_infra = Arc::new(crate::rtc::RtcInfraService::new(Arc::new(config.voip.clone())));
-        #[cfg(feature = "voip-tracking")]
-        let rtc_call = Arc::new(crate::rtc::CallOrchestrationService::new(Arc::new(call_session_storage)));
-        #[cfg(feature = "voip-tracking")]
-        let rtc_session = Arc::new(crate::rtc::RtcSessionService::new(matrixrtc_storage, cache.clone()));
-        #[cfg(feature = "voip-tracking")]
-        let rtc_sfu = Arc::new(crate::rtc::LivekitClient::new(config.livekit.clone()));
-        let rtc_domain_service = Arc::new(crate::rtc::RtcDomainService::new(
-            rtc_infra,
-            #[cfg(feature = "voip-tracking")]
-            rtc_call,
-            #[cfg(feature = "voip-tracking")]
-            rtc_session,
-            #[cfg(feature = "voip-tracking")]
-            rtc_sfu,
-        ));
-
-        #[cfg(feature = "saml-sso")]
-        let saml_storage = synapse_storage::saml::SamlStorage::new(pool);
-        #[cfg(feature = "saml-sso")]
-        let saml_service = Arc::new(crate::saml_service::SamlService::new(
-            Arc::new(config.saml.clone()),
-            Arc::new(saml_storage.clone()),
-            config.server.name.clone(),
-        ));
-
-        #[cfg(feature = "cas-sso")]
-        let cas_storage = synapse_storage::cas::CasStorage::new(pool);
-        #[cfg(feature = "cas-sso")]
-        let cas_service =
-            Arc::new(crate::cas_service::CasService::new(Arc::new(cas_storage.clone()), config.server.name.clone()));
-
-        #[cfg(feature = "openclaw-routes")]
-        let ai_connection_storage = synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone());
-
-        #[cfg(feature = "server-notifications")]
-        let server_notification_storage = synapse_storage::server_notification::ServerNotificationStorage::new(pool);
-        #[cfg(feature = "server-notifications")]
-        let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
-            Arc::new(server_notification_storage.clone()),
-            Arc::new(user_storage.clone()),
-        ));
-
-        #[cfg(feature = "privacy-ext")]
-        let privacy_storage = synapse_storage::privacy::PrivacyStorage::new(pool.clone());
-
+        // Account services (needs extensions.privacy_storage for account_identity_service)
         #[cfg(feature = "privacy-ext")]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             user_storage.clone(),
             threepid_storage.clone(),
-            privacy_storage.clone(),
+            extensions.privacy_storage.clone(),
         ));
         #[cfg(not(feature = "privacy-ext"))]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
@@ -920,131 +1178,9 @@ impl ServiceContainer {
             Arc::new(crate::account_device_list_service::AccountDeviceListService::new(DeviceStorage::new(pool)));
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
 
-        #[cfg(feature = "widgets")]
-        let widget_storage = synapse_storage::widget::WidgetStorage::new(pool.clone());
-        #[cfg(feature = "widgets")]
-        let widget_service = Arc::new(crate::widget_service::WidgetService::new(Arc::new(widget_storage.clone())));
-
-        #[cfg(feature = "burn-after-read")]
-        let burn_after_read = {
-            let burn_storage = synapse_storage::burn_after_read::BurnAfterReadStorage::new(pool);
-            Arc::new(BurnAfterReadService::new(burn_storage, rooms.event_storage.clone(), config.server.name.clone()))
-        };
-
-        // OIDC services (runtime-config-driven, not feature-gated)
-        let oidc_service = if config.oidc.is_enabled() {
-            Some(Arc::new(crate::oidc_service::OidcService::new(Arc::new(config.oidc.clone()))))
-        } else {
-            None
-        };
-
-        #[cfg(feature = "builtin-oidc")]
-        let builtin_oidc_provider = if config.builtin_oidc.is_enabled() {
-            match crate::builtin_oidc_provider::BuiltinOidcProvider::new(Arc::new(config.builtin_oidc.clone())) {
-                Ok(p) => Some(Arc::new(p)),
-                Err(e) => {
-                    ::tracing::error!(
-                        error = %e,
-                        builtin_oidc_enabled = true,
-                        issuer = %config.builtin_oidc.issuer,
-                        "Failed to initialize BuiltinOidcProvider, disabling"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        #[cfg(not(feature = "builtin-oidc"))]
-        let builtin_oidc_provider: Option<()> = None;
-
-        // OIDC dual-mode startup check
-        #[cfg(feature = "builtin-oidc")]
-        {
-            let external_enabled = oidc_service.is_some();
-            let builtin_enabled = builtin_oidc_provider.is_some();
-            if external_enabled && builtin_enabled {
-                ::tracing::warn!(
-                    "Both external OIDC (oidc.issuer) and builtin OIDC provider are enabled. \
-                     Builtin OIDC is intended for development/testing only. \
-                     In production, use an external IdP and disable builtin OIDC."
-                );
-            }
-        }
-        #[cfg(not(feature = "builtin-oidc"))]
-        {
-            if oidc_service.is_some() {
-                ::tracing::info!(
-                    external_oidc_enabled = true,
-                    builtin_oidc_compiled = false,
-                    "External OIDC provider enabled"
-                );
-            }
-        }
-
-        // Identity service
-        let identity_storage = crate::identity::IdentityStorage::new(pool);
-        let identity_service =
-            Arc::new(crate::identity::IdentityService::new(identity_storage, config.identity.trusted_servers.clone()));
-
-        // Translation service
-        let translation_service =
-            Arc::new(crate::translation_service::TranslationService::new(config.translate.clone()));
-        if config.translate.is_configured() {
-            ::tracing::info!(
-                translation_configured = true,
-                provider = %config.translate.provider,
-                "Translation service enabled"
-            );
-        } else {
-            ::tracing::info!(
-                translation_configured = false,
-                mode = %"passthrough",
-                "Translation service disabled"
-            );
-        }
-
-        // Event broadcaster (federation)
-        let broadcaster_federation_client = federation.federation_client.clone();
-        let broadcaster_member_storage = rooms.member_storage.clone();
-        let broadcaster_origin = config.server.get_server_name().to_string();
-        let broadcaster_batch_size = config.federation.event_broadcast_batch_size;
-        let event_broadcaster = {
-            let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
-                .with_client(broadcaster_federation_client)
-                .with_pool(pool.as_ref().clone())
-                .with_membership_storage(Arc::new(broadcaster_member_storage));
-            broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
-            Arc::new(broadcaster)
-        };
-
-        rooms.room_service.set_event_broadcaster(event_broadcaster.clone()).await;
-
-        // User lock service — needs user_storage before it's moved into the container
-        let user_lock_service =
-            Arc::new(crate::user_lock_service::UserLockService::new(Arc::new(user_storage.clone())));
-
-        // Account data service — needs user_storage and room_storage before they're moved
-        let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
-            pool,
-            user_storage.clone(),
-            RoomStorage::new(pool),
-            FilterStorage::new(pool),
-            OpenIdTokenStorage::new(pool),
-        ));
-
-        // Client push service
-        let client_push_service = Arc::new(crate::client_push_service::ClientPushService::new(pool.clone()));
-
-        // OIDC mapping service
-        let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(
-            synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()),
-        ));
-
+        // Worker topology — compute before config is moved into the container
         #[cfg(feature = "burn-after-read")]
         let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;
-
-        // Worker topology — compute before config is moved into the container
         let run_global_maintenance = should_run_global_maintenance(&config.worker);
         let current_worker_type = current_instance_worker_type(&config.worker);
         let maintenance_owner = global_maintenance_owner(&config.worker);
@@ -1054,23 +1190,7 @@ impl ServiceContainer {
             rooms,
             federation,
             admin,
-            core: CoreServices {
-                auth_service,
-                registration_service,
-                search_service,
-                media_service,
-                cache: cache.clone(),
-                task_queue,
-                metrics,
-                server_name: config.server.name.clone(),
-                config,
-                key_rotation_storage: KeyRotationStorage::new(pool.clone()),
-                server_metrics,
-                event_broadcaster,
-                event_notifier: crate::event_notifier::EventNotifier::new(),
-                account_data_service,
-                client_push_service,
-            },
+            core,
             account: AccountServices {
                 account_device_list_service,
                 account_identity_service,
@@ -1079,55 +1199,13 @@ impl ServiceContainer {
                 threepid_storage,
                 device_storage: DeviceStorage::new(pool),
                 token_storage: AccessTokenStorage::new(pool),
-                presence_storage: presence_storage.clone(),
+                presence_storage,
                 qr_login_storage,
                 invite_blocklist_storage,
                 sticky_event_storage,
             },
-            sso: SsoServices {
-                #[cfg(feature = "saml-sso")]
-                saml_storage,
-                #[cfg(feature = "saml-sso")]
-                saml_service,
-                #[cfg(feature = "cas-sso")]
-                cas_storage,
-                #[cfg(feature = "cas-sso")]
-                cas_service,
-                oidc_service,
-                builtin_oidc_provider,
-                oidc_mapping_service,
-            },
-            extensions: ExtensionServices {
-                #[cfg(feature = "voice-extended")]
-                voice_service,
-                #[cfg(feature = "friends")]
-                friend_storage,
-                #[cfg(feature = "friends")]
-                friend_room_service,
-                #[cfg(feature = "friends")]
-                friend_federation,
-                rtc_domain_service,
-                directory_service,
-                media_domain_service,
-                #[cfg(feature = "openclaw-routes")]
-                ai_connection_storage,
-                #[cfg(feature = "server-notifications")]
-                server_notification_storage,
-                #[cfg(feature = "server-notifications")]
-                server_notification_service,
-                #[cfg(feature = "privacy-ext")]
-                privacy_storage,
-                #[cfg(feature = "widgets")]
-                widget_storage,
-                #[cfg(feature = "widgets")]
-                widget_service,
-                #[cfg(feature = "burn-after-read")]
-                burn_after_read,
-                identity_service,
-                translation_service,
-                uia_service: Arc::new(crate::uia_service::UiaService::new(cache.clone(), ui_auth_session_timeout)),
-                user_lock_service,
-            },
+            sso,
+            extensions,
         };
 
         #[cfg(feature = "burn-after-read")]
