@@ -203,24 +203,23 @@ pub struct ServerConfig {
 
     /// 媒体文件存储路径。
     ///
-    /// 控制媒体服务把上传的文件写到哪个目录。未设置时回退到
-    /// `SYNAPSE_MEDIA_PATH` 环境变量，再回退到 `/app/data/media`
-    /// （存在时）或 `./data/media`。
-    #[serde(default)]
-    pub media_path: Option<String>,
+    /// 控制媒体服务把上传的文件写到哪个目录。可通过标准环境变量覆盖
+    /// 机制 `SYNAPSE__SERVER__MEDIA_PATH` 覆盖。默认 `./data/media`。
+    #[serde(default = "default_media_path")]
+    pub media_path: String,
 
     /// Megolm 加密密钥文件路径。
     ///
-    /// 用于持久化 E2EE megolm 会话的加密密钥。未设置时回退到
-    /// `SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH` 环境变量；两者都未设置时
-    /// 服务器会生成临时密钥并在重启后丢失已加密的会话。
+    /// 用于持久化 E2EE megolm 会话的加密密钥。可通过标准环境变量覆盖
+    /// 机制 `SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH` 覆盖。
+    /// 未设置时服务器会生成临时密钥并在重启后丢失已加密的会话。
     #[serde(default)]
     pub megolm_encryption_key_path: Option<String>,
 
     /// 是否启动 burn-after-read 处理器。
     ///
-    /// 默认 `true`。未在配置中显式设置为 `false` 时，会进一步参考
-    /// `SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR` 环境变量以保持向后兼容。
+    /// 默认 `true`。可通过标准环境变量覆盖机制
+    /// `SYNAPSE__SERVER__ENABLE_BURN_AFTER_READ_PROCESSOR` 覆盖。
     #[serde(default = "default_true")]
     pub enable_burn_after_read_processor: bool,
 
@@ -262,6 +261,10 @@ fn default_warmup_pool() -> bool {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_media_path() -> String {
+    "./data/media".to_string()
 }
 
 fn default_refresh_token_ttl_secs() -> i64 {

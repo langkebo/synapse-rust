@@ -329,7 +329,7 @@ mod tests {
         let container = ServiceContainer::new_test();
         let manager = &container.worker_manager;
 
-        let result = manager.get_statistics().await;
+        let result = manager.get_statistics(100).await;
         if result.is_err() {
             eprintln!("Skipping test_get_statistics: database table not available");
             return;

@@ -10,7 +10,6 @@ use crate::worker::topology_validator::{
 #[cfg(feature = "burn-after-read")]
 use crate::burn_after_read_service::BurnAfterReadService;
 use std::sync::Arc;
-use std::{env, path::Path};
 use synapse_common::server_metrics::ServerMetrics;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_e2ee::backup::KeyBackupService;
@@ -436,15 +435,8 @@ fn assemble_federation(
 
 #[cfg(feature = "burn-after-read")]
 fn burn_after_read_processor_enabled(config_enabled: bool) -> bool {
-    if !config_enabled {
-        return false;
-    }
-    // Backward compatibility: honor SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR when
-    // the config field is left at its default (true).
-    !matches!(
-        env::var("SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR").ok().as_deref(),
-        Some("0" | "false" | "FALSE" | "False" | "off" | "OFF" | "Off")
-    )
+    // P2-13: Config is the sole source of truth; env::var fallback removed.
+    config_enabled
 }
 
 // =============================================================================
@@ -568,9 +560,10 @@ fn assemble_admin_support(
         Arc::new(crate::module_service::AccountValidityService::new(Arc::new(module_storage.clone())));
 
     let retention_storage = synapse_storage::retention::RetentionStorage::new(pool);
+    let chunked_upload_storage = Arc::new(synapse_storage::media::ChunkedUploadStorage::new(pool));
     let retention_service = Arc::new(crate::retention_service::RetentionService::new(
         Arc::new(retention_storage.clone()),
-        pool.clone(),
+        chunked_upload_storage.clone(),
         metrics,
         Arc::new(audit_storage.clone()),
     ));
@@ -847,15 +840,9 @@ async fn assemble_core(
     }
 
     // Media service
-    let media_path = config.server.media_path.clone().unwrap_or_else(|| {
-        env::var("SYNAPSE_MEDIA_PATH").unwrap_or_else(|_| {
-            if Path::new("/app/data/media").exists() {
-                "/app/data/media".to_string()
-            } else {
-                "./data/media".to_string()
-            }
-        })
-    });
+    // P2-12/P2-13: Media path is sourced solely from Config (env override
+    // via SYNAPSE__SERVER__MEDIA_PATH).
+    let media_path = config.server.media_path.clone();
     let media_service = crate::media_service::MediaService::with_pool(
         media_path.as_str(),
         task_queue.clone(),
@@ -1297,8 +1284,10 @@ impl ServiceContainer {
 fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
     use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
-    // Config takes precedence; fall back to env var for backward compatibility.
-    let path = config_path.map(|p| p.to_string()).or_else(|| std::env::var("SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH").ok());
+    // P2-13: Config is the sole source of truth; env::var fallback removed.
+    // Use SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH to override via standard
+    // config env mechanism.
+    let path = config_path.map(|p| p.to_string());
 
     if let Some(ref p) = path {
         let path_buf = std::path::PathBuf::from(p);
@@ -1376,9 +1365,11 @@ fn generate_encryption_key(config_path: Option<&str>) -> [u8; 32] {
         }
     } else {
         ::tracing::warn!(
-            "SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH not set; megolm encryption key is ephemeral \
-             — all encrypted megolm sessions will be unreadable after server restart. \
-             Set this env var to a writable file path for production."
+            "server.megolm_encryption_key_path is not configured; megolm encryption key is \
+             ephemeral — all encrypted megolm sessions will be unreadable after server \
+             restart. Set `server.megolm_encryption_key_path` or \
+             `SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH` to a writable file path for \
+             production."
         );
     }
 

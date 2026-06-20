@@ -304,7 +304,13 @@ async fn builtin_oidc_login(
         .ok_or_else(|| ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))?;
 
     let client_id = body.get("client_id").and_then(|v| v.as_str()).unwrap_or_default();
+    if client_id.is_empty() {
+        return Err(ApiError::bad_request("Missing or empty 'client_id' parameter".to_string()));
+    }
     let redirect_uri = body.get("redirect_uri").and_then(|v| v.as_str()).unwrap_or_default();
+    if redirect_uri.is_empty() {
+        return Err(ApiError::bad_request("Missing or empty 'redirect_uri' parameter".to_string()));
+    }
     let scope = body.get("scope").and_then(|v| v.as_str()).unwrap_or("openid");
     let state_str = body.get("state").and_then(|v| v.as_str()).unwrap_or_default();
     let nonce = body.get("nonce").and_then(|v| v.as_str());

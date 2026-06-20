@@ -51,7 +51,7 @@ pub struct MediaService {
     task_queue: Option<Arc<RedisTaskQueue>>,
     default_thumbnail_configs: Vec<ThumbnailSettings>,
     server_name: String,
-    pool: Option<Arc<PgPool>>,
+    admin_media_storage: Option<AdminMediaStorage>,
     link_signer: Option<Arc<MediaLinkSigner>>,
 }
 
@@ -117,7 +117,7 @@ impl MediaService {
             task_queue,
             default_thumbnail_configs,
             server_name: server_name.to_string(),
-            pool,
+            admin_media_storage: pool.as_ref().map(|p| AdminMediaStorage::new(p)),
             link_signer: None,
         }
     }
@@ -269,9 +269,8 @@ impl MediaService {
             "Saved media file"
         );
 
-        if let Some(pool) = &self.pool {
+        if let Some(storage) = &self.admin_media_storage {
             let now = chrono::Utc::now().timestamp_millis();
-            let storage = AdminMediaStorage::new(pool.as_ref());
             if let Err(e) = storage
                 .upsert_media_metadata(
                     media_id,
@@ -533,8 +532,7 @@ impl MediaService {
             return None;
         }
 
-        if let Some(pool) = &self.pool {
-            let storage = AdminMediaStorage::new(pool.as_ref());
+        if let Some(storage) = &self.admin_media_storage {
             if let Ok(Some(media)) = storage.get_media_info(media_id).await {
                 return Some(serde_json::json!({
                     "media_id": media_id,

@@ -1,3 +1,5 @@
-pub use synapse_storage::application_service::*;
-
-// NOTE: Tests moved to synapse-storage crate.
+pub use synapse_storage::application_service::{
+    ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
+    ApplicationServiceStorage, ApplicationServiceTransaction, ApplicationServiceUser, NamespaceRule, Namespaces,
+    RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+};

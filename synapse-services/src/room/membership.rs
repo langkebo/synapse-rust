@@ -119,6 +119,32 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to check server room membership", &e))
     }
 
+    /// Check whether a user shares any joined room with a member from the
+    /// given server domain. Single-query replacement for the previous
+    /// `get_joined_rooms` + per-room `get_room_members` N+1 pattern used in
+    /// federation origin validation.
+    pub async fn user_shares_room_with_server(&self, user_id: &str, server_name: &str) -> ApiResult<bool> {
+        self.member_storage
+            .user_shares_room_with_server(user_id, server_name)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check user shares room with server", &e))
+    }
+
+    /// Batch version of `user_shares_room_with_server`: returns the subset of
+    /// `user_ids` that share at least one joined room with a member from the
+    /// given server domain. Used by federation `keys_claim` / `keys_query` to
+    /// validate multiple users in a single query instead of M × (1 + N).
+    pub async fn filter_users_sharing_room_with_server(
+        &self,
+        user_ids: &[String],
+        server_name: &str,
+    ) -> ApiResult<std::collections::HashSet<String>> {
+        self.member_storage
+            .filter_users_sharing_room_with_server(user_ids, server_name)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to batch check users sharing room with server", &e))
+    }
+
     pub async fn get_room_membership(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
         self.member_storage
             .get_membership_state(room_id, user_id)

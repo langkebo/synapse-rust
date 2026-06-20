@@ -31,7 +31,19 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        let already_processed: Option<bool> = state.services.core.cache.get(&dedup_key).await.unwrap_or(None);
+        let already_processed: Option<bool> = match state.services.core.cache.get(&dedup_key).await {
+            Ok(val) => val,
+            Err(e) => {
+                ::tracing::warn!(
+                    request_id = %request_id,
+                    txn_id = %txn_id,
+                    origin = %origin,
+                    error = %e,
+                    "Failed to read transaction dedup cache, proceeding as not processed"
+                );
+                None
+            }
+        };
         if already_processed.unwrap_or(false) {
             ::tracing::debug!(
                 request_id = %request_id,

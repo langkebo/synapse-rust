@@ -67,25 +67,26 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
 }
 
 async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_room_ids = state.services.rooms.room_service.get_joined_rooms(user_id).await?;
-
-    if joined_room_ids.is_empty() {
-        return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
-    }
-
+    // Short-circuit when the requesting server is the local server: we only
+    // need to confirm the user has joined at least one room. The cross-server
+    // membership check below is irrelevant for same-origin requests.
     if origin == state.services.core.server_name.as_str() {
+        let joined_room_ids = state.services.rooms.room_service.get_joined_rooms(user_id).await?;
+        if joined_room_ids.is_empty() {
+            return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
+        }
         return Ok(());
     }
 
-    for room_id in joined_room_ids {
-        let joined_members = state.services.rooms.room_service.get_room_members_by_membership(&room_id, "join").await?;
+    // Single EXISTS query replacing the previous get_joined_rooms + per-room
+    // get_room_members N+1 pattern. See NEW-P1-03 in the comprehensive review.
+    let shares = state.services.rooms.room_service.user_shares_room_with_server(user_id, origin).await?;
 
-        if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
-            return Ok(());
-        }
+    if shares {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("Authenticated server does not share a room with this user".to_string()))
     }
-
-    Err(ApiError::forbidden("Authenticated server does not share a room with this user".to_string()))
 }
 
 fn increment_counter(state: &AppState, name: &str) {
@@ -181,13 +182,7 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
         return Err(ApiError::not_found("User does not belong to this server".to_string()));
     }
 
-    let user_exists = state
-        .services
-        .account
-        .user_storage
-        .user_exists(&token.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to validate OpenID token subject", &e))?;
+    let user_exists = state.services.account.account_identity_service.user_exists(&token.user_id).await?;
     if !user_exists {
         return Err(ApiError::unauthorized("Invalid or expired OpenID token".to_string()));
     }
@@ -201,8 +196,6 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     let public = Router::new()
         .route("/_matrix/federation/v2/server", get(keys::server_key))
         .route("/_matrix/key/v2/server", get(keys::server_key))
-        // Non-standard extension: key clone for trusted-federation key replication.
-        .route("/_matrix/federation/v2/key/clone", post(keys::key_clone))
         .route("/_matrix/federation/v2/query/{server_name}/{key_id}", get(keys::key_query))
         .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(keys::key_query))
         .route("/_matrix/federation/v1/version", get(federation_version))
@@ -215,12 +208,8 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/members/{room_id}", get(membership::get_room_members))
         .route("/_matrix/federation/v1/members/{room_id}/joined", get(membership::get_joined_room_members))
         .route("/_matrix/federation/v1/user/devices/{user_id}", get(membership::get_user_devices))
-        // Non-standard extension: room auth retrieval for trusted-federation audit.
-        .route("/_matrix/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
         .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", post(membership::knock_room))
         .route("/_matrix/federation/v1/thirdparty/invite", post(membership::thirdparty_invite))
-        // Non-standard extension: joining rules query for trusted-federation.
-        .route("/_matrix/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
         .route("/_matrix/federation/v2/invite/{room_id}/{event_id}", put(membership::invite_v2))
         .route("/_matrix/federation/v1/send/{txn_id}", put(transaction::send_transaction))
         .route("/_matrix/federation/v1/make_join/{room_id}/{user_id}", get(membership::make_join))
@@ -232,9 +221,6 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/room/{room_id}/{event_id}", get(events::get_room_event))
         .route("/_matrix/federation/v1/timestamp_to_event/{room_id}", get(events::timestamp_to_event))
         .route("/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}", get(events::get_event_auth))
-        // Non-standard extension: auth chain query for trusted-federation.
-        .route("/_matrix/federation/v1/query/auth", get(keys::query_auth))
-        .route("/_matrix/federation/v1/event_auth", get(keys::event_auth))
         .route("/_matrix/federation/v1/state/{room_id}", get(events::get_state))
         .route("/_matrix/federation/v1/event/{event_id}", get(events::get_event))
         .route("/_matrix/federation/v1/state_ids/{room_id}", get(events::get_state_ids))
@@ -243,9 +229,6 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/query/profile/{user_id}", get(events::profile_query_legacy))
         .route("/_matrix/federation/v1/hierarchy/{room_id}", get(events::get_room_hierarchy))
         .route("/_matrix/federation/v1/backfill/{room_id}", get(events::backfill))
-        .route("/_matrix/federation/v1/keys/claim", post(keys::legacy_keys_claim))
-        .route("/_matrix/federation/v1/keys/query", post(keys::legacy_keys_query))
-        .route("/_matrix/federation/v1/keys/upload", post(keys::keys_upload))
         .route("/_matrix/federation/v1/user/keys/upload", post(keys::keys_upload))
         .route("/_matrix/federation/v1/user/keys/claim", post(keys::keys_claim))
         .route("/_matrix/federation/v1/user/keys/query", post(keys::keys_query))
@@ -259,7 +242,19 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route(
             "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
             put(membership::exchange_third_party_invite),
-        );
+        )
+        // P3-09: Non-standard trusted-federation extensions live under the
+        // `/_synapse/federation/v1/` namespace to keep the `/_matrix/federation/`
+        // surface spec-compliant. These endpoints are still federated-auth
+        // protected.
+        .route("/_synapse/federation/v2/key/clone", post(keys::key_clone))
+        .route("/_synapse/federation/v1/keys/claim", post(keys::legacy_keys_claim))
+        .route("/_synapse/federation/v1/keys/query", post(keys::legacy_keys_query))
+        .route("/_synapse/federation/v1/keys/upload", post(keys::keys_upload))
+        .route("/_synapse/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
+        .route("/_synapse/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
+        .route("/_synapse/federation/v1/query/auth", get(keys::query_auth))
+        .route("/_synapse/federation/v1/event_auth", get(keys::event_auth));
 
     let protected =
         protected.layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
@@ -272,7 +267,6 @@ fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)
     vec![
         (Method::GET, "/_matrix/federation/v2/server"),
         (Method::GET, "/_matrix/key/v2/server"),
-        (Method::POST, "/_matrix/federation/v2/key/clone"),
         (Method::GET, "/_matrix/federation/v2/query/{server_name}/{key_id}"),
         (Method::GET, "/_matrix/key/v2/query/{server_name}/{key_id}"),
         (Method::GET, "/_matrix/federation/v1/version"),
@@ -289,10 +283,8 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::GET, "/_matrix/federation/v1/members/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/members/{room_id}/joined"),
         (Method::GET, "/_matrix/federation/v1/user/devices/{user_id}"),
-        (Method::GET, "/_matrix/federation/v1/room_auth/{room_id}"),
         (Method::POST, "/_matrix/federation/v1/knock/{room_id}/{user_id}"),
         (Method::POST, "/_matrix/federation/v1/thirdparty/invite"),
-        (Method::GET, "/_matrix/federation/v1/get_joining_rules/{room_id}"),
         (Method::PUT, "/_matrix/federation/v2/invite/{room_id}/{event_id}"),
         (Method::PUT, "/_matrix/federation/v1/send/{txn_id}"),
         (Method::GET, "/_matrix/federation/v1/make_join/{room_id}/{user_id}"),
@@ -304,8 +296,6 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::GET, "/_matrix/federation/v1/room/{room_id}/{event_id}"),
         (Method::GET, "/_matrix/federation/v1/timestamp_to_event/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}"),
-        (Method::GET, "/_matrix/federation/v1/query/auth"),
-        (Method::GET, "/_matrix/federation/v1/event_auth"),
         (Method::GET, "/_matrix/federation/v1/state/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/event/{event_id}"),
         (Method::GET, "/_matrix/federation/v1/state_ids/{room_id}"),
@@ -314,9 +304,6 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::GET, "/_matrix/federation/v1/query/profile/{user_id}"),
         (Method::GET, "/_matrix/federation/v1/hierarchy/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/backfill/{room_id}"),
-        (Method::POST, "/_matrix/federation/v1/keys/claim"),
-        (Method::POST, "/_matrix/federation/v1/keys/query"),
-        (Method::POST, "/_matrix/federation/v1/keys/upload"),
         (Method::POST, "/_matrix/federation/v1/user/keys/upload"),
         (Method::POST, "/_matrix/federation/v1/user/keys/claim"),
         (Method::POST, "/_matrix/federation/v1/user/keys/query"),
@@ -328,6 +315,17 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::GET, "/_matrix/federation/v1/media/download/{server_name}/{media_id}"),
         (Method::GET, "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"),
         (Method::PUT, "/_matrix/federation/v1/exchange_third_party_invite/{room_id}"),
+        // P3-09: Non-standard trusted-federation extensions live under
+        // `/_synapse/federation/v1/` to keep the `/_matrix/federation/`
+        // surface spec-compliant.
+        (Method::POST, "/_synapse/federation/v2/key/clone"),
+        (Method::POST, "/_synapse/federation/v1/keys/claim"),
+        (Method::POST, "/_synapse/federation/v1/keys/query"),
+        (Method::POST, "/_synapse/federation/v1/keys/upload"),
+        (Method::GET, "/_synapse/federation/v1/room_auth/{room_id}"),
+        (Method::GET, "/_synapse/federation/v1/get_joining_rules/{room_id}"),
+        (Method::GET, "/_synapse/federation/v1/query/auth"),
+        (Method::GET, "/_synapse/federation/v1/event_auth"),
     ]
 }
 

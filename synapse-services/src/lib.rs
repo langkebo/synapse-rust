@@ -1,7 +1,9 @@
-// Some sibling crate re-exports below intentionally overlap because they expose
-// identically-named types (for example config structs and error types). Keep the
-// `#[allow(ambiguous_glob_reexports)]` scope as narrow as possible on those
-// specific lines instead of allowing it for the whole crate.
+// Sibling crate aliases. Downstream code accesses types via the module path
+// (e.g., `synapse_services::cache::CacheManager`). P2-11 removed the crate-
+// level wildcard re-exports that previously flattened these into the root
+// namespace; only narrow `#[allow(ambiguous_glob_reexports)]` annotations on
+// specific conflicting module re-exports remain (see `database_initializer::*`
+// and `room::space::*` below).
 
 pub mod auth;
 pub use synapse_cache as cache;
@@ -83,33 +85,59 @@ pub mod user_lock_service;
 // exposed a flat surface and many call sites rely on the short paths.
 // TODO: Replace with explicit exports for better API control (P2-11).
 // =============================================================================
-pub use account_device_list_service::*; // account device list service types
-pub use account_identity_service::*; // account identity and threepid service types
-pub use admin_audit_service::*; // AdminAuditService
-pub use admin_federation_service::*; // admin federation management service
-pub use admin_registration_service::*; // admin registration management service
-pub use admin_user_service::*; // admin user management service
-pub use application_service::*; // application service integration types
+pub use account_device_list_service::{
+    AccountDeviceListService, DeviceListDeletion, DeviceListDelta, DeviceListEntry, DeviceListSnapshot,
+}; // account device list service types
+pub use account_identity_service::AccountIdentityService; // account identity and threepid service types
+pub use admin_audit_service::AdminAuditService; // AdminAuditService
+pub use admin_federation_service::{
+    decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
+    encode_pending_federation_cursor, AdminFederationService, ConfirmFederationResult, DestinationCursor,
+    DestinationInfo, FederationCacheEntry, PendingFederationCursor, PendingFederationInfo, ResolveFederationResult,
+}; // admin federation management service
+pub use admin_registration_service::{
+    AdminRegisterRequest, AdminRegisterResponse, AdminRegistrationService, NonceResponse,
+}; // admin registration management service
+pub use admin_user_service::{
+    decode_user_cursor, encode_user_cursor, AdminEvictionFailure, AdminLegacyUsersPage, AdminSingleUserStats,
+    AdminUserCursor, AdminUserDetails, AdminUserDeviceInfo, AdminUserEvictionResult, AdminUserListItem,
+    AdminUserProfile, AdminUserService, AdminUserStats, AdminUsersPage, BatchUsersResult,
+}; // admin user management service
+pub use application_service::{ApplicationServiceManager, ApplicationServiceScheduler, NamespacesInfo}; // application service integration types
 #[allow(ambiguous_glob_reexports)]
-pub use database_initializer::*; // database initialization helpers
-pub use dehydrated_device_service::*; // dehydrated device service types
-pub use directory_service::*; // room directory service types
-pub use email_verification_service::*; // email verification service types
-pub use feature_flag_service::*; // feature flag service types
-pub use federation_key_rotation_service::*; // federation key rotation service types
-pub use media_service::*; // media service types
+pub use database_initializer::{
+    initialize_database, DatabaseInitMode, DatabaseInitService, Environment, InitializationReport,
+}; // database initialization helpers
+pub use dehydrated_device_service::DehydratedDeviceService; // dehydrated device service types
+pub use directory_service::{DirectoryRoom, DirectoryService}; // room directory service types
+pub use email_verification_service::EmailVerificationService; // email verification service types
+pub use feature_flag_service::FeatureFlagService; // feature flag service types
+pub use federation_key_rotation_service::FederationKeyRotationService; // federation key rotation service types
+#[allow(deprecated)]
+pub use media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings}; // media service types
 pub use oidc_service::OidcService;
-pub use presence_service::*;
-pub use push::service::*; // push notification service types
-pub use registration_service::*; // registration service types
-pub use room::service::*; // RoomService and room config types
-#[allow(ambiguous_glob_reexports)]
-pub use room::space::*; // SpaceService
-pub use room::summary::*; // RoomSummaryService
-pub use search_service::*; // search service types
-pub use sliding_sync_service::*; // sliding sync service types
-pub use sync_service::*; // sync service types
-pub use typing_service::*; // typing service types
+pub use presence_service::PresenceService;
+pub use push::service::{NotificationPayload, PushNotificationService, PushRuleResult, SendNotificationRequest}; // push notification service types
+pub use registration_service::RegistrationService; // registration service types
+pub use room::service::{CreateRoomConfig, RoomService, RoomServiceConfig}; // RoomService and room config types
+pub use room::space::SpaceService; // SpaceService
+pub use room::summary::{
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryService,
+    RoomSummaryState, RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
+}; // RoomSummaryService
+pub use search_service::{
+    AdvancedSearchOptions, EventContextEntry, EventContextWindow, IndexedEvent, RoomEventsSearchFilter, SearchFilters,
+    SearchResult, SearchResultItem, SearchRoomEvent, SearchRoomEventsPage, SearchRoomSummary, SearchService,
+    TimestampDirection, TimestampEventMatch,
+}; // search service types
+pub use sliding_sync_service::SlidingSyncService; // sliding sync service types
+pub use sync_service::{
+    BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
+    LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
+    StateEventsBatchParams, SyncEventFormat, SyncFilter, SyncPerformanceSnapshot, SyncRequest, SyncResponseFilter,
+    SyncRoomSection, SyncService, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
+}; // sync service types
+pub use typing_service::{TypingService, TypingUser}; // typing service types
 
 // Backward-compatible room module aliases (Phase P2-1, P2-2)
 pub use room::service as room_service;
@@ -138,8 +166,8 @@ pub mod openclaw_service;
 pub mod friend_room_service;
 #[cfg(feature = "friends")]
 pub use friend_room_service::{
-    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot,
-    DmPartnerInfo, EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
+    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
+    EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
     FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
 };
 
@@ -220,22 +248,38 @@ pub mod test_config;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-// Re-exports for backward compatibility.
+// P2-11: Crate-level re-exports of sibling crates.
 //
-// The following wildcard re-exports re-export the public API of sibling crates
-// (auth, cache, common, federation, storage) so that downstream crates can
-// depend on `synapse_services` alone. These are the most coupling-prone
-// wildcards because the sibling crates share identically-named types
-// (error enums, config structs), which is why `ambiguous_glob_reexports`
-// is allowed on four of them. TODO: Replace with explicit exports for
-// better API control (P2-11).
-pub use auth::*; // AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
-#[allow(ambiguous_glob_reexports)]
-pub use cache::*; // ambiguous: overlaps with common/storage re-exports
-#[allow(ambiguous_glob_reexports)]
-pub use common::*; // ambiguous: overlaps with cache/federation/storage re-exports
-#[allow(ambiguous_glob_reexports)]
-pub use federation::*; // ambiguous: overlaps with common re-exports
+// These wildcard re-exports are used internally within `synapse-services` (e.g.,
+// `crate::Config` resolves to `synapse_common::Config` via `pub use common::*`).
+// Converting them to explicit exports would require enumerating hundreds of
+// types across five crates and is deferred. The `#[allow(ambiguous_glob_reexports)]`
+// annotations are kept as narrow as possible (per-crate, not crate-wide).
+//
+// Downstream code (main crate, tests) accesses types via the module path
+// (e.g., `synapse_services::cache::CacheManager`), not through the flattened
+// root namespace.
+pub use auth::{
+    AuthService, Claims, ClaimsBuilder, GuestAuthExt, PasswordPolicy, PasswordPolicyService, PasswordValidationResult,
+}; // AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
+pub use cache::{
+    circuit_breaker, compression, federation_signature_cache, invalidation, query_cache, strategy, CacheConfig,
+    CacheEntry, CacheEntryKey, CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig,
+    CacheInvalidationManager, CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager,
+    CacheStats, CacheTtl, CircuitBreaker, CircuitBreakerMetrics, CircuitState, DegradationMetrics,
+    FederationSignatureCache, InvalidationReceiver, InvalidationType, KeyRotationCallback, KeyRotationEvent,
+    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, RedisPoolMetrics, SignatureCacheConfig,
+    SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
+    DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
+    DEFAULT_SIGNATURE_CACHE_TTL,
+}; // cache crate root items
+pub(crate) use common::*; // internal crate access; no longer flattened into public API
+pub use federation::{
+    client, device_sync, edu_dispatcher, event_auth, event_broadcaster, key_rotation, memory_tracker, signing,
+    state_resolution, DeviceSyncManager, EventAuthChain, EventBroadcaster, FederationClient, FederationMemoryReport,
+    FederationMemoryTracker, KeyRotationManager, MemoryStats,
+}; // federation crate root items
+#[cfg(feature = "friends")]
+pub use federation::{friend, FriendFederation, FriendFederationClient};
 pub use storage::PresenceStorage;
-#[allow(ambiguous_glob_reexports)]
-pub use storage::*; // ambiguous: overlaps with common re-exports
+pub(crate) use storage::*; // internal crate access; no longer flattened into public API

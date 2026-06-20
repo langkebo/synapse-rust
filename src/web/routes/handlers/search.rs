@@ -469,35 +469,29 @@ async fn build_room_hierarchy_response(
                 .is_some_and(|a| a.iter().any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id)));
 
             if !has_space_self || rooms <= 1 {
-                let state_events = state
-                    .services
-                    .rooms
-                    .event_storage
-                    .get_state_events(room_id)
-                    .await
-                    .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
+                let state_events = state.services.rooms.room_service.get_state_events(room_id).await?;
 
                 let mut children_state = Vec::new();
                 let mut child_room_ids = Vec::new();
 
                 for ev in &state_events {
-                    if ev.event_type.as_deref() == Some("m.space.child") {
+                    if ev.get("type").and_then(|v| v.as_str()) == Some("m.space.child") {
                         let via = ev
-                            .content
-                            .get("via")
+                            .get("content")
+                            .and_then(|c| c.get("via"))
                             .and_then(|v| v.as_array())
                             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
                             .unwrap_or_default();
                         if !via.is_empty() {
                             children_state.push(json!({
                                 "type": "m.space.child",
-                                "state_key": ev.state_key,
-                                "content": ev.content,
-                                "origin_server_ts": ev.origin_server_ts,
+                                "state_key": ev.get("state_key"),
+                                "content": ev.get("content"),
+                                "origin_server_ts": ev.get("origin_server_ts"),
                             }));
 
                             if max_depth > 0 {
-                                if let Some(sk) = ev.state_key.as_deref() {
+                                if let Some(sk) = ev.get("state_key").and_then(|v| v.as_str()) {
                                     child_room_ids.push(sk.to_string());
                                 }
                             }
@@ -510,8 +504,9 @@ async fn build_room_hierarchy_response(
                 if !child_rooms_map.is_empty() || !has_space_self {
                     let space_room_type = state_events
                         .iter()
-                        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
-                        .and_then(|e| e.content.get("type"))
+                        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
+                        .and_then(|e| e.get("content"))
+                        .and_then(|c| c.get("type"))
                         .and_then(|v| v.as_str())
                         .map_or(Value::Null, |s| Value::String(s.to_string()));
 
@@ -558,18 +553,13 @@ async fn build_room_hierarchy_response(
 
     let world_readable = room.history_visibility == "world_readable";
 
-    let state_events = state
-        .services
-        .rooms
-        .event_storage
-        .get_state_events(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get state", &e))?;
+    let state_events = state.services.rooms.room_service.get_state_events(room_id).await?;
 
     let room_type = state_events
         .iter()
-        .find(|e| e.event_type.as_deref() == Some("m.room.create"))
-        .and_then(|e| e.content.get("type"))
+        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
+        .and_then(|e| e.get("content"))
+        .and_then(|c| c.get("type"))
         .and_then(|v| v.as_str())
         .map_or(Value::Null, |s| Value::String(s.to_string()));
 
@@ -577,23 +567,23 @@ async fn build_room_hierarchy_response(
     let mut child_room_ids = Vec::new();
 
     for ev in &state_events {
-        if ev.event_type.as_deref() == Some("m.space.child") {
+        if ev.get("type").and_then(|v| v.as_str()) == Some("m.space.child") {
             let via = ev
-                .content
-                .get("via")
+                .get("content")
+                .and_then(|c| c.get("via"))
                 .and_then(|v| v.as_array())
                 .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect::<Vec<_>>())
                 .unwrap_or_default();
             if !via.is_empty() {
                 children_state.push(json!({
                     "type": "m.space.child",
-                    "state_key": ev.state_key,
-                    "content": ev.content,
-                    "origin_server_ts": ev.origin_server_ts,
+                    "state_key": ev.get("state_key"),
+                    "content": ev.get("content"),
+                    "origin_server_ts": ev.get("origin_server_ts"),
                 }));
 
                 if max_depth > 0 {
-                    if let Some(sk) = ev.state_key.as_deref() {
+                    if let Some(sk) = ev.get("state_key").and_then(|v| v.as_str()) {
                         child_room_ids.push(sk.to_string());
                     }
                 }
@@ -724,20 +714,9 @@ async fn get_event_context(
 
     ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let target_event = state
-        .services
-        .rooms
-        .event_storage
-        .get_event(&event_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
-        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+    let target_event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
 
-    if target_event.room_id != room_id {
-        return Err(ApiError::not_found("Event not found".to_string()));
-    }
-
-    let target_ts = target_event.origin_server_ts;
+    let target_ts = target_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
     let context_window =
         state.services.core.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
@@ -772,10 +751,10 @@ async fn get_event_context(
 
     Ok(Json(json!({
         "event": {
-            "event_id": target_event.event_id,
-            "sender": target_event.user_id,
-            "type": target_event.event_type,
-            "content": target_event.content,
+            "event_id": target_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(""),
+            "sender": target_event.get("sender").and_then(|v| v.as_str()).unwrap_or(""),
+            "type": target_event.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+            "content": target_event.get("content"),
             "origin_server_ts": target_ts
         },
         "events_before": events_before_list,

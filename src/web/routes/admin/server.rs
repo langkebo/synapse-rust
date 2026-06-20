@@ -141,20 +141,8 @@ pub async fn restart_server(
 
 #[axum::debug_handler]
 pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let total_users = state
-        .services
-        .account
-        .user_storage
-        .get_user_count()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
-    let total_rooms = state
-        .services
-        .rooms
-        .room_storage
-        .get_room_count()
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let total_users = state.services.account.account_identity_service.get_user_count().await?;
+    let total_rooms = state.services.rooms.room_service.get_room_count().await?;
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
@@ -194,19 +182,12 @@ pub async fn whois(
     let user = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
-    let devices = state
-        .services
-        .account
-        .device_storage
-        .get_user_devices(&user.user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let devices = state.services.account.account_device_list_service.get_user_devices(&user.user_id).await?;
 
     let connections: Vec<Value> = devices
         .iter()
@@ -235,19 +216,18 @@ pub async fn whois_device(
     let user = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_identifier(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
+        .await?
         .ok_or_else(|| ApiError::not_found("User not found".to_string()))?;
 
     let device = state
         .services
         .account
-        .device_storage
-        .get_user_device(&user.user_id, &device_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .account_device_list_service
+        .get_device(&device_id)
+        .await?
+        .filter(|d| d.user_id == user.user_id);
 
     match device {
         Some(d) => Ok(Json(json!({

@@ -1,1 +1,1 @@
-pub use synapse_storage::performance::*;
+pub use synapse_storage::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};

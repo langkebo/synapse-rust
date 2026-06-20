@@ -1,1 +1,1 @@
-pub use synapse_storage::widget::*;
+pub use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage};

@@ -494,6 +494,34 @@ async fn send_to_device(
         .get("messages")
         .ok_or_else(|| crate::error::ApiError::bad_request("Missing 'messages' field".to_string()))?;
 
+    // Enforce to-device message limits to prevent oversized payloads from
+    // blocking the to-device queue and federation transaction dispatch.
+    // Inspired by Synapse v1.155 (#19617) which limits to-device EDU size.
+    const MAX_TO_DEVICE_RECIPIENTS: usize = 5000; // per request, across all users+devices
+    const MAX_TO_DEVICE_PAYLOAD_BYTES: usize = 64 * 1024; // 64 KiB per request body
+    let mut recipient_count: usize = 0;
+    if let Some(msg_obj) = messages.as_object() {
+        for (_user_id, user_devices) in msg_obj {
+            if let Some(devices) = user_devices.as_object() {
+                recipient_count += devices.len();
+                if recipient_count > MAX_TO_DEVICE_RECIPIENTS {
+                    return Err(ApiError::bad_request(format!(
+                        "Too many to-device recipients: {recipient_count} exceeds limit of {MAX_TO_DEVICE_RECIPIENTS}"
+                    )));
+                }
+                for (_device_id, device_msg) in devices {
+                    // Reject individual messages larger than 64 KiB to protect
+                    // downstream storage and federation queues.
+                    if serde_json::to_string(device_msg).map(|s| s.len()).unwrap_or(0) > MAX_TO_DEVICE_PAYLOAD_BYTES {
+                        return Err(ApiError::bad_request(format!(
+                            "Individual to-device message exceeds {MAX_TO_DEVICE_PAYLOAD_BYTES} byte limit"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     if event_type == "m.room_key" || event_type == "m.forwarded_room_key" {
         if let Some(msg_obj) = messages.as_object() {
             for (_user_id, user_devices) in msg_obj {
@@ -1124,8 +1152,8 @@ async fn get_key_history(
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
 
-    let audit_service = crate::services::e2ee::E2eeAuditService::new(state.services.database_pool());
-    let history: Vec<crate::services::e2ee::KeyAuditEntry> = audit_service
+    let audit_service = crate::services::e2ee_audit::E2eeAuditService::new(state.services.database_pool());
+    let history: Vec<crate::services::e2ee_audit::KeyAuditEntry> = audit_service
         .get_key_history_paginated(
             &auth_user.user_id,
             limit as i64,

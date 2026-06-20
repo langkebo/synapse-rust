@@ -820,24 +820,28 @@ impl SpaceStorage {
         Ok(count > 0)
     }
 
-    pub async fn get_space_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
-        sqlx::query(r"SELECT space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts FROM space_statistics ORDER BY member_count DESC").fetch_all(&*self.pool).await.map(
-            |rows| {
-                rows.into_iter()
-                    .map(|row| {
-                        serde_json::json!({
-                            "space_id": row.get::<String, _>("space_id"),
-                            "name": row.get::<Option<String>, _>("name"),
-                            "is_public": row.get::<bool, _>("is_public"),
-                            "child_room_count": row.get::<i64, _>("child_room_count"),
-                            "member_count": row.get::<i64, _>("member_count"),
-                            "created_ts": row.get::<i64, _>("created_ts"),
-                            "updated_ts": row.get::<Option<i64>, _>("updated_ts"),
+    pub async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        sqlx::query(r"SELECT space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts FROM space_statistics ORDER BY member_count DESC LIMIT $1")
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+            .map(
+                |rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            serde_json::json!({
+                                "space_id": row.get::<String, _>("space_id"),
+                                "name": row.get::<Option<String>, _>("name"),
+                                "is_public": row.get::<bool, _>("is_public"),
+                                "child_room_count": row.get::<i64, _>("child_room_count"),
+                                "member_count": row.get::<i64, _>("member_count"),
+                                "created_ts": row.get::<i64, _>("created_ts"),
+                                "updated_ts": row.get::<Option<i64>, _>("updated_ts"),
+                            })
                         })
-                    })
-                    .collect()
-            },
-        )
+                        .collect()
+                },
+            )
     }
 
     pub async fn get_recursive_hierarchy(

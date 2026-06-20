@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // Directory Service Tests - 目录服务测试
 
 #[cfg(test)]

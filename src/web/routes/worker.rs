@@ -525,8 +525,10 @@ pub async fn get_events(
 pub async fn get_statistics(
     State(state): State<AppState>,
     _admin_user: AdminUser,
+    Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.admin.worker_manager.get_statistics().await?;
+    let limit: i64 = query.limit.unwrap_or(100).clamp(1, 1000);
+    let stats = state.services.admin.worker_manager.get_statistics(limit).await?;
 
     Ok(Json(stats))
 }

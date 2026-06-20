@@ -1,6 +1,5 @@
 use crate::common::ApiError;
 use crate::e2ee::backup::models::BackupKeyInfo;
-use crate::map_internal;
 use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
@@ -120,14 +119,7 @@ pub(crate) async fn get_room_keys(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -151,14 +143,7 @@ pub(crate) async fn get_room_key_count(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -181,14 +166,7 @@ pub(crate) async fn claim_room_keys(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -220,14 +198,7 @@ pub(crate) async fn get_room_keys_version(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -245,14 +216,7 @@ pub(crate) async fn forward_room_keys(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 

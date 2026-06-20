@@ -91,100 +91,180 @@ pub mod burn_after_read;
 // L0 — Captcha is used by registration flow — keep unconditional
 pub mod captcha;
 
-pub use self::threepid::UserThreepid;
-// Wildcard re-export: User struct and user storage types.
-// TODO: Replace with explicit exports for better API control (P2-11).
-pub use self::user::*;
+pub use self::user::{
+    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
+    UserStatsSummary, UserStorage,
+};
+pub use synapse_storage::threepid::UserThreepid; // user storage types
 
 // =============================================================================
-// Wildcard re-exports of storage types.
+// Explicit re-exports of storage types.
 //
-// Each `pub use self::<module>::*` below re-exports the public storage
+// Each `pub use self::<module>::{...}` below re-exports the public storage
 // structs/traits (e.g. `UserStorage`, `DeviceStorage`, `EventStorage`) so that
 // callers can write `crate::storage::UserStorage` instead of the fully-qualified
-// `crate::storage::user::UserStorage`. These are wildcards for backward
-// compatibility: the storage layer historically exposed a flat surface and many
-// call sites rely on the short paths.
-// TODO: Replace with explicit exports for better API control (P2-11).
+// `crate::storage::user::UserStorage`. The storage layer historically exposed
+// a flat surface and many call sites rely on the short paths.
 // =============================================================================
-pub use self::admin_media::*; // admin media storage types
-pub use self::application_service::*; // application service storage types
-pub use self::audit::*; // audit log storage types
-pub use self::captcha::*; // captcha storage types
-pub use self::dehydrated_device::*; // dehydrated device storage types
-pub use self::device::*; // Device struct and device storage types
-pub use self::e2ee_audit::*; // E2EE audit storage types
-pub use self::event::*; // RoomEvent struct and event storage types
-pub use self::feature_flags::*; // feature flag storage types
-pub use self::federation_blacklist::*; // federation blacklist storage types
-pub use self::invite_blocklist::*; // invite blocklist storage types
-pub use self::maintenance::*; // database maintenance helpers
-pub use self::media_quota::*; // media quota storage types
-pub use self::membership::*; // RoomMember struct and membership storage types
-pub use self::moderation::*; // moderation storage types
+pub use self::admin_media::{
+    decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary,
+    AdminMediaStorage, MediaCursor,
+}; // admin media storage types
+pub use self::application_service::{
+    ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
+    ApplicationServiceStorage, ApplicationServiceTransaction, ApplicationServiceUser, NamespaceRule, Namespaces,
+    RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+}; // application service storage types
+pub use self::audit::{
+    decode_audit_event_cursor, encode_audit_event_cursor, AuditEvent, AuditEventCursor, AuditEventFilters,
+    AuditEventStorage, CreateAuditEventRequest,
+}; // audit log storage types
+pub use self::captcha::{
+    CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaTemplate, CreateCaptchaRequest,
+    CreateSendLogRequest, RegistrationCaptcha,
+}; // captcha storage types
+pub use self::dehydrated_device::{DehydratedDevice, DehydratedDeviceStorage, UpsertDehydratedDeviceParams}; // dehydrated device storage types
+pub use self::device::{Device, DeviceStorage}; // Device struct and device storage types
+pub use self::e2ee_audit::{E2eeAuditStorage, KeyAuditEntry, KeyEvent}; // E2EE audit storage types
+pub use self::event::{
+    CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, RoomEphemeralEvent,
+    RoomEvent, StateEvent,
+}; // RoomEvent struct and event storage types
+pub use self::feature_flags::{
+    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
+    FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
+}; // feature flag storage types
+pub use self::federation_blacklist::{
+    decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
+    CreateRuleRequest, FederationAccessStats, FederationBlacklist, FederationBlacklistCursor, FederationBlacklistLog,
+    FederationBlacklistRule, FederationBlacklistStorage, UpdateStatsRequest,
+}; // federation blacklist storage types
+pub use self::invite_blocklist::InviteBlocklistStorage; // invite blocklist storage types
+pub use self::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult}; // database maintenance helpers
+pub use self::media_quota::{
+    CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaUsageLog, QuotaCheckResult,
+    ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
+}; // media quota storage types
+pub use self::membership::{RoomMember, RoomMemberStorage, UserRoomMembership}; // RoomMember struct and membership storage types
+pub use self::moderation::{
+    ContentScanResult, ContentType, CreateModerationRuleParams, MatchedRule, ModerationAction, ModerationLog,
+    ModerationLogStorage, ModerationRule, ModerationRuleType, ModerationStorage, ScanContentRequest,
+}; // moderation storage types
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
-pub use self::oidc_user_mapping::*; // OIDC user mapping storage types
+pub use self::oidc_user_mapping::OidcUserMappingStorage; // OIDC user mapping storage types
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
-pub use self::presence::*; // presence storage types
-pub use self::room::*; // Room struct and room storage types
-pub use self::room_tag::*; // room tag storage types
-pub use self::schema_validator::*; // schema validator types
-pub use self::search_index::*; // search index storage types
-pub use self::sliding_sync::*; // sliding sync storage types
-pub use self::space::*; // space storage types
-pub use self::sticky_event::*; // sticky event storage types
-pub use self::thread::*; // thread storage types
-pub use self::threepid::*; // third-party ID storage types (also exports UserThreepid above)
-pub use self::token::*; // AccessToken struct and token storage types
+pub use self::presence::{PresenceSnapshot, PresenceStorage}; // presence storage types
+pub use self::room::{
+    decode_room_search_cursor, encode_room_search_cursor, Receipt, Room, RoomEncryptionStatus, RoomSearchCursor,
+    RoomSearchOrder, RoomStorage, RoomUnreadCounts,
+}; // Room struct and room storage types
+pub use self::room_tag::{RoomTag, RoomTagStorage}; // room tag storage types
+pub use self::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo}; // schema validator types
+pub use self::search_index::{
+    SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchQuery, SearchResult,
+}; // search index storage types
+pub use self::sliding_sync::{
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, AdminRoomTokenSyncEntry, RoomTokenSyncCursor,
+    SlidingSyncFilters, SlidingSyncList, SlidingSyncListData, SlidingSyncListQuery, SlidingSyncListRequest,
+    SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage, SlidingSyncToken,
+}; // sliding sync storage types
+pub use self::space::{
+    AddChildRequest, CreateSpaceRequest, Space, SpaceChild, SpaceChildInfo, SpaceEvent, SpaceHierarchy,
+    SpaceHierarchyNode, SpaceHierarchyRequest, SpaceHierarchyResponse, SpaceHierarchyRoom, SpaceMember, SpaceStorage,
+    SpaceSummary, UpdateSpaceRequest,
+}; // space storage types
+pub use self::sticky_event::{StickyEvent, StickyEventStorage}; // sticky event storage types
+pub use self::thread::{
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
+    ThreadRoot, ThreadStatistics, ThreadStorage, ThreadSubscription, ThreadSummary, ThreadWithReplies,
+}; // thread storage types
+pub use self::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidValidationSession}; // third-party ID storage types
+pub use self::token::{AccessToken, AccessTokenStorage}; // AccessToken struct and token storage types
 
-// The following re-export the public API of the `synapse_storage` crate's
-// sub-modules. TODO: Replace with explicit exports (P2-11).
-pub use synapse_storage::account_data::*; // account data storage types
-pub use synapse_storage::filter::*; // sync filter storage types
-pub use synapse_storage::openid_token::*; // OpenID token storage types
-pub use synapse_storage::push::*; // push rule storage types
-pub use synapse_storage::push_notification::*; // push notification storage types
-pub use synapse_storage::qr_login::*; // QR login storage types
-pub use synapse_storage::rate_limit::*; // rate limit storage types
-pub use synapse_storage::rendezvous::*; // rendezvous storage types
-pub use synapse_storage::room_account_data::*; // room account data storage types
-pub use synapse_storage::room_summary::*; // room summary storage types
+// The following re-export selected public types from the `synapse_storage`
+// crate's sub-modules.
+pub use synapse_storage::account_data::{AccountDataRecord, AccountDataStorage}; // account data storage types
+pub use synapse_storage::filter::{CreateFilterRequest, Filter, FilterStorage}; // sync filter storage types
+pub use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage}; // OpenID token storage types
+pub use synapse_storage::push::PushStorage; // push rule storage types
+pub use synapse_storage::push_notification::{
+    CreateNotificationLogRequest, CreatePushRuleRequest, PushDevice, PushNotificationLog, PushNotificationQueue,
+    PushNotificationStorage, PushRule, QueueNotificationRequest, RegisterDeviceRequest, RoomNotification,
+}; // push notification storage types
+pub use synapse_storage::qr_login::{QrLoginStorage, QrTransaction}; // QR login storage types
+pub use synapse_storage::rate_limit::{RateLimitRecord, RateLimitStorage}; // rate limit storage types
+pub use synapse_storage::rendezvous::{
+    CreateRendezvousSessionParams, RendezvousCode, RendezvousIntent, RendezvousLoginFinish, RendezvousLoginStart,
+    RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousSession, RendezvousStorage,
+    RendezvousTransport, StoredRendezvousMessage,
+}; // rendezvous storage types
+pub use synapse_storage::room_account_data::{RoomAccountDataRecord, RoomAccountDataStorage}; // room account data storage types
+pub use synapse_storage::room_summary::{
+    CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummary, RoomSummaryHero, RoomSummaryMember,
+    RoomSummaryResponse, RoomSummaryState, RoomSummaryStateEntry, RoomSummaryStats, RoomSummaryStorage,
+    RoomSummaryUpdateQueueItem, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
+}; // room summary storage types
 
-// Feature-gated wildcard re-exports.
-// Each only compiles when its feature is enabled. TODO: explicit exports (P2-11).
+// Feature-gated explicit re-exports.
 #[cfg(feature = "openclaw-routes")]
-pub use self::ai_connection::*; // AI connection storage types
+pub use self::ai_connection::{AiConnection, AiConnectionStorage}; // AI connection storage types
 #[cfg(feature = "openclaw-routes")]
-pub use self::openclaw::*; // openclaw storage types
+pub use self::openclaw::{
+    AiChatRole, AiConversation, AiGeneration, AiMessage, ConversationCursor, CreateChatRoleParams,
+    CreateConnectionParams, CreateConversationParams, GenerationCursor, MessageCursor, OpenClawConnection,
+    OpenClawStorage, UpdateChatRoleParams, UpdateConnectionParams,
+}; // openclaw storage types
 
 #[cfg(feature = "friends")]
-pub use self::friend_room::*; // friend room storage types
+pub use self::friend_room::{
+    AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
+    FriendRequestRecord, FriendRoomStorage, RemoveFriendFromGroupParams, RenameFriendGroupParams,
+}; // friend room storage types
 
 #[cfg(feature = "saml-sso")]
-pub use self::saml::*; // SAML storage types
+pub use self::saml::{
+    CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
+    CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
+    SamlSession, SamlStorage, SamlUserMapping,
+}; // SAML storage types
 
 #[cfg(feature = "cas-sso")]
-pub use self::cas::*; // CAS storage types
+pub use self::cas::{
+    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
+    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    ValidateTicketRequest,
+}; // CAS storage types
 
 #[cfg(feature = "beacons")]
-pub use self::beacon::*; // beacon storage types
+pub use self::beacon::{
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
+    CreateBeaconLocationParams,
+}; // beacon storage types
 
 #[cfg(feature = "voip-tracking")]
-pub use self::call_session::*; // call session storage types
+pub use self::call_session::{CallCandidate, CallSession, CallSessionStorage, CreateCallSessionParams}; // call session storage types
 #[cfg(feature = "voip-tracking")]
-pub use self::matrixrtc::*; // Matrix RTC storage types
+pub use self::matrixrtc::{
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
+    SessionWithMemberships,
+}; // Matrix RTC storage types
 
 #[cfg(feature = "widgets")]
-pub use self::widget::*; // widget storage types
+pub use self::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage}; // widget storage types
 
 #[cfg(feature = "server-notifications")]
-pub use self::server_notification::*; // server notification storage types
+pub use self::server_notification::{
+    decode_server_notification_cursor, encode_server_notification_cursor, CreateNotificationRequest,
+    CreateTemplateRequest, NotificationDeliveryLog, NotificationTemplate, NotificationWithStatus,
+    ScheduledNotification, ServerNotification, ServerNotificationCursor, ServerNotificationStorage,
+    UserNotificationStatus,
+}; // server notification storage types
 
 #[cfg(feature = "privacy-ext")]
-pub use self::privacy::*; // privacy extension storage types
+pub use self::privacy::{CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, UserPrivacySettings}; // privacy extension storage types
 
 /// 数据库结构体。
 ///

@@ -2,6 +2,7 @@
 //! environment variable resolution, and defaults.
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::common::config::*;
     use crate::common::config::{

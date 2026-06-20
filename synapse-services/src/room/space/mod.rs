@@ -317,9 +317,9 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_space_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
+    pub async fn get_space_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, ApiError> {
         self.space_storage
-            .get_space_statistics()
+            .get_space_statistics(limit)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get space statistics", &e))
     }

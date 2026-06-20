@@ -17,6 +17,12 @@ impl AuthService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete token", &e))?;
 
+        // Invalidate the access token cache entry immediately so that subsequent
+        // validations of the same token do not rely on the (now-stale) cache and
+        // always hit the blacklist/revoked checks in the DB. This also frees the
+        // cache memory and keeps the cache consistent with the DB state.
+        self.cache.delete_token(access_token).await;
+
         if let Some(d_id) = device_id {
             self.token_storage
                 .delete_device_tokens(d_id)

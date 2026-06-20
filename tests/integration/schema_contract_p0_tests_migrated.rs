@@ -96,6 +96,7 @@ async fn assert_column(
     expected_default_substring: Option<&str>,
     expected_char_max_len: Option<i32>,
 ) {
+    #[allow(clippy::type_complexity)]
     let row: Option<(String, String, Option<String>, Option<i32>)> = sqlx::query_as(
         r#"
         SELECT data_type, is_nullable, column_default, character_maximum_length
@@ -1491,7 +1492,7 @@ async fn test_schema_contract_space_summary_query_and_write_read_closure() {
     .await
     .expect("Failed to upsert space_statistics fixture");
 
-    let statistics = storage.get_space_statistics().await.expect("Failed to query space statistics");
+    let statistics = storage.get_space_statistics(100).await.expect("Failed to query space statistics");
     let statistics_row =
         statistics.iter().find(|row| row["space_id"] == space.space_id).expect("Expected space statistics row");
     assert_eq!(statistics_row["child_room_count"], 1);

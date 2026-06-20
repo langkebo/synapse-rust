@@ -90,7 +90,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
     .expect("Failed to create typing table");
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let storage = PresenceStorage::new(pool.clone(), cache);
 
     Some((pool, storage))
 }

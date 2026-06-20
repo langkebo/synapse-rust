@@ -81,7 +81,7 @@ pub fn build_test_config() -> Config {
             encryption_enabled_by_default_for_room_type: None,
             app_service_config_files: vec![],
             presence_enabled: true,
-            media_path: None,
+            media_path: "./data/media".to_string(),
             megolm_encryption_key_path: None,
             enable_burn_after_read_processor: true,
             refresh_token_ttl_secs: 2_592_000,

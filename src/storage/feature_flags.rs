@@ -1,3 +1,4 @@
-pub use synapse_storage::feature_flags::*;
-
-// NOTE: Tests moved to synapse-storage crate.
+pub use synapse_storage::feature_flags::{
+    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
+    FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
+};

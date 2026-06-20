@@ -8149,7 +8149,7 @@ pub fn get_user_devices_doc() -> axum::Json<serde_json::Value> {
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
-    path = "/_matrix/federation/v1/room_auth/{room_id}",
+    path = "/_synapse/federation/v1/room_auth/{room_id}",
     tag = "Federation",
     params(
         ("room_id" = String, Path, description = "The ID of the room"),
@@ -8204,7 +8204,7 @@ pub fn thirdparty_invite_doc() -> axum::Json<serde_json::Value> {
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
-    path = "/_matrix/federation/v1/get_joining_rules/{room_id}",
+    path = "/_synapse/federation/v1/get_joining_rules/{room_id}",
     tag = "Federation",
     params(
         ("room_id" = String, Path, description = "The ID of the room")
@@ -8456,11 +8456,11 @@ pub fn query_auth_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `GET /_matrix/federation/v1/event_auth` — Get auth events for a list of events.
+/// `GET /_synapse/federation/v1/event_auth` — Get auth events for a list of events.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
-    path = "/_matrix/federation/v1/event_auth",
+    path = "/_synapse/federation/v1/event_auth",
     tag = "Federation",
     params(
         ("room_id" = String, Query, description = "The ID of the room"),
@@ -8625,11 +8625,11 @@ pub fn backfill_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `POST /_matrix/federation/v1/keys/claim` — Claim one-time keys (legacy).
+/// `POST /_synapse/federation/v1/keys/claim` — Claim one-time keys (legacy extension).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     post,
-    path = "/_matrix/federation/v1/keys/claim",
+    path = "/_synapse/federation/v1/keys/claim",
     tag = "Federation",
     request_body = serde_json::Value,
     responses(
@@ -8641,11 +8641,11 @@ pub fn legacy_keys_claim_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `POST /_matrix/federation/v1/keys/query` — Query device keys (legacy).
+/// `POST /_synapse/federation/v1/keys/query` — Query device keys (legacy extension).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     post,
-    path = "/_matrix/federation/v1/keys/query",
+    path = "/_synapse/federation/v1/keys/query",
     tag = "Federation",
     request_body = serde_json::Value,
     responses(
@@ -8657,11 +8657,11 @@ pub fn legacy_keys_query_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `POST /_matrix/federation/v1/keys/upload` — Upload device keys.
+/// `POST /_synapse/federation/v1/keys/upload` — Upload device keys (legacy extension).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     post,
-    path = "/_matrix/federation/v1/keys/upload",
+    path = "/_synapse/federation/v1/keys/upload",
     tag = "Federation",
     request_body = serde_json::Value,
     responses(
@@ -8899,11 +8899,11 @@ pub fn server_key_v2_federation_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `POST /_matrix/federation/v2/key/clone` — Clone server keys (v2).
+/// `POST /_synapse/federation/v2/key/clone` — Clone server keys (trusted extension).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     post,
-    path = "/_matrix/federation/v2/key/clone",
+    path = "/_synapse/federation/v2/key/clone",
     tag = "Federation",
     request_body = serde_json::Value,
     responses(

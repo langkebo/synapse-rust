@@ -104,13 +104,7 @@ pub(crate) async fn check_username_availability(
     }
 
     let user_id = format!("@{}:{}", username, state.services.core.server_name);
-    let exists = state
-        .services
-        .account
-        .user_storage
-        .user_exists(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let exists = state.services.account.account_identity_service.user_exists(&user_id).await?;
 
     Ok(Json(json!({
         "available": !exists,

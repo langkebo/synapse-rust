@@ -1,1 +1,1 @@
-pub use synapse_storage::token::*;
+pub use synapse_storage::token::{AccessToken, AccessTokenStorage};

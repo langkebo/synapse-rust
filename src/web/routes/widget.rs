@@ -130,13 +130,7 @@ async fn create_widget(
     Json(body): Json<CreateWidgetBody>,
 ) -> Result<Json<WidgetResponse>, ApiError> {
     if let Some(room_id) = body.room_id.as_deref() {
-        let room_exists = state
-            .services
-            .rooms
-            .room_storage
-            .room_exists(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to validate room", &e))?;
+        let room_exists = state.services.rooms.room_service.room_exists(room_id).await?;
         if !room_exists {
             return Err(ApiError::not_found("Room not found"));
         }

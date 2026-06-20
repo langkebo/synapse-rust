@@ -6669,7 +6669,7 @@ echo ""
 echo "536. Federation Room Auth"
 if [ -n "$ROOM_ID" ]; then
     FED_ROOM_ID_ENC=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ROOM_ID" 2>/dev/null)
-    if federation_http_json "Federation Room Auth" GET "$SERVER_URL/_matrix/federation/v1/room_auth/$FED_ROOM_ID_ENC"; then
+    if federation_http_json "Federation Room Auth" GET "$SERVER_URL/_synapse/federation/v1/room_auth/$FED_ROOM_ID_ENC"; then
         err=$(json_err_summary "$HTTP_BODY")
         if echo "$err" | grep -q "Authenticated server has no joined members in this room"; then
             skip "Federation Room Auth" "$err"

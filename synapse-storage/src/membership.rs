@@ -617,6 +617,66 @@ impl RoomMemberStorage {
         Ok(rows.into_iter().collect())
     }
 
+    /// Check whether a given user shares any joined room with a member from the
+    /// given server domain. Uses a self-join on `room_memberships` with an
+    /// EXISTS subquery to avoid the N+1 pattern of fetching all joined rooms
+    /// then querying members per room.
+    pub async fn user_shares_room_with_server(&self, user_id: &str, server_name: &str) -> Result<bool, sqlx::Error> {
+        let domain_pattern = format!("%:{}", server_name);
+        let exists: Option<bool> = sqlx::query_scalar(
+            r"
+            SELECT EXISTS(
+                SELECT 1
+                FROM room_memberships m1
+                JOIN room_memberships m2 ON m1.room_id = m2.room_id
+                WHERE m1.user_id = $1
+                  AND m1.membership = 'join'
+                  AND m2.membership = 'join'
+                  AND m2.user_id LIKE $2
+            )
+            ",
+        )
+        .bind(user_id)
+        .bind(&domain_pattern)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(exists.unwrap_or(false))
+    }
+
+    /// Batch version of `user_shares_room_with_server`: returns the subset of
+    /// `user_ids` that share at least one joined room with a member from the
+    /// given server domain. Uses a single query with `ANY($1)` to avoid the
+    /// nested N+1 pattern when validating multiple users in federation
+    /// `keys_claim` / `keys_query` endpoints.
+    pub async fn filter_users_sharing_room_with_server(
+        &self,
+        user_ids: &[String],
+        server_name: &str,
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let domain_pattern = format!("%:{}", server_name);
+        let rows: Vec<String> = sqlx::query_scalar(
+            r"
+            SELECT DISTINCT m1.user_id
+            FROM room_memberships m1
+            JOIN room_memberships m2 ON m1.room_id = m2.room_id
+            WHERE m1.user_id = ANY($1)
+              AND m1.membership = 'join'
+              AND m2.membership = 'join'
+              AND m2.user_id LIKE $2
+            ",
+        )
+        .bind(user_ids)
+        .bind(&domain_pattern)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
     pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

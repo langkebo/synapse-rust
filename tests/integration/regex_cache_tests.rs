@@ -50,7 +50,7 @@ mod regex_cache_integration_tests {
         cache1.get_or_create(r"\d+").unwrap();
         cache1.get_or_create(r"[a-z]+").unwrap();
 
-        let cache2 = cache1.clone();
+        let cache2 = cache1;
         assert_eq!(cache2.len(), 2);
 
         assert!(cache2.is_match(r"\d+", "123").unwrap());

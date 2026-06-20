@@ -195,20 +195,11 @@ pub async fn get_public_rooms_handler(
             state
                 .services
                 .rooms
-                .room_storage
+                .room_service
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
-        async {
-            state
-                .services
-                .rooms
-                .room_storage
-                .count_public_rooms()
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
-        }
+        async { state.services.rooms.room_service.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -262,20 +253,11 @@ pub async fn search_public_rooms(
             state
                 .services
                 .rooms
-                .room_storage
+                .room_service
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
         },
-        async {
-            state
-                .services
-                .rooms
-                .room_storage
-                .count_public_rooms()
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed", &e))
-        }
+        async { state.services.rooms.room_service.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
