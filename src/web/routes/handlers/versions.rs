@@ -88,7 +88,6 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("org.matrix.msc3882", true),
     ("org.matrix.msc3983", true),
     ("org.matrix.msc3245", true),
-    ("org.matrix.msc3266", true),
     ("uk.tcpip.msc4133", true),
 ];
 
@@ -146,6 +145,7 @@ fn build_client_versions(config: &Config) -> Value {
 
     unstable_features.insert("org.matrix.msc3886.sliding_sync".to_string(), json!(sliding_sync_capability().enabled()));
     unstable_features.insert("org.matrix.msc4261.widget".to_string(), json!(widget_capability().enabled()));
+    unstable_features.insert("org.matrix.msc3266".to_string(), json!(msc3266_capability().enabled()));
     unstable_features.insert("io.hula.burn_after_read".to_string(), json!(burn_after_read_capability().enabled()));
     unstable_features.insert("io.hula.friends".to_string(), json!(friends_capability().enabled()));
 
@@ -258,6 +258,19 @@ fn room_summary_capability() -> CapabilityFlag {
         &room_summary::room_summary_route_manifest(),
         &Method::GET,
         "/_matrix/client/v3/rooms/{room_id}/summary",
+    ))
+}
+
+/// MSC3266 (Room summary batch) capability is driven by the route surface:
+/// the `org.matrix.msc3266` unstable feature is declared only when the
+/// `POST /_synapse/room_summary/v1/summaries/batch` endpoint is registered.
+/// This aligns the `/versions` declaration with the actual route registration,
+/// matching the governance pattern used by `msc3886.sliding_sync` / `msc4261.widget`.
+fn msc3266_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &room_summary::room_summary_route_manifest(),
+        &Method::POST,
+        "/_synapse/room_summary/v1/summaries/batch",
     ))
 }
 
@@ -782,6 +795,7 @@ mod tests {
             "io.hula.voice_extended",
             "io.hula.widget",
             "io.hula.burn_after_read",
+            "io.element.msc4452.preview_url",
         ];
 
         for key in capabilities.keys() {
