@@ -16,14 +16,15 @@ async fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
 async fn test_room_tag_storage_round_trip() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
+    let storage = RoomTagStorage::new(pool);
 
     let suffix = unique_id();
     let user_id = format!("@room_tag_user_{suffix}:localhost");
     let room_id = format!("!room_tag_room_{suffix}:localhost");
 
-    RoomTagStorage::add_tag(&pool, &user_id, &room_id, "m.favourite", Some(0.25)).await.unwrap();
+    storage.add_tag(&user_id, &room_id, "m.favourite", Some(0.25)).await.unwrap();
 
-    let tags = RoomTagStorage::get_tags(&pool, &user_id, &room_id).await.unwrap();
+    let tags = storage.get_tags(&user_id, &room_id).await.unwrap();
 
     assert_eq!(tags.len(), 1);
     assert_eq!(tags[0].user_id, user_id);
@@ -37,15 +38,16 @@ async fn test_room_tag_storage_round_trip() {
 async fn test_room_tag_storage_updates_existing_tag_order() {
     let pool = crate::require_test_pool().await;
     setup_test_database(&pool).await;
+    let storage = RoomTagStorage::new(pool);
 
     let suffix = unique_id();
     let user_id = format!("@room_tag_user_{suffix}:localhost");
     let room_id = format!("!room_tag_room_{suffix}:localhost");
 
-    RoomTagStorage::add_tag(&pool, &user_id, &room_id, "m.lowpriority", Some(0.9)).await.unwrap();
-    RoomTagStorage::add_tag(&pool, &user_id, &room_id, "m.lowpriority", Some(0.1)).await.unwrap();
+    storage.add_tag(&user_id, &room_id, "m.lowpriority", Some(0.9)).await.unwrap();
+    storage.add_tag(&user_id, &room_id, "m.lowpriority", Some(0.1)).await.unwrap();
 
-    let tags = RoomTagStorage::get_tags(&pool, &user_id, &room_id).await.unwrap();
+    let tags = storage.get_tags(&user_id, &room_id).await.unwrap();
 
     assert_eq!(tags.len(), 1);
     assert_eq!(tags[0].tag, "m.lowpriority");

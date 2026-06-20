@@ -5,6 +5,9 @@ use synapse_common::ApiError;
 use synapse_storage::schema_validator::SchemaValidator;
 use tracing::{instrument, warn};
 
+/// AdminServerService requires direct PgPool access for infrastructure-level
+/// operations (health checks, schema validation) that don't map to a domain storage.
+/// This is an intentional exception to the service→storage pattern.
 #[derive(Clone)]
 pub struct AdminServerService {
     pool: Arc<PgPool>,
