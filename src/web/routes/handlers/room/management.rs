@@ -919,10 +919,9 @@ pub(crate) async fn get_room_device(
     let device = state
         .services
         .account
-        .device_storage
+        .account_device_list_service
         .get_device(&device_id)
-        .await
-        .map_err(map_internal!("Failed to get device"))?
+        .await?
         .ok_or_else(|| ApiError::not_found("Device not found".to_string()))?;
 
     let is_member = state

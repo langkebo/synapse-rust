@@ -1,1 +1,1 @@
-pub use synapse_storage::call_session::*;
+pub use synapse_storage::call_session::{CallCandidate, CallSession, CallSessionStorage, CreateCallSessionParams};

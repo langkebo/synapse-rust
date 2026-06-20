@@ -95,13 +95,7 @@ pub async fn get_room_retention_policy(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -132,14 +126,7 @@ pub async fn set_room_retention_policy(
     Path(room_id): Path<String>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -171,14 +158,7 @@ pub async fn run_retention(
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
         Some(room_id) => {
-            if !state
-                .services
-                .rooms
-                .room_storage
-                .room_exists(&room_id)
-                .await
-                .map_err(|e| ApiError::internal_with_log("Database error", &e))?
-            {
+            if !state.services.rooms.room_service.room_exists(&room_id).await? {
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
 

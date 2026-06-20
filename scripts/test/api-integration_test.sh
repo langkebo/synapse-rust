@@ -2761,7 +2761,7 @@ curl -s "$SERVER_URL/_matrix/federation/v1/query/profile/$USER_ID" && pass "Fede
 
 echo ""
 echo "194. Federation Room Auth"
-curl -s "$SERVER_URL/_matrix/federation/v1/room_auth/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Room Auth" || skip "Federation Room Auth (endpoint not available)"
+curl -s "$SERVER_URL/_synapse/federation/v1/room_auth/$ROOM_ID" -H "Authorization: Bearer $TOKEN" && pass "Federation Room Auth" || skip "Federation Room Auth (endpoint not available)"
 
 echo ""
 echo "195. Federation State"

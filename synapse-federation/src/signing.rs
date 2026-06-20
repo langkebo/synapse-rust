@@ -294,6 +294,22 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_json_rejects_integer_valued_float() {
+        let (secret_b64, _) = generate_test_key();
+        let mut value: Value = serde_json::from_str(
+            r#"{
+                "event_id":"$event1",
+                "type":"m.room.message",
+                "content":{"body":"hello","order":1.0}
+            }"#,
+        )
+        .unwrap();
+
+        let err = sign_json("server", "ed25519:1", &secret_b64, &mut value).unwrap_err();
+        assert!(err.contains("Floats are not permitted in canonical JSON"));
+    }
+
+    #[test]
     fn test_verify_expired_key_fails() {
         let (secret_b64, _) = generate_test_key();
         let mut value = serde_json::json!({

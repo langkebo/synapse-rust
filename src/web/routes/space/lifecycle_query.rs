@@ -163,9 +163,11 @@ pub(super) async fn search_spaces(
 
 pub(super) async fn get_space_statistics(
     State(state): State<AppState>,
+    Query(query): Query<StatisticsQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats: Vec<serde_json::Value> = state.services.rooms.space_service.get_space_statistics().await?;
+    let limit: i64 = query.limit.unwrap_or(100).clamp(1, 500);
+    let stats: Vec<serde_json::Value> = state.services.rooms.space_service.get_space_statistics(limit).await?;
     let mut visible_stats: Vec<serde_json::Value> = Vec::new();
 
     for stat in stats {

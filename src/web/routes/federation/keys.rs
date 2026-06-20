@@ -65,18 +65,18 @@ pub(super) async fn keys_claim(
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid claim request: {e}")))?;
 
     if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
-        let requested_users = one_time_keys.keys().cloned().collect::<Vec<_>>();
-        let mut allowed_local_users = std::collections::HashSet::new();
+        // Batch federation origin validation: collect local users, then issue
+        // a single query to filter those who share a joined room with a
+        // member from the requesting server. Replaces the previous
+        // M × (1 + N) nested N+1 pattern. See NEW-P1-03.
+        let local_users: Vec<String> = one_time_keys
+            .keys()
+            .filter(|user_id| super::user_matches_origin(user_id, &state.services.core.server_name))
+            .cloned()
+            .collect();
 
-        for user_id in requested_users {
-            if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
-                continue;
-            }
-
-            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin).await.is_ok() {
-                allowed_local_users.insert(user_id);
-            }
-        }
+        let allowed_local_users =
+            state.services.rooms.room_service.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -110,18 +110,18 @@ pub(super) async fn keys_query(
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid query request: {e}")))?;
 
     if let Some(device_keys) = request.device_keys.as_object_mut() {
-        let requested_users = device_keys.keys().cloned().collect::<Vec<_>>();
-        let mut allowed_local_users = std::collections::HashSet::new();
+        // Batch federation origin validation: collect local users, then issue
+        // a single query to filter those who share a joined room with a
+        // member from the requesting server. Replaces the previous
+        // M × (1 + N) nested N+1 pattern. See NEW-P1-03.
+        let local_users: Vec<String> = device_keys
+            .keys()
+            .filter(|user_id| super::user_matches_origin(user_id, &state.services.core.server_name))
+            .cloned()
+            .collect();
 
-        for user_id in requested_users {
-            if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
-                continue;
-            }
-
-            if super::validate_federation_origin_shares_user_room(&state, &user_id, &auth.origin).await.is_ok() {
-                allowed_local_users.insert(user_id);
-            }
-        }
+        let allowed_local_users =
+            state.services.rooms.room_service.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -394,15 +394,18 @@ async fn fetch_remote_server_keys_response(
 /// Returns `Some(valid_until_ts)` when the response is structurally valid and
 /// safe to cache, or `None` (after logging a `warn!`) when validation fails.
 ///
-/// This is defensive validation only — it does not verify the cryptographic
-/// signature itself (that requires the key, which we are in the process of
-/// trusting). It checks:
+/// This is defensive validation that checks:
 /// - `server_name` (if present) matches the requested server
 /// - `valid_until_ts` is present, parseable, and in the future
 /// - `verify_keys` is present, is an object, and is non-empty
 /// - each verify key has a `key` field that is a base64-encoded 32-byte value
+/// - `old_verify_keys` (if present) is an object where each entry has a
+///   `key` field (base64 32-byte) and an integer `expired_ts` field
 /// - `signatures` is present, is an object, and contains at least one
 ///   self-signature (an entry keyed by `server_name` with a non-empty object)
+/// - at least one self-signature cryptographically verifies against the
+///   corresponding verify key over the canonical JSON of the response with
+///   `signatures` removed
 fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> {
     // `server_name` (if present) must match the requested server.
     if let Some(actual) = body.get("server_name").and_then(|v| v.as_str()) {
@@ -471,6 +474,49 @@ fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> 
         }
     }
 
+    // P2-15: `old_verify_keys` (if present) must be an object where each entry
+    // has a `key` field (base64 32-byte) and an integer `expired_ts` field.
+    if let Some(old_verify_keys) = body.get("old_verify_keys") {
+        if !old_verify_keys.is_null() {
+            let old_obj = match old_verify_keys.as_object() {
+                Some(obj) => obj,
+                None => {
+                    ::tracing::warn!(
+                        server_name = %server_name,
+                        "Remote server key response has non-object old_verify_keys; refusing to cache"
+                    );
+                    return None;
+                }
+            };
+            for (kid, entry) in old_obj {
+                let Some(key_str) = entry.get("key").and_then(|v| v.as_str()) else {
+                    ::tracing::warn!(
+                        server_name = %server_name,
+                        key_id = %kid,
+                        "Remote old_verify_keys entry missing 'key' field; refusing to cache"
+                    );
+                    return None;
+                };
+                if decode_base64_32(key_str).is_none() {
+                    ::tracing::warn!(
+                        server_name = %server_name,
+                        key_id = %kid,
+                        "Remote old_verify_keys entry has invalid base64 32-byte key; refusing to cache"
+                    );
+                    return None;
+                };
+                if entry.get("expired_ts").and_then(|v| v.as_i64()).is_none() {
+                    ::tracing::warn!(
+                        server_name = %server_name,
+                        key_id = %kid,
+                        "Remote old_verify_keys entry missing or non-integer expired_ts; refusing to cache"
+                    );
+                    return None;
+                }
+            }
+        }
+    }
+
     // `signatures` must be present, be an object, and contain at least one
     // self-signature (an entry keyed by `server_name` with a non-empty object).
     let signatures = match body.get("signatures").and_then(|v| v.as_object()) {
@@ -483,16 +529,94 @@ fn validate_server_key_response(body: &Value, server_name: &str) -> Option<i64> 
             return None;
         }
     };
-    let has_self_signature = signatures.get(server_name).and_then(|v| v.as_object()).is_some_and(|sig| !sig.is_empty());
-    if !has_self_signature {
+    // P2-15: Cryptographically verify at least one self-signature against the
+    // corresponding verify key over the canonical JSON of the response with
+    // `signatures` removed. The `None` arm emits a diagnostic before bailing so
+    // clippy does not suggest rewriting this as `?`.
+    let self_sig = match signatures.get(server_name).and_then(|v| v.as_object()).filter(|sig| !sig.is_empty()) {
+        Some(s) => s,
+        None => {
+            ::tracing::warn!(
+                server_name = %server_name,
+                "Remote server key response missing self-signature; refusing to cache"
+            );
+            return None;
+        }
+    };
+    let mut verified = false;
+    for (kid, sig_val) in self_sig {
+        let Some(sig_str) = sig_val.as_str() else {
+            continue;
+        };
+        let Some(key_str) = verify_keys.get(kid).and_then(|e| e.get("key")).and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if verify_ed25519_signature(key_str, sig_str, server_name, body) {
+            verified = true;
+            break;
+        }
+    }
+    if !verified {
         ::tracing::warn!(
             server_name = %server_name,
-            "Remote server key response missing self-signature; refusing to cache"
+            "Remote server key response self-signature verification failed; refusing to cache"
         );
         return None;
     }
 
     Some(valid_until_ts)
+}
+
+/// Verify an Ed25519 self-signature on a server key response.
+///
+/// Builds the canonical JSON of `body` with the `signatures` field removed,
+/// then verifies the signature using the public key from `verify_keys`.
+fn verify_ed25519_signature(public_key_b64: &str, signature_b64: &str, server_name: &str, body: &Value) -> bool {
+    use synapse_common::canonical_json;
+
+    // Build the canonical JSON of the response with `signatures` removed.
+    let mut body_without_sigs = body.clone();
+    if let Some(obj) = body_without_sigs.as_object_mut() {
+        obj.remove("signatures");
+    } else {
+        return false;
+    }
+
+    let canonical = match canonical_json::canonical_json(&body_without_sigs) {
+        Ok(s) => s,
+        Err(e) => {
+            ::tracing::debug!(
+                server_name = %server_name,
+                error = %e,
+                "Failed to canonicalize server key response for signature verification"
+            );
+            return false;
+        }
+    };
+
+    let pub_key_bytes = match base64::engine::general_purpose::STANDARD_NO_PAD.decode(public_key_b64) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let pub_key_array: [u8; 32] = match pub_key_bytes.as_slice().try_into() {
+        Ok(arr) => arr,
+        Err(_) => return false,
+    };
+    let verifying_key = match ed25519_dalek::VerifyingKey::from_bytes(&pub_key_array) {
+        Ok(key) => key,
+        Err(_) => return false,
+    };
+
+    let sig_bytes = match base64::engine::general_purpose::STANDARD.decode(signature_b64) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
+    };
+    let signature = match ed25519_dalek::Signature::from_slice(&sig_bytes) {
+        Ok(sig) => sig,
+        Err(_) => return false,
+    };
+
+    verifying_key.verify_strict(canonical.as_bytes(), &signature).is_ok()
 }
 
 fn extract_remote_verify_key(body: &Value, server_name: &str, key_id: &str) -> Option<String> {
@@ -518,4 +642,363 @@ fn extract_remote_verify_key_from_object(body: &Value, key_id: &str) -> Option<S
     let verify_keys = body.get("verify_keys")?.as_object()?;
     let entry = verify_keys.get(key_id)?;
     entry.get("key")?.as_str().map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use rand::RngCore;
+    use serde_json::json;
+
+    /// Generate an Ed25519 keypair and return (key_id, public_key_b64, signing_key).
+    fn gen_keypair() -> (String, String, SigningKey) {
+        let mut rng = rand::rng();
+        let mut secret_bytes = [0u8; 32];
+        rng.fill_bytes(&mut secret_bytes);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let pub_key_b64 =
+            base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.verifying_key().to_bytes());
+        let key_id = format!("ed25519:{}", &pub_key_b64[..8]);
+        (key_id, pub_key_b64, signing_key)
+    }
+
+    /// Build a server key response body and sign it with the given signing key.
+    fn sign_response(
+        server_name: &str,
+        key_id: &str,
+        pub_key_b64: &str,
+        signing_key: &SigningKey,
+        valid_until_ts: i64,
+    ) -> Value {
+        let mut body = json!({
+            "server_name": server_name,
+            "valid_until_ts": valid_until_ts,
+            "verify_keys": {
+                key_id: { "key": pub_key_b64 }
+            },
+            "old_verify_keys": {}
+        });
+
+        // Sign: canonical JSON of body without signatures, then add signatures.
+        let canonical = synapse_common::canonical_json::canonical_json(&body).unwrap();
+        let sig = signing_key.sign(canonical.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("signatures".to_string(), json!({ server_name: { key_id: sig_b64 } }));
+        }
+        body
+    }
+
+    /// Re-sign an existing response body after modifications.
+    fn resign_response(body: &Value, server_name: &str, key_id: &str, signing_key: &SigningKey) -> Value {
+        let mut body = body.clone();
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("signatures");
+        }
+        let canonical = synapse_common::canonical_json::canonical_json(&body).unwrap();
+        let sig = signing_key.sign(canonical.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("signatures".to_string(), json!({ server_name: { key_id: sig_b64 } }));
+        }
+        body
+    }
+
+    fn future_ts() -> i64 {
+        chrono::Utc::now().timestamp_millis() + 86_400_000
+    }
+
+    #[test]
+    fn test_validate_accepts_well_formed_response() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        let result = validate_server_key_response(&body, "example.com");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_validate_rejects_server_name_mismatch() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        assert!(validate_server_key_response(&body, "other.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_missing_valid_until_ts() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("valid_until_ts");
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_expired_valid_until_ts() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let past_ts = chrono::Utc::now().timestamp_millis() - 1000;
+        let body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, past_ts);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_verify_keys() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("verify_keys".to_string(), json!({}));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_verify_key_missing_key_field() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("verify_keys".to_string(), json!({ "ed25519:bad": { "not_key": "x" } }));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_verify_key_invalid_base64() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("verify_keys".to_string(), json!({ "ed25519:bad": { "key": "not_base64!!!" } }));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_accepts_null_old_verify_keys() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("old_verify_keys".to_string(), Value::Null);
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_some());
+    }
+
+    #[test]
+    fn test_validate_accepts_missing_old_verify_keys() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("old_verify_keys");
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_some());
+    }
+
+    #[test]
+    fn test_validate_accepts_well_formed_old_verify_keys() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let (old_key_id, old_pub_key_b64, _) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "old_verify_keys".to_string(),
+                json!({
+                    old_key_id: {
+                        "key": old_pub_key_b64,
+                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                    }
+                }),
+            );
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_some());
+    }
+
+    #[test]
+    fn test_validate_rejects_old_verify_keys_non_object() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("old_verify_keys".to_string(), json!("not_an_object"));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_old_verify_keys_missing_key_field() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("old_verify_keys".to_string(), json!({ "ed25519:old": { "expired_ts": 123 } }));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_old_verify_keys_invalid_base64() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "old_verify_keys".to_string(),
+                json!({ "ed25519:old": { "key": "too_short", "expired_ts": 123 } }),
+            );
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_old_verify_keys_missing_expired_ts() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let (_, old_pub_key_b64, _) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("old_verify_keys".to_string(), json!({ "ed25519:old": { "key": old_pub_key_b64 } }));
+        }
+        let body = resign_response(&body, "example.com", &key_id, &signing_key);
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_missing_signatures() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.remove("signatures");
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_missing_self_signature() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        // Replace self-signature with a signature from a different server.
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(sigs) = obj.get_mut("signatures").and_then(|v| v.as_object_mut()) {
+                sigs.remove("example.com");
+                sigs.insert("other.com".to_string(), json!({}));
+            }
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_empty_self_signature() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(sigs) = obj.get_mut("signatures").and_then(|v| v.as_object_mut()) {
+                sigs.insert("example.com".to_string(), json!({}));
+            }
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_tampered_response() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        // Tamper with valid_until_ts after signing — signature won't match.
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("valid_until_ts".to_string(), json!(future_ts() + 999999));
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_tampered_old_verify_keys_chain() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let (old_key_id, old_pub_key_b64, _) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "old_verify_keys".to_string(),
+                json!({
+                    old_key_id.clone(): {
+                        "key": old_pub_key_b64,
+                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                    }
+                }),
+            );
+        }
+        let mut body = resign_response(&body, "example.com", &key_id, &signing_key);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert(
+                "old_verify_keys".to_string(),
+                json!({
+                    old_key_id: {
+                        "key": pub_key_b64,
+                        "expired_ts": chrono::Utc::now().timestamp_millis() - 1000
+                    }
+                }),
+            );
+        }
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_rejects_wrong_signature_key() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let (_, _other_pub_key_b64, other_signing_key) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        // Replace the signature with one from a different key.
+        let canonical = {
+            let mut b = body.clone();
+            if let Some(obj) = b.as_object_mut() {
+                obj.remove("signatures");
+            }
+            synapse_common::canonical_json::canonical_json(&b).unwrap()
+        };
+        let sig = other_signing_key.sign(canonical.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("signatures".to_string(), json!({ "example.com": { key_id: sig_b64 } }));
+        }
+        // The signature won't verify against the original public key.
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
+
+    #[test]
+    fn test_validate_accepts_multiple_verify_keys() {
+        let (key_id1, pub_key_b641, signing_key1) = gen_keypair();
+        let (key_id2, pub_key_b642, _) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id1, &pub_key_b641, &signing_key1, future_ts());
+        // Add a second verify key (unsigned, but the first key's signature should verify).
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(vk) = obj.get_mut("verify_keys").and_then(|v| v.as_object_mut()) {
+                vk.insert(key_id2, json!({ "key": pub_key_b642 }));
+            }
+        }
+        let body = resign_response(&body, "example.com", &key_id1, &signing_key1);
+        assert!(validate_server_key_response(&body, "example.com").is_some());
+    }
+
+    #[test]
+    fn test_validate_rejects_signature_with_wrong_key_id() {
+        let (key_id, pub_key_b64, signing_key) = gen_keypair();
+        let (other_key_id, _, _) = gen_keypair();
+        let mut body = sign_response("example.com", &key_id, &pub_key_b64, &signing_key, future_ts());
+        // Rename the signature key to a non-existent key_id.
+        if let Some(obj) = body.as_object_mut() {
+            if let Some(sigs) = obj.get_mut("signatures").and_then(|v| v.as_object_mut()) {
+                if let Some(self_sigs) = sigs.get_mut("example.com").and_then(|v| v.as_object_mut()) {
+                    if let Some(sig_val) = self_sigs.remove(&key_id) {
+                        self_sigs.insert(other_key_id, sig_val);
+                    }
+                }
+            }
+        }
+        // The signature key_id doesn't match any verify_keys entry.
+        assert!(validate_server_key_response(&body, "example.com").is_none());
+    }
 }

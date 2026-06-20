@@ -43,6 +43,7 @@ async fn teardown_test_database(pool: &sqlx::PgPool) {
     sqlx::query("DROP TABLE IF EXISTS events CASCADE").execute(pool).await.ok();
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_create_event_success() {
     let _guard = event_storage_test_guard().lock().unwrap();
@@ -69,6 +70,7 @@ async fn test_create_event_success() {
     teardown_test_database(pool.as_ref()).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_empty() {
     let _guard = event_storage_test_guard().lock().unwrap();
@@ -83,6 +85,7 @@ async fn test_get_room_events_batch_empty() {
     teardown_test_database(pool.as_ref()).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_multiple_rooms() {
     let _guard = event_storage_test_guard().lock().unwrap();
@@ -121,6 +124,7 @@ async fn test_get_room_events_batch_multiple_rooms() {
     teardown_test_database(pool.as_ref()).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_since_batch() {
     let _guard = event_storage_test_guard().lock().unwrap();
@@ -157,6 +161,7 @@ async fn test_get_room_events_since_batch() {
     teardown_test_database(pool.as_ref()).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_get_room_events_batch_limit_per_room() {
     let _guard = event_storage_test_guard().lock().unwrap();
@@ -192,6 +197,7 @@ async fn test_get_room_events_batch_limit_per_room() {
     teardown_test_database(pool.as_ref()).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_encrypted_event_origin_decode_handles_null_boundary_and_malformed_values() {
     let _guard = event_storage_test_guard().lock().unwrap();

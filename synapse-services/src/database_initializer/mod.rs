@@ -1,6 +1,6 @@
 pub mod models;
 pub mod tables;
-pub use models::*;
+pub use models::{initialize_database, DatabaseInitMode, DatabaseInitService, Environment, InitializationReport};
 
 use sqlx::PgPool;
 use std::sync::Arc;

@@ -1288,7 +1288,7 @@ async fn test_federation_get_joining_rules_rejects_unjoined_server_for_invite_ro
     state.services.rooms.room_storage.create_room(&room_id, &creator, "invite", "1", false).await.unwrap();
     state.services.rooms.member_storage.add_member(&room_id, &creator, "join", None, None, None, None).await.unwrap();
 
-    let uri = format!("/_matrix/federation/v1/get_joining_rules/{}", room_id);
+    let uri = format!("/_synapse/federation/v1/get_joining_rules/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -1353,7 +1353,7 @@ async fn test_federation_get_joining_rules_returns_effective_state_event_rule() 
         .await
         .unwrap();
 
-    let uri = format!("/_matrix/federation/v1/get_joining_rules/{}", room_id);
+    let uri = format!("/_synapse/federation/v1/get_joining_rules/{}", room_id);
     let response = app.oneshot(signed_request("GET", &uri, server_name, key_id, &signing_key, None)).await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -1906,7 +1906,7 @@ async fn test_federation_event_auth_returns_not_found_instead_of_placeholder_suc
     };
 
     let response = app
-        .oneshot(signed_request("GET", "/_matrix/federation/v1/event_auth", server_name, key_id, &signing_key, None))
+        .oneshot(signed_request("GET", "/_synapse/federation/v1/event_auth", server_name, key_id, &signing_key, None))
         .await
         .unwrap();
 
@@ -1931,7 +1931,7 @@ async fn test_federation_keys_upload_returns_unrecognized_with_migration_hint() 
     let response = app
         .oneshot(signed_request(
             "POST",
-            "/_matrix/federation/v1/keys/upload",
+            "/_synapse/federation/v1/keys/upload",
             server_name,
             key_id,
             &signing_key,
@@ -1962,7 +1962,7 @@ async fn test_federation_legacy_keys_claim_returns_unrecognized_with_supported_p
     let response = app
         .oneshot(signed_request(
             "POST",
-            "/_matrix/federation/v1/keys/claim",
+            "/_synapse/federation/v1/keys/claim",
             server_name,
             key_id,
             &signing_key,
@@ -1993,7 +1993,7 @@ async fn test_federation_legacy_keys_query_returns_unrecognized_with_supported_p
     let response = app
         .oneshot(signed_request(
             "POST",
-            "/_matrix/federation/v1/keys/query",
+            "/_synapse/federation/v1/keys/query",
             server_name,
             key_id,
             &signing_key,

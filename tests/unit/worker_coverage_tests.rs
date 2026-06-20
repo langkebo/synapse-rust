@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // Worker Module Additional Coverage Tests
 // Purpose: Increase test coverage for worker module components
 
@@ -1305,7 +1306,7 @@ async fn test_stream_writer_manager_get_stream_config() {
         ..Default::default()
     };
 
-    let manager = StreamWriterManager::new(config.clone(), bus.clone(), "worker1".to_string());
+    let manager = StreamWriterManager::new(config, bus, "worker1".to_string());
 
     let retrieved_config = manager.get_stream_config();
     assert_eq!(retrieved_config.events, Some("worker1".to_string()));

@@ -137,6 +137,7 @@ async fn insert_queue_item(
     .expect("Failed to insert queue item fixture");
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts() {
     let _guard = QUEUE_TEST_LOCK.lock().unwrap();
@@ -283,6 +284,7 @@ async fn test_schema_contract_room_summary_queue_driver_batches_and_message_ts()
     cleanup_room_summary_fixtures(&pool, &room_id, &[creator, hero]).await;
 }
 
+#[allow(clippy::await_holding_lock)]
 #[tokio::test]
 async fn test_schema_contract_room_summary_queue_failed_items_are_not_reprocessed() {
     let _guard = QUEUE_TEST_LOCK.lock().unwrap();

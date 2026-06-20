@@ -1,1 +1,1 @@
-pub use synapse_storage::membership::*;
+pub use synapse_storage::membership::{RoomMember, RoomMemberStorage, UserRoomMembership};

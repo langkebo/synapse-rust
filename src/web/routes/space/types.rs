@@ -126,6 +126,12 @@ pub struct HierarchyQuery {
     pub max_depth: Option<i32>,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct StatisticsQuery {
+    #[validate(range(min = 1, max = 500))]
+    pub limit: Option<i64>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SpaceResponse {
     pub space_id: String,

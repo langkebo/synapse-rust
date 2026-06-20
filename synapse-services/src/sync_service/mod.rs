@@ -9,7 +9,12 @@ mod response;
 #[cfg(test)]
 mod tests;
 mod types;
-pub use types::*;
+pub use types::{
+    BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
+    LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
+    StateEventsBatchParams, SyncEventFormat, SyncFilter, SyncPerformanceSnapshot, SyncRequest, SyncResponseFilter,
+    SyncRoomSection, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
+};
 
 use crate::*;
 use serde_json::json;

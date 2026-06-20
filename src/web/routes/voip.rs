@@ -178,10 +178,12 @@ pub async fn call_invite(
     let now = chrono::Utc::now().timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
-    if state
+    // create_event with tx=None already dispatches to appservices internally,
+    // so we don't need a separate dispatch_appservice_event call here.
+    let _ = state
         .services
         .rooms
-        .event_storage
+        .room_service
         .create_event(
             crate::storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -195,16 +197,7 @@ pub async fn call_invite(
             },
             None,
         )
-        .await
-        .is_ok()
-    {
-        state
-            .services
-            .rooms
-            .room_service
-            .dispatch_appservice_event(&event_id, &room_id, "m.call.invite", &auth_user.user_id, &content_value, None)
-            .await;
-    }
+        .await;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id
@@ -250,10 +243,12 @@ pub async fn call_answer(
     let now = chrono::Utc::now().timestamp_millis();
     let content_value = serde_json::to_value(content).unwrap_or_default();
 
-    if state
+    // create_event with tx=None already dispatches to appservices internally,
+    // so we don't need a separate dispatch_appservice_event call here.
+    let _ = state
         .services
         .rooms
-        .event_storage
+        .room_service
         .create_event(
             crate::storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -267,16 +262,7 @@ pub async fn call_answer(
             },
             None,
         )
-        .await
-        .is_ok()
-    {
-        state
-            .services
-            .rooms
-            .room_service
-            .dispatch_appservice_event(&event_id, &room_id, "m.call.answer", &auth_user.user_id, &content_value, None)
-            .await;
-    }
+        .await;
 
     Ok(Json(serde_json::json!({
         "event_id": event_id

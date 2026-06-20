@@ -254,13 +254,7 @@ pub(super) async fn get_user_devices(
 
     super::validate_federation_origin_shares_user_room(&state, &user_id, &_auth.origin).await?;
 
-    let devices = state
-        .services
-        .account
-        .device_storage
-        .get_user_devices(&user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get user devices", &e))?;
+    let devices = state.services.account.account_device_list_service.get_user_devices(&user_id).await?;
 
     let stream_id = state
         .services

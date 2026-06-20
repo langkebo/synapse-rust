@@ -284,16 +284,23 @@ async fn test_federation_get_group_returns_not_found_without_placeholder() {
 
 #[tokio::test]
 async fn test_federation_key_clone_returns_server_keys() {
-    let Some(app) = setup_test_app().await else {
+    let key_id = "ed25519:test";
+    let signing_key_seed = [11u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, _pool)) = setup_federation_test_app_with_pool(key_id, &signing_key_b64).await else {
         return;
     };
 
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_matrix/federation/v2/key/clone")
-        .header("Content-Type", "application/json")
-        .body(Body::from("{}"))
-        .unwrap();
+    let request = signed_federation_request(
+        "POST",
+        "/_synapse/federation/v2/key/clone",
+        "localhost",
+        key_id,
+        &signing_key,
+        Some(&json!({})),
+    );
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
 

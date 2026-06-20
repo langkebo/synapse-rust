@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // Typing Service Tests - 打字提示服务测试
 
 #[cfg(test)]

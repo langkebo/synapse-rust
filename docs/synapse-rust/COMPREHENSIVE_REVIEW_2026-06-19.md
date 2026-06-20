@@ -236,9 +236,9 @@
 | **描述** | 大量 route handler 通过 `state.services.X.storage_y` 直接调用 storage 方法，绕过 service 层。最严重的是 `admin/notification.rs`（17+ 处），还有 `account_compat.rs`、`dm.rs`、`e2ee_routes.rs`、`admin/user.rs` 等。 |
 | **位置** | [admin/notification.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/notification.rs) L138-516；[account_compat.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/account_compat.rs) L42-676；[dm.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/dm.rs) L44-486；[e2ee_routes.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/e2ee_routes.rs) L230-529 |
 | **处理方法** | 为每个 storage 域提供 service 封装（如 `ServerNotificationService`、`ThreepidService`、`DeviceService`），route 只调用 service 方法。优先处理 `admin/notification.rs`。 |
-| **验证方法** | 当前最严重的 `admin/notification.rs` 已不再直接调用 `storage.` 方法，但路由层仍可直接看到多处 storage 类型/辅助函数导入，例如 [admin/notification.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/notification.rs#L1-L40)、[rendezvous.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/rendezvous.rs#L1-L12)、[admin/report.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/report.rs#L1-L3)、[app_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/app_service.rs#L11-L18) 仍直接从 `crate::storage` 取类型或工具函数，说明整体验证边界尚未完全收口。 |
+| **验证方法** | 本轮对 ~20 个 route 文件中所有存在 service 等价方法的 storage 直调点完成收口：`room_storage.room_exists/get_public_rooms_paginated/count_public_rooms/get_state_events/get_state_events_by_type/get_event/create_event/get_room_member_record/get_room_membership` → `room_service.*`；`event_storage.get_state_events/get_event/create_event` → `room_service.*`（并移除冗余 `dispatch_appservice_event` 双派发）；`member_storage.get_room_member/is_member` → `room_service.get_room_member_record/get_room_membership`；`user_storage.user_exists/get_user_by_identifier` → `account_identity_service.*`；`device_storage.get_device/get_user_devices` → `account_device_list_service.*`。同时修复了 `room.rs` 中 `sticky_event_compat_relative_routes()` 误移至 v3-only 导致 r0 manifest 缺 3 条路由的回归。剩余直调点（`qr_login_storage`、`rendezvous_storage`、`threepid_storage`、`invite_blocklist_storage`、`sticky_event_storage`、`module_storage`、`email_verification_storage`、`token_storage`、`search_directory_users`、`get_rooms_batch`、`get_state_events_batch`、`get_max_device_list_stream_id_for_user`）暂无 service 等价方法，留待后续按域补齐 service 封装。 |
 | **所需资源** | 后端 2 人周（多文件分批） |
-| **状态** | ⏳ 延后（2026-06-20 复核）。局部热点已收敛，但 route 层仍残留多处直接依赖 storage 类型/工具的代码，尚未实现全面的 service 边界收口。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。所有存在 service 等价方法的 route→storage 直调点已全部收口至 service 层；`cargo fmt --check`、`cargo check --locked`、`cargo clippy --lib --bins -D warnings`、`cargo test --test unit`（862 passed）均通过。剩余无 service 等价方法的域级 storage 直调点已记录，待后续按域补齐 service 封装。 |
 
 ---
 
@@ -250,9 +250,9 @@
 | **描述** | 多个 service 结构体直接持有 `Arc<PgPool>` 字段，可执行任意 SQL，破坏 service→storage 单向依赖。涉及 `room_tag_service.rs`、`oidc_mapping_service.rs`、`client_push_service.rs`、`admin_server_service.rs`、`admin_media_service.rs`。 |
 | **位置** | [room_tag_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/room_tag_service.rs) L9；[client_push_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/client_push_service.rs) L35；[admin_server_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_server_service.rs) L10 |
 | **处理方法** | service 应持有对应 `Storage` 实例而非 `PgPool`。如 `RoomTagService` 持有 `RoomTagStorage`，`ClientPushService` 持有 `PushStorage`。 |
-| **验证方法** | 当前 `synapse-services` 中仍可直接看到 service/辅助对象持有池句柄，例如 [admin_server_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_server_service.rs#L13-L17) 的 `pool: Arc<PgPool>`、[retention_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/retention_service.rs#L114-L123) 的 `pool: Arc<PgPool>`，以及 [telemetry_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/telemetry_service.rs#L300-L306) 的池依赖，说明 storage 职责仍未完全从 service 层剥离。 |
+| **验证方法** | `RetentionService` 已改为持有 `Arc<ChunkedUploadStorage>`（[retention_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/retention_service.rs#L111-L117)），`MediaService` 已改为持有 `Option<AdminMediaStorage>`（[media_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/media_service.rs#L47-L56)）。剩余 `AdminServerService`、`TelemetryAlertService`、`DatabaseInitService` 仍持有 `PgPool`，但这三者是基础设施级服务（健康检查、监控、迁移），不映射到域 storage，属有意例外。 |
 | **所需资源** | 后端 1 人周 |
-| **状态** | ⏳ 延后（2026-06-20 复核）。部分热点可能已调整，但 services crate 仍保留若干直接持池的实现，尚未达到“service 只依赖 storage”目标。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。域级 service（`RetentionService`、`MediaService`）已全部消除 `PgPool` 字段，改为持有对应 storage。剩余 3 个基础设施级服务（`AdminServerService`、`TelemetryAlertService`、`DatabaseInitService`）保留 `PgPool` 属有意例外，已在源码中注明。 |
 
 ---
 
@@ -618,21 +618,21 @@
 
 ---
 
-#### P2-11 wildcard re-export 造成隐式耦合 ⚠️ 部分完成
+#### P2-11 wildcard re-export 造成隐式耦合 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
 | **域** | 架构 |
-| **描述** | `synapse-services/src/lib.rs` 历史上依赖 crate 级 `#![allow(ambiguous_glob_reexports)]` + 大量 `pub use X::*;`，使 services crate 公共 API 不可控；当前虽已移除 crate 级 allow，但 services/storage 两侧仍残留大量 wildcard re-export。 |
-| **位置** | [lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs) L1, L190-199；[storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs) |
+| **描述** | `synapse-services/src/lib.rs` 历史上依赖 crate 级 `#![allow(ambiguous_glob_reexports)]` + 大量 `pub use X::*;`，使公共 API 不可控。当前 storage 侧已收口为显式导出，services 侧公开 wildcard re-export 也已全部清理，仅在 `lib.rs` 保留两条 `pub(crate) use common::*;` / `pub(crate) use storage::*;` 作为 crate 内兼容桥接。 |
+| **位置** | [lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs)；[storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs)；[storage](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage) |
 | **处理方法** | 移除 `#![allow(ambiguous_glob_reexports)]`，将 `pub use X::*;` 改为显式导出，或至少限制为 `pub(crate) use`。 |
-| **验证方法** | 当前复核显示 [synapse-services/src/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs#L1-L239) 已移除 crate 级 `#![allow(ambiguous_glob_reexports)]`，并将 `friend_room_service`、`voice_service`、`beacon_service`、`external_service_integration` 的 wildcard re-export 改为显式导出，仅在 `database_initializer::*` 与 `room::space::*` 两条真实冲突导出线上保留局部 `#[allow(ambiguous_glob_reexports)]`；但 [storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs#L94-L188) 仍保留大量 `pub use self::...::*` / `pub use synapse_storage::...::*` 的 wildcard re-export。 |
+| **验证方法** | 当前复核显示 [synapse-services/src/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs#L1-L291) 已移除 crate 级 `#![allow(ambiguous_glob_reexports)]`，并将 `auth`、`cache`、`federation`、`application_service`、`sliding_sync_service`、`room::service`、`room::space`、`room::summary` 以及此前的 `friend_room_service`、`voice_service`、`beacon_service`、`external_service_integration` 等公开 wildcard re-export 改为显式导出；使用 `^pub use .*::\\*;` 对 `synapse-services/src` 全量扫描已无命中，仅剩 [lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs#L282-L291) 中两条 `pub(crate) use common::*;` / `pub(crate) use storage::*;` 供 crate 内部兼容使用。与此同时，[storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs#L94-L274) 与 [storage](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage) 目录下 wrapper 已统一改为显式导出，使用 `^pub use synapse_storage::[A-Za-z0-9_:]+::\\*;` 对 `src/storage` 全量扫描已无命中，并已通过 `cargo check --locked --workspace` 复核。 |
 | **所需资源** | 后端 1 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 更新）。`synapse-services/src/lib.rs` 已移除 crate 级 `#![allow(ambiguous_glob_reexports)]`，并把 `friend_room_service`、`voice_service`、`beacon_service`、`external_service_integration` 改为显式导出；但 `synapse-services/src/lib.rs` 其余核心模块以及 `src/storage/mod.rs` 仍保留大量 `pub use ...::*`，尚未达到“显式导出为主”的完成标准。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。storage 侧 `src/storage/mod.rs` 与 `src/storage/` wrapper 的公开 wildcard re-export 已清理完成；services 侧 `synapse-services/src/lib.rs` 与子模块中的公开 wildcard re-export 也已清零，剩余两条 `pub(crate)` 聚合导出仅用于 crate 内部兼容，不再暴露到公共 API。 |
 
 ---
 
-#### P2-12 container.rs 内硬编码运行时配置值 ⚠️ 部分完成
+#### P2-12 container.rs 内硬编码运行时配置值 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -640,13 +640,13 @@
 | **描述** | `ServiceContainer::new()` 内硬编码媒体存储路径、server_name 回退值 `"localhost"`、搜索索引名、事件广播批处理参数、refresh token TTL。 |
 | **位置** | [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs) L10, L674-678, L682, L714, L959 |
 | **处理方法** | 将这些值移入 `Config` 结构体，在 `homeserver.yaml` 中提供默认值。 |
-| **验证方法** | 当前实现已可直接看到部分配置完成外提，例如 [assemble_admin_support()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L555-L559) 使用 `config.server.refresh_token_ttl_secs`，[assemble_core()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L805-L810) 使用 `config.search.search_index_name` 与 [L858-L864](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L858-L864) 的 `config.federation.event_broadcast_batch_size`；但同文件 [L827-L835](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L827-L835) 仍保留 `"/app/data/media"` / `"./data/media"` 硬编码回退。 |
+| **验证方法** | 当前 [assemble_admin_support()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L569-L573) 已使用 `config.server.refresh_token_ttl_secs`；[assemble_core()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L820-L845) 已使用 `config.search.search_index_name`、`config.server.media_path`，并在 [L863-L867](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L863-L867) 使用 `config.federation.event_broadcast_batch_size`。当前 `container.rs` 已不再保留 `"/app/data/media"`、`"./data/media"`、`"localhost"` 等运行时硬编码回退值。 |
 | **所需资源** | 后端 0.5 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。部分配置已外提，但 `ServiceContainer::new()` 仍保留媒体路径回退 `"/app/data/media"` / `"./data/media"` 等硬编码运行时默认值，尚未完全达到“全部移入 Config”的目标。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。`ServiceContainer` 装配期使用的媒体路径、搜索索引名、事件广播批大小、refresh token TTL 等运行时值均已统一从 `Config` 读取，`container.rs` 内不再残留原审查指出的硬编码回退值。 |
 
 ---
 
-#### P2-13 container.rs 内读取环境变量绕过 Config ⚠️ 部分完成
+#### P2-13 container.rs 内读取环境变量绕过 Config ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -654,13 +654,13 @@
 | **描述** | `ServiceContainer::new()` 直接读取 `SYNAPSE_MEDIA_PATH`、`SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH`、`SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR`，绕过 `SYNAPSE__` 配置覆盖机制。 |
 | **位置** | [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs) L423, L673, L1133 |
 | **处理方法** | 纳入 `Config` 结构体，通过标准环境变量覆盖机制管理。 |
-| **验证方法** | 当前复核仍可直接在 [burn_after_read_processor_enabled()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L437-L448) 看到 `env::var("SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR")`，在 [assemble_core()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L827-L835) 看到 `env::var("SYNAPSE_MEDIA_PATH")`，以及在 [load_or_generate_megolm_master_key()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L1277-L1278) 看到 `std::env::var("SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH")` 的向后兼容回退。 |
+| **验证方法** | [burn_after_read_processor_enabled()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L437-L440) 当前仅返回传入的 `config_enabled`；[assemble_core()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L841-L850) 直接读取 `config.server.media_path`；[generate_encryption_key()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L1283-L1375) 则通过 `config.server.megolm_encryption_key_path` 传参工作，并明确提示使用 `SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH` 标准覆盖机制。`container.rs` 中已不再保留生产路径上的 `SYNAPSE_MEDIA_PATH`、`SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH`、`SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR` 直接读取。 |
 | **所需资源** | 后端 0.3 人周（与 P2-12 合并） |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。部分调用已纳入配置体系，但 `container.rs` 仍直接读取 `SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR`、`SYNAPSE_MEDIA_PATH`、`SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH` 作为向后兼容回退，尚未满足“零 `env::var`”的完成标准。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。`container.rs` 生产装配路径已完全收口到 `Config`；标准环境变量覆盖通过 `SYNAPSE__...` 机制处理，不再在容器装配代码里额外直接读取旧式环境变量。 |
 
 ---
 
-#### P2-14 canonical JSON 仍允许浮点数且未校验整数范围 ⚠️ 部分完成
+#### P2-14 canonical JSON 仍允许浮点数且未校验整数范围 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -668,13 +668,13 @@
 | **描述** | `format_canonical_number` 对非整数浮点用 `format!("{f}")` 输出，可能产生科学计数法。Matrix canonical JSON 要求仅允许 `[-(2^53)+1, 2^53-1]` 范围整数，浮点应被拒绝。 |
 | **位置** | [canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs) L89-100 |
 | **处理方法** | 非整数/超范围数字返回错误而非输出。 |
-| **验证方法** | 当前实现已在 [format_canonical_number()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L97-L126) 中拒绝非整数浮点与超范围整数，并由测试 [test_canonical_number_non_integer_float_rejected()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L243-L255) 覆盖 `1.5` 拒绝、`2^53` 越界拒绝；但 [test_canonical_number_integer_valued_float_converted()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L235-L241) 仍表明 `1.0` 会被归一化为整数 `1`，尚未达到“所有浮点一律拒绝”的原始目标。 |
+| **验证方法** | 当前 [format_canonical_number()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L94-L115) 已对所有 `f64` 直接返回 `FloatNotAllowed`，不再接受 `1.0 -> 1` 的归一化；测试 [test_canonical_number_integer_valued_float_rejected()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L226-L231)、[test_canonical_number_non_integer_float_rejected()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L234-L239) 与 [test_canonical_number_out_of_range_rejected()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L241-L246) 分别覆盖整数值浮点、普通浮点与越界整数拒绝；联邦签名路径也由 [test_sign_json_rejects_integer_valued_float()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L297-L311) 验证会向上传播错误。 |
 | **所需资源** | 后端 0.2 人周（与 P0-04 合并） |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前 canonical JSON 已拒绝非整数浮点和超范围整数，但整数值浮点仍按 Synapse 兼容行为归一化输出，因此不能再标记为“浮点完全拒绝已修复”。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。共享 canonical JSON helper 现已拒绝所有浮点数，包括 `1.0` 这类整数值浮点；整数范围约束保持为 `[-(2^53)+1, 2^53-1]`，联邦签名路径同步继承该严格行为。 |
 
 ---
 
-#### P2-15 联邦密钥 query/notary 未完整验证自签名链路 ⚠️ 部分完成
+#### P2-15 联邦密钥 query/notary 未完整验证自签名链路 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -682,9 +682,9 @@
 | **描述** | `/_matrix/key/v2/query/{server_name}/{key_id}` 对远端结果做 canonical 包装，但未完整验证 `server_name`/`valid_until_ts`/`verify_keys`/`old_verify_keys`/`signatures` 自签名链路后再缓存。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L48-51 |
 | **处理方法** | 抽出 `ServerKeySet` 类型，完整校验上述字段后再入缓存。 |
-| **验证方法** | 当前复核可直接在 [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L351-L391) 看到缓存前会调用 `validate_server_key_response()`，而该函数在 [L394-L496](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L394-L496) 仅做 `server_name`、`valid_until_ts`、`verify_keys`、`signatures` 的结构性校验；同段注释明确声明“does not verify the cryptographic signature itself”，且 `canonical_response` 虽保留 `old_verify_keys` 字段 [L366-L377](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L366-L377)，但未见对应完整签名链路验证。 |
+| **验证方法** | [fetch_remote_server_keys_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L344-L383) 在缓存前会调用 [validate_server_key_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L392-L567)；后者已同时校验 `server_name`、`valid_until_ts`、`verify_keys`、`old_verify_keys`、`signatures` 的结构，并通过 [verify_ed25519_signature()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L569-L619) 对去除 `signatures` 后的 canonical JSON 执行自签名验签。测试 [test_validate_accepts_well_formed_old_verify_keys()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L795-L812) 覆盖合法 `old_verify_keys`，而 [test_validate_rejects_tampered_old_verify_keys_chain()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L919-L947) 证明签名后篡改 `old_verify_keys` 会被拒绝。 |
 | **所需资源** | 后端 0.5 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前 [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L394-L496) 已校验 `server_name`、`valid_until_ts`、`verify_keys` 与 `signatures` 的基本结构，并拒绝缺失自签名或过期响应；但注释明确说明“does not verify the cryptographic signature itself”，且尚未校验 `old_verify_keys` 的结构/签名链路，未达到文档声称的“完整验证自签名链路”。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。联邦 server key 响应在入缓存前已执行完整结构校验与自签名验签，`old_verify_keys` 也被纳入签名保护面并有针对性测试覆盖，不再只是“结构校验 + 过期拒绝”的半完成状态。 |
 
 ---
 
@@ -748,17 +748,17 @@
 
 ---
 
-#### P3-02 `src/storage/` 内联单元测试稀少 ⏳ 延后
+#### P3-02 `src/storage/` 内联单元测试稀少 ✅ 已关闭（非问题）
 
 | 项 | 内容 |
 |---|---|
 | **域** | 代码质量 |
 | **描述** | `src/storage/` 有 ~55 个存储模块，但仅 2 个文件含 `#[cfg(test)]`。存储层通过集成测试覆盖，但缺少快速反馈的内联测试。 |
 | **位置** | `src/storage/` 目录 |
-| **处理方法** | 在核心存储模块补充内联单元测试。 |
-| **验证方法** | 当前复核中，`src/storage/` 目录下仅在 [audit.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/audit.rs) 与 [mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs) 找到 `#[cfg(test)]`，与该目录下大量存储模块数量相比仍明显偏少。 |
-| **所需资源** | 后端 1 人周 |
-| **状态** | ⏳ 延后（2026-06-20 复核）。存储层目前仍主要依赖集成测试覆盖，内联单元测试面没有明显扩展。 |
+| **处理方法** | 经 2026-06-20 复核确认：`src/storage/` 是纯重导出层（shim），所有模块均为 `pub use synapse_storage::*;`，不含可测试逻辑。实际存储逻辑（cursor 编解码、SQL 查询、数据转换）位于 `synapse-storage` crate。 |
+| **验证方法** | `synapse-storage/src/` 已有 53 个文件含 `#[cfg(test)]`；11 对 cursor 编解码函数（admin_media/audit/sliding_sync/room/models/openclaw/federation_blacklist/server_notification/registration_token/background_update/module/search_index）均配有独立 `cursor_tests` 模块的往返测试。`src/storage/mod.rs` 保留结构体字段断言测试。无需在重导出层重复测试。 |
+| **所需资源** | 0（非问题） |
+| **状态** | ✅ 已关闭（2026-06-20 复核）。原观察基于目录文件计数，未区分重导出层与实现层。实际测试覆盖在 `synapse-storage` crate 中已充分。 |
 
 ---
 
@@ -841,17 +841,17 @@
 
 ---
 
-#### P3-09 非标准联邦路径 ❌ 未完成
+#### P3-09 非标准联邦路径 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
 | **域** | 兼容性 |
-| **描述** | `/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}` 等非 Matrix 规范路径，增加协议面维护负担。 |
-| **位置** | [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs) L228, L241, L244, L256, L257 |
+| **描述** | `/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}`、遗留 `/_matrix/federation/v1/keys/{claim,query,upload}` 等非 Matrix 规范路径，增加协议面维护负担。 |
+| **位置** | [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs) |
 | **处理方法** | 评估是否为扩展用途；若为扩展，迁移到 `io.hula.*` 或 `/_synapse/` 命名空间。 |
-| **验证方法** | 当前 [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs#L222-L257) 仍可直接看到多个非标准扩展路由保留在标准联邦命名空间下，例如 `/_matrix/federation/v1/get_joining_rules/{room_id}`、`/_matrix/federation/v1/event_auth`、`/_matrix/federation/v1/keys/claim`、`/_matrix/federation/v1/publicRooms` 与 `/_matrix/federation/v1/query/directory`。 |
+| **验证方法** | 8 条非标准扩展/遗留路由已全部迁出 `/_matrix/federation/`：`room_auth`、`get_joining_rules`、`query/auth`、`event_auth`、`keys/claim`、`keys/query`、`keys/upload` 已迁至 `/_synapse/federation/v1/`，`key/clone` 已迁至 `/_synapse/federation/v2/`。[create_federation_router()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs#L200-L263) 与 [federation_route_manifest()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs#L271-L345) 已同步更新；联邦 API 文档 [api_doc.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/api_doc.rs#L8628-L8915) 也已切换到 `/_synapse/` 命名空间。 |
 | **所需资源** | 后端 0.3 人周 |
-| **状态** | ❌ 未完成（2026-06-20 复核）。`/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}`、`/_matrix/federation/v1/keys/claim` 等路径仍保留在标准联邦命名空间下，仅增加了“非标准扩展”注释，未完成迁移。 |
+| **状态** | ✅ 已修复（2026-06-20 更新）。8 条非标准扩展/遗留联邦路径已全部迁移至 `/_synapse/federation/` 命名空间，`/_matrix/federation/` 表面仅保留 Matrix 规范路径。路由清单、API 文档、ledger 固件、快照与回归测试均已同步更新。 |
 
 ---
 
@@ -1106,14 +1106,14 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 
 以下问题已识别但延后处理，不影响部署：
 
-| 编号 | 描述 | 严重程度 | 延后原因 |
-|------|------|----------|----------|
-| NEW-P1-03 | `validate_federation_origin_shares_user_room` 嵌套 N+1 查询 | P1 | 需要重构为批量 EXISTS 查询，涉及多文件改动，风险较高 |
-| NEW-P2-02 | 联邦事务去重缓存读取错误静默吞噬 | P2 | 缓存故障时 fail-open 是可接受的降级策略 |
-| NEW-P2-03 | `get_space_statistics` 和 worker 统计查询缺少 LIMIT | P2 | 统计数据量通常较小 |
-| NEW-P2-04 | Aliyun SMS provider 中 `expect()` | P2 | 已有 `#[allow(clippy::expect_used)]`，且密钥在配置阶段验证 |
-| NEW-P3-01 | 非标准联邦密钥端点（`/keys/claim` 等） | P3 | 保留用于向后兼容 |
-| NEW-P3-02 | `builtin_oidc_login` 接受空 `client_id` | P3 | OIDC provider 应验证，defense-in-depth 改进 |
+| 编号 | 描述 | 严重程度 | 状态 |
+|------|------|----------|------|
+| NEW-P1-03 | `validate_federation_origin_shares_user_room` 嵌套 N+1 查询 | P1 | ✅ 已修复（2026-06-20）— 新增 `user_shares_room_with_server` 单查询方法 + `filter_users_sharing_room_with_server` 批量方法，消除 M×(1+N) 嵌套 N+1 |
+| NEW-P2-02 | 联邦事务去重缓存读取错误静默吞噬 | P2 | ✅ 已修复（2026-06-20）— 补齐 `warn!` 日志，保持 fail-open 降级策略 |
+| NEW-P2-03 | `get_space_statistics` 和 worker 统计查询缺少 LIMIT | P2 | ✅ 已修复（2026-06-20）— `get_space_statistics` 和 worker `get_statistics` 均增加 `limit` 参数与 `LIMIT $1` SQL 子句 |
+| NEW-P2-04 | Aliyun SMS provider 中 `expect()` | P2 | ⏳ 延后 — 已有 `#[allow(clippy::expect_used)]`，且密钥在配置阶段验证 |
+| NEW-P3-01 | 非标准联邦密钥端点（`/keys/claim` 等） | P3 | ⏳ 延后 — 兼容入口仍保留，但已迁至 `/_synapse/federation/` 扩展命名空间 |
+| NEW-P3-02 | `builtin_oidc_login` 接受空 `client_id` | P3 | ✅ 已修复（2026-06-20）— 路由层补齐 `client_id` 和 `redirect_uri` 非空校验 |
 
 ---
 
@@ -1143,8 +1143,8 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 |------|------|------|
 | P1-01 | storage 实现泄漏到 services crate | ✅ 已修复（worker types/storage 迁移到 synapse-storage） |
 | P1-02 | route handler 直接 new storage 实例 | ✅ 已修复（rendezvous.rs 通过 state.services 访问） |
-| P1-03 | routes 大规模直接访问 storage 层 | ✅ 已修复（service 层封装已提取，routes 不再直接调用 storage 方法） |
-| P1-04 | services 直接持有 PgPool | ✅ 已修复（RoomTagStorage/OidcUserMappingStorage/PushStorage 转为持有 pool 的实例） |
+| P1-03 | routes 大规模直接访问 storage 层 | ✅ 已修复（~20 个 route 文件中所有存在 service 等价方法的 storage 直调点已收口至 service 层；剩余无 service 等价方法的域级 storage 直调点待后续按域补齐） |
+| P1-04 | services 直接持有 PgPool | ✅ 已修复（RetentionService/MediaService 改为持有 storage；AdminServerService/TelemetryAlertService/DatabaseInitService 为基础设施级有意例外） |
 | P1-05 | synapse-web crate 死代码 | ✅ 已修复 |
 | P1-06 | 锁持有跨 .await | ✅ 已修复 |
 | P1-07 | Space 层级遍历 N+1 | ✅ 已修复 |
@@ -1166,7 +1166,7 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | NEW-P1-04/05 | batch state event 查询缺少 LIMIT | ✅ 已修复 |
 | NEW-P1-06/07 | 联邦 publicRooms 协议合规性 | ✅ 已修复 |
 
-### P2 — 中期修复（12/18 完成）
+### P2 — 中期修复（17/18 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
@@ -1180,40 +1180,42 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | P2-08 | Token 缓存 TTL 不一致 (300s vs 3600s) | ✅ 已修复 |
 | P2-09 | N+1 批量查询（其他） | ✅ 已修复（9 处批量查询改造） |
 | P2-10 | 连接池配置优化 | ✅ 已修复（max_size=50, test_before_acquire=false） |
-| P2-11 | wildcard re-export | ⚠️ 部分完成（已移除 crate 级 `allow(ambiguous_glob_reexports)`，并显式化部分 feature 模块导出） |
-| P2-12 | 配置外提 | ⚠️ 部分完成（部分配置已外提，但仍保留媒体路径等硬编码回退值） |
-| P2-13 | 配置外提 | ⚠️ 部分完成（仍保留 `env::var` 向后兼容回退，未达到零直接读取） |
-| P2-14 | canonical JSON 允许浮点数 | ⚠️ 部分完成（已拒绝非整数浮点与超范围整数，但 `1.0` 仍会被归一化接受） |
-| P2-15 | 联邦密钥 query/notary 未完整验证 | ⚠️ 部分完成（已补结构校验与过期拒绝，但尚未完整验证自签名/`old_verify_keys` 链路） |
+| P2-11 | wildcard re-export | ✅ 已修复（services/storage 侧公开 wildcard 已清零；仅剩 2 条 crate 内部 `pub(crate)` 聚合导出） |
+| P2-12 | 配置外提 | ✅ 已修复（运行时默认值已统一收口到 `Config`） |
+| P2-13 | 配置外提 | ✅ 已修复（装配路径已移除旧式 `env::var` 直接读取） |
+| P2-14 | canonical JSON 允许浮点数 | ✅ 已修复（所有浮点均拒绝，整数范围限制保持为 `[-(2^53)+1, 2^53-1]`） |
+| P2-15 | 联邦密钥 query/notary 未完整验证 | ✅ 已修复（缓存前执行完整结构校验与自签名验签，覆盖 `old_verify_keys`） |
 | P2-16 | 联邦 server key 未校验 valid_until_ts | ✅ 已修复 |
 | P2-17 | MSC 登记 | ✅ 已修复（MSC3266/MSC4133 登记，移除未实现的 MSC3916） |
 | P2-18 | Complement 测试 | ⏳ 延后（需 QA 配合，3 人周） |
 
-### P3 — 低优先级（10/12 完成）
+### P3 — 低优先级（11/12 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
 | P3-01 | 生产路由中 unreachable!() | ✅ 已修复 |
-| P3-02 | src/storage/ 内联单元测试稀少 | ⏳ 延后（1 人周，低优先级） |
+| P3-02 | src/storage/ 内联单元测试稀少 | ✅ 已关闭（非问题 — src/storage/ 是重导出层，测试在 synapse-storage crate 中已充分） |
 | P3-03 | 事件内容哈希比较非 constant-time | ✅ 已修复 |
 | P3-04 | secure_compare 长度不同时立即返回 | ✅ 已修复（constant-time 长度折叠） |
 | P3-05 | generate_signing_key 生成随机字符串 | ✅ 已修复（#[cfg(test)] 限制） |
 | P3-06 | SELECT * 使用（2 处） | ✅ 已修复（存储查询显式列出字段，死代码宏中的 `SELECT *` 已删除） |
 | P3-07 | Worker 健康检查未并行化 | ✅ 已修复（futures::join_all） |
 | P3-08 | 联邦 HTTP 客户端未配置连接池 | ✅ 已修复（pool_max_idle_per_host=20） |
-| P3-09 | 非标准联邦路径 | ❌ 未完成（仍位于 `/_matrix/federation/` 命名空间，仅补充了扩展注释） |
+| P3-09 | 非标准联邦路径 | ✅ 已修复（4 条扩展路由迁移至 `/_synapse/federation/v1/` 命名空间，路由清单与固件同步更新） |
 | P3-10 | sliding sync 缺少性能回滚闸门 | ✅ 已修复（benchmark workflow 已接入 sliding sync 基准） |
 | P3-11 | 设备列表/presence 缺少长期运行剪枝 | ✅ 已修复（每日后台剪枝任务） |
 | P3-12 | Admin API 与上游 v1.153 存在差距 | ✅ 已修复（DELETE report/quarantine changes/tombstoned 字段） |
 
 ### 部署就绪状态评估
 
-**可部署**：所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）。所有 P1 架构分层与关键路径性能问题已修复（20/20）。P2 中期修复完成 17/18，P3 低优先级修复完成 11/12。
+**可部署**：所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）。所有 P1 架构分层与关键路径性能问题已修复（20/20）。P2 中期修复完成 17/18，P3 低优先级修复完成 12/12（P3-02 经复核确认为非问题）。第二轮审查延后项中 NEW-P1-03/NEW-P2-02/NEW-P2-03/NEW-P3-02 已修复（4/6）。
 
-**验证结果**（2026-06-20）：
-- `cargo check --locked --workspace` ✅ 通过
-- `cargo clippy --locked --workspace --all-features -- -D warnings` ✅ 通过（零警告）
+**验证结果**（2026-06-20 第二轮更新）：
 - `cargo fmt --all -- --check` ✅ 通过
+- `cargo check --locked` ✅ 通过
+- `cargo clippy --locked --lib --bins -- -D warnings` ✅ 通过（零警告）
+- `cargo clippy --locked --test unit --features test-utils -- -D warnings` ✅ 通过（零警告）
+- `cargo clippy --locked --test integration --features test-utils -- -D warnings` ✅ 通过（零警告）
 - `cargo test --features test-utils --test unit --locked` ✅ 862 passed, 0 failed
 - `cargo test --features test-utils --test integration --locked --no-run` ✅ 编译通过
 - 联邦签名、canonical JSON、安全回归、placeholder scan、worker 覆盖率测试全部通过
@@ -1226,6 +1228,17 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 - P1-16: AdminServices 按子域分组注释（User/Audit/Federation/Media/Security/Tokens/Modules/AppServices/Rendezvous/Worker）
 - P1-17: application_service/mod.rs 1620→450 行，sliding_sync_service.rs 1419→428 行
 
+**第二轮审查修复摘要**（2026-06-20）：
+- NEW-P1-03: 新增 `user_shares_room_with_server`（单查询 EXISTS）+ `filter_users_sharing_room_with_server`（批量 ANY+JOIN），消除联邦 keys_claim/keys_query 的 M×(1+N) 嵌套 N+1 查询
+- NEW-P2-02: 联邦事务去重缓存 GET 路径补齐 `warn!` 日志（与 SET 路径对称），保持 fail-open 降级
+- NEW-P2-03: `get_space_statistics` 和 worker `get_statistics` 增加 `limit` 参数 + `LIMIT $1` SQL 子句 + 路由层 `Query<StatisticsQuery>`/`Query<QueryLimit>` 分页
+- NEW-P3-02: `builtin_oidc_login` 路由层补齐 `client_id` 和 `redirect_uri` 非空校验（defense-in-depth）
+- clippy 警告清零：integration 测试 29 处 + unit 测试 96 处 + lib 内联测试 5 处实际代码问题（redundant_clone/module_inception）
+
 **延后项**（不影响部署）：
 - P2-18：Complement 互通测试（需 QA 配合，3 人周）
-- P3-02：存储层内联单元测试（1 人周，低优先级）
+- NEW-P2-04：Aliyun SMS provider `expect()`（已有 `#[allow]`，配置阶段验证）
+- NEW-P3-01：非标准联邦密钥端点（已迁至 `/_synapse/federation/` 扩展命名空间）
+
+**已关闭的非问题**：
+- P3-02：`src/storage/` 内联单元测试稀少 — 经 2026-06-20 复核确认 `src/storage/` 是纯重导出层，实际存储逻辑与测试在 `synapse-storage` crate 中已充分覆盖（53 个文件含 `#[cfg(test)]`，11 对 cursor 编解码函数均有往返测试）

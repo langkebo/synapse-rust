@@ -307,7 +307,7 @@ impl SynapseServer {
         let address = format!("{}:{}", config.server.host, config.server.port).parse::<SocketAddr>()?;
         let federation_address =
             format!("{}:{}", config.server.host, config.federation.federation_port).parse::<SocketAddr>()?;
-        let media_path = std::path::PathBuf::from("/app/data/media");
+        let media_path = std::path::PathBuf::from(&config.server.media_path);
 
         let router = create_router((*app_state).clone())
             .layer(RequestBodyLimitLayer::new(config.server.max_upload_size as usize))

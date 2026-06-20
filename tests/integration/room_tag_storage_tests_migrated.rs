@@ -8,14 +8,14 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
+fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
     // Tables are created by the shared test pool (crate::require_test_pool).
 }
 
 #[tokio::test]
 async fn test_room_tag_storage_round_trip() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
+    setup_test_database(&pool);
     let storage = RoomTagStorage::new(pool);
 
     let suffix = unique_id();
@@ -37,7 +37,7 @@ async fn test_room_tag_storage_round_trip() {
 #[tokio::test]
 async fn test_room_tag_storage_updates_existing_tag_order() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
+    setup_test_database(&pool);
     let storage = RoomTagStorage::new(pool);
 
     let suffix = unique_id();

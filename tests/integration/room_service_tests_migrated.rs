@@ -292,7 +292,7 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
     let member_storage = RoomMemberStorage::new(pool, "localhost");
     let event_storage = EventStorage::new(pool, "localhost".to_string());
-    let canonical_cache = cache.clone();
+    let canonical_cache = cache;
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service = Arc::new(RoomSummaryService::new(
         room_summary_storage,
@@ -307,7 +307,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         user_storage: UserStorage::new(pool, canonical_cache.clone()),
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
-            canonical_cache.clone(),
+            canonical_cache,
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
@@ -1926,7 +1926,7 @@ async fn test_appservice_scheduler_keeps_pending_transactions_ahead_of_event_buc
         "first three single-slot ticks should all be spent on pending-transaction services"
     );
     assert!(
-        txn_a_requests.len() >= 1 && txn_b_requests.len() >= 1,
+        !txn_a_requests.is_empty() && !txn_b_requests.is_empty(),
         "round-robin should rotate across the pending-transaction bucket before considering pending-events-only services"
     );
     assert_eq!(
@@ -2230,7 +2230,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
 
     scheduler.run_once().await.expect("first sustained-backlog tick should complete");
 
-    let first_tick_counts = vec![
+    let first_tick_counts = [
         first_server.received_requests().await.expect("first requests should load").len(),
         second_server.received_requests().await.expect("second requests should load").len(),
         third_server.received_requests().await.expect("third requests should load").len(),
@@ -2281,7 +2281,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     let first_final_requests = first_server.received_requests().await.expect("first final requests should load");
     let second_final_requests = second_server.received_requests().await.expect("second final requests should load");
     let third_final_requests = third_server.received_requests().await.expect("third final requests should load");
-    let final_counts = vec![first_final_requests.len(), second_final_requests.len(), third_final_requests.len()];
+    let final_counts = [first_final_requests.len(), second_final_requests.len(), third_final_requests.len()];
 
     assert_eq!(
         final_counts.iter().sum::<usize>(),
@@ -2293,7 +2293,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
         "each service should eventually receive a dispatch under sustained backlog"
     );
     assert!(
-        initially_limited_server.received_requests().await.expect("limited server requests should load").len() >= 1,
+        !initially_limited_server.received_requests().await.expect("limited server requests should load").is_empty(),
         "the service deferred by the first tick should be rotated back into dispatch"
     );
 }
@@ -2413,7 +2413,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
 
     scheduler.run_once().await.expect("first sustained transaction-backlog tick should complete");
 
-    let first_tick_counts = vec![
+    let first_tick_counts = [
         first_server.received_requests().await.expect("first requests should load").len(),
         second_server.received_requests().await.expect("second requests should load").len(),
         third_server.received_requests().await.expect("third requests should load").len(),
@@ -2475,7 +2475,7 @@ async fn test_appservice_scheduler_rotates_capacity_limited_service_under_sustai
     let first_final_requests = first_server.received_requests().await.expect("first final requests should load");
     let second_final_requests = second_server.received_requests().await.expect("second final requests should load");
     let third_final_requests = third_server.received_requests().await.expect("third final requests should load");
-    let final_counts = vec![first_final_requests.len(), second_final_requests.len(), third_final_requests.len()];
+    let final_counts = [first_final_requests.len(), second_final_requests.len(), third_final_requests.len()];
 
     assert_eq!(
         final_counts.iter().sum::<usize>(),
@@ -3108,7 +3108,7 @@ async fn test_appservice_scheduler_long_window_mixed_backlog_preserves_fairness_
         "each healthy pending-transaction service should continue to make progress under sustained contention"
     );
     assert!(
-        event_heavy_a_requests.len() >= 1 && event_heavy_b_requests.len() >= 1,
+        !event_heavy_a_requests.is_empty() && !event_heavy_b_requests.is_empty(),
         "both event-heavy services should eventually receive dispatch slots instead of starving behind retry_backoff and transaction pressure"
     );
 
@@ -3920,7 +3920,7 @@ async fn test_appservice_scheduler_recovers_after_transient_failure_without_rest
         "healthy pending-transaction services should drain all four seeded transactions despite recovery retries"
     );
     assert!(
-        event_heavy_a_requests.len() >= 1 && event_heavy_b_requests.len() >= 1,
+        !event_heavy_a_requests.is_empty() && !event_heavy_b_requests.is_empty(),
         "event-heavy services should still keep making progress after the failing service becomes ready again"
     );
 

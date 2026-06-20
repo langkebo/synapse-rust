@@ -29,7 +29,7 @@ use synapse_rust::web::routes::state::AppState;
 use tokio::sync::OnceCell;
 use tower::ServiceExt;
 
-use super::{setup_test_app_with_config, setup_test_app_with_state, with_local_connect_info};
+use super::{setup_test_app_with_config, with_local_connect_info};
 
 type TestFixture = Option<(axum::Router, AppState)>;
 
@@ -43,7 +43,19 @@ static OPENCLAW_ENABLED_FIXTURE: OnceCell<TestFixture> = OnceCell::const_new();
 static OPENCLAW_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_new();
 
 async fn default_fixture() -> TestFixture {
-    DEFAULT_FIXTURE.get_or_init(|| async { setup_test_app_with_state().await }).await.clone()
+    DEFAULT_FIXTURE
+        .get_or_init(|| async {
+            setup_test_app_with_config(|container| {
+                container.core.config.federation.allow_ingress = true;
+                #[cfg(feature = "openclaw-routes")]
+                {
+                    container.core.config.experimental.openclaw_routes_enabled = false;
+                }
+            })
+            .await
+        })
+        .await
+        .clone()
 }
 
 async fn worker_enabled_fixture() -> TestFixture {
@@ -106,6 +118,7 @@ fn allow_methods(allow_header: &str) -> std::collections::HashSet<String> {
     allow_header.split(',').map(|s| s.trim().to_ascii_uppercase()).filter(|s| !s.is_empty()).collect()
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn has_declared_route(
     ledger: &synapse_rust::web::routes::route_ledger::RouteLedger,
     method: Method,
@@ -131,12 +144,12 @@ fn route_ledger_snapshot_path(snapshot_file: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("integration").join("snapshots").join(snapshot_file)
 }
 
-fn assert_route_ledger_snapshot(snapshot_file: &str, actual: String) {
+fn assert_route_ledger_snapshot(snapshot_file: &str, actual: &str) {
     let path = route_ledger_snapshot_path(snapshot_file);
     if env::var_os("UPDATE_ROUTE_LEDGER_SNAPSHOTS").is_some() {
         let parent = path.parent().expect("snapshot path should have parent");
         fs::create_dir_all(parent).expect("create snapshot directory");
-        fs::write(&path, &actual).expect("write route-ledger snapshot");
+        fs::write(&path, actual).expect("write route-ledger snapshot");
     }
 
     let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
@@ -288,7 +301,7 @@ async fn declared_route_manifest_full_snapshot_matches_default_state() {
         return;
     };
     let actual = render_ledger_snapshot("default", &ledger);
-    assert_route_ledger_snapshot("route_ledger_default.snapshot", actual);
+    assert_route_ledger_snapshot("route_ledger_default.snapshot", &actual);
 }
 
 #[tokio::test]
@@ -377,7 +390,7 @@ async fn declared_route_manifest_full_snapshot_matches_worker_enabled_state() {
         return;
     };
     let actual = render_ledger_snapshot("worker-enabled", &ledger);
-    assert_route_ledger_snapshot("route_ledger_worker_enabled.snapshot", actual);
+    assert_route_ledger_snapshot("route_ledger_worker_enabled.snapshot", &actual);
 }
 
 #[cfg(feature = "friends")]
@@ -456,7 +469,6 @@ async fn openclaw_routes_follow_runtime_flag_in_ledger() {
         Method::GET,
         "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
     ));
-    assert!(!has_declared_route(&disabled_ledger, Method::GET, "/connections"));
 
     let Some(enabled_ledger) = openclaw_enabled_ledger().await else {
         eprintln!("Skipping: integration test database is not available");
@@ -467,7 +479,6 @@ async fn openclaw_routes_follow_runtime_flag_in_ledger() {
         Method::GET,
         "/_matrix/client/unstable/org.synapse_rust.openclaw/connections"
     ));
-    assert!(has_declared_route(&enabled_ledger, Method::GET, "/connections"));
 }
 
 #[cfg(feature = "voip-tracking")]

@@ -1,13 +1,12 @@
 #[cfg(feature = "beacons")]
 use crate::beacon_service::BeaconService;
-use crate::media::chunked_upload::ChunkedUploadService;
-use sqlx::PgPool;
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::config::RetentionConfig;
 use synapse_common::metrics::{Counter, Gauge, Histogram, MetricsCollector};
 use synapse_common::ApiError;
 use synapse_storage::audit::AuditEventStorage;
+use synapse_storage::media::ChunkedUploadStorage;
 use synapse_storage::retention::*;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument, warn};
@@ -111,7 +110,7 @@ impl RetentionLifecycleMetrics {
 
 pub struct RetentionService {
     storage: Arc<RetentionStorage>,
-    pool: Arc<PgPool>,
+    chunked_upload_storage: Arc<ChunkedUploadStorage>,
     audit_storage: Arc<AuditEventStorage>,
     lifecycle_metrics: RetentionLifecycleMetrics,
     last_lifecycle_summary: Arc<RwLock<Option<DataLifecycleCleanupSummary>>>,
@@ -120,13 +119,13 @@ pub struct RetentionService {
 impl RetentionService {
     pub fn new(
         storage: Arc<RetentionStorage>,
-        pool: Arc<PgPool>,
+        chunked_upload_storage: Arc<ChunkedUploadStorage>,
         metrics: &Arc<MetricsCollector>,
         audit_storage: Arc<AuditEventStorage>,
     ) -> Self {
         Self {
             storage,
-            pool,
+            chunked_upload_storage,
             audit_storage,
             lifecycle_metrics: RetentionLifecycleMetrics::new(metrics),
             last_lifecycle_summary: Arc::new(RwLock::new(None)),
@@ -568,7 +567,7 @@ impl RetentionService {
     }
 
     async fn cleanup_expired_uploads(&self) -> Result<u64, ApiError> {
-        ChunkedUploadService::new(self.pool.clone()).cleanup_expired().await
+        self.chunked_upload_storage.cleanup_expired().await
     }
 
     async fn cleanup_audit_events(&self, retention_days: u64, now_ts: i64) -> Result<u64, ApiError> {

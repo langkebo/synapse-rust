@@ -1212,6 +1212,6 @@ async fn test_dehydrated_device_events_endpoint_empty_batch() {
 
     let body = axum::body::to_bytes(events_response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["events"].as_array().map(|v| v.len()).unwrap_or(usize::MAX), 0, "expected no pending events");
+    assert_eq!(json["events"].as_array().map_or(usize::MAX, |v| v.len()), 0, "expected no pending events");
     assert!(json["next_batch"].is_string(), "next_batch must be a string cursor: {}", json);
 }

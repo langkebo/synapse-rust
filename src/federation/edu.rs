@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn test_unknown_edu_type_clone() {
         let err = UnknownEduType("test".to_string());
-        assert_eq!(err.clone().0, "test");
+        assert_eq!(err.0, "test");
     }
 
     // --- EduProcessResult ---
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn test_edu_process_result_clone() {
         let result = EduProcessResult { processed: 5, dropped: 2, errored: 1 };
-        let cloned = result.clone();
+        let cloned = result;
         assert_eq!(cloned.processed, 5);
         assert_eq!(cloned.dropped, 2);
         assert_eq!(cloned.errored, 1);

@@ -364,7 +364,7 @@ async fn test_captcha_service_email_requires_configured_provider() {
 
     let err = result.unwrap_err();
     // 打印错误详情，便于调试断言失败问题
-    println!("captcha service error: kind={:?}, message={}", err.kind, err.to_string());
+    println!("captcha service error: kind={:?}, message={}", err.kind, err);
     assert!(err.is_not_implemented(), "error should be not_implemented, got {:?}", err.kind);
     assert!(err.to_string().contains("Captcha email delivery"));
 
@@ -474,7 +474,7 @@ async fn test_captcha_service_email_enqueues_background_job_when_delivery_is_con
 
     let queue_len_after: u64 =
         redis_conn.xlen("mq:tasks:default").await.expect("queue length should still be readable");
-    assert!(queue_len_after >= queue_len_before + 1, "email captcha should enqueue at least one background job");
+    assert!(queue_len_after > queue_len_before, "email captcha should enqueue at least one background job");
 
     let send_log = sqlx::query(
         r"

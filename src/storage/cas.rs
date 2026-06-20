@@ -1,3 +1,5 @@
-pub use synapse_storage::cas::*;
-
-// NOTE: Tests moved to synapse-storage crate.
+pub use synapse_storage::cas::{
+    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
+    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    ValidateTicketRequest,
+};

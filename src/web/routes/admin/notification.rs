@@ -104,17 +104,17 @@ pub fn create_notification_router(_state: AppState) -> Router<AppState> {
 
 pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
-    use axum::http::Method;
     #[allow(unused_mut)]
-    let mut entries = vec![
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/notification"),
-        (Method::PUT, "/_synapse/admin/v1/users/{user_id}/notification"),
-        (Method::GET, "/_synapse/admin/v1/users/{user_id}/pushers"),
-        (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}"),
-    ];
+    let mut entries = Vec::new();
 
     #[cfg(feature = "server-notifications")]
     {
+        entries.extend_from_slice(&[
+            (Method::GET, "/_synapse/admin/v1/users/{user_id}/notification"),
+            (Method::PUT, "/_synapse/admin/v1/users/{user_id}/notification"),
+            (Method::GET, "/_synapse/admin/v1/users/{user_id}/pushers"),
+            (Method::DELETE, "/_synapse/admin/v1/users/{user_id}/pushers/{pushkey}"),
+        ]);
         entries.extend_from_slice(&[
             (Method::POST, "/_synapse/admin/v1/notifications"),
             (Method::GET, "/_synapse/admin/v1/notifications"),

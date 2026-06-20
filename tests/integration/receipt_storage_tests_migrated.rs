@@ -9,14 +9,14 @@ fn unique_id() -> u64 {
     TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
 }
 
-async fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
+fn setup_test_database(_pool: &Arc<sqlx::PgPool>) {
     // Tables are created by the shared test pool (crate::require_test_pool).
 }
 
 #[tokio::test]
 async fn test_add_receipt_preserves_receipt_data_payload() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
+    setup_test_database(&pool);
 
     let room_storage = RoomStorage::new(&pool);
     let suffix = unique_id();
@@ -38,7 +38,7 @@ async fn test_add_receipt_preserves_receipt_data_payload() {
 #[tokio::test]
 async fn test_add_receipt_replaces_previous_event_for_same_user_and_type() {
     let pool = crate::require_test_pool().await;
-    setup_test_database(&pool).await;
+    setup_test_database(&pool);
 
     let room_storage = RoomStorage::new(&pool);
     let suffix = unique_id();

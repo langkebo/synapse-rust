@@ -1,12 +1,12 @@
 pub mod groups;
 pub mod models;
-pub use models::{
-    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot,
-    DmPartnerInfo, EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
-    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
-};
 use self::models::{
     ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
+};
+pub use models::{
+    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
+    EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
+    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
 };
 
 use crate::RoomService;
