@@ -112,11 +112,88 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get room members", &e))
     }
 
+    pub async fn has_any_non_banned_member_from_server(&self, room_id: &str, server_name: &str) -> ApiResult<bool> {
+        self.member_storage
+            .has_any_non_banned_member_from_server(room_id, server_name)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check server room membership", &e))
+    }
+
     pub async fn get_room_membership(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
         self.member_storage
             .get_membership_state(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check room membership", &e))
+    }
+
+    pub async fn get_room_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<Option<storage::RoomMember>> {
+        self.member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load room member", &e))
+    }
+
+    pub async fn remove_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.member_storage
+            .remove_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to remove room member", &e))
+    }
+
+    pub async fn get_room_members_paginated_admin(
+        &self,
+        room_id: &str,
+        membership: &str,
+        limit: i64,
+        from: Option<&str>,
+    ) -> ApiResult<Vec<storage::RoomMember>> {
+        self.member_storage
+            .get_room_members_paginated(room_id, membership, limit, from)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get room members", &e))
+    }
+
+    pub async fn get_room_member_count_admin(&self, room_id: &str) -> ApiResult<i64> {
+        self.member_storage
+            .get_room_member_count(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to count room members", &e))
+    }
+
+    pub async fn admin_ban_user_membership(&self, room_id: &str, user_id: &str, banned_by: &str) -> ApiResult<()> {
+        self.member_storage
+            .ban_member(room_id, user_id, banned_by)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to ban user", &e))
+    }
+
+    pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.member_storage
+            .unban_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to unban user", &e))
+    }
+
+    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> ApiResult<()> {
+        self.member_storage
+            .set_ban_reason(room_id, user_id, reason)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to set ban reason", &e))
+    }
+
+    pub async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> ApiResult<()> {
+        self.member_storage
+            .force_leave_membership(room_id, user_id, now)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to force leave membership", &e))
+    }
+
+    pub async fn decrement_member_count(&self, room_id: &str) -> ApiResult<()> {
+        self.room_storage
+            .decrement_member_count(room_id)
+            .await
+            .map(|_| ())
+            .map_err(|e| ApiError::internal_with_log("Failed to update member count", &e))
     }
 
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {

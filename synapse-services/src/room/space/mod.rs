@@ -245,6 +245,62 @@ impl SpaceService {
     }
 
     #[instrument(skip(self))]
+    pub async fn resolve_space_id(&self, identifier: &str) -> Result<Option<String>, ApiError> {
+        self.space_storage
+            .resolve_space_id(identifier)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to resolve space", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_all_spaces_for_admin(&self) -> Result<Vec<Space>, ApiError> {
+        self.space_storage
+            .get_all_spaces_for_admin()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get spaces", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_by_identifier(&self, identifier: &str) -> Result<Option<Space>, ApiError> {
+        self.space_storage
+            .get_space_by_identifier(identifier)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn delete_space_returning_count(&self, space_id: &str) -> Result<u64, ApiError> {
+        self.space_storage
+            .delete_space_returning_count(space_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete space", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_user_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
+        self.space_storage
+            .get_space_user_ids(space_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space users", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_room_ids(&self, space_id: &str) -> Result<Vec<String>, ApiError> {
+        self.space_storage
+            .get_space_room_ids(space_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space rooms", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_space_member_and_child_count(&self, space_id: &str) -> Result<(i64, i64), ApiError> {
+        self.space_storage
+            .get_space_member_and_child_count(space_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get space statistics", &e))
+    }
+
+    #[instrument(skip(self))]
     pub async fn get_space_summary(&self, space_id: &str) -> Result<Option<SpaceSummary>, ApiError> {
         self.space_storage
             .get_space_summary(space_id)

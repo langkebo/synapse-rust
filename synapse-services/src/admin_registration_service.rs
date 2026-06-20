@@ -114,7 +114,9 @@ impl AdminRegistrationService {
 
         let now = Utc::now().timestamp();
         let key = format!("admin:register:nonce:{nonce}");
-        let _ = self.cache.set(&key, &now, self.config.nonce_timeout_seconds).await;
+        if let Err(e) = self.cache.set(&key, &now, self.config.nonce_timeout_seconds).await {
+            ::tracing::warn!(error = %e, "Failed to persist admin registration nonce to cache; registration will fail");
+        }
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("admin_nonce_duration_seconds") {

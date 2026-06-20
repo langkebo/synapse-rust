@@ -17,11 +17,7 @@ pub async fn cleanup_abnormal_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
 
-    let results = state
-        .services.rooms.room_storage
-        .cleanup_abnormal_data(min_age_ms)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Cleanup failed", &e))?;
+    let results = state.services.rooms.room_service.cleanup_abnormal_data(min_age_ms).await?;
 
     Ok(Json(results))
 }
@@ -34,21 +30,11 @@ pub async fn block_room(
     headers: HeaderMap,
     Json(body): Json<BlockRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let now = chrono::Utc::now().timestamp_millis();
-
-    state.services.rooms.room_storage.block_room(&room_id, now, &admin.user_id, body.reason.as_deref()).await.map_err(
-        |e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        },
-    )?;
+    state.services.rooms.room_service.block_room(&room_id, &admin.user_id, body.reason.as_deref()).await?;
 
     record_audit_event(
         &state,
@@ -73,17 +59,11 @@ pub async fn get_room_block_status(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let blocked_at = state.services.rooms.room_storage.get_room_block_status(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let blocked_at = state.services.rooms.room_service.get_room_block_status(&room_id).await?;
 
     match blocked_at {
         Some(blocked_at) => Ok(Json(json!({
@@ -101,17 +81,11 @@ pub async fn unblock_room(
     Path(room_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    state.services.rooms.room_storage.unblock_room(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.rooms.room_service.unblock_room(&room_id).await?;
 
     record_audit_event(
         &state,
@@ -135,53 +109,22 @@ pub async fn make_room_admin(
     Json(body): Json<MakeRoomAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
     crate::web::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     if state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_id(&body.user_id)
         .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
         .is_none()
     {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let now = chrono::Utc::now().timestamp_millis();
-    let event_id = crate::common::crypto::generate_event_id(&state.services.core.config.server.name);
-    let user_id = body.user_id.clone();
-    let admin_user = "@admin:".to_string() + &state.services.core.config.server.name;
-    let power_levels = json!({
-        "users": {
-            user_id.clone(): 100
-        },
-        "users_default": 0,
-        "events_default": 0,
-        "state_default": 50,
-        "ban": 50,
-        "kick": 50,
-        "redact": 50,
-        "invite": 0
-    });
-
-    state
-        .services.rooms.event_storage
-        .upsert_power_levels_event(&event_id, &room_id, &user_id, power_levels, now, &admin_user)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    state.services.rooms.room_service.grant_room_admin(&room_id, &body.user_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -203,10 +146,7 @@ pub async fn purge_history(
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
-    if !state.services.rooms.room_storage.room_exists(room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -221,11 +161,7 @@ pub async fn purge_history(
         "Admin purge history operation"
     );
 
-    let deleted_count = state
-        .services.rooms.event_storage
-        .delete_events_before(room_id, timestamp)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to purge history", &e))?;
+    let deleted_count = state.services.rooms.room_service.purge_history_before(room_id, timestamp).await?;
 
     Ok(Json(json!({
         "success": true,
@@ -265,10 +201,7 @@ pub async fn purge_room(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
-    if !state.services.rooms.room_storage.room_exists(room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -282,11 +215,7 @@ pub async fn purge_room(
         "Admin delete room operation"
     );
 
-    state
-        .services.rooms.room_storage
-        .delete_room(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to purge room", &e))?;
+    state.services.rooms.room_service.delete_room(room_id, &admin.user_id).await?;
 
     Ok(Json(json!({
         "purge_id": uuid::Uuid::new_v4().to_string(),
@@ -397,41 +326,15 @@ async fn join_room_member_internal(
     user_id: &str,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
+    if !state.services.account.account_identity_service.user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                request_id = %request_id,
-                room_id = %room_id,
-                user_id = %user_id,
-                error = %e,
-                "Database error while getting room member for join"
-            );
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
+    let existing_membership = state.services.rooms.room_service.get_room_membership(room_id, user_id).await?;
 
     if existing_membership.as_deref() != Some("join") {
         state.services.rooms.room_service.join_room(room_id, user_id).await?;
@@ -450,41 +353,15 @@ async fn remove_room_member_internal(
     user_id: &str,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
+    if !state.services.account.account_identity_service.user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                request_id = %request_id,
-                room_id = %room_id,
-                user_id = %user_id,
-                error = %e,
-                "Database error while getting room member for removal"
-            );
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
+    let existing_membership = state.services.rooms.room_service.get_room_membership(room_id, user_id).await?;
 
     if existing_membership.as_deref() == Some("join") {
         state.services.rooms.room_service.leave_room(room_id, user_id).await?;
@@ -505,82 +382,36 @@ async fn ban_user_internal(
     reason: Option<&str>,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
+    if !state.services.account.account_identity_service.user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                request_id = %request_id,
-                room_id = %room_id,
-                user_id = %user_id,
-                actor_user_id = %actor_user_id,
-                error = %e,
-                "Database error while getting room member for ban"
-            );
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
+    let existing_membership = state.services.rooms.room_service.get_room_membership(room_id, user_id).await?;
 
     let actor_is_admin = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .get_user_by_id(actor_user_id)
         .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check actor", &e))?
         .is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
-        state
-            .services.rooms.member_storage
-            .ban_member(room_id, user_id, actor_user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to ban user", &e))?;
+        state.services.rooms.room_service.admin_ban_user_membership(room_id, user_id, actor_user_id).await?;
     } else {
         state.services.rooms.room_service.ban_user(room_id, user_id, actor_user_id, reason).await?;
     }
 
     if existing_membership.as_deref() == Some("join") {
-        state
-            .services.rooms.room_storage
-            .decrement_member_count(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to update member count", &e))?;
+        state.services.rooms.room_service.decrement_member_count(room_id).await?;
     }
 
     if let Some(reason) = reason {
-        state.services.rooms.member_storage.set_ban_reason(room_id, user_id, reason).await.map_err(|e| {
-            tracing::error!(
-                request_id = %request_id,
-                room_id = %room_id,
-                user_id = %user_id,
-                actor_user_id = %actor_user_id,
-                error = %e,
-                "Database error while setting ban reason"
-            );
-            ApiError::database("A database error occurred".to_string())
-        })?;
+        state.services.rooms.room_service.set_ban_reason(room_id, user_id, reason).await?;
     }
 
     #[cfg(feature = "friends")]
@@ -613,36 +444,15 @@ async fn unban_user_internal(
     user_id: &str,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
+    if !state.services.account.account_identity_service.user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    state.services.rooms.member_storage.unban_member(room_id, user_id).await.map_err(|e| {
-        tracing::error!(
-            request_id = %request_id,
-            room_id = %room_id,
-            user_id = %user_id,
-            error = %e,
-            "Database error while unbanning user"
-        );
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.rooms.room_service.admin_unban_user_membership(room_id, user_id).await?;
 
     Ok(json!({
         "user_id": user_id,
@@ -659,40 +469,13 @@ async fn kick_user_internal(
     reason: Option<&str>,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    let existing_membership = state
-        .services.rooms.member_storage
-        .get_room_member(room_id, user_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                request_id = %request_id,
-                room_id = %room_id,
-                user_id = %user_id,
-                actor_user_id = %actor_user_id,
-                error = %e,
-                "Database error while getting room member for kick"
-            );
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .map(|member| member.membership);
+    let existing_membership = state.services.rooms.room_service.get_room_membership(room_id, user_id).await?;
 
-    if !state
-        .services.rooms.room_storage
-        .room_exists(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check room", &e))?
-    {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if !state
-        .services
-        .account
-        .user_storage
-        .user_exists(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check user", &e))?
-    {
+    if !state.services.account.account_identity_service.user_exists(user_id).await? {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -702,17 +485,7 @@ async fn kick_user_internal(
         }
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
-            state.services.rooms.member_storage.force_leave_membership(room_id, user_id, now).await.map_err(|e| {
-                tracing::error!(
-                    request_id = %request_id,
-                    room_id = %room_id,
-                    user_id = %user_id,
-                    actor_user_id = %actor_user_id,
-                    error = %e,
-                    "Database error while forcing leave membership for kick"
-                );
-                ApiError::database("A database error occurred".to_string())
-            })?;
+            state.services.rooms.room_service.force_leave_membership(room_id, user_id, now).await?;
         }
         None => {}
     }

@@ -12,8 +12,8 @@ app_service.rs:450
 app_service.rs:468
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
-e2ee_routes.rs:720
-e2ee_routes.rs:1112
+e2ee_routes.rs:716
+e2ee_routes.rs:1108
 
 # Sticky event routes (storage mutation ACK)
 sticky_event.rs:147

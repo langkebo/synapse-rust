@@ -88,6 +88,24 @@ pub struct AdminUserDetails {
 }
 
 #[derive(Debug, Clone)]
+pub struct AdminLegacyUsersPage {
+    pub users: Vec<User>,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminEvictionFailure {
+    pub room_id: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminUserEvictionResult {
+    pub joined_rooms: Vec<String>,
+    pub failures: Vec<AdminEvictionFailure>,
+}
+
+#[derive(Debug, Clone)]
 pub struct AdminUserStats {
     pub total_users: i64,
     pub active_users: i64,
@@ -129,6 +147,108 @@ impl AdminUserService {
         server_name: String,
     ) -> Self {
         Self { user_storage, device_storage, room_storage, member_storage, server_name }
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
+        self.user_storage
+            .get_user_by_identifier(identifier)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_or_not_found(&self, identifier: &str) -> Result<User, ApiError> {
+        self.get_user_by_identifier(identifier).await?.ok_or_else(|| ApiError::not_found("User not found".to_string()))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn list_users_legacy(
+        &self,
+        limit: i64,
+        created_ts_cursor: Option<i64>,
+        user_id_cursor: Option<&str>,
+    ) -> Result<AdminLegacyUsersPage, ApiError> {
+        let users = self
+            .user_storage
+            .get_users_paginated(limit, created_ts_cursor, user_id_cursor)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        let total =
+            self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        Ok(AdminLegacyUsersPage { users, total })
+    }
+
+    #[instrument(skip(self))]
+    pub async fn delete_user(&self, user_id: &str) -> Result<(), ApiError> {
+        self.user_storage.delete_user(user_id).await.map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), ApiError> {
+        self.user_storage
+            .set_admin_status(user_id, is_admin)
+            .await
+            .map(|_| ())
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_rooms_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from: Option<&str>,
+    ) -> Result<Vec<String>, ApiError> {
+        RoomStorage::get_user_rooms_paginated(&self.room_storage, user_id, limit, from)
+            .await
+            .map_err(|e| ApiError::database(format!("A database error occurred: {e}")))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<synapse_storage::Device>, ApiError> {
+        self.device_storage
+            .get_user_devices(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_user_device_count(&self, user_id: &str) -> Result<i64, ApiError> {
+        self.device_storage
+            .get_device_count(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, ApiError> {
+        self.member_storage
+            .get_joined_room_count(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    #[instrument(skip(self))]
+    pub async fn evict_user_from_joined_rooms(&self, user_id: &str) -> Result<AdminUserEvictionResult, ApiError> {
+        let joined_rooms = self
+            .member_storage
+            .get_joined_rooms(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+
+        let mut failures = Vec::new();
+        for room_id in &joined_rooms {
+            if let Err(e) = self.member_storage.remove_member(room_id, user_id).await {
+                failures.push(AdminEvictionFailure { room_id: room_id.clone(), error: e.to_string() });
+            } else {
+                let _ = self.room_storage.decrement_member_count(room_id).await;
+            }
+        }
+
+        Ok(AdminUserEvictionResult { joined_rooms, failures })
     }
 
     #[instrument(skip(self))]

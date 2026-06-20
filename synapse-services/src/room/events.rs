@@ -8,6 +8,55 @@ use synapse_storage::CreateEventParams;
 use super::service::RoomService;
 
 impl RoomService {
+    pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
+        self.event_storage.get_event(event_id).await.map_err(|e| ApiError::internal_with_log("Failed to get event", &e))
+    }
+
+    pub async fn get_event_record_in_room(
+        &self,
+        room_id: &str,
+        event_id: &str,
+    ) -> ApiResult<synapse_storage::RoomEvent> {
+        let event = self
+            .event_storage
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get event", &e))?
+            .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+        if event.room_id != room_id {
+            return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
+        }
+
+        Ok(event)
+    }
+
+    pub async fn find_event_by_timestamp(
+        &self,
+        room_id: &str,
+        ts: i64,
+        forward: bool,
+    ) -> ApiResult<Option<(String, i64)>> {
+        self.event_storage
+            .find_event_id_by_timestamp(room_id, ts, forward)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Database error", &e))
+    }
+
+    pub async fn report_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        reporter_user_id: &str,
+        reason: Option<&str>,
+        score: i32,
+    ) -> ApiResult<i64> {
+        self.event_storage
+            .report_event(event_id, room_id, "", reporter_user_id, reason, score)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to report event", &e))
+    }
+
     pub async fn get_state_events(&self, room_id: &str) -> ApiResult<Vec<serde_json::Value>> {
         let events = self
             .event_storage
@@ -29,6 +78,24 @@ impl RoomService {
             .collect();
 
         Ok(event_list)
+    }
+
+    pub async fn get_state_event_records(&self, room_id: &str) -> ApiResult<Vec<synapse_storage::StateEvent>> {
+        self.event_storage
+            .get_state_events(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get room state", &e))
+    }
+
+    pub async fn get_state_events_at_or_before(
+        &self,
+        room_id: &str,
+        origin_server_ts: i64,
+    ) -> ApiResult<Vec<synapse_storage::StateEvent>> {
+        self.event_storage
+            .get_state_events_at_or_before(room_id, origin_server_ts)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get room state", &e))
     }
 
     pub async fn create_event(
@@ -184,8 +251,111 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get pending events", &e))
     }
 
+    pub async fn get_room_events(&self, room_id: &str, limit: i64) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
+        self.event_storage
+            .get_room_events(room_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room events", &e))
+    }
+
+    pub async fn get_room_events_by_type(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        limit: i64,
+    ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
+        self.event_storage
+            .get_room_events_by_type(room_id, event_type, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room events by type", &e))
+    }
+
+    pub async fn get_room_events_paginated_admin(
+        &self,
+        room_id: &str,
+        from: Option<i64>,
+        limit: i64,
+        direction: &str,
+    ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
+        self.event_storage
+            .get_room_events_paginated(room_id, from, limit, direction)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get room messages", &e))
+    }
+
+    pub async fn get_event_context_admin(
+        &self,
+        room_id: &str,
+        event_id: &str,
+        context_limit: i64,
+    ) -> ApiResult<serde_json::Value> {
+        let event = self
+            .event_storage
+            .get_event(event_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get event", &e))?
+            .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
+
+        if event.room_id != room_id {
+            return Err(ApiError::not_found("Event not found in this room".to_string()));
+        }
+
+        let events_before = self
+            .event_storage
+            .get_events_before_context(room_id, event.origin_server_ts, context_limit)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get preceding context", &e))?;
+
+        let events_after = self
+            .event_storage
+            .get_events_after_context(room_id, event.origin_server_ts, context_limit)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get following context", &e))?;
+
+        Ok(json!({
+            "event": {
+                "event_id": event.event_id,
+                "type": event.event_type,
+                "sender": event.user_id,
+                "state_key": event.state_key,
+                "content": event.content,
+                "room_id": event.room_id,
+                "origin_server_ts": event.origin_server_ts
+            },
+            "events_before": events_before,
+            "events_after": events_after,
+            "state": []
+        }))
+    }
+
+    pub async fn search_room_messages_admin(
+        &self,
+        room_id: &str,
+        search_pattern: &str,
+        limit: i64,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        self.event_storage
+            .search_room_messages_admin(room_id, search_pattern, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Search failed", &e))
+    }
+
+    pub async fn get_forward_extremities_count(&self, room_id: &str) -> ApiResult<i64> {
+        self.event_storage
+            .get_forward_extremities_count(room_id)
+            .await
+            .map_err(|e| ApiError::database_with_log("Failed to get forward extremities", &e))
+    }
+
     pub async fn count_events_by_status(&self, room_id: &str, status: &str) -> i64 {
         self.event_storage.count_room_events_by_status(room_id, status).await.unwrap_or(0)
+    }
+
+    pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> ApiResult<()> {
+        self.event_storage
+            .redact_event_content(event_id, redacted_by)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to redact event content", &e))
     }
 
     #[allow(clippy::too_many_arguments)]
