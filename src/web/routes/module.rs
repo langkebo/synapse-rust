@@ -212,13 +212,7 @@ pub struct AccountValidityResponse {
 }
 
 async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let user = state
-        .services
-        .account
-        .user_storage
-        .get_user_by_identifier(user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load user", &e))?;
+    let user = state.services.account.account_identity_service.get_user_by_identifier(user_id).await?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));

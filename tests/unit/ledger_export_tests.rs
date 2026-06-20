@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Golden-file round-trip for [`synapse_rust::web::routes::ledger_export`].
 //!
 //! Asserts that:

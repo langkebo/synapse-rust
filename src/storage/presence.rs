@@ -1,1 +1,1 @@
-pub use synapse_storage::presence::*;
+pub use synapse_storage::presence::{PresenceSnapshot, PresenceStorage};

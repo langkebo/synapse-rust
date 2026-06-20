@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::ApiError;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct UploadProgress {
@@ -240,5 +241,32 @@ impl ChunkedUploadStorage {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to list uploads", &e))
+    }
+
+    /// Delete all uploads whose `expires_at` is before `now_ts`.
+    ///
+    /// This lives on the storage struct so that callers that only hold a
+    /// `ChunkedUploadStorage` (e.g. `RetentionService`) can drive expired-upload
+    /// cleanup without constructing a full `ChunkedUploadService` or holding a
+    /// raw `PgPool`.
+    pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
+        let now_ts = chrono::Utc::now().timestamp_millis();
+        let expired = self.list_expired_upload_ids(now_ts).await?;
+
+        let mut cleaned = 0u64;
+        for upload_id in expired {
+            match self.delete_upload(&upload_id).await {
+                Ok(()) => cleaned += 1,
+                Err(error) => {
+                    warn!(error = %error, upload_id = %upload_id, "Failed to cleanup expired upload");
+                }
+            }
+        }
+
+        if cleaned > 0 {
+            info!(expired_upload_count = cleaned, "Cleaned up expired chunked uploads");
+        }
+
+        Ok(cleaned)
     }
 }

@@ -1442,15 +1442,18 @@ impl WorkerStorage {
         Ok(())
     }
 
-    pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+    pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, sqlx::Error> {
         let rows = sqlx::query(
             r"SELECT id, worker_id, worker_name, worker_type, status,
                       host, port, last_heartbeat_ts, started_ts,
                       cpu_usage, memory_usage, active_connections,
                       requests_per_second, average_latency_ms,
                       queue_depth, pending_commands, active_tasks
-               FROM worker_statistics",
+               FROM worker_statistics
+               ORDER BY id DESC
+               LIMIT $1",
         )
+        .bind(limit)
         .fetch_all(&*self.pool)
         .await?;
 

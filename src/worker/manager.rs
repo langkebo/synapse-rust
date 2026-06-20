@@ -668,8 +668,11 @@ impl WorkerManager {
     }
 
     #[instrument(skip(self))]
-    pub async fn get_statistics(&self) -> Result<Vec<serde_json::Value>, ApiError> {
-        self.storage.get_statistics().await.map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
+    pub async fn get_statistics(&self, limit: i64) -> Result<Vec<serde_json::Value>, ApiError> {
+        self.storage
+            .get_statistics(limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get statistics", &e))
     }
 
     #[instrument(skip(self))]

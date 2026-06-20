@@ -390,8 +390,8 @@ pub(crate) async fn get_room_membership(
     let membership = state
         .services
         .rooms
-        .member_storage
-        .get_room_member(&room_id, &target_user_id)
+        .room_service
+        .get_room_member_record(&room_id, &target_user_id)
         .await?
         .map_or_else(|| "leave".to_string(), |m| m.membership);
 

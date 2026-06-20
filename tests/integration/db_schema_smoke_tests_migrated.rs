@@ -219,7 +219,7 @@ async fn test_space_schema_smoke_roundtrip() {
     .await
     .expect("Failed to seed space statistics");
 
-    let statistics = storage.get_space_statistics().await.expect("Failed to load space statistics");
+    let statistics = storage.get_space_statistics(100).await.expect("Failed to load space statistics");
     assert!(statistics.iter().any(|item| item["space_id"] == space_id));
 
     let event = storage

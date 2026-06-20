@@ -1,1 +1,1 @@
-pub use synapse_storage::worker::*;
+pub use synapse_storage::worker::WorkerStorage;

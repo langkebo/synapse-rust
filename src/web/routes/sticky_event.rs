@@ -123,23 +123,16 @@ pub async fn set_sticky_events(
             .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
         validate_event_id(event_id_str)?;
 
-        let stored_event: Option<crate::storage::event::RoomEvent> = state
-            .services
-            .rooms
-            .event_storage
-            .get_event(event_id_str)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load sticky event", &e))?;
-        let Some(stored_event) = stored_event.filter(|stored_event| stored_event.room_id == room_id) else {
-            return Err(ApiError::not_found("Event not found".to_string()));
-        };
+        let stored_event: serde_json::Value =
+            state.services.rooms.room_service.get_event(&room_id, event_id_str).await?;
+        let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
 
         // Set the sticky event
         state
             .services
             .account
             .sticky_event_storage
-            .set_is_sticky_event(&room_id, &auth_user.user_id, &stored_event.event_id, event_type, true)
+            .set_is_sticky_event(&room_id, &auth_user.user_id, stored_event_id, event_type, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
     }

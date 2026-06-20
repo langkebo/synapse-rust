@@ -1,13 +1,8 @@
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 
 pub(crate) async fn is_joined_room_member(state: &AppState, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
-    state
-        .services
-        .rooms
-        .member_storage
-        .is_member(room_id, user_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))
+    let membership = state.services.rooms.room_service.get_room_membership(room_id, user_id).await?;
+    Ok(membership.is_some_and(|m| m == "join"))
 }
 
 pub(crate) async fn is_joined_room_member_or_creator(

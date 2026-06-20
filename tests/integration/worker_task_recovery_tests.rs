@@ -11,14 +11,14 @@ async fn worker_test_pool() -> Arc<sqlx::PgPool> {
         .expect("worker recovery integration tests require an isolated database pool")
 }
 
-fn test_worker_manager(pool: Arc<sqlx::PgPool>) -> Arc<WorkerManager> {
-    Arc::new(WorkerManager::new(Arc::new(WorkerStorage::new(&pool)), "test-server".to_string()))
+fn test_worker_manager(pool: &Arc<sqlx::PgPool>) -> Arc<WorkerManager> {
+    Arc::new(WorkerManager::new(Arc::new(WorkerStorage::new(pool)), "test-server".to_string()))
 }
 
 #[tokio::test]
 async fn test_unregister_requeues_running_tasks_for_other_workers() {
     let pool = worker_test_pool().await;
-    let manager = test_worker_manager(pool.clone());
+    let manager = test_worker_manager(&pool);
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let worker_a = format!("worker-requeue-a-{suffix}");
@@ -101,7 +101,7 @@ async fn test_unregister_requeues_running_tasks_for_other_workers() {
 #[tokio::test]
 async fn test_active_workers_and_replication_positions_remain_isolated_across_workers() {
     let pool = worker_test_pool().await;
-    let manager = test_worker_manager(pool.clone());
+    let manager = test_worker_manager(&pool);
 
     let suffix = uuid::Uuid::new_v4().to_string();
     let worker_a = format!("worker-state-a-{suffix}");

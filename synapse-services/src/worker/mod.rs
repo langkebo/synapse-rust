@@ -16,5 +16,15 @@ pub use manager::WorkerManager;
 pub use protocol::{ReplicationCommand, ReplicationEvent, ReplicationProtocol};
 pub use storage::WorkerStorage;
 pub use stream::StreamWriterManager;
-pub use topology_validator::*;
-pub use types::*;
+pub use topology_validator::{
+    current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
+    resolved_current_instance_name, should_run_global_maintenance, validate_topology, validate_worker_config,
+    RouteOwnerProbe, TopologyValidation,
+};
+pub use types::{
+    AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
+    SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,
+    WorkerCommandRow, WorkerConnection, WorkerEvent, WorkerEventRow, WorkerInfo, WorkerLoadStatsUpdate,
+    WorkerResponsibilitySummary, WorkerRow, WorkerRuntimeConfig, WorkerStatus, WorkerTaskAssignment,
+    WorkerTopologyEntry, WorkerTopologyPreset, WorkerTopologyPresetInstance, WorkerTopologySummary, WorkerType,
+};

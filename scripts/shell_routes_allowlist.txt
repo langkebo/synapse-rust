@@ -12,17 +12,17 @@ app_service.rs:450
 app_service.rs:468
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
-e2ee_routes.rs:716
-e2ee_routes.rs:1108
+e2ee_routes.rs:744
+e2ee_routes.rs:1136
 
 # Sticky event routes (storage mutation ACK)
-sticky_event.rs:147
-sticky_event.rs:168
+sticky_event.rs:140
+sticky_event.rs:161
 
 # Room tag routes (Matrix-style tag mutation ACK)
 tags.rs:120
 tags.rs:134
 
 # VoIP routes (call state mutation ACK)
-voip.rs:227
-voip.rs:299
+voip.rs:220
+voip.rs:285

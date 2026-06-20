@@ -1,12 +1,13 @@
 # synapse-rust 全面深度技术审计报告
 
-**版本**: 8.7.03（2026-06-19 P1-03.1 Phase 4 完成：root container.rs 收口为 thin facade，e2ee/federation 全部收口，services full_impl 清零）
+**版本**: 8.8.0（2026-06-20 对标 Synapse v1.153-v1.155 优化：canonical JSON 规范向量门禁、to-device 大小限制、access token 缓存失效修复）
 **审计基线**: `/Users/ljf/Desktop/hu_ts/synapse-rust` 当前工作区状态
-**对标基线**: Matrix Spec v1.18；element-hq/synapse v1.153.x 文档与架构实践
-**最后验证时间**: 2026-06-19
+**对标基线**: Matrix Spec v1.18；element-hq/synapse v1.155.x 文档与架构实践
+**最后验证时间**: 2026-06-20
 **证据来源**:
   - `cargo check --workspace --all-features --locked`: 通过
   - `cargo test --features test-utils --test unit`: 862 passed, 0 failed
+  - `cargo test --lib -p synapse-common`: 298 passed, 0 failed（含 38 个 canonical JSON 测试，22 个为 Matrix 规范向量）
   - `cargo fmt --all -- --check`: 通过
   - `cargo clippy --all-features --locked -- -D warnings`: 通过
   - `python3 scripts/ci/check_root_canonical_ledger.py`: services=2 (facade=2, full_impl=0), storage=55 (facade=55, full_impl=0)
@@ -1349,6 +1350,82 @@
 10. **P4-01 `sync_service/types.rs` 前置条件清理**
    - ✅ 已完成：已单独比对 root/canonical `sync_service/types.rs`，确认当前不存在字段级或行为级漂移；root `src/services/sync_service/types.rs` 中原有的内联类型测试已迁出并去重到独立 `src/services/sync_service/tests.rs`，从而使 root/canonical 的测试承载形态一致。
    - ✅ 已完成：canonical `synapse-services/src/sync_service/types.rs` 中的 `SyncFilter` 已补齐 `PartialEq`，随后又将 root/canonical 两份 `types.rs` 的 `SyncServiceDeps` 内联路径类型统一收敛为通过 import 引入的 `ToDeviceStorage` / `PerformanceConfig` 写法；当前 `diff` 仅剩 crate 导入差异，正文已同构，不再存在显式语义差异。
+
+---
+
+## 十二、对标 Synapse v1.153-v1.155 的代码级优化（2026-06-20）
+
+### 12.1 优化背景
+
+基于对 element-hq/synapse v1.153.0、v1.154.0、v1.155.0rc1 的研究，识别出三类可立即落地的高价值代码级改进：
+
+1. **Canonical JSON 规范向量门禁**（对应 Synapse #19739 Rust canonical JSON 序列化器）
+2. **To-Device 消息大小限制**（对应 Synapse v1.155 #19617 to-device EDU 大小限制）
+3. **Access Token 缓存失效修复**（对应 Synapse #19483 refresh token 会话缓存未失效）
+
+### 12.2 已实施优化
+
+#### OPT-01 Canonical JSON Matrix 规范测试向量门禁 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse #19739（Rust canonical JSON 序列化器）、Matrix Spec v1.18 § Appendices |
+| **问题** | canonical JSON 实现已有基础测试，但缺少 Matrix 规范官方测试向量，无法作为跨实现一致性门禁 |
+| **位置** | [canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L279-L493) |
+| **改动** | 新增 22 个 `spec_vector_*` 测试，覆盖：空对象/数组、Unicode 码点排序、嵌套排序、数组顺序保持、无空白、整数范围边界（2^53±1）、浮点拒绝、控制字符转义（U+0000-U+001F）、U+2028/U+2029/U+FFFD 转义、signatures/unsigned 移除、深层嵌套混合类型、负数/零、高 Unicode 保持、反斜杠/引号转义、跨键序确定性 |
+| **验证** | `cargo test --lib -p synapse-common canonical_json` → 38 passed（16 原有 + 22 新向量） |
+| **意义** | canonical JSON 是事件签名、联邦请求签名、server keys 签名的共同根基。规范向量门禁确保本实现与 Synapse/Dendrite/Conduit 的签名验证互通 |
+
+#### OPT-02 To-Device 消息大小限制 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse v1.155 #19617（限制 to-device EDU 大小，防止过长队列阻塞外发联邦事务） |
+| **问题** | `send_to_device` 路由无消息大小、收件人数量限制，过大的 to-device 负载可阻塞存储队列和联邦事务分发 |
+| **位置** | [e2ee_routes.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/e2ee_routes.rs#L497-L523) `send_to_device()` |
+| **改动** | 新增两层限制：(1) `MAX_TO_DEVICE_RECIPIENTS=5000`（单请求收件人总数上限，跨所有用户+设备）；(2) `MAX_TO_DEVICE_PAYLOAD_BYTES=65536`（单条 to-device 消息 64 KiB 上限）。超限返回 `M_BAD_JSON` |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
+| **意义** | 防止恶意或错误的客户端发送超大 to-device 负载，保护下游存储和联邦队列。与 Synapse v1.155 的 EDU 大小治理对齐 |
+
+#### OPT-03 Access Token 缓存失效修复 ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse #19483（使用 refresh token 的会话 access token 缓存未失效） |
+| **问题** | `logout()` 路径将 access token 加入黑名单并从 DB 软删除（`is_revoked=TRUE`），但未调用 `cache.delete_token()` 主动移除缓存条目。虽然 `validate_token()` 的黑名单/revoked 检查在缓存命中前执行（安全正确），但缓存条目会残留最长 5 分钟（TOKEN_CACHE_TTL_SECS），浪费内存且增加缓存不一致风险 |
+| **位置** | [session.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/auth/session.rs#L20-L24) `logout()` |
+| **改动** | 在 `delete_token()` DB 调用后新增 `self.cache.delete_token(access_token).await`，主动失效本地 + Redis + 跨实例广播 |
+| **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
+| **意义** | 确保 logout 后 access token 立即从所有缓存层移除，释放内存并保持缓存与 DB 一致。`change_password()` 和 `logout_all()` 不需要额外修改，因为 `validate_token()` 的 `is_token_revoked` DB 检查和 logout marker 机制已正确覆盖 |
+
+### 12.3 研究发现但未实施的改进（需更大范围改动或外部基础设施）
+
+| 编号 | 改进 | 原因 |
+|------|------|------|
+| OPT-04 | `m.direct_to_device` 联邦 EDU 处理 | 需在 `src/federation/edu.rs` 的 `EduType` 枚举新增变体并实现完整处理链路，属于功能新增而非优化，需独立规划 |
+| OPT-05 | MSC4452 Preview URL capability | 需新增 capability 声明 + 端点 + 配置开关，属于功能新增 |
+| OPT-06 | MSC3266 稳定化对齐（移除实验开关） | 当前已实现 MSC3266，需审查是否仍有实验开关残留 |
+| OPT-07 | 后台剪枝 job 框架 | 需为 `device_lists_changes_in_room` 等 append-only 表设计保留窗口 + 剪枝 job，属于架构级改动 |
+| OPT-08 | Sliding Sync 性能闸门 | 需在合并 `sync_service + sliding_sync_service` 时前置引入 benchmark，属于性能治理改动 |
+| OPT-09 | worker lock 可配置重试 + metrics | 需新增配置项 + metrics 暴露，属于运维治理改动 |
+| OPT-10 | backfill 选点优化（绝对距离优先） | 需修改联邦回填算法，属于协议实现改动 |
+
+### 12.4 Synapse Rust 化趋势对本项目的启示
+
+Synapse v1.153-v1.155 正在将 `Event.signatures`、`Event.unsigned`、`Event.content`、canonical JSON 序列化器、`Requester` 类等核心类型逐步 Rust 化。这验证了 synapse-rust 的全 Rust 技术路线，但也意味着：
+
+1. **协议正确性责任更大**：synapse-rust 没有 Python 参考实现兜底，canonical JSON 规范向量门禁（OPT-01）是必要的正确性保障
+2. **类型设计可借鉴**：Synapse 在 Rust 化过程中整理了 `RoomVersion` 结构体、`TypeIs` helper 等，本项目可对照审查类型设计
+3. **性能优势天然存在**：全 Rust 实现无需 PyO3 桥接开销，在事件签名、canonical JSON、状态解析等热点路径上有天然性能优势
+
+### 12.5 验证结果（2026-06-20）
+
+- `cargo fmt --all -- --check` ✅ 通过
+- `cargo check --locked` ✅ 通过
+- `cargo clippy --locked --lib --bins -- -D warnings` ✅ 通过（零警告）
+- `cargo clippy --locked --test unit --features test-utils -- -D warnings` ✅ 通过（零警告）
+- `cargo test --lib -p synapse-common` ✅ 298 passed（含 38 个 canonical JSON 测试）
+- `cargo test --features test-utils --test unit --locked` ✅ 862 passed, 0 failed
 
 ---
 

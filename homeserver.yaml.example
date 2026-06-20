@@ -24,15 +24,16 @@ server:
   refresh_token_sliding_window_size: 2592000
   session_duration: 86400
   warmup_pool: true
-  # Media storage path. Falls back to SYNAPSE_MEDIA_PATH env var, then
-  # /app/data/media (if present) or ./data/media.
-  # media_path: "/app/data/media"
-  # Megolm encryption key path. Falls back to SYNAPSE_MEGOLM_ENCRYPTION_KEY_PATH
-  # env var. If unset, an ephemeral key is generated and encrypted megolm
+  # Media storage path. Override via SYNAPSE__SERVER__MEDIA_PATH env var.
+  # Default: ./data/media
+  # media_path: "./data/media"
+  # Megolm encryption key path. Override via
+  # SYNAPSE__SERVER__MEGOLM_ENCRYPTION_KEY_PATH env var.
+  # If unset, an ephemeral key is generated and encrypted megolm
   # sessions will be unreadable after restart.
   # megolm_encryption_key_path: "/app/data/megolm.key"
   # Whether to start the burn-after-read processor (default true).
-  # Honors SYNAPSE_ENABLE_BURN_AFTER_READ_PROCESSOR env var for backward compat.
+  # Override via SYNAPSE__SERVER__ENABLE_BURN_AFTER_READ_PROCESSOR env var.
   # enable_burn_after_read_processor: true
   # Refresh token TTL in seconds used by RefreshTokenService (default 2592000 = 30d).
   # refresh_token_ttl_secs: 2592000

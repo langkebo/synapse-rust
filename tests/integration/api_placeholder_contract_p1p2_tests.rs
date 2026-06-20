@@ -727,7 +727,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
 
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let page1: Value = serde_json::from_slice(&body).unwrap();
-    let page1_chunk_len = page1["chunk"].as_array().map(|v| v.len()).unwrap_or(0);
+    let page1_chunk_len = page1["chunk"].as_array().map_or(0, |v| v.len());
     assert_eq!(page1_chunk_len, 1);
     assert_eq!(page1["start"], "0");
     assert_eq!(page1["end"], "1");
@@ -747,7 +747,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
 
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
     let page2: Value = serde_json::from_slice(&body).unwrap();
-    let page2_chunk_len = page2["chunk"].as_array().map(|v| v.len()).unwrap_or(0);
+    let page2_chunk_len = page2["chunk"].as_array().map_or(0, |v| v.len());
     assert_eq!(page2_chunk_len, 1);
     assert_eq!(page2["start"], "1");
     assert_eq!(page2["end"], "2");

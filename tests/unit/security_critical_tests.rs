@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use serde_json::json;
 
 fn validate_password_change_request(auth_type: &str, has_password: bool, user_matches: bool) -> Result<(), String> {
@@ -71,8 +72,7 @@ fn test_password_change_uia_flow_rejects_dummy() {
     let valid_flow = uia_flows.as_array().unwrap().iter().find(|flow| {
         flow.get("stages")
             .and_then(|s| s.as_array())
-            .map(|stages| stages.iter().any(|s| s.as_str() == Some("m.login.password")))
-            .unwrap_or(false)
+            .is_some_and(|stages| stages.iter().any(|s| s.as_str() == Some("m.login.password")))
     });
 
     assert!(valid_flow.is_some());
@@ -80,8 +80,7 @@ fn test_password_change_uia_flow_rejects_dummy() {
     let dummy_only_flow = uia_flows.as_array().unwrap().iter().find(|flow| {
         flow.get("stages")
             .and_then(|s| s.as_array())
-            .map(|stages| stages.iter().all(|s| s.as_str() == Some("m.login.dummy")))
-            .unwrap_or(false)
+            .is_some_and(|stages| stages.iter().all(|s| s.as_str() == Some("m.login.dummy")))
     });
 
     assert!(dummy_only_flow.is_some());
@@ -283,10 +282,10 @@ fn test_refresh_token_expiry_boundary() {
         "expires_at": null
     });
 
-    let expired = expired_token.get("expires_at").and_then(|v| v.as_i64()).map(|exp| exp < now).unwrap_or(false);
+    let expired = expired_token.get("expires_at").and_then(|v| v.as_i64()).is_some_and(|exp| exp < now);
     assert!(expired, "Token expired 1ms ago should be rejected");
 
-    let valid = valid_token.get("expires_at").and_then(|v| v.as_i64()).map(|exp| exp > now).unwrap_or(false);
+    let valid = valid_token.get("expires_at").and_then(|v| v.as_i64()).is_some_and(|exp| exp > now);
     assert!(valid, "Token expiring in future should be valid");
 
     let no_expiry_valid = no_expiry_token.get("expires_at").and_then(|v| v.as_i64()).is_none();

@@ -1,3 +1,4 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 // Boundary Condition Tests
 // These tests verify edge cases and boundary conditions for API inputs
 

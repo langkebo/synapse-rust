@@ -25,8 +25,6 @@
 //!     `E2EE_INTEROP_CLIENT=element-web|element-android|element-ios`
 //!     to select a target.
 
-#![cfg(test)]
-
 // The project has its own `e2ee::olm::session::Session` type, so we
 // disambiguate the vodozemac types with module-scoped `as` aliases
 // to keep the test bodies readable and free of `crate::e2ee::*`

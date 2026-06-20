@@ -1,6 +1,6 @@
 pub mod chunked_upload;
 
-pub use chunked_upload::*;
+pub use chunked_upload::{ChunkedUploadService, CompleteUploadRequest};
 
 use crate::media_quota_service::MediaQuotaService;
 use crate::media_service::MediaService;

@@ -197,24 +197,7 @@ impl ChunkedUploadService {
     }
 
     pub async fn cleanup_expired(&self) -> Result<u64, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let expired = self.storage.list_expired_upload_ids(now).await?;
-
-        let mut cleaned = 0u64;
-        for upload_id in expired {
-            match self.storage.delete_upload(&upload_id).await {
-                Ok(()) => cleaned += 1,
-                Err(error) => {
-                    tracing::warn!(error = %error, upload_id = %upload_id, "Failed to cleanup expired upload");
-                }
-            }
-        }
-
-        if cleaned > 0 {
-            info!(expired_upload_count = cleaned, "Cleaned up expired chunked uploads");
-        }
-
-        Ok(cleaned)
+        self.storage.cleanup_expired().await
     }
 
     pub async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
