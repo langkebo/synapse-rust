@@ -144,6 +144,18 @@ impl PushNotificationService {
         self.storage.get_user_devices(user_id).await
     }
 
+    pub async fn get_room_notifications(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomNotification>, ApiError> {
+        self.storage
+            .get_room_notifications(user_id, room_id, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get room notifications", &e))
+    }
+
     pub async fn send_notification(&self, request: SendNotificationRequest) -> Result<(), ApiError> {
         let devices = if let Some(device_id) = &request.device_id {
             let device = self.storage.get_device(&request.user_id, device_id).await?;

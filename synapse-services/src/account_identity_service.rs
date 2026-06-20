@@ -3,7 +3,7 @@ use crate::uia_service::UiaService;
 use serde_json::Value;
 use std::collections::HashMap;
 use synapse_common::error::ApiError;
-use synapse_storage::{ThreepidStorage, User, UserStorage, UserThreepid};
+use synapse_storage::{ThreepidStorage, User, UserSearchResult, UserStorage, UserThreepid};
 
 #[derive(Clone)]
 pub struct AccountIdentityService {
@@ -60,6 +60,57 @@ impl AccountIdentityService {
         }
 
         Ok(())
+    }
+
+    pub async fn user_exists(&self, user_id: &str) -> Result<bool, ApiError> {
+        self.user_storage
+            .user_exists(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check user existence", &e))
+    }
+
+    pub async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, ApiError> {
+        self.user_storage
+            .get_user_by_id(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user by id", &e))
+    }
+
+    pub async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, ApiError> {
+        self.user_storage
+            .get_user_by_identifier(identifier)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user by identifier", &e))
+    }
+
+    pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
+        self.user_storage
+            .get_user_by_username(username)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get user by username", &e))
+    }
+
+    pub async fn search_users(&self, search_term: &str, limit: i64) -> Result<Vec<UserSearchResult>, ApiError> {
+        self.user_storage
+            .search_users(search_term, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to search users", &e))
+    }
+
+    pub async fn get_users_paginated(
+        &self,
+        limit: i64,
+        created_ts_cursor: Option<i64>,
+        user_id_cursor: Option<&str>,
+    ) -> Result<Vec<User>, ApiError> {
+        self.user_storage
+            .get_users_paginated(limit, created_ts_cursor, user_id_cursor)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to list users", &e))
+    }
+
+    pub async fn get_user_count(&self) -> Result<i64, ApiError> {
+        self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Failed to count users", &e))
     }
 
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {

@@ -53,6 +53,7 @@ pub mod media_service;
 pub mod module_service;
 pub mod oidc_mapping_service;
 pub mod oidc_service;
+pub mod presence_service;
 pub mod push;
 pub use push::service as push_notification_service;
 pub mod refresh_token_service;
@@ -101,6 +102,7 @@ pub use feature_flag_service::*; // feature flag service types
 pub use federation_key_rotation_service::*; // federation key rotation service types
 pub use media_service::*; // media service types
 pub use oidc_service::OidcService;
+pub use presence_service::*;
 pub use push::service::*; // push notification service types
 pub use registration_service::*; // registration service types
 pub use room::service::*; // RoomService and room config types

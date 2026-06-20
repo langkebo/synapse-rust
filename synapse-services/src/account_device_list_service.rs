@@ -41,6 +41,25 @@ impl AccountDeviceListService {
         Self { device_storage }
     }
 
+    pub async fn create_device(
+        &self,
+        device_id: &str,
+        user_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<Device, ApiError> {
+        self.device_storage
+            .create_device(device_id, user_id, display_name)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))
+    }
+
+    pub async fn delete_device(&self, device_id: &str) -> Result<(), ApiError> {
+        self.device_storage
+            .delete_device(device_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete device", &e))
+    }
+
     pub async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, ApiError> {
         self.device_storage
             .get_user_devices(user_id)

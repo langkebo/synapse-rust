@@ -84,7 +84,9 @@ impl UiaService {
             flows,
         };
         let key = format!("uia:session:{session_id}");
-        let _ = self.cache.set(&key, &session, self.session_timeout_secs as u64).await;
+        if let Err(e) = self.cache.set(&key, &session, self.session_timeout_secs as u64).await {
+            tracing::warn!(session_id = %session_id, error = %e, "Failed to persist UIA session to cache");
+        }
         session
     }
 
@@ -101,7 +103,9 @@ impl UiaService {
             session.completed.push(stage.to_string());
         }
 
-        let _ = self.cache.set(&key, &session, self.session_timeout_secs as u64).await;
+        if let Err(e) = self.cache.set(&key, &session, self.session_timeout_secs as u64).await {
+            tracing::warn!(session_id = %session_id, stage = %stage, error = %e, "Failed to persist UIA session stage completion to cache");
+        }
         Some(session)
     }
 

@@ -297,10 +297,7 @@ pub async fn get_room_aliases_admin(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -341,16 +338,9 @@ pub async fn get_rooms(
         _ => return Err(ApiError::bad_request("Cursor does not match requested order_by".to_string())),
     }
 
-    let (rooms_with_members, next_batch) =
-        state.services.rooms.room_storage.get_all_rooms_with_members(limit, cursor, order).await.map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let (rooms_with_members, next_batch) = state.services.rooms.room_service.get_all_rooms_with_members(limit, cursor, order).await?;
 
-    let total = state.services.rooms.room_storage.get_room_count().await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let total = state.services.rooms.room_service.get_room_count().await?;
 
     let room_list: Vec<Value> = rooms_with_members
         .iter()
@@ -380,24 +370,12 @@ pub async fn get_room(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room = state.services.rooms.room_storage.get_room(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let room = state.services.rooms.room_service.get_room_record(&room_id).await?;
 
     match room {
         Some(r) => {
             // Derive tombstone state from the m.room.tombstone state event.
-            let tombstone_events = state
-                .services
-                .rooms
-                .event_storage
-                .get_state_events_by_type(&room_id, "m.room.tombstone")
-                .await
-                .map_err(|e| {
-                    tracing::error!("Database error: {e}");
-                    ApiError::database("A database error occurred".to_string())
-                })?;
+            let tombstone_events = state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.tombstone").await?;
             let tombstone_content = tombstone_events.first().map(|e| &e.content);
             let tombstoned = tombstone_content.is_some();
             let replacement_room = tombstone_content
@@ -425,21 +403,11 @@ pub async fn get_room(
 
 #[axum::debug_handler]
 pub async fn delete_room(
-    _admin: AdminUser,
+    admin: AdminUser,
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
-        return Err(ApiError::not_found("Room not found".to_string()));
-    }
-
-    state.services.rooms.room_storage.delete_room(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.rooms.room_service.delete_room(&room_id, &admin.user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -454,10 +422,7 @@ pub async fn get_room_members_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -468,19 +433,9 @@ pub async fn get_room_members_admin(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = params.get("from").map(|s| s.as_str());
 
-    let members = state
-        .services.rooms.member_storage
-        .get_room_members_paginated(&room_id, "join", limit, from)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let members = state.services.rooms.room_service.get_room_members_paginated_admin(&room_id, "join", limit, from).await?;
 
-    let total = state.services.rooms.member_storage.get_room_member_count(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let total = state.services.rooms.room_service.get_room_member_count_admin(&room_id).await?;
 
     let member_list: Vec<Value> = members
         .iter()
@@ -513,17 +468,11 @@ pub async fn get_room_state_admin(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let events = state.services.rooms.event_storage.get_state_events(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let events = state.services.rooms.room_service.get_state_events(&room_id).await?;
 
     let state_events: Vec<Value> = events
         .iter()
@@ -548,10 +497,7 @@ pub async fn get_room_messages_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -563,14 +509,7 @@ pub async fn get_room_messages_admin(
     let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
     let dir = params.get("dir").map(|s| s.as_str()).unwrap_or("b");
 
-    let events = state
-        .services.rooms.event_storage
-        .get_room_events_paginated(&room_id, from, limit, dir)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    let events = state.services.rooms.room_service.get_room_events_paginated_admin(&room_id, from, limit, dir).await?;
 
     let messages: Vec<Value> = events
         .iter()
@@ -610,23 +549,11 @@ pub async fn shutdown_room(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
-    if !state.services.rooms.room_storage.room_exists(room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })? {
+    if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    state
-        .services.rooms.room_storage
-        .shutdown_room(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to shutdown room", &e))?;
-
-    state.services.rooms.member_storage.remove_all_members(room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    state.services.rooms.room_service.shutdown_room_and_remove_members(room_id).await?;
 
     Ok(Json(json!({
         "kicked_users": [],
@@ -645,59 +572,11 @@ pub async fn get_event_context_admin(
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$").replace("%3A", ":");
 
-    let room_exists = state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !room_exists {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let event = state
-        .services.rooms.event_storage
-        .get_event(&event_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?
-        .ok_or_else(|| ApiError::not_found("Event not found".to_string()))?;
-
-    if event.room_id != room_id {
-        return Err(ApiError::not_found("Event not found in this room".to_string()));
-    }
-
-    let events_before =
-        state.services.rooms.event_storage.get_events_before_context(&room_id, event.origin_server_ts, 5).await.map_err(
-            |e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            },
-        )?;
-
-    let events_after =
-        state.services.rooms.event_storage.get_events_after_context(&room_id, event.origin_server_ts, 5).await.map_err(
-            |e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            },
-        )?;
-
-    Ok(Json(json!({
-        "event": {
-            "event_id": event.event_id,
-            "type": event.event_type,
-            "sender": event.user_id,
-            "state_key": event.state_key,
-            "content": event.content,
-            "room_id": event.room_id,
-            "origin_server_ts": event.origin_server_ts
-        },
-        "events_before": events_before,
-        "events_after": events_after,
-        "state": []
-    })))
+    Ok(Json(state.services.rooms.room_service.get_event_context_admin(&room_id, &event_id, 5).await?))
 }
 
 #[axum::debug_handler]
@@ -707,12 +586,7 @@ pub async fn get_room_token_sync_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<RoomTokenSyncQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !room_exists {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -802,23 +676,14 @@ pub async fn search_room_messages_admin(
     Path(room_id): Path<String>,
     Json(body): Json<SearchRoomMessagesRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !room_exists {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
-    let events = state
-        .services.rooms.event_storage
-        .search_room_messages_admin(&room_id, &search_pattern, limit)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+    let events = state.services.rooms.room_service.search_room_messages_admin(&room_id, &search_pattern, limit).await?;
 
     let results: Vec<Value> = events
         .iter()
@@ -845,10 +710,7 @@ pub async fn get_room_version(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let version = state.services.rooms.room_storage.get_room_version_only(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let version = state.services.rooms.room_service.get_room_version(&room_id).await?;
 
     match version {
         Some(version) => Ok(Json(json!({
@@ -866,19 +728,11 @@ pub async fn get_room_forward_extremities(
     State(state): State<AppState>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_storage.room_exists(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
-
-    if !room_exists {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let count = state.services.rooms.event_storage.get_forward_extremities_count(&room_id).await.map_err(|e| {
-        tracing::error!("Database error: {e}");
-        ApiError::database("A database error occurred".to_string())
-    })?;
+    let count = state.services.rooms.room_service.get_forward_extremities_count(&room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -927,10 +781,11 @@ async fn search_all_rooms_impl(state: &AppState, body: SearchAllRoomsRequest) ->
     }
 
     let (results, total, next_batch) = state
-        .services.rooms.room_storage
+        .services
+        .rooms
+        .room_service
         .search_all_rooms_admin(body.search_term.as_deref(), limit, order, cursor, body.is_public, body.is_encrypted)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+        .await?;
 
     Ok(Json(json!({
         "results": results,

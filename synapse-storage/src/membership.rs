@@ -166,6 +166,47 @@ impl RoomMemberStorage {
         Ok(count)
     }
 
+    pub async fn get_room_members_paginated(
+        &self,
+        room_id: &str,
+        membership_type: &str,
+        limit: i64,
+        from_user_id: Option<&str>,
+    ) -> Result<Vec<RoomMember>, sqlx::Error> {
+        if let Some(from_user_id) = from_user_id {
+            sqlx::query_as::<_, RoomMember>(
+                r"
+                SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
+                FROM room_memberships
+                WHERE room_id = $1 AND membership = $2 AND user_id > $3
+                ORDER BY user_id ASC
+                LIMIT $4
+                ",
+            )
+            .bind(room_id)
+            .bind(membership_type)
+            .bind(from_user_id)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, RoomMember>(
+                r"
+                SELECT room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
+                FROM room_memberships
+                WHERE room_id = $1 AND membership = $2
+                ORDER BY user_id ASC
+                LIMIT $3
+                ",
+            )
+            .bind(room_id)
+            .bind(membership_type)
+            .bind(limit)
+            .fetch_all(&*self.pool)
+            .await
+        }
+    }
+
     pub async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(

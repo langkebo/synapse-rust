@@ -42,27 +42,31 @@ pub(crate) async fn get_room_info(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let summary = state.services.rooms.room_summary_storage.get_summary(&room_id).await.ok().flatten();
-
+    let summary = state.services.rooms.room_summary_service.get_summary(&room_id).await.ok().flatten();
     let invited_members_count = state.services.rooms.room_service.get_invited_members_count(&room_id).await?;
 
     let guest_can_join = state
         .services
         .rooms
-        .event_storage
+        .room_service
         .get_state_events_by_type(&room_id, "m.room.guest_access")
         .await
         .ok()
         .and_then(|events| {
-            events.into_iter().find(|event| event.state_key.as_deref() == Some("")).and_then(|event| {
-                event.content.get("guest_access").and_then(|value| value.as_str()).map(|value| value == "can_join")
-            })
+            events.into_iter().find(|event| event.get("state_key").and_then(Value::as_str) == Some("")).and_then(
+                |event| {
+                    event
+                        .get("content")
+                        .and_then(|content| content.get("guest_access"))
+                        .and_then(Value::as_str)
+                        .map(|value| value == "can_join")
+                },
+            )
         })
         .unwrap_or_else(|| summary.as_ref().is_some_and(|value| value.guest_access == "can_join"));
 
@@ -96,10 +100,9 @@ pub(crate) async fn get_room_version(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     Ok(Json(json!({
@@ -272,14 +275,7 @@ pub(crate) async fn get_room_visibility(
     _auth_user: OptionalAuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -303,14 +299,7 @@ pub(crate) async fn set_room_visibility(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -407,10 +396,9 @@ pub(crate) async fn room_initial_sync(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Database error"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
@@ -424,10 +412,9 @@ pub(crate) async fn room_initial_sync(
     let state_events = state
         .services
         .rooms
-        .event_storage
-        .get_state_events(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room state"))?
+        .room_service
+        .get_state_event_records(&room_id)
+        .await?
         .into_iter()
         .map(|event| {
             json!({
@@ -474,14 +461,7 @@ pub(crate) async fn get_room_capabilities(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -490,10 +470,9 @@ pub(crate) async fn get_room_capabilities(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let encryption_status = state.services.rooms.room_service.get_room_encryption_status(&room_id).await?;
@@ -528,14 +507,7 @@ pub(crate) async fn get_room_sync(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -591,14 +563,7 @@ pub(crate) async fn get_room_thread_by_id(
     validate_room_id(&room_id)?;
     crate::web::routes::validate_event_id(&thread_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -634,14 +599,7 @@ pub(crate) async fn set_room_account_data(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -668,14 +626,7 @@ pub(crate) async fn get_room_account_data(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -701,14 +652,7 @@ pub(crate) async fn get_room_turn_server(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -741,14 +685,7 @@ pub(crate) async fn get_room_metadata(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -757,10 +694,9 @@ pub(crate) async fn get_room_metadata(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let mut response = json!({
@@ -809,14 +745,7 @@ pub(crate) async fn get_room_vault_data(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -850,14 +779,7 @@ pub(crate) async fn set_room_vault_data(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -883,14 +805,7 @@ pub(crate) async fn get_room_rendered(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -899,19 +814,12 @@ pub(crate) async fn get_room_rendered(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let events = state
-        .services
-        .rooms
-        .event_storage
-        .get_room_events(&room_id, 20)
-        .await
-        .map_err(map_internal!("Failed to get room events"))?;
+    let events = state.services.rooms.room_service.get_room_events(&room_id, 20).await?;
 
     let lines: Vec<Value> = events
         .iter()
@@ -946,26 +854,13 @@ pub(crate) async fn get_room_external_ids(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let aliases = state
-        .services
-        .rooms
-        .room_storage
-        .get_room_aliases(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room aliases"))?;
+    let aliases = state.services.rooms.room_service.get_room_aliases(&room_id).await?;
 
     let external_ids: Vec<Value> =
         aliases.into_iter().map(|alias| json!({"type": "room_alias", "value": alias})).collect();
@@ -982,14 +877,7 @@ pub(crate) async fn get_room_service_types(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -998,10 +886,9 @@ pub(crate) async fn get_room_service_types(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
     let mut service_types = vec!["messaging".to_string()];
@@ -1024,17 +911,9 @@ pub(crate) async fn get_room_device(
     Path((room_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let device = state
@@ -1049,10 +928,10 @@ pub(crate) async fn get_room_device(
     let is_member = state
         .services
         .rooms
-        .member_storage
-        .is_member(&room_id, &device.user_id)
-        .await
-        .map_err(map_internal!("Failed to verify device membership"))?;
+        .room_service
+        .get_room_membership(&room_id, &device.user_id)
+        .await?
+        .is_some_and(|membership| membership == "join");
 
     if !is_member {
         return Err(ApiError::not_found("Device not found in this room".to_string()));
@@ -1082,19 +961,12 @@ pub(crate) async fn get_room_resolve(
     let room = state
         .services
         .rooms
-        .room_storage
-        .get_room(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room"))?
+        .room_service
+        .get_room_record(&room_id)
+        .await?
         .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
-    let aliases = state
-        .services
-        .rooms
-        .room_storage
-        .get_room_aliases(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room aliases"))?;
+    let aliases = state.services.rooms.room_service.get_room_aliases(&room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -1110,17 +982,9 @@ pub(crate) async fn get_room_spaces(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
-
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
     let rooms = if let Some(space) = state.services.rooms.space_service.get_space_by_room(&room_id).await? {
@@ -1175,14 +1039,7 @@ pub(crate) async fn search_room_messages(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -1241,28 +1098,15 @@ pub(crate) async fn get_retention_policy(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
-        .room_storage
-        .room_exists(&room_id)
-        .await
-        .map_err(map_internal!("Failed to check room existence"))?
-    {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let room_policy = state
-        .services
-        .admin
-        .retention_storage
-        .get_room_policy(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get retention policy"))?;
+    let room_policy = state.services.admin.retention_service.get_room_policy(&room_id).await?;
 
-    let server_policy = state.services.admin.retention_storage.get_server_policy().await.ok();
+    let server_policy = state.services.admin.retention_service.get_server_policy_optional().await?;
 
     match room_policy {
         Some(policy) => Ok(Json(serde_json::json!({
