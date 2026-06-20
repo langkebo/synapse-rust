@@ -44,12 +44,11 @@ COPY synapse-storage/Cargo.toml     ./synapse-storage/Cargo.toml
 COPY synapse-e2ee/Cargo.toml        ./synapse-e2ee/Cargo.toml
 COPY synapse-federation/Cargo.toml  ./synapse-federation/Cargo.toml
 COPY synapse-services/Cargo.toml    ./synapse-services/Cargo.toml
-COPY synapse-web/Cargo.toml         ./synapse-web/Cargo.toml
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     mkdir -p src src/bin synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
-             synapse-federation/src synapse-services/src synapse-web/src && \
+             synapse-federation/src synapse-services/src && \
     echo "fn main() {}" > src/main.rs && \
     echo "fn main() {}" > src/bin/healthcheck.rs && \
     echo "pub fn stub() {}" > synapse-common/src/lib.rs && \
@@ -58,10 +57,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     echo "pub fn stub() {}" > synapse-e2ee/src/lib.rs && \
     echo "pub fn stub() {}" > synapse-federation/src/lib.rs && \
     echo "pub fn stub() {}" > synapse-services/src/lib.rs && \
-    echo "pub fn stub() {}" > synapse-web/src/lib.rs && \
     cargo fetch --locked && \
     rm -rf src/ synapse-common/src synapse-cache/src synapse-storage/src synapse-e2ee/src \
-           synapse-federation/src synapse-services/src synapse-web/src
+           synapse-federation/src synapse-services/src
 
 # 复制真正的源码 + 迁移脚本 + 启动脚本
 COPY . .

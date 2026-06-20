@@ -109,6 +109,7 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
 
     #[cfg(feature = "server-notifications")]
     {
+        use axum::http::Method;
         entries.extend_from_slice(&[
             (Method::GET, "/_synapse/admin/v1/users/{user_id}/notification"),
             (Method::PUT, "/_synapse/admin/v1/users/{user_id}/notification"),
