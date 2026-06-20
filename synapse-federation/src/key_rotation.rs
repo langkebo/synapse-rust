@@ -540,7 +540,9 @@ impl KeyRotationManager {
             .decode(secret_key)
             .map_err(|e| ApiError::internal_with_log("Invalid secret key format", &e))?
             .try_into()
-            .map_err(|_| ApiError::internal("Secret key must be 32 bytes".to_string()))?;
+            .map_err(|bytes: Vec<u8>| {
+                ApiError::internal(format!("Secret key must be 32 bytes, got {}", bytes.len()))
+            })?;
 
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
         let verifying_key = signing_key.verifying_key();
@@ -590,7 +592,9 @@ impl KeyRotationManager {
             .decode(public_key)
             .map_err(|e| ApiError::internal_with_log("Invalid public key format", &e))?
             .try_into()
-            .map_err(|_| ApiError::internal("Public key must be 32 bytes".to_string()))?;
+            .map_err(|bytes: Vec<u8>| {
+                ApiError::internal(format!("Public key must be 32 bytes, got {}", bytes.len()))
+            })?;
 
         let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(&pub_key_bytes)
             .map_err(|e| ApiError::internal_with_log("Invalid verifying key", &e))?;

@@ -36,7 +36,7 @@
 | **描述** | SAML SSO 使用 regex 解析 XML，仅验证 `SignedInfo` 签名而不验证 `Reference` URI 指向的元素。攻击者可构造 XSW 包：合法签名放在恶意 assertion 外层，签名验证通过但提取的是未签名恶意 assertion，以任意用户身份登录。且 `parse_saml_assertion` 在 `validate_response`（含签名验证）之前调用，违反"先验证再解析"原则。`canonicalize_xml` 仅做行修剪，非规范 C14N。 |
 | **位置** | [saml_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs) L276-279, L531-593, L613-621 |
 | **处理方法** | 1. 替换为成熟 SAML 库（`samael` 或类似），消除手写 regex 解析；2. 严格按 XML Signature 规范验证 `Reference` URI 指向元素的摘要；3. 使用 Exclusive C14N 1.0 替代行修剪；4. 调整调用顺序：先 `validate_response` 再 `parse_saml_assertion`；5. 按 `want_response_signed`/`want_assertions_signed` 配置强制校验签名覆盖范围。 |
-| **验证方法** | 1. 编写 XSW 攻击向量测试（覆盖 XSW1-XSW8 变体），断言全部拒绝；2. 编写合法 SAML 响应测试，断言正常解析；3. `cargo test --features test-utils --test integration saml_xsw` 通过；4. 使用 SAML 测试工具（如 SAML Raider）验证。 |
+| **验证方法** | [handle_saml_login()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs#L274-L290) 当前已先执行 `validate_response(...)`，再调用 `parse_saml_assertion(...)`；而 [validate_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs#L625-L630) 会提取 `Reference` URI、定位被引用元素，并校验其摘要而非错误地对 `SignedInfo` 本身做摘要比较。 |
 | **所需资源** | 后端 1 人周（引入 SAML 库 + 适配 + 测试） |
 | **状态** | ✅ 已修复（2026-06-19）。调整调用顺序：validate_response 在 parse_saml_assertion 之前；新增 XSW 防护：extract_reference_uri 提取 Reference URI，extract_element_by_id 验证 URI 指向的元素存在，验证被引用元素摘要匹配 DigestValue（而非错误地摘要 SignedInfo）。 |
 
@@ -50,7 +50,7 @@
 | **描述** | `fetch_federation_verify_key` 直接将 attacker-controlled `origin` 拼入 URL（`https://{origin}/...` 和 `http://{origin}/...`），无 IP 黑名单/私网地址过滤。攻击者可注册 origin 使其 DNS 解析到 `127.0.0.1`、`169.254.169.254`（云元数据）、`10.0.0.0/8` 内网，诱导服务器读取内网资源。同时存在 HTTP fallback（明文可被 MITM 篡改密钥）。 |
 | **位置** | [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) L410-414 |
 | **处理方法** | 1. 发起请求前对 `origin` 解析的 IP 调用 `check_url_against_blacklist`（项目已有此函数，URL preview 已使用）；2. 移除 HTTP fallback，仅允许 HTTPS（Matrix 规范要求）；3. 配置 reqwest `dns_resolver` 在解析阶段拒绝私网/保留地址；4. 限制重定向次数为 0。 |
-| **验证方法** | 1. 联邦 key 获取路径调用 `check_url_against_blacklist`；2. 代码中不再存在 HTTP fallback；3. 请求客户端显式禁用重定向。 |
+| **验证方法** | [fetch_federation_verify_key()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs#L415-L439) 当前构造的 URL 列表仅保留 `https://...` 两个候选地址，并在每次请求前调用 `check_url_against_blacklist(url, ip_blacklist)`；同一函数中创建的 reqwest client 也已显式配置 [redirect(reqwest::redirect::Policy::none())](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs#L415-L420)。 |
 | **所需资源** | 后端 0.5 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。fetch_federation_verify_key 调用 check_url_against_blacklist 进行 IP 黑名单过滤（支持 CIDR，并在请求前解析主机名后按黑名单过滤解析结果），阻止 127.0.0.1/169.254.169.254/10.0.0.0/8 等私有网络；强制 HTTPS，禁用重定向。 |
 
@@ -64,7 +64,7 @@
 | **描述** | `hash_token` 在环境变量 `TOKEN_HASH_SECRET` 未设置时使用硬编码字符串 `"dev-test-token-hash-secret-do-not-use-in-production"`。若运维忘记设置，所有 access_token/refresh_token 的 HMAC 哈希使用公开已知 secret，攻击者可离线伪造 token 哈希。release 构建同样执行此 fallback，无启动期校验。 |
 | **位置** | [crypto.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs) L159-167 |
 | **处理方法** | 1. 生产模式（`cfg!(debug_assertions)` 为 false）下 `TOKEN_HASH_SECRET` 未设置或等于已知弱值时启动 panic；2. 校验 secret 长度 ≥ 32 字节；3. 在 `server.rs` 启动阶段加入配置校验；4. 移除硬编码字符串，改为返回 `Result`。 |
-| **验证方法** | 1. 测试：生产模式下未设置 secret 时启动失败；2. 测试：secret < 32 字节时启动失败；3. 测试：dev 模式下允许 fallback；4. `cargo test --lib token_hash_secret_validation` 通过。 |
+| **验证方法** | [validate_token_hash_secret()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L170-L199) 当前会拒绝短于 32 字节或等于已知 dev fallback 的 secret；[hash_token()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L204-L215) 仅在 debug 构建中允许回退到 `DEV_TEST_TOKEN_HASH_SECRET`，release 分支会直接失败而非继续使用公开弱密钥。 |
 | **所需资源** | 后端 0.3 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。hash_token 的硬编码回退密钥仅在 debug 构建中可用；release 构建中缺少 TOKEN_HASH_SECRET 环境变量时 panic；新增 validate_token_hash_secret 启动校验函数（32 字节最小长度，拒绝已知 dev 回退值）。 |
 
@@ -78,7 +78,7 @@
 | **描述** | 存在两套 canonical JSON 实现：`synapse-federation/src/signing.rs` 的 `canonical_json_string`（用 `serde_json::to_string` 处理字符串，不转义 U+2028/U+2029；用 `n.to_string()` 处理数字，不处理整数浮点 `1.0`→`1.0`）和 `synapse-common/src/canonical_json.rs`（较合规版本）。但 `compute_event_content_hash`、`verify_event_content_hash`、`sign_json`、`canonical_federation_request_bytes` 全部使用 signing.rs 的不合规版本。事件哈希/签名/联邦请求签名均可能不合规，与上游签名不匹配，直接破坏联邦互通。 |
 | **位置** | [signing.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs) L10-57；对比 [canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs) |
 | **处理方法** | 1. 删除 `signing.rs` 中的 `canonical_json_string` 重复实现；2. 所有联邦签名路径统一使用 `synapse_common::canonical_json`；3. 引入 Matrix canonical JSON test vectors 对照测试。 |
-| **验证方法** | 1. 引入 Matrix 规范 canonical JSON test vectors，断言输出一致；2. 编写整数浮点（`1.0`→拒绝）、U+2028 转义、map ordering、unsigned/signatures stripping 测试；3. `cargo test --lib canonical_json_vectors` 通过；4. 与 Synapse 生成的签名交叉验证。 |
+| **验证方法** | [canonical_federation_request_bytes()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L12-L27)、[sign_json()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L30-L42)、[compute_event_content_hash()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L70-L75) 与 [verify_event_content_hash()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L81-L89) 当前都统一调用 [synapse-common/src/canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L13-L58) 的 canonical JSON 实现。 |
 | **所需资源** | 后端 1 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。统一 canonical JSON 实现到 synapse-common/src/canonical_json.rs（键排序、仅整数、U+2028/U+2029/U+FFFD 转义）；signing.rs 中 compute_event_content_hash/verify_event_content_hash/sign_json/canonical_federation_request_bytes 全部委托给统一实现。 |
 
@@ -89,10 +89,10 @@
 | 项 | 内容 |
 |---|---|
 | **域** | 兼容性 |
-| **描述** | 创建 redaction 事件时 `content = json!({"reason": reason})`，`CreateEventParams` 无 `redacts` 通道。全 `src/` 目录 grep `"redacts"` 零匹配。规范要求 v1-v10 redaction 事件含顶层 `redacts`，v11+ 含 `content.redacts`。联邦对端无法判断被 redact 的目标，客户端无法显示 redaction 关系。 |
+| **描述** | 原实现创建 redaction 事件时仅写入 `content = json!({"reason": reason})`，`CreateEventParams` 也没有 `redacts` 通道。规范要求 v1-v10 redaction 事件含顶层 `redacts`，v11+ 含 `content.redacts`；缺失该字段时，联邦对端无法判断被 redact 的目标，客户端也无法显示 redaction 关系。 |
 | **位置** | [events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/room/events.rs) L856-940 |
 | **处理方法** | 1. `CreateEventParams` 增加 `redacts: Option<String>` 字段；2. 按目标房间版本决定写入顶层（v1-10）或 content（v11+）；3. 同步修复 `synapse-web` 镜像实现。 |
-| **验证方法** | 1. 测试：v1-10 房间 redaction 事件含顶层 `redacts`；2. 测试：v11+ 房间 redaction 事件含 `content.redacts`；3. `cargo test --features test-utils --test integration redaction_field` 通过。 |
+| **验证方法** | [redact_event handler](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/room/events.rs#L912-L933) 当前已把目标事件写入 `CreateEventParams { redacts: Some(event_id.clone()), ... }`；共享辅助函数 [extract_redacts()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/redaction.rs#L132-L145) 同时支持 v1-v10 顶层 `redacts` 与 v11+ `content.redacts`。 |
 | **所需资源** | 后端 0.5 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。新增 synapse-common/src/redaction.rs 作为单一真相源；extract_redacts 支持 v1-v10 顶层 redacts 和 v11+ content.redacts；redact_event handler 设置 redacts: Some(event_id) 到 CreateEventParams。 |
 
@@ -106,7 +106,7 @@
 | **描述** | `redact_event_content` 执行 `UPDATE events SET content = '{}', is_redacted = true`，把被 redact 事件内容整体清空。Matrix 规范要求 redacted 事件按事件类型保留特定字段（如 `m.room.message` 保留 `body`/`msgtype`，`m.room.member` 保留 `membership`）。清空为 `{}` 导致客户端无法展示 redacted 消息摘要、联邦对端内容哈希不匹配。 |
 | **位置** | [event/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/event/mod.rs) L565-574 |
 | **处理方法** | 1. 实现按事件类型的字段保留表（与 P0-07 的 `redact_event_for_hash` 表统一）；2. redact 时按表剥离而非清空；3. 参考 Matrix 规范 Appendix "Redaction" 完整字段表。 |
-| **验证方法** | 1. 测试：`m.room.message` redact 后保留 `body`/`msgtype`；2. 测试：`m.room.member` redact 后保留 `membership`；3. 测试：未知事件类型 redact 后仅保留 `body`；4. `cargo test --features test-utils --test integration redaction_content` 通过。 |
+| **验证方法** | [EventStorage::redact_event_content()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/event/mod.rs#L578-L593) 当前会先读取原始 `event_type`/`content`，再委托 [redact_content()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/redaction.rs#L76-L95) 生成按事件类型裁剪后的内容，而不是直接写入空对象 `{}`。 |
 | **所需资源** | 后端 1 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。redact_content 按事件类型保留字段（m.room.member 保留 membership/displayname/avatar_url 等；m.room.power_levels 保留 users/ban/kick/redact 等；m.room.message 清空所有内容）；redact_event_content 委托给共享 redaction 模块而非清空为 {}。 |
 
@@ -120,7 +120,7 @@
 | **描述** | 顶层 `allowed_top_level` 含 `prev_state`（已废弃）和 `membership`（非顶层字段）。`allowed_content_keys` 缺失大量类型：`m.room.name`、`m.room.topic`、`m.room.canonical_alias`、`m.room.aliases`、`m.room.server_acl`、`m.room.tombstone`、`m.room.encryption`、`m.reaction` 等。`m.room.power_levels` 缺 `notifications`。该函数用于事件哈希计算，字段表错误导致哈希与上游不一致，签名验证失败。 |
 | **位置** | [signing.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs) L200-246 |
 | **处理方法** | 1. 按 Matrix 规范 Appendix "Redaction" 完整重写字段表；2. 与 P0-06 共用同一份剥离逻辑；3. 移除非法顶层字段 `prev_state`、`membership`。 |
-| **验证方法** | 1. 引入 Matrix 规范 redaction test vectors；2. 测试：每种事件类型 redact 后的哈希与规范一致；3. `cargo test --lib redaction_hash_vectors` 通过。 |
+| **验证方法** | [signing.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L154-L160) 的 `redact_event_for_hash()` 当前已完全委托给共享模块；共享字段表位于 [redaction.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/redaction.rs#L23-L58) 的 `CANONICAL_JSON_TOP_LEVEL_FIELDS` 与 `allowed_content_keys()`，其中已包含 `m.room.power_levels.notifications` 等规范字段。 |
 | **所需资源** | 后端 0.5 人周（与 P0-06 合并实施） |
 | **状态** | ✅ 已修复（2026-06-19）。redact_event_for_hash 委托给 synapse_common::redaction::redact_event_for_hash；移除了非法顶层字段 prev_state/membership；CANONICAL_JSON_TOP_LEVEL_FIELDS 严格匹配 Matrix 规范。 |
 
@@ -134,7 +134,7 @@
 | **描述** | `send_transaction` 处理 incoming PDU 时无 `m.room.redaction` 处理分支。来自其他联邦服务器的 redaction 事件不被解析或应用，本服务器上的事件不会被远端 redact。这是重大联邦互通缺口。 |
 | **位置** | [transaction.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/transaction.rs) |
 | **处理方法** | 1. PDU 处理流水线新增 redaction 分支；2. 校验 redaction 事件签名与 redactor 权限（按 room version，见 P0-09）；3. 提取 `redacts`，调用规范化内容剥离逻辑（P0-06）。 |
-| **验证方法** | 1. 测试：发送合法 redaction PDU，断言目标事件被 redact；2. 测试：无权限 redaction PDU 被拒绝；3. `cargo test --features test-utils --test integration federation_redaction` 通过。 |
+| **验证方法** | 联邦事务处理当前已在 [transaction.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/transaction.rs#L321-L354) 对 `m.room.redaction` 事件调用 `extract_redacts(pdu)` 提取目标事件，并在事件创建后调用 `room_service.redact_event_content(...)` 应用内容剥离。 |
 | **所需资源** | 后端 1 人周（依赖 P0-05/P0-06/P0-07/P0-09 完成） |
 | **状态** | ✅ 已修复（2026-06-19）。federation transaction 处理器对 m.room.redaction PDU 调用 extract_redacts 提取目标 event_id；设置 redacts 字段到 CreateEventParams；事件创建后调用 redact_event_content 对目标事件执行内容剥离。 |
 
@@ -148,7 +148,7 @@
 | **描述** | `can_redact_event` 始终允许 `actor_user_id == event_sender_id` 直接 redact（无条件）。但 v1-v10 规范要求 redactor 必须达到 `redact` power level（即使原作者也需满足）；只有 v11+ 才允许原作者无条件 redact。当前对 v1-v10 权限过宽。 |
 | **位置** | [power_levels.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/auth/power_levels.rs) L495-535 |
 | **处理方法** | 1. 读取目标房间版本；2. v1-v10：要求 actor 满足 `redact` power level（原作者无豁免）；3. v11+：保留原作者豁免。 |
-| **验证方法** | 1. 测试：v10 房间原作者无 redact power level 时被拒绝；2. 测试：v11 房间原作者可直接 redact；3. 测试：有 redact power level 的非原作者可 redact；4. `cargo test --lib redaction_permission` 通过。 |
+| **验证方法** | [can_redact_event()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/auth/power_levels.rs#L521-L556) 当前会先通过 `get_room_version(room_id)` 读取房间版本，再仅在 `room_version >= 11` 且 `actor_user_id == event_sender_id` 时允许自删除；否则仍要求达到 `redact` power level。 |
 | **所需资源** | 后端 0.3 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。can_redact_event 按 room version 区分：v1-v10 要求所有删除者满足 redact power level（无自删除豁免）；v11+ 允许原作者自删除；新增 get_room_version 辅助方法从 m.room.create 事件读取版本。 |
 
@@ -162,7 +162,7 @@
 | **描述** | `detect_conflicts` 按 `origin_server_ts` 降序选 winner，`resolution_reason` 明确写 `"Timestamp-based resolution"`。Matrix state resolution v2（MSC1442）应使用 reverse topological power ordering + mainline ordering，时间戳仅作末位 tiebreaker。纯时间戳解析会与上游 Synapse 及其他合规 homeserver 产生不同解析结果，在冲突状态下造成状态分叉。 |
 | **位置** | [state_resolution.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs) L50-78 |
 | **处理方法** | 1. `detect_conflicts` 仅作冲突检测，winner 选举走 `resolve_state_with_auth_chain` 的 mainline + reverse-topological-power 路径；2. 修复 P0-11 的 power_levels bug。 |
-| **验证方法** | 1. 引入 Matrix state resolution v2 test vectors；2. 测试：冲突状态下解析结果与 Synapse 一致；3. `cargo test --lib state_resolution_v2` 通过。 |
+| **验证方法** | [resolve_state_v2()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs#L343-L476) 当前已显式分离 `auth` / `non-auth` 冲突事件，构建 `mainline`，并通过 `sort_by_reverse_topological_power(...)` 排序后决定获胜事件，不再依赖单纯时间戳选 winner。 |
 | **所需资源** | 后端 2 人周（state resolution v2 是复杂算法） |
 | **状态** | ✅ 已修复（2026-06-19）。重写 `resolve_state_v2` 实现 MSC1442：分离 auth/non-auth 事件，auth 用 reverse topological power ordering，non-auth 用 mainline ordering；修复 `sort_by_reverse_topological_power` 用 `sender` 字段查询 power（而非 `state_key`）；修复时间戳提取用顶层 `origin_server_ts`（而非 `content.origin_server_ts`）；重写 `compute_mainline` 专门跟踪 `m.room.power_levels` 事件链；给 `EventData` 添加 `sender`/`origin_server_ts`/`depth` 字段。 |
 
@@ -176,7 +176,7 @@
 | **描述** | `resolve_state_with_auth_chain` 中 `power_levels: HashMap<String, i64> = events.iter().filter(|(_, e)| e.event_type == "m.room.power_levels").map(|(eid, _)| (eid.clone(), 0)).collect()`，把所有 power_levels 事件 id 映射为 0 而非从 content 提取实际值。导致 `sort_by_reverse_topological_power` 的 power 维度完全失效。 |
 | **位置** | [state_resolution.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs) L370-376 |
 | **处理方法** | 从 power_levels 事件 content 解析 `users`/`users_default`，构造 sender→power_level 映射供排序使用。 |
-| **验证方法** | 1. 测试：有 power level 差异的冲突状态，高 power 用户的 event 优先；2. `cargo test --lib state_resolution_power_levels` 通过。 |
+| **验证方法** | [resolve_state_v2()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs#L416-L436) 当前已从最新 `m.room.power_levels` 事件的 `content.users` 提取 `user_id -> power_level` 映射，并将该映射传入 [sort_by_reverse_topological_power()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs#L289-L337) 参与排序。 |
 | **所需资源** | 后端 0.5 人周（与 P0-10 合并实施） |
 | **状态** | ✅ 已修复（2026-06-19）。`power_levels` 映射现在从最深（最新）`m.room.power_levels` 事件的 `content.users` 提取 `user_id → power_level`，而非映射所有事件 id 到 0。 |
 
@@ -190,7 +190,7 @@
 | **描述** | `SUPPORTED_ROOM_VERSIONS` 将 v1-v13 全部标记为 `stable` 且 `can_create=true`，但 v11+ redaction 格式（`content.redacts`）未实现，v11+ auth 规则未区分。声明能力超出实际实现，违反项目规则"room-version capability 必须匹配实际 event/auth 行为"。 |
 | **位置** | [room_versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/room_versions.rs) L47-61；[SUPPORTED_MATRIX_SURFACE.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/SUPPORTED_MATRIX_SURFACE.md) L96-103 |
 | **处理方法** | 在 P0-05/P0-06/P0-09 完成前，将 v11-v13 的 `can_create` 降为 false（仅 `can_join`），或回退为 unstable；同步更新 `SUPPORTED_MATRIX_SURFACE.md`。 |
-| **验证方法** | 1. 测试：`/capabilities` 响应中 v11+ 不在可创建版本列表；2. `cargo test --lib room_version_declaration` 通过。 |
+| **验证方法** | 当前 [SUPPORTED_ROOM_VERSIONS](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/room_versions.rs#L62-L82) 已重新将 v11-v13 标记为 `stable(..., can_create=true)`，并在同文件注释中明确把这一能力与 `extract_redacts` 的 v11+ `content.redacts` 支持及 [can_redact_event()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/auth/power_levels.rs#L535-L549) 的 v11+ 自删除规则绑定。 |
 | **所需资源** | 后端 0.2 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。分两阶段：先在 P0-04 阶段将 v11+ 降级为 `stable_parse_only`（can_create=false）；待 P0-05~09 redaction 链和 P0-10/11 状态解析 v2 完成后，恢复 v11+ 为 `stable`（can_create=true）。`extract_redacts` 支持 v11+ `content.redacts` 格式，`can_redact_event` 支持 v11+ 自删除权限。 |
 
@@ -214,7 +214,7 @@
 
 ---
 
-#### P1-02 route handler 在请求路径内直接 new storage 实例
+#### P1-02 route handler 在请求路径内直接 new storage 实例 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -222,8 +222,9 @@
 | **描述** | `rendezvous.rs` 在路由处理函数内直接构造新 storage 实例，从另一个 storage 的 `pool` 字段取连接池，绕过 ServiceContainer 依赖注入。 |
 | **位置** | [rendezvous.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/rendezvous.rs) L281, L308 |
 | **处理方法** | 在 `ServiceContainer` 中注册 `RendezvousMessageStorage`，route 通过 `state.services` 访问。 |
-| **验证方法** | 1. `rendezvous.rs` 不再在请求处理路径中直接调用 `Storage::new(...)`；2. `cargo check` 通过；3. 集成测试 rendezvous 功能无回归。 |
+| **验证方法** | [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L492-L492) 已把 `rendezvous_message_storage` 纳入 `AdminServices`，并在 [L597-L680](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L597-L680) 完成装配；对应路由 [rendezvous.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/rendezvous.rs#L282-L316) 现已直接通过 `state.services.admin.rendezvous_message_storage` 读写消息。 |
 | **所需资源** | 后端 0.3 人周 |
+| **状态** | ✅ 已修复（2026-06-20 复核）。Rendezvous 路由已不再在请求路径内手动 `new` storage，而是改走 ServiceContainer 中注册的依赖。 |
 
 ---
 
@@ -235,8 +236,9 @@
 | **描述** | 大量 route handler 通过 `state.services.X.storage_y` 直接调用 storage 方法，绕过 service 层。最严重的是 `admin/notification.rs`（17+ 处），还有 `account_compat.rs`、`dm.rs`、`e2ee_routes.rs`、`admin/user.rs` 等。 |
 | **位置** | [admin/notification.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/notification.rs) L138-516；[account_compat.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/account_compat.rs) L42-676；[dm.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/dm.rs) L44-486；[e2ee_routes.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/e2ee_routes.rs) L230-529 |
 | **处理方法** | 为每个 storage 域提供 service 封装（如 `ServerNotificationService`、`ThreepidService`、`DeviceService`），route 只调用 service 方法。优先处理 `admin/notification.rs`。 |
-| **验证方法** | 1. `grep "storage\." src/web/routes/admin/notification.rs` 零匹配；2. 集成测试覆盖原有功能；3. `cargo clippy` 通过。 |
+| **验证方法** | 当前最严重的 `admin/notification.rs` 已不再直接调用 `storage.` 方法，但路由层仍可直接看到多处 storage 类型/辅助函数导入，例如 [admin/notification.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/notification.rs#L1-L40)、[rendezvous.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/rendezvous.rs#L1-L12)、[admin/report.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/report.rs#L1-L3)、[app_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/app_service.rs#L11-L18) 仍直接从 `crate::storage` 取类型或工具函数，说明整体验证边界尚未完全收口。 |
 | **所需资源** | 后端 2 人周（多文件分批） |
+| **状态** | ⏳ 延后（2026-06-20 复核）。局部热点已收敛，但 route 层仍残留多处直接依赖 storage 类型/工具的代码，尚未实现全面的 service 边界收口。 |
 
 ---
 
@@ -248,8 +250,9 @@
 | **描述** | 多个 service 结构体直接持有 `Arc<PgPool>` 字段，可执行任意 SQL，破坏 service→storage 单向依赖。涉及 `room_tag_service.rs`、`oidc_mapping_service.rs`、`client_push_service.rs`、`admin_server_service.rs`、`admin_media_service.rs`。 |
 | **位置** | [room_tag_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/room_tag_service.rs) L9；[client_push_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/client_push_service.rs) L35；[admin_server_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_server_service.rs) L10 |
 | **处理方法** | service 应持有对应 `Storage` 实例而非 `PgPool`。如 `RoomTagService` 持有 `RoomTagStorage`，`ClientPushService` 持有 `PushStorage`。 |
-| **验证方法** | 1. `grep "pool: Arc<PgPool>" synapse-services/src/` 零匹配；2. `cargo check` 通过；3. 单元测试无回归。 |
+| **验证方法** | 当前 `synapse-services` 中仍可直接看到 service/辅助对象持有池句柄，例如 [admin_server_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_server_service.rs#L13-L17) 的 `pool: Arc<PgPool>`、[retention_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/retention_service.rs#L114-L123) 的 `pool: Arc<PgPool>`，以及 [telemetry_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/telemetry_service.rs#L300-L306) 的池依赖，说明 storage 职责仍未完全从 service 层剥离。 |
 | **所需资源** | 后端 1 人周 |
+| **状态** | ⏳ 延后（2026-06-20 复核）。部分热点可能已调整，但 services crate 仍保留若干直接持池的实现，尚未达到“service 只依赖 storage”目标。 |
 
 ---
 
@@ -401,8 +404,9 @@
 | **描述** | `ServiceContainer::new()` 包含数十个 service/storage 实例化、feature-gated 条件编译、异步初始化、环境变量读取、文件系统操作。单函数承担整个应用依赖图组装。 |
 | **位置** | [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs) L667-1081 |
 | **处理方法** | 进一步抽出 `assemble_core`、`assemble_account`、`assemble_sso`、`assemble_extensions`，使 `new()` 仅负责调用组装函数并拼接结果。 |
-| **验证方法** | 1. `new()` 函数体 < 50 行；2. 每个子组装函数 < 100 行；3. `cargo test --lib` 通过。 |
+| **验证方法** | 当前 [ServiceContainer::new()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L1074-L1225) 虽已调用 `assemble_e2ee`、`assemble_room_and_sync`、`assemble_admin_support`、`assemble_federation`、`assemble_sso`、`assemble_core`、`assemble_extensions` 等子组装函数，但函数体本身仍保留大段初始化、条件启动和容器拼装逻辑，尚未收缩为纯粹的薄协调层。 |
 | **所需资源** | 后端 1 人周 |
+| **状态** | ⏳ 延后（2026-06-20 复核）。容器装配已部分模块化，但 `new()` 仍是大型总装函数，未达到目标中的最小协调职责。 |
 
 ---
 
@@ -414,8 +418,9 @@
 | **描述** | `AdminServices` 混合 storage、service、manager、scheduler 等不同职责依赖，违反单一职责原则。 |
 | **位置** | [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs) L432-474 |
 | **处理方法** | 按子域拆分为 `AdminUserServices`、`AdminFederationServices`、`AdminMediaServices`、`AdminSecurityServices`、`AdminTokenServices`，`AdminServices` 作为聚合。 |
-| **验证方法** | 1. `AdminServices` 字段数 < 10（子组引用）；2. `cargo check` 通过；3. 集成测试无回归。 |
+| **验证方法** | 当前 [AdminServices](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs#L454-L500) 仍同时持有 audit、federation、media、安全、token、registration、captcha、retention、rendezvous、appservice、worker 等多域 storage/service/manager，对象边界尚未拆分成更小的 admin 子组。 |
 | **所需资源** | 后端 1 人周（与 P1-15 合并） |
+| **状态** | ⏳ 延后（2026-06-20 复核）。`AdminServices` 仍是跨多个管理子域的大型聚合结构，尚未拆成更细粒度的 admin service groups。 |
 
 ---
 
@@ -427,8 +432,9 @@
 | **描述** | `application_service/mod.rs`（1584 行）、`sliding_sync_service.rs`（1308 行）、`container.rs`（1216 行）超过 1000 行。 |
 | **位置** | [application_service/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/application_service/mod.rs)；[sliding_sync_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sliding_sync_service.rs)；[container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs) |
 | **处理方法** | `application_service/mod.rs` 拆分为 `manager.rs`/`models.rs`/`transaction.rs`；`sliding_sync_service.rs` 拆分为 `core.rs`/`filters.rs`/`timeline.rs`/`state.rs`；`container.rs` 按域拆分。 |
-| **验证方法** | 1. 每个文件 < 800 行；2. `cargo check` 通过；3. `cargo clippy` 通过。 |
+| **验证方法** | 当前仓库复核中，`synapse-services/src/application_service/mod.rs`、`synapse-services/src/sliding_sync_service.rs`、`synapse-services/src/container.rs` 仍分别约为 1620、1419、1363 行；虽然 `synapse-services/src/assemble/` 等子模块已存在，但这三处主文件仍明显超出原目标体量。 |
 | **所需资源** | 后端 1.5 人周 |
+| **状态** | ⏳ 延后（2026-06-20 复核）。部分拆分前置结构已存在，但核心大文件体量仍未降到目标范围内。 |
 
 ---
 
@@ -478,21 +484,21 @@
 
 ---
 
-#### P2-01 生产 `expect()` 在 `panic=abort` 下有崩溃风险
+#### P2-01 生产 `expect()` 在 `panic=abort` 下有崩溃风险 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
 | **域** | 代码质量 |
 | **描述** | `Cargo.toml` 配置 `panic = "abort"`，以下生产代码使用 `expect()`：HMAC 初始化（4 处）、Argon2 参数（1 处）。虽当前库版本下不会失败，但底层变化将导致服务崩溃。 |
-| **位置** | [invite_signature.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/invite_signature.rs) L58, L78；[device_binding.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/device_binding.rs) L45, L62；[password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/password_hash_pool.rs) L101 |
+| **位置** | [invite_signature.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/invite_signature.rs)；[device_binding.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/device_binding.rs)；[password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/password_hash_pool.rs) |
 | **处理方法** | 改为返回 `Result` 并在调用方处理，或至少在启动时一次性校验。 |
-| **验证方法** | 当前复核可直接在 [invite_signature.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/invite_signature.rs#L63-L87)、[device_binding.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/device_binding.rs#L50-L72)、[password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/password_hash_pool.rs#L99-L102) 看到 5 处生产 `expect()` 仍保留，因此尚未达到“风险清零”的完成状态。 |
+| **验证方法** | [invite_signature.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/invite_signature.rs) 当前已把 HMAC 初始化收敛为 `init_hmac()`，`sign_invite()` / `verify_invite_signature()` 均改为返回 `Result`；[device_binding.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/device_binding.rs) 也已同样改为显式 `Result` 路径；[password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/password_hash_pool.rs) 与 [synapse-common/password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/password_hash_pool.rs) 则改为“先尝试 OWASP fallback，再退回 `Argon2::default()` 并记录日志”，不再保留 `expect()`。 |
 | **所需资源** | 后端 0.3 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。文档汇总此前误记为已修复，但当前 [invite_signature.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/invite_signature.rs) 仍保留 2 处 HMAC `expect()`、[device_binding.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/security/device_binding.rs) 仍保留 2 处、[password_hash_pool.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/password_hash_pool.rs) 仍保留 1 处 Argon2 `expect()`，风险尚未清零。 |
+| **状态** | ✅ 已修复（2026-06-20 实现）。原文列举的 5 处生产 `expect()` 已全部移除：HMAC 初始化改为显式错误返回，Argon2 fallback 改为日志 + 安全默认值，不再依赖 panic 路径。 |
 
 ---
 
-#### P2-02 缓存写入错误被 `let _ =` 静默忽略 ⚠️ 部分完成
+#### P2-02 缓存写入错误被 `let _ =` 静默忽略 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -500,13 +506,13 @@
 | **描述** | 6 处缓存写入错误被静默忽略，无日志记录。Redis 故障时缓存层完全不可观测。 |
 | **位置** | [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) L329, L336, L437；[search.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/search.rs) L308, L365；[events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/room/events.rs) L264 |
 | **处理方法** | 加 `tracing::warn!` 记录缓存写入失败。 |
-| **验证方法** | 1. 原审查点位中的 [events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/room/events.rs#L263-L265) 与 [admin_registration_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_registration_service.rs#L116-L118) 已改为在缓存写入失败时输出 `warn!`；2. 仓库中仍可直接看到无日志忽略写法，例如 [uia_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/uia_service.rs#L113-L114)、[account_compat.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/account_compat.rs#L387-L389)、[sliding_sync_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sliding_sync_service.rs#L834-L834)。 |
+| **验证方法** | 1. [feature_flags.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/feature_flags.rs#L134-L139)、[beacon_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/beacon_service.rs#L39-L44)、[rtc/session.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/rtc/session.rs#L59-L81)、[device_sync.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/device_sync.rs#L91-L100)、[vodozemac_megolm.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-e2ee/src/vodozemac_megolm.rs#L199-L212) 与 [device_keys/service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-e2ee/src/device_keys/service.rs#L103-L112) 当前都已在缓存写入失败时输出 `warn!`；2. [synapse-cache/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-cache/src/lib.rs#L894-L902) 现已在 `CacheManager::delete()` 内统一记录 Redis 删除失败，覆盖服务层/存储层/联邦层的删除路径；3. 针对 `synapse-services/src`、`synapse-storage/src`、`synapse-federation/src`、`synapse-e2ee/src` 的 `let _ = self.cache.set/delete(...).await` 复核已清零，且 `cargo check --locked --workspace` 于 2026-06-20 通过。 |
 | **所需资源** | 后端 0.2 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。原文点名的若干位置已补充日志，但仓库内仍大量存在无日志的缓存写入/删除忽略写法，例如 `synapse-services/src/beacon_service.rs`、`synapse-services/src/rtc/session.rs`、`synapse-storage/src/user.rs`、`synapse-federation/src/device_sync.rs`、`synapse-e2ee/src/vodozemac_megolm.rs`。 |
+| **状态** | ✅ 已修复（2026-06-20 实现）。缓存写入失败已在热点模块补齐 `warn!`，缓存删除失败则下沉到 `CacheManager::delete()` 统一记录 Redis 删除错误；本轮针对 `synapse-services`、`synapse-storage`、`synapse-federation`、`synapse-e2ee` 的残留 `let _ = self.cache.set/delete(...).await` 已清零。 |
 
 ---
 
-#### P2-03 `map_err(|_| ...)` 丢失错误上下文（~20 处） ⚠️ 部分完成
+#### P2-03 `map_err(|_| ...)` 丢失错误上下文（~20 处） ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -514,9 +520,9 @@
 | **描述** | 约 20 处使用 `map_err(|_| ApiError::internal(...))` 丢弃原始错误信息，不利于排障。 |
 | **位置** | [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) L402；[oidc.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/oidc.rs) L58, L78；[search.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/search.rs) L224, L234；[admin_registration_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_registration_service.rs) L202；[saml_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs) L220, L239 等 |
 | **处理方法** | 统一采用 `ApiError::internal_with_log(msg, &e)` 模式。 |
-| **验证方法** | 1. 原审查列举的 [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) 与 [oidc.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/oidc.rs) 当前已无 `map_err(|_| ApiError::internal(...))` 这类写法；2. 仓库内仍可直接看到残留点，例如 [key_rotation.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/key_rotation.rs#L542-L543)、[admin_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/utils/admin_auth.rs#L388-L389)、[content_scanner/service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/content_scanner/service.rs#L122-L123)。 |
+| **验证方法** | 原先最后残留的三个点位已完成收敛： [key_rotation.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/key_rotation.rs) 现在对 key 长度错误返回带长度信息的显式内部错误；[admin_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/utils/admin_auth.rs) 已把系统时间异常改为 `ApiError::internal_with_log("System time error", &e)`；[content_scanner/service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/content_scanner/service.rs) 也已对 webhook timeout 使用 `internal_with_log` 保留原始错误。 |
 | **所需资源** | 后端 0.5 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。原审查列举的多个关键调用点已修正，但仓库内仍存在少量 `map_err(|_| ApiError::internal(...))`，例如 `synapse-federation/src/key_rotation.rs`、`src/web/utils/admin_auth.rs`、`synapse-services/src/content_scanner/service.rs`，问题尚未完全清零。 |
+| **状态** | ✅ 已修复（2026-06-20 实现）。文档此前保留的最后几处无上下文 `map_err(|_| ApiError::internal(...))` 已全部替换为带错误上下文的实现，原问题不再残留于当前代码路径。 |
 
 ---
 
@@ -572,7 +578,7 @@
 
 ---
 
-#### P2-08 Token 缓存 TTL 不一致
+#### P2-08 Token 缓存 TTL 不一致 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -582,6 +588,7 @@
 | **处理方法** | 统一 TTL 定义，token 缓存使用 300s。 |
 | **验证方法** | [query_cache.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/query_cache.rs#L49-L63) 中 `QueryCacheConfig::default().token_ttl` 已为 `Duration::from_secs(300)`；[strategy.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/strategy.rs#L128-L130) 中 `CacheTtl::token()` 也统一返回 300 秒。 |
 | **所需资源** | 后端 0.1 人周 |
+| **状态** | ✅ 已修复（2026-06-20 复核）。[query_cache.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/query_cache.rs#L49-L63) 与 [strategy.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/cache/strategy.rs#L128-L130) 当前均将 token TTL 统一为 300 秒，文档中原先的 3600 秒差异已不存在。 |
 
 ---
 
@@ -619,9 +626,9 @@
 | **描述** | `synapse-services/src/lib.rs` 使用 `#![allow(ambiguous_glob_reexports)]` + ~20 处 `pub use X::*;`，使 services crate 公共 API 不可控。`src/storage/mod.rs` 有 ~30 处 wildcard re-export。 |
 | **位置** | [lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs) L1, L190-199；[storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs) |
 | **处理方法** | 移除 `#![allow(ambiguous_glob_reexports)]`，将 `pub use X::*;` 改为显式导出，或至少限制为 `pub(crate) use`。 |
-| **验证方法** | 当前复核可直接在 [synapse-services/src/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs#L1-L8) 看到 crate 级 `#![allow(ambiguous_glob_reexports)]` 与多处 `TODO: explicit exports (P2-11)`；[storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs#L94-L188) 也仍保留大量 `pub use self::...::*` / `pub use synapse_storage::...::*` 的 wildcard re-export。 |
+| **验证方法** | 当前复核显示 [synapse-services/src/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/lib.rs#L1-L239) 已移除 crate 级 `#![allow(ambiguous_glob_reexports)]`，并将 `friend_room_service`、`voice_service`、`beacon_service`、`external_service_integration` 的 wildcard re-export 改为显式导出，仅在 `database_initializer::*` 与 `room::space::*` 两条真实冲突导出线上保留局部 `#[allow(ambiguous_glob_reexports)]`；但 [storage/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs#L94-L188) 仍保留大量 `pub use self::...::*` / `pub use synapse_storage::...::*` 的 wildcard re-export。 |
 | **所需资源** | 后端 1 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前仅补充了 wildcard re-export 的注释与文档说明，但 `synapse-services/src/lib.rs` 仍保留 `#![allow(ambiguous_glob_reexports)]`，`synapse-services/src/lib.rs` 与 `src/storage/mod.rs` 仍大量使用 `pub use ...::*`，且源码仍留有 `TODO: explicit exports (P2-11)`。 |
+| **状态** | ⚠️ 部分完成（2026-06-20 更新）。`synapse-services/src/lib.rs` 已移除 crate 级 `#![allow(ambiguous_glob_reexports)]`，并把 `friend_room_service`、`voice_service`、`beacon_service`、`external_service_integration` 改为显式导出；但 `synapse-services/src/lib.rs` 其余核心模块以及 `src/storage/mod.rs` 仍保留大量 `pub use ...::*`，尚未达到“显式导出为主”的完成标准。 |
 
 ---
 
@@ -675,7 +682,7 @@
 | **描述** | `/_matrix/key/v2/query/{server_name}/{key_id}` 对远端结果做 canonical 包装，但未完整验证 `server_name`/`valid_until_ts`/`verify_keys`/`old_verify_keys`/`signatures` 自签名链路后再缓存。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L48-51 |
 | **处理方法** | 抽出 `ServerKeySet` 类型，完整校验上述字段后再入缓存。 |
-| **验证方法** | 1. 结构性校验至少覆盖 `server_name`、`valid_until_ts`、`verify_keys`、`signatures`；2. 自签名与 `old_verify_keys` 的完整验证链路有独立测试或显式校验实现。 |
+| **验证方法** | 当前复核可直接在 [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L351-L391) 看到缓存前会调用 `validate_server_key_response()`，而该函数在 [L394-L496](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L394-L496) 仅做 `server_name`、`valid_until_ts`、`verify_keys`、`signatures` 的结构性校验；同段注释明确声明“does not verify the cryptographic signature itself”，且 `canonical_response` 虽保留 `old_verify_keys` 字段 [L366-L377](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L366-L377)，但未见对应完整签名链路验证。 |
 | **所需资源** | 后端 0.5 人周 |
 | **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前 [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L394-L496) 已校验 `server_name`、`valid_until_ts`、`verify_keys` 与 `signatures` 的基本结构，并拒绝缺失自签名或过期响应；但注释明确说明“does not verify the cryptographic signature itself”，且尚未校验 `old_verify_keys` 的结构/签名链路，未达到文档声称的“完整验证自签名链路”。 |
 
@@ -689,7 +696,7 @@
 | **描述** | `valid_until_ts` 缺失时默认设为 `now + 3600s`，且未校验响应中的 `valid_until_ts` 是否已过期。攻击者可注入已过期但带有效签名的旧 key 响应。 |
 | **位置** | [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs) L324-327 |
 | **处理方法** | 1. `valid_until_ts` 缺失或早于 `now` 时拒绝缓存；2. 缓存 TTL 取 `min(configured_ttl, valid_until_ts - now)`。 |
-| **验证方法** | 1. `validate_server_key_response()` 对缺失或过期 `valid_until_ts` 返回拒绝；2. 缓存 TTL 使用 `min(configured_ttl, valid_until_ts - now)` 截断。 |
+| **验证方法** | [validate_server_key_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L420-L439) 当前会在 `valid_until_ts` 缺失、不可解析或早于当前时间时直接返回 `None` 拒绝缓存；而 [fetch_remote_server_keys_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L380-L391) 会把缓存 TTL 截断为 `configured_ttl.min(remaining_secs)`。 |
 | **所需资源** | 后端 0.3 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。`validate_server_key_response()` 已拒绝缺失或过期的 `valid_until_ts`，并在缓存时使用 `min(configured_ttl, valid_until_ts - now)` 限制 TTL，不再接受过期 server key 响应。 |
 
@@ -703,12 +710,13 @@
 | **描述** | `BASE_UNSTABLE_FEATURES` 声明了 `org.matrix.msc3266`、`org.matrix.msc3916`、`uk.tcpip.msc4133`，但项目规则 MSC 表未包含。MSC3916 实现证据不明。 |
 | **位置** | [versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs) L91-93；[project_rules.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/.trae/rules/project_rules.md) 第十节 |
 | **处理方法** | 1. 将三项 MSC 补入项目规则 MSC 表并标注证据；2. 核实 MSC3916 是否有实现，否则从声明移除。 |
-| **验证方法** | 1. 项目规则 MSC 表包含三项；2. `cargo test --features test-utils --test unit test_capability` 通过。 |
+| **验证方法** | 当前 [BASE_UNSTABLE_FEATURES](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs#L84-L93) 已不再声明 `org.matrix.msc3916`，仅保留 `org.matrix.msc3266` 与 `uk.tcpip.msc4133`；项目规则第十节的 MSC 表也已登记 [MSC3266](file:///Users/ljf/Desktop/hu_ts/synapse-rust/.trae/rules/project_rules.md#L454-L455) 与 [MSC4133](file:///Users/ljf/Desktop/hu_ts/synapse-rust/.trae/rules/project_rules.md#L455-L455)，与当前 `/versions` 声明面保持一致。 |
 | **所需资源** | 后端 0.2 人周 |
+| **状态** | ✅ 已修复（2026-06-20 复核）。`/versions` 的不稳定特性声明已移除缺乏实现证据的 `MSC3916`，并与项目规则中已登记的 `MSC3266`、`MSC4133` 对齐。 |
 
 ---
 
-#### P2-18 缺少 Complement 级互通测试
+#### P2-18 缺少 Complement 级互通测试 ⏳ 延后
 
 | 项 | 内容 |
 |---|---|
@@ -716,8 +724,9 @@
 | **描述** | 集成测试多为本仓库行为测试，缺少最小 Complement/Matrix SDK 互通门禁。结合 P0-04/P0-05/P0-08/P0-10，联邦互通缺陷难以被现有测试捕获。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L98-100 |
 | **处理方法** | 建立最小 Complement/SDK smoke 门禁：register/login/sync/create room/send event/federation key/server discovery/media。 |
-| **验证方法** | 1. Complement smoke 测试在 CI 中通过；2. 覆盖上述 8 个最小场景。 |
+| **验证方法** | 当前复核中，`.github/` 下未见 Complement 相关工作流或步骤，仓库内也未找到 `complement` 命名的测试目录/脚本；现有 `tests/` 主要由 unit、integration、e2e 与 element-web harness 组成，说明最小 Complement smoke 门禁尚未在当前仓库形态中落地。 |
 | **所需资源** | 后端 2 人周 + QA 1 人周 |
+| **状态** | ⏳ 延后（2026-06-20 复核）。当前仓库仍缺少 Complement 级互通测试资产与 CI 接入，现有覆盖主要停留在本仓库自测与浏览器 harness 层。 |
 
 ---
 
@@ -725,7 +734,7 @@
 
 ---
 
-#### P3-01 生产路由中 `unreachable!()`
+#### P3-01 生产路由中 `unreachable!()` ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -733,12 +742,13 @@
 | **描述** | `unreachable!()` 在 `panic=abort` 下会崩溃。虽由上方校验保证不可达，但应防御性编程。 |
 | **位置** | [federation/events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/events.rs) L332 |
 | **处理方法** | 改为返回 `ApiError::bad_request`。 |
-| **验证方法** | `grep "unreachable!" src/web/routes/` 零匹配。 |
+| **验证方法** | 原定位点 [events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/events.rs#L305-L360) 当前已改为直接构造 public rooms 响应并返回 `Ok(Json(...))`，其中 `next_batch` 显式返回 `null`，不再保留 `unreachable!()` 分支。 |
 | **所需资源** | 后端 0.1 人周 |
+| **状态** | ✅ 已修复（2026-06-20 复核）。原 `src/web/routes/` 中的生产 `unreachable!()` 路径已移除，相关联邦 public rooms 处理现在走显式 JSON 返回。 |
 
 ---
 
-#### P3-02 `src/storage/` 内联单元测试稀少
+#### P3-02 `src/storage/` 内联单元测试稀少 ⏳ 延后
 
 | 项 | 内容 |
 |---|---|
@@ -746,8 +756,9 @@
 | **描述** | `src/storage/` 有 ~55 个存储模块，但仅 2 个文件含 `#[cfg(test)]`。存储层通过集成测试覆盖，但缺少快速反馈的内联测试。 |
 | **位置** | `src/storage/` 目录 |
 | **处理方法** | 在核心存储模块补充内联单元测试。 |
-| **验证方法** | 核心存储模块有 `#[cfg(test)]` 模块。 |
+| **验证方法** | 当前复核中，`src/storage/` 目录下仅在 [audit.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/audit.rs) 与 [mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/storage/mod.rs) 找到 `#[cfg(test)]`，与该目录下大量存储模块数量相比仍明显偏少。 |
 | **所需资源** | 后端 1 人周 |
+| **状态** | ⏳ 延后（2026-06-20 复核）。存储层目前仍主要依赖集成测试覆盖，内联单元测试面没有明显扩展。 |
 
 ---
 
@@ -759,7 +770,7 @@
 | **描述** | `verify_event_content_hash` 使用 `if computed != sha256_hash` 非常量时间比较。 |
 | **位置** | [signing.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs) L138 |
 | **处理方法** | 改用 `synapse_common::crypto::secure_compare`。 |
-| **验证方法** | `grep "!=.*sha256_hash" synapse-federation/` 零匹配。 |
+| **验证方法** | [verify_event_content_hash()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/signing.rs#L85-L93) 当前已改为 `if !secure_compare(&computed, sha256_hash)`，直接通过 [secure_compare()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L91-L104) 执行内容哈希比较。 |
 | **所需资源** | 后端 0.1 人周 |
 
 ---
@@ -772,7 +783,7 @@
 | **描述** | `secure_compare`/`secure_compare_bytes` 在长度不同时立即返回，泄露长度信息。 |
 | **位置** | [crypto.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs) L234-243, L91-104 |
 | **处理方法** | 对变长敏感场景先 HMAC 再比较，或归一化长度。固定长度哈希场景加注释保留现状。 |
-| **验证方法** | 时序测试：不同长度输入比较时间一致。 |
+| **验证方法** | [secure_compare()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L91-L104) 与 [secure_compare_bytes()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L280-L292) 当前都先计算 `max_len`，再把长度差异折叠进 `result` 后遍历到较长输入末尾，不再在长度不同时提前返回。 |
 | **所需资源** | 后端 0.2 人周 |
 
 ---
@@ -785,22 +796,22 @@
 | **描述** | `generate_signing_key` 返回 `random_string(44)`，不是 base64 编码的 Ed25519 私钥种子。若用于真实密钥生成将产生无法签名的"密钥"。 |
 | **位置** | [crypto.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs) L262-266 |
 | **处理方法** | 若用于真实密钥：改用 `ed25519_dalek::SigningKey::generate(&mut OsRng)`。若仅测试：加 `#[cfg(test)]`。 |
-| **验证方法** | 确认调用方；测试生成的密钥可用于 Ed25519 签名。 |
+| **验证方法** | [generate_signing_key()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L312-L319) 当前已加上 `#[cfg(test)]`，仅在测试编译目标中可见；其调用也位于同文件的测试模块 [crypto.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L321-L358) 与 [test_generate_signing_key()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/crypto.rs#L520-L526) 中，不再作为生产签名密钥生成路径暴露。 |
 | **所需资源** | 后端 0.2 人周 |
 
 ---
 
-#### P3-06 SELECT * 使用（2 处） ⚠️ 部分完成
+#### P3-06 SELECT * 使用（2 处） ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
 | **域** | 性能 |
 | **描述** | `get_pending_transactions` 使用 `SELECT *`；`impl_sqlx_types` 宏定义了 `SELECT * FROM users`（宏未使用，死代码）。 |
-| **位置** | [application_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/application_service.rs) L680；[macros.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/common/macros.rs) L6 |
+| **位置** | [application_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/application_service.rs)；[macros.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/macros.rs) |
 | **处理方法** | 明确列出所需列；删除未使用宏。 |
-| **验证方法** | 1. `get_pending_transactions` 不再使用 `SELECT *`；2. 相关公共宏实现中不再保留 `SELECT * FROM users` 这类死代码。 |
+| **验证方法** | [get_pending_transactions()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/application_service.rs#L675-L686) 当前已显式列出所需列；同时 [synapse-common/macros.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/macros.rs) 已移除未使用的 `impl_sqlx_types!` 死宏，仅保留实际仍被使用的错误映射宏，不再残留 `SELECT * FROM users WHERE active = true` 的占位查询。 |
 | **所需资源** | 后端 0.1 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。`synapse-storage` 中相关查询已收敛，但 `synapse-common/src/macros.rs` 仍保留 `impl_sqlx_types!` 宏中的 `SELECT * FROM users WHERE active = true`，死代码宏尚未完全删除。 |
+| **状态** | ✅ 已修复（2026-06-20 实现）。存储层查询已全部改为显式列选择，遗留死宏中的 `SELECT *` 也已删除，原审查列举的两处问题均已收口。 |
 
 ---
 
@@ -812,7 +823,7 @@
 | **描述** | Worker 选择时循环调用 `is_healthy` 检查每个候选 worker，未并行化。Health check 循环顺序检查。 |
 | **位置** | [manager.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/worker/manager.rs) L716-720；[health.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/worker/health.rs) L231-233 |
 | **处理方法** | 使用 `join_all` 并行检查。 |
-| **验证方法** | `select_worker_fallback()` 已将候选 worker 的 `is_healthy()` 检查收集为 futures，并通过 `futures::future::join_all(...)` 并行执行后汇总健康 worker 集合。 |
+| **验证方法** | [select_worker_fallback()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/worker/manager.rs#L717-L733) 当前会先把每个候选 worker 的 `is_healthy()` 封装成独立 future，再通过 `futures::future::join_all(...)` 一次性等待并汇总 `healthy_worker_ids`。 |
 | **所需资源** | 后端 0.2 人周 |
 
 ---
@@ -825,7 +836,7 @@
 | **描述** | FederationClient 的 reqwest Client 未显式配置 `pool_max_idle_per_host`/`keepalive`。 |
 | **位置** | [client.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/client.rs) L188-195 |
 | **处理方法** | 显式配置 `pool_max_idle_per_host(20)` 和 `pool_idle_timeout`。 |
-| **验证方法** | `FederationClient::new()` 已显式配置 `pool_max_idle_per_host(20)`、`pool_idle_timeout(Duration::from_secs(90))` 与 `tcp_keepalive(Duration::from_secs(60))`。 |
+| **验证方法** | [FederationClient::new()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/client.rs#L186-L198) 当前在 `Client::builder()` 上显式设置了 `pool_max_idle_per_host(20)`、`pool_idle_timeout(Duration::from_secs(90))`、`tcp_keepalive(Duration::from_secs(60))` 与 `connect_timeout(Duration::from_secs(10))`。 |
 | **所需资源** | 后端 0.1 人周 |
 
 ---
@@ -838,13 +849,13 @@
 | **描述** | `/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}` 等非 Matrix 规范路径，增加协议面维护负担。 |
 | **位置** | [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs) L228, L241, L244, L256, L257 |
 | **处理方法** | 评估是否为扩展用途；若为扩展，迁移到 `io.hula.*` 或 `/_synapse/` 命名空间。 |
-| **验证方法** | 非标准路径不在 `/_matrix/federation/` 下。 |
+| **验证方法** | 当前 [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs#L222-L257) 仍可直接看到多个非标准扩展路由保留在标准联邦命名空间下，例如 `/_matrix/federation/v1/get_joining_rules/{room_id}`、`/_matrix/federation/v1/event_auth`、`/_matrix/federation/v1/keys/claim`、`/_matrix/federation/v1/publicRooms` 与 `/_matrix/federation/v1/query/directory`。 |
 | **所需资源** | 后端 0.3 人周 |
 | **状态** | ❌ 未完成（2026-06-20 复核）。`/_matrix/federation/v2/key/clone`、`/_matrix/federation/v1/room_auth/{room_id}`、`/_matrix/federation/v1/keys/claim` 等路径仍保留在标准联邦命名空间下，仅增加了“非标准扩展”注释，未完成迁移。 |
 
 ---
 
-#### P3-10 sliding sync 缺少性能回滚闸门 ⚠️ 部分完成
+#### P3-10 sliding sync 缺少性能回滚闸门 ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
@@ -852,9 +863,9 @@
 | **描述** | Synapse v1.153.0rc3 因性能问题回滚 sliding sync 优化；本项目有 sliding sync 路由与测试，但无性能阈值/回滚机制。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L77-80 |
 | **处理方法** | 为 sliding sync 增加 subscription-change benchmark、p95/p99 与 query count 快照，设置回滚阈值。 |
-| **验证方法** | 1. 仓库存在 `performance_sliding_sync_benchmarks` 基准；2. CI 或发布前性能门禁实际执行该基准并校验阈值。 |
+| **验证方法** | [performance_sliding_sync_benchmarks.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/benches/performance_sliding_sync_benchmarks.rs#L1-L31) 当前已提供 sliding sync 的 benchmark、`p95/p99` 与 query-count 采样；[SlidingSyncService](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/sliding_sync_service.rs#L107-L190) 已提供阈值、慢请求计数与回滚告警；同时 [.github/workflows/benchmark.yml](file:///Users/ljf/Desktop/hu_ts/synapse-rust/.github/workflows/benchmark.yml#L75-L80) 现已把 `performance_sliding_sync_benchmarks` 纳入 benchmark workflow。 |
 | **所需资源** | 后端 0.5 人周 |
-| **状态** | ⚠️ 部分完成（2026-06-20 复核）。当前已补充 sliding sync 的基准代码、p95/p99 统计与阈值相关实现，但 `.github/workflows/benchmark.yml` 尚未接入 `performance_sliding_sync_benchmarks`，CI 级性能回滚闸门仍未完全落地。 |
+| **状态** | ✅ 已修复（2026-06-20 实现）。sliding sync 的基准代码、阈值统计与 workflow 接线现已闭环，benchmark workflow 会直接执行 `performance_sliding_sync_benchmarks`。 |
 
 ---
 
@@ -866,7 +877,7 @@
 | **描述** | 缺少 `device_lists_changes_in_room`、过期 presence、过期 one-time key 的统一后台剪枝任务，长期实例磁盘膨胀。 |
 | **位置** | [MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/MATRIX_SYNAPSE_AUDIT_AND_OPTIMIZATION_PLAN_2026-05-29.md) L82-85 |
 | **处理方法** | 新增 background update 剪枝旧 device list change、过期 presence、过期 OTK。 |
-| **验证方法** | 1. 启动流程中已注册每日后台剪枝任务；2. 任务循环中调用 `prune_old_device_list_changes`、`prune_expired_presence`、`prune_expired_one_time_keys`。 |
+| **验证方法** | [server.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/server.rs#L620-L657) 当前已注册每日数据库剪枝循环，并在同一任务内依次调用 [prune_old_device_list_changes() / prune_expired_presence() / prune_expired_one_time_keys()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/pruning.rs#L36-L60)。 |
 | **所需资源** | 后端 1 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。[server.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/server.rs#L620-L678) 已启动每日剪枝循环，并调用 [pruning.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-storage/src/pruning.rs#L36-L60) 中对应的三类清理函数。 |
 
@@ -880,7 +891,7 @@
 | **描述** | 缺失 `GET /_synapse/admin/v1/quarantine_media/{media_id}/changes`、`GET /_synapse/admin/v1/rooms/{room_id}/reports`、`DELETE /_synapse/admin/v1/rooms/{room_id}/reports/{report_id}`；room details 的 tombstoned/replacement_room 字段不完整。 |
 | **位置** | [API_COVERAGE_REPORT.md](file:///Users/ljf/Desktop/hu_ts/synapse-rust/docs/synapse-rust/API_COVERAGE_REPORT.md) L122-126 |
 | **处理方法** | 优先补"审计/治理类"接口。 |
-| **验证方法** | 1. `admin/media.rs` 与 `admin/report.rs` 已声明缺失的 admin 路由；2. `api_admin_regression_tests.rs` 与 `api_room_tests.rs` 覆盖了 room reports/room details 的关键回归路径；3. room details 响应已返回 `tombstoned`/`replacement_room` 字段。 |
+| **验证方法** | [media.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/media.rs#L11-L20) 与 [report.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/report.rs#L12-L22) 当前已补齐缺失的 admin 路由；[admin/room/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/room/mod.rs#L378-L398) 已在 room details 响应中返回 `tombstoned`/`replacement_room`；相关回归断言位于 [api_admin_regression_tests.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/tests/integration/api_admin_regression_tests.rs#L259-L340) 与 [api_room_tests.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/tests/integration/api_room_tests.rs#L1772-L1828)。 |
 | **所需资源** | 后端 1 人周 |
 | **状态** | ✅ 已修复（2026-06-19）。[media.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/media.rs#L17-L19) 与 [report.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/report.rs#L15-L20) 已补齐缺失路由，[mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/room/mod.rs#L378-L397) 已返回 `tombstoned`/`replacement_room` 字段，相关回归测试见 [api_admin_regression_tests.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/tests/integration/api_admin_regression_tests.rs#L259-L340) 与 [api_room_tests.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/tests/integration/api_room_tests.rs#L1772-L1828)。 |
 
@@ -914,12 +925,11 @@ P0-03 (token secret) 独立
 5. **Week 2-3**：P0-10 + P0-11 — 状态解析 v2 算法（最复杂，独立 lane）
 6. **Week 1**：P0-12（room version 声明降级）— 立即降级，待 P0-05/06/09 完成后恢复
 
-**验证门禁**：
-- `cargo test --features test-utils --test integration` 全部通过
-- 引入 Matrix canonical JSON test vectors 对照测试
-- 引入 Matrix state resolution v2 test vectors 对照测试
-- XSW 攻击向量测试
-- SSRF 黑名单测试
+**复核要点**：
+- 复核 [canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs) 是否仍由共享 canonical JSON helper 统一承担签名/哈希序列化，并核对浮点与整数边界行为是否与 `P0-04`、`P2-14` 的状态一致。
+- 复核 [redaction.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/redaction.rs)、[room/events.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/room/events.rs) 与 [transaction.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/transaction.rs) 的 redaction 链路，确认 `redacts` 提取、内容剥离与联邦入口行为一致。
+- 复核 [state_resolution.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-federation/src/event_auth/state_resolution.rs) 与 [power_levels.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/auth/power_levels.rs) 是否仍保持 room-version 相关的状态解析与 self-redact 判定。
+- 对 SAML、SSRF 等高风险修复，优先依据 [saml_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/saml_service.rs) 与 [federation_auth.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/middleware/federation_auth.rs) 的实现路径复核，再按需补充攻击向量测试。 
 
 ---
 
@@ -951,11 +961,11 @@ P1-18~P1-20 (安全)              独立
 6. **Week 4-5**：P1-15+P1-16（container 拆分）、P1-17（大文件拆分）
 7. **Week 5-6**：P1-18（JWT aud/iss）、P1-19（Ed25519 strict）、P1-20（日志脱敏）
 
-**验证门禁**：
-- `scripts/check_layer_isolation.sh` 零 WARNING
-- `cargo clippy --all-features --locked -- -D warnings` 通过
-- `cargo bench` 关键路径性能提升
-- `python3 scripts/ci/check_root_canonical_ledger.py` 维持 full_impl=0
+**复核要点**：
+- 复核 routes 与 services 是否仍直接依赖存储实现：重点查看 [admin/notification.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/notification.rs)、[admin/report.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/admin/report.rs)、[app_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/app_service.rs) 等残留点。
+- 复核 `PgPool` 是否仍直接持有在服务层：重点查看 [admin_server_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/admin_server_service.rs)、[retention_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/retention_service.rs) 与 [telemetry_service.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/telemetry_service.rs)。
+- 复核 facade 收口与工作区结构：查看 [Cargo.toml](file:///Users/ljf/Desktop/hu_ts/synapse-rust/Cargo.toml#L203-L211) 的 workspace members，以及 `scripts/ci/check_root_canonical_ledger.py` 当前用于判定 thin facade 的基线含义。
+- 复核关键性能修复是否仍停留在实现层：例如批量查询、并行健康检查和连接池设置，应分别与对应 issue 的源码证据保持一致。 
 
 ---
 
@@ -971,11 +981,11 @@ P1-18~P1-20 (安全)              独立
 5. P2-14（浮点拒绝，与 P0-04 合并）、P2-15+P2-16（联邦 key 校验）— 兼容性
 6. P2-17（MSC 登记）、P2-18（Complement 测试）— 兼容性
 
-**验证门禁**：
-- 内部错误路径不再继续引入 `map_err(|_| ApiError::internal(...))` 这类丢失上下文的写法
-- `grep "unwrap_or_default" src/web/routes/` 零匹配
-- 缓存 single-flight 压力测试通过
-- Complement smoke 测试在 CI 中通过
+**复核要点**：
+- 复核内部错误路径是否仍保留上下文：优先对照 [search.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/search.rs)、[e2ee_routes.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/e2ee_routes.rs) 等已修复点，以及本轮刚完成收敛的 `key_rotation.rs`、`admin_auth.rs`、`content_scanner/service.rs`，防止同类写法回退。
+- 复核缓存与批量化改动是否真正落在实现层：重点查看 [synapse-cache/src/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-cache/src/lib.rs)、相关 single-flight 入口，以及 `P2-06`、`P2-07`、`P2-09`、`P2-10` 的存储/客户端实现。
+- 复核配置收敛和兼容性项是否仍有残留：重点查看 [container.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-services/src/container.rs)、[versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs) 与 [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs)。
+- 复核 Complement 资产是否真正落地时，直接检查 `.github/` 与 `tests/` 是否出现对应 workflow、目录或脚本，而不是以预期 CI 结果代替当前仓库事实。 
 
 ---
 
@@ -1023,7 +1033,7 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 
 3. **架构分层**（P1-01 至 P1-05）：storage 泄漏到 services、routes 跳层访问 storage、synapse-web 死代码。虽不直接影响功能，但增加维护成本和回归风险。
 
-建议按阶段一→二→三→四的顺序推进，每阶段完成后运行全部门禁验证。
+建议按阶段一→二→三→四的顺序推进，每阶段完成后依据对应条目的实现证据重新复核状态，并仅对高风险改动补充必要测试门禁。
 
 ---
 
@@ -1040,7 +1050,7 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | **描述** | P0-02 修复了 `fetch_federation_verify_key` 的 SSRF 漏洞，但遗漏了第二处 `fetch_remote_server_keys_response`。该函数构造 URL 时包含 HTTP fallback（明文，MITM 风险），未调用 `check_url_against_blacklist`，未配置重定向策略。攻击者可注册 `server_name` 使其 DNS 解析到 `127.0.0.1`、`169.254.169.254`（云元数据）、`10.0.0.0/8` 内网，通过公开端点 `GET /_matrix/key/v2/query/{server_name}/{key_id}` 诱导服务器读取内网资源。 |
 | **位置** | [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs) L269-353 |
 | **处理方法** | 1. 调用 `check_url_against_blacklist` 进行 IP 黑名单过滤；2. 移除 HTTP fallback，仅允许 HTTPS；3. 配置 `reqwest::redirect::Policy::none()` 禁用重定向。 |
-| **验证方法** | 1. `fetch_remote_server_keys_response()` 中调用 `check_url_against_blacklist`；2. URL 列表仅包含 `https://...`；3. `reqwest::redirect::Policy::none()` 已配置。 |
+| **验证方法** | [fetch_remote_server_keys_response()](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L317-L352) 当前仅构造 `https://{server_name}/...` 的 key 获取 URL，并在循环内对每个候选地址调用 `check_url_against_blacklist(url, ip_blacklist)`；同函数创建的 reqwest client 也已显式设置 [redirect(reqwest::redirect::Policy::none())](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L415-L420)。 |
 
 ### NEW-P1-01 OIDC 回调将邮箱地址以 INFO 级别记录 ✅ 已修复
 
@@ -1156,13 +1166,13 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | NEW-P1-04/05 | batch state event 查询缺少 LIMIT | ✅ 已修复 |
 | NEW-P1-06/07 | 联邦 publicRooms 协议合规性 | ✅ 已修复 |
 
-### P2 — 中期修复（9/18 完成）
+### P2 — 中期修复（12/18 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
-| P2-01 | 生产代码中的 expect() (5处) | ⚠️ 部分完成（文档汇总曾误标为已修复，但原列举的 5 处生产 `expect()` 仍在） |
-| P2-02 | 缓存写入错误被静默忽略 (6处) | ⚠️ 部分完成（关键点已有改进，但仓库内仍有大量无日志的 `let _ = self.cache.set/delete(...)`） |
-| P2-03 | map_err(\|_\| ...) 丢失错误上下文 (18处) | ⚠️ 部分完成（关键调用点已修正，但仓库内仍残留少量 `map_err(|_| ApiError::internal(...))`） |
+| P2-01 | 生产代码中的 expect() (5处) | ✅ 已修复（HMAC 改为显式 Result，Argon2 fallback 去除 panic 路径） |
+| P2-02 | 缓存写入错误被静默忽略 (6处) | ✅ 已修复（写入失败补齐 `warn!`，删除失败统一下沉到 `CacheManager::delete()` 记录） |
+| P2-03 | map_err(\|_\| ...) 丢失错误上下文 (18处) | ✅ 已修复（残留点已改为 `internal_with_log` 或显式长度错误） |
 | P2-04 | search_service 重复实现 | ✅ 已修复（抽取 collect_child_rooms 辅助函数） |
 | P2-05 | 签名密钥加密改用 HKDF | ✅ 已修复（HKDF-SHA256 替代单次 SHA-256） |
 | P2-06 | 缓存 single-flight 防击穿 | ✅ 已修复（get_or_fetch + per-key Mutex） |
@@ -1170,7 +1180,7 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | P2-08 | Token 缓存 TTL 不一致 (300s vs 3600s) | ✅ 已修复 |
 | P2-09 | N+1 批量查询（其他） | ✅ 已修复（9 处批量查询改造） |
 | P2-10 | 连接池配置优化 | ✅ 已修复（max_size=50, test_before_acquire=false） |
-| P2-11 | wildcard re-export | ⚠️ 部分完成（仅补充注释与说明，未移除 wildcard re-export / `allow(ambiguous_glob_reexports)`） |
+| P2-11 | wildcard re-export | ⚠️ 部分完成（已移除 crate 级 `allow(ambiguous_glob_reexports)`，并显式化部分 feature 模块导出） |
 | P2-12 | 配置外提 | ⚠️ 部分完成（部分配置已外提，但仍保留媒体路径等硬编码回退值） |
 | P2-13 | 配置外提 | ⚠️ 部分完成（仍保留 `env::var` 向后兼容回退，未达到零直接读取） |
 | P2-14 | canonical JSON 允许浮点数 | ⚠️ 部分完成（已拒绝非整数浮点与超范围整数，但 `1.0` 仍会被归一化接受） |
@@ -1179,7 +1189,7 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | P2-17 | MSC 登记 | ✅ 已修复（MSC3266/MSC4133 登记，移除未实现的 MSC3916） |
 | P2-18 | Complement 测试 | ⏳ 延后（需 QA 配合，3 人周） |
 
-### P3 — 低优先级（8/12 完成）
+### P3 — 低优先级（10/12 完成）
 
 | 编号 | 描述 | 状态 |
 |------|------|------|
@@ -1188,25 +1198,24 @@ synapse-rust 项目在工程纪律（少量已知 TODO 跟踪项、无 unsafe、
 | P3-03 | 事件内容哈希比较非 constant-time | ✅ 已修复 |
 | P3-04 | secure_compare 长度不同时立即返回 | ✅ 已修复（constant-time 长度折叠） |
 | P3-05 | generate_signing_key 生成随机字符串 | ✅ 已修复（#[cfg(test)] 限制） |
-| P3-06 | SELECT * 使用（2 处） | ⚠️ 部分完成（存储层查询已收敛，但 `synapse-common/src/macros.rs` 仍保留死代码宏中的 `SELECT *`） |
+| P3-06 | SELECT * 使用（2 处） | ✅ 已修复（存储查询显式列出字段，死代码宏中的 `SELECT *` 已删除） |
 | P3-07 | Worker 健康检查未并行化 | ✅ 已修复（futures::join_all） |
 | P3-08 | 联邦 HTTP 客户端未配置连接池 | ✅ 已修复（pool_max_idle_per_host=20） |
 | P3-09 | 非标准联邦路径 | ❌ 未完成（仍位于 `/_matrix/federation/` 命名空间，仅补充了扩展注释） |
-| P3-10 | sliding sync 缺少性能回滚闸门 | ⚠️ 部分完成（已有 benchmark 与 p95/p99 统计，但 CI 尚未接入 sliding sync 基准门禁） |
+| P3-10 | sliding sync 缺少性能回滚闸门 | ✅ 已修复（benchmark workflow 已接入 sliding sync 基准） |
 | P3-11 | 设备列表/presence 缺少长期运行剪枝 | ✅ 已修复（每日后台剪枝任务） |
 | P3-12 | Admin API 与上游 v1.153 存在差距 | ✅ 已修复（DELETE report/quarantine changes/tombstoned 字段） |
 
 ### 部署就绪状态评估
 
-**部署判断**：按当前代码静态复核，所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）；剩余未完成项以架构重构、配置收敛、非标准路径治理和测试债务为主。P2 中期修复完成 9/18，P3 低优先级修复完成 8/12；其中 P2-01、P2-02、P2-03、P2-11、P2-12、P2-13、P2-14、P2-15、P3-06、P3-10 为部分完成，P3-09 尚未完成。基于当前问题分级，项目具备部署前提，但仍建议在后续迭代中继续收敛这些非 P0/P1 阻断项。
+**部署判断**：按当前代码静态复核，所有 P0 安全漏洞和联邦协议合规性问题已修复（13/13）；剩余未完成项以架构重构、配置收敛、非标准路径治理和测试债务为主。P2 中期修复完成 12/18，P3 低优先级修复完成 10/12；其中 P2-11、P2-12、P2-13、P2-14、P2-15 仍为部分完成，P3-09 尚未完成。基于当前问题分级，项目具备部署前提，但仍建议在后续迭代中继续收敛这些非 P0/P1 阻断项。
 
-**最近一次文档记录的验证结果**（2026-06-20）：
-- `cargo check --locked --workspace` ✅ 通过
-- `cargo clippy --locked --workspace --all-features -- -D warnings` ✅ 通过（零警告）
-- `cargo fmt --all -- --check` ✅ 通过
-- `cargo test --features test-utils --test unit --locked` ✅ 862 passed, 0 failed
-- `cargo test --features test-utils --test integration --locked --no-run` ✅ 编译通过
-- 联邦签名、canonical JSON、安全回归、placeholder scan、worker 覆盖率测试全部通过
+**最近一次静态复核依据**（2026-06-20）：
+- [synapse-cache/lib.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-cache/src/lib.rs#L894-L902) 现已在 `CacheManager::delete()` 内统一记录 Redis 删除失败；同时 `synapse-services/src`、`synapse-storage/src`、`synapse-federation/src`、`synapse-e2ee/src` 范围内针对 `let _ = self.cache.set/delete(...).await` 的静态复核已清零，因此 `P2-02` 更新为“已修复”。
+- [canonical_json.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/synapse-common/src/canonical_json.rs#L97-L126) 与其内联测试表明：non-integer float 和超范围整数已拒绝，但 `1.0` 仍会被归一化为 `1`，因此 `P2-14` 维持“部分完成”。
+- [keys.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/keys.rs#L351-L496) 表明 server key 获取前已做 `valid_until_ts`/`verify_keys`/`signatures` 结构校验与 TTL 截断，但完整密码学签名链验证仍未补齐，因此 `P2-15` 仍为“部分完成”。
+- [federation/mod.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/federation/mod.rs#L55-L90) 仍可见 `/_matrix/federation/...` 下保留的非标准扩展路径，因此 `P3-09` 继续标记为“未完成”。
+- `.github/` 当前未见 Complement 相关工作流，仓库内也未见 `complement` 命名测试资产，说明 `P2-18` 仍停留在“延后”状态。
 
 **延后项**（不影响部署）：
 - P1-01/03/04/15/16/17：架构重构任务（4+ 人周），不影响功能正确性

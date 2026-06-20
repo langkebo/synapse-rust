@@ -171,7 +171,9 @@ impl TypingService {
                 self.cache.delete(&key).await;
             } else {
                 let ttl = DEFAULT_TYPING_TTL;
-                let _ = self.cache.set(&key, &state, ttl).await;
+                if let Err(e) = self.cache.set(&key, &state, ttl).await {
+                    ::tracing::warn!(room_id = %room_id, cache_key = %key, error = %e, "Failed to refresh typing cache");
+                }
             }
         }
 
@@ -201,7 +203,14 @@ impl TypingService {
                         self.cache.delete(&key).await;
                     } else {
                         let ttl = DEFAULT_TYPING_TTL;
-                        let _ = self.cache.set(&key, &state, ttl).await;
+                        if let Err(e) = self.cache.set(&key, &state, ttl).await {
+                            ::tracing::warn!(
+                                room_id = %room_id,
+                                cache_key = %key,
+                                error = %e,
+                                "Failed to refresh typing cache in batch lookup"
+                            );
+                        }
                     }
                 }
             }

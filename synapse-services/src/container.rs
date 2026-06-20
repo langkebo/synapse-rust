@@ -452,16 +452,46 @@ fn burn_after_read_processor_enabled(config_enabled: bool) -> bool {
 // =============================================================================
 
 #[derive(Clone)]
+/// Admin services grouped by sub-domain.
+///
+/// Logical groups (P1-16): full struct split deferred due to caller impact
+/// across ~40 route files. Groups documented here for future refactoring.
 pub struct AdminServices {
+    // --- User & Registration ---
     pub admin_registration_service: crate::admin_registration_service::AdminRegistrationService,
+    pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
+    pub email_verification_storage: EmailVerificationStorage,
+    pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
+
+    // --- Audit & Server ---
     pub audit_storage: synapse_storage::audit::AuditEventStorage,
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
-    pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
-    pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
-    pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
     pub admin_server_service: Arc<crate::admin_server_service::AdminServerService>,
+    pub telemetry_alert_service: Arc<crate::telemetry_service::TelemetryAlertService>,
+
+    // --- Federation ---
+    pub admin_federation_service: Arc<crate::admin_federation_service::AdminFederationService>,
+    pub federation_blacklist_storage: synapse_storage::federation_blacklist::FederationBlacklistStorage,
+    pub federation_blacklist_service: Arc<crate::federation_blacklist_service::FederationBlacklistService>,
+
+    // --- Media ---
+    pub admin_media_service: Arc<crate::admin_media_service::AdminMediaService>,
+    pub media_quota_storage: synapse_storage::media_quota::MediaQuotaStorage,
+    pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
+
+    // --- Security ---
+    pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
+    pub captcha_storage: synapse_storage::captcha::CaptchaStorage,
+    pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
+
+    // --- Tokens ---
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
+    pub refresh_token_storage: synapse_storage::refresh_token::RefreshTokenStorage,
+    pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
+    pub registration_token_storage: synapse_storage::registration_token::RegistrationTokenStorage,
+    pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
+
+    // --- Modules & Retention ---
     pub feature_flag_storage: synapse_storage::feature_flags::FeatureFlagStorage,
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: synapse_storage::event_report::EventReportStorage,
@@ -473,28 +503,21 @@ pub struct AdminServices {
     pub account_validity_service: Arc<crate::module_service::AccountValidityService>,
     pub retention_storage: synapse_storage::retention::RetentionStorage,
     pub retention_service: Arc<crate::retention_service::RetentionService>,
-    pub refresh_token_storage: synapse_storage::refresh_token::RefreshTokenStorage,
-    pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
-    pub registration_token_storage: synapse_storage::registration_token::RegistrationTokenStorage,
-    pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
-    pub captcha_storage: synapse_storage::captcha::CaptchaStorage,
-    pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
-    pub federation_blacklist_storage: synapse_storage::federation_blacklist::FederationBlacklistStorage,
-    pub federation_blacklist_service: Arc<crate::federation_blacklist_service::FederationBlacklistService>,
     pub push_notification_storage: synapse_storage::push_notification::PushNotificationStorage,
     pub push_notification_service: Arc<crate::push_notification_service::PushNotificationService>,
-    pub media_quota_storage: synapse_storage::media_quota::MediaQuotaStorage,
-    pub media_quota_service: Arc<crate::media_quota_service::MediaQuotaService>,
-    pub telemetry_alert_service: Arc<crate::telemetry_service::TelemetryAlertService>,
-    pub email_verification_storage: EmailVerificationStorage,
-    pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
-    pub rendezvous_storage: synapse_storage::rendezvous::RendezvousStorage,
-    pub rendezvous_message_storage: synapse_storage::rendezvous::RendezvousMessageStorage,
+
+    // --- App Services ---
     pub app_service_storage: ApplicationServiceStorage,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
     #[cfg(feature = "external-services")]
     pub external_service_integration: Arc<crate::external_service_integration::ExternalServiceIntegration>,
+
+    // --- Rendezvous ---
+    pub rendezvous_storage: synapse_storage::rendezvous::RendezvousStorage,
+    pub rendezvous_message_storage: synapse_storage::rendezvous::RendezvousMessageStorage,
+
+    // --- Worker ---
     pub worker_storage: crate::worker::WorkerStorage,
     pub worker_manager: Arc<crate::worker::WorkerManager>,
 }

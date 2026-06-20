@@ -199,10 +199,14 @@ impl MegolmVodozemacService {
         self.storage.create_session(&session).await?;
 
         let cache_key = format!("megolm_session:{session_id}");
-        let _ = self.cache.set(&cache_key, &session, 600).await;
+        if let Err(e) = self.cache.set(&cache_key, &session, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to cache outbound megolm session");
+        }
 
         let key_cache_key = format!("megolm_session_key_raw:{session_id}");
-        let _ = self.cache.set(&key_cache_key, &session_key_b64, 600).await;
+        if let Err(e) = self.cache.set(&key_cache_key, &session_key_b64, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %key_cache_key, error = %e, "Failed to cache raw megolm session key");
+        }
 
         ::tracing::info!(
             room_id = %room_id,
@@ -251,7 +255,9 @@ impl MegolmVodozemacService {
         self.storage.create_session(&session).await?;
 
         let cache_key = format!("megolm_session:{session_id}");
-        let _ = self.cache.set(&cache_key, &session, 600).await;
+        if let Err(e) = self.cache.set(&cache_key, &session, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to cache inbound megolm session");
+        }
 
         ::tracing::info!(
             room_id = %room_id,
@@ -293,7 +299,9 @@ impl MegolmVodozemacService {
             .await?
             .ok_or_else(|| ApiError::not_found("Session not found".to_string()))?;
 
-        let _ = self.cache.set(&cache_key, &session, 600).await;
+        if let Err(e) = self.cache.set(&cache_key, &session, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to cache loaded megolm session");
+        }
         Ok(session)
     }
 
@@ -374,7 +382,9 @@ impl MegolmVodozemacService {
             vodozemac_pickle: Some(new_pickle_str),
             ..session
         };
-        let _ = self.cache.set(&cache_key, &updated_session, 600).await;
+        if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to refresh megolm session cache after encrypt");
+        }
 
         ::tracing::debug!(
             session_id = %session_id,
@@ -420,7 +430,9 @@ impl MegolmVodozemacService {
             vodozemac_pickle: Some(new_pickle_str),
             ..session
         };
-        let _ = self.cache.set(&cache_key, &updated_session, 600).await;
+        if let Err(e) = self.cache.set(&cache_key, &updated_session, 600).await {
+            ::tracing::warn!(session_id = %session_id, cache_key = %cache_key, error = %e, "Failed to refresh megolm session cache after decrypt");
+        }
 
         Ok(decrypted.plaintext)
     }

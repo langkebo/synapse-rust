@@ -71,17 +71,27 @@ impl PasswordHashPool {
         &self.semaphore
     }
 
-    #[allow(clippy::expect_used)]
     pub fn with_metrics(
         config: PasswordHashPoolConfig,
         argon2_config: Argon2Config,
         metrics_collector: &MetricsCollector,
     ) -> Self {
-        let params = argon2_config.to_argon2_params().unwrap_or_else(|e| {
-            tracing::error!("Invalid Argon2 config, using OWASP defaults: {}", e);
-            argon2::Params::new(19 * 1024, 2, 1, Some(32)).expect("OWASP default Argon2 params are valid")
-        });
-        let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+        let argon2 = match argon2_config.to_argon2_params() {
+            Ok(params) => Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params),
+            Err(e) => {
+                tracing::error!("Invalid Argon2 config, using OWASP defaults: {}", e);
+                match argon2::Params::new(19 * 1024, 2, 1, Some(32)) {
+                    Ok(params) => Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params),
+                    Err(fallback_error) => {
+                        tracing::error!(
+                            "Failed to build OWASP fallback Argon2 params, using crate defaults: {}",
+                            fallback_error
+                        );
+                        Argon2::default()
+                    }
+                }
+            }
+        };
 
         Self {
             semaphore: Arc::new(Semaphore::new(config.max_concurrent)),

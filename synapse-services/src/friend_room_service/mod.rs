@@ -1,6 +1,13 @@
 pub mod groups;
 pub mod models;
-pub use models::*;
+pub use models::{
+    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot,
+    DmPartnerInfo, EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
+    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
+};
+use self::models::{
+    ensure_room_in_direct_map, get_room_direct_users, merge_direct_links, remove_room_from_direct_map, sort_letter_for,
+};
 
 use crate::RoomService;
 use serde_json::{json, Map, Value};
@@ -116,7 +123,15 @@ impl FriendRoomService {
         }
 
         if let Ok(Some(room_id)) = self.friend_storage.get_friend_list_room_id(user_id).await {
-            let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
+            if let Err(e) = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await {
+                ::tracing::warn!(
+                    user_id = %user_id,
+                    cache_key = %room_cache_key,
+                    room_id = %room_id,
+                    error = %e,
+                    "Failed to cache existing friend list room id"
+                );
+            }
             return Ok(room_id);
         }
 
@@ -141,7 +156,15 @@ impl FriendRoomService {
 
         // 缓存新创建的 room_id
         let room_cache_key = format!("friends:room_id:{}", user_id);
-        let _ = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await;
+        if let Err(e) = self.cache.set(&room_cache_key, room_id.clone(), FRIEND_ROOM_ID_CACHE_TTL_SECS).await {
+            ::tracing::warn!(
+                user_id = %user_id,
+                cache_key = %room_cache_key,
+                room_id = %room_id,
+                error = %e,
+                "Failed to cache newly created friend list room id"
+            );
+        }
 
         Ok(room_id)
     }
@@ -884,7 +907,16 @@ impl FriendRoomService {
             generated_ts: chrono::Utc::now().timestamp_millis(),
         };
 
-        let _ = self.cache.set(&cache_key, page.clone(), FRIEND_LIST_CACHE_TTL_SECS).await;
+        if let Err(e) = self.cache.set(&cache_key, page.clone(), FRIEND_LIST_CACHE_TTL_SECS).await {
+            ::tracing::warn!(
+                user_id = %user_id,
+                cache_key = %cache_key,
+                limit = safe_limit,
+                offset = start_index,
+                error = %e,
+                "Failed to cache friend list page"
+            );
+        }
 
         Ok(page)
     }

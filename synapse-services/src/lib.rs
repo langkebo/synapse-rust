@@ -1,11 +1,7 @@
-// Crate-level allow: several wildcard re-exports below (cache, common, federation,
-// storage, auth) intentionally overlap because they re-export items from sibling
-// crates that share identically-named types (e.g. error types, config structs).
-// Removing this attribute would produce `ambiguous_glob_reexports` warnings on
-// those lines. The per-line `#[allow(ambiguous_glob_reexports)]` attributes mark
-// the known-ambiguous sites. TODO: Replace wildcard re-exports with explicit
-// exports for better API control (P2-11).
-#![allow(ambiguous_glob_reexports)]
+// Some sibling crate re-exports below intentionally overlap because they expose
+// identically-named types (for example config structs and error types). Keep the
+// `#[allow(ambiguous_glob_reexports)]` scope as narrow as possible on those
+// specific lines instead of allowing it for the whole crate.
 
 pub mod auth;
 pub use synapse_cache as cache;
@@ -94,6 +90,7 @@ pub use admin_federation_service::*; // admin federation management service
 pub use admin_registration_service::*; // admin registration management service
 pub use admin_user_service::*; // admin user management service
 pub use application_service::*; // application service integration types
+#[allow(ambiguous_glob_reexports)]
 pub use database_initializer::*; // database initialization helpers
 pub use dehydrated_device_service::*; // dehydrated device service types
 pub use directory_service::*; // room directory service types
@@ -106,6 +103,7 @@ pub use presence_service::*;
 pub use push::service::*; // push notification service types
 pub use registration_service::*; // registration service types
 pub use room::service::*; // RoomService and room config types
+#[allow(ambiguous_glob_reexports)]
 pub use room::space::*; // SpaceService
 pub use room::summary::*; // RoomSummaryService
 pub use search_service::*; // search service types
@@ -138,15 +136,17 @@ pub mod openclaw_service;
 
 #[cfg(feature = "friends")]
 pub mod friend_room_service;
-// Wildcard re-export: friend room service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "friends")]
-pub use friend_room_service::*;
+pub use friend_room_service::{
+    decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot,
+    DmPartnerInfo, EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
+    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
+};
 
 #[cfg(feature = "voice-extended")]
 pub mod voice_service;
-// Wildcard re-export: voice service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "voice-extended")]
-pub use voice_service::*;
+pub use voice_service::{VoiceMessageUploadParams, VoiceService};
 
 #[cfg(feature = "saml-sso")]
 pub mod saml_service;
@@ -156,9 +156,8 @@ pub mod cas_service;
 
 #[cfg(feature = "beacons")]
 pub mod beacon_service;
-// Wildcard re-export: beacon service types. TODO: explicit exports (P2-11).
 #[cfg(feature = "beacons")]
-pub use beacon_service::*;
+pub use beacon_service::BeaconService;
 
 // =============================================================================
 // RTC domain — unified real-time communication (TURN/STUN, calls, sessions, SFU)
@@ -201,9 +200,13 @@ pub mod burn_after_read_service;
 
 #[cfg(feature = "external-services")]
 pub mod external_service_integration;
-// Wildcard re-export: external service integration types. TODO: explicit exports (P2-11).
 #[cfg(feature = "external-services")]
-pub use external_service_integration::*;
+pub use external_service_integration::{
+    ExternalServiceConfig, ExternalServiceIntegration, ExternalServiceType, ServiceHealthStatus, TrendRadarConfig,
+    TrendRadarPayload, WebhookAuthInput, WebhookPayload,
+};
+#[cfg(all(feature = "external-services", feature = "openclaw-routes"))]
+pub use external_service_integration::{OpenClawConfig, OpenClawPayload};
 
 #[cfg(feature = "geo-ip")]
 pub mod geo_ip;

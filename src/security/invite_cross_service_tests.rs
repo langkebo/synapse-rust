@@ -33,11 +33,11 @@ fn full_flow_sign_use_replay_reject() {
     let (created_ts, expires_at) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-XYZ-123";
 
-    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
+    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
     // 1) First use: legitimate verifier
     assert!(
-        verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig),
+        verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig).unwrap(),
         "First use must verify"
     );
 
@@ -48,7 +48,7 @@ fn full_flow_sign_use_replay_reject() {
     //    cannot use a *different* code/room and have it verify — and it
     //    does.
     assert!(
-        verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig),
+        verify_invite_signature(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig).unwrap(),
         "Replay signature is byte-equal and will verify at this layer; \
          storage layer enforces one-shot consumption"
     );
@@ -61,14 +61,14 @@ fn cross_room_signature_isolation() {
     // payload, so the verifier must reject the cross-room presentation.
     let (created_ts, expires_at) = invite_ctx("!r1:hs", "@alice:hs");
     let code = "INVITE-CROSS-ROOM";
-    let sig = sign_invite(TEST_SECRET, code, "!r1:hs", "@alice:hs", Some(expires_at), created_ts);
+    let sig = sign_invite(TEST_SECRET, code, "!r1:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
     assert!(
-        verify_invite_signature(TEST_SECRET, code, "!r1:hs", "@alice:hs", Some(expires_at), created_ts, &sig),
+        verify_invite_signature(TEST_SECRET, code, "!r1:hs", "@alice:hs", Some(expires_at), created_ts, &sig).unwrap(),
         "legitimate room verifies"
     );
     assert!(
-        !verify_invite_signature(TEST_SECRET, code, "!r2:hs", "@alice:hs", Some(expires_at), created_ts, &sig),
+        !verify_invite_signature(TEST_SECRET, code, "!r2:hs", "@alice:hs", Some(expires_at), created_ts, &sig).unwrap(),
         "rebound to a different room must NOT verify"
     );
 }
@@ -81,11 +81,12 @@ fn cross_inviter_signature_isolation() {
     // though Bob issued it.
     let (created_ts, expires_at) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-IMPERSONATE";
-    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
+    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
     assert!(!verify_invite_signature(
         TEST_SECRET, code, "!r:hs", "@bob:hs", Some(expires_at), created_ts, &sig,
-    ));
+    )
+    .unwrap());
 }
 
 #[test]
@@ -95,12 +96,13 @@ fn exp_tamper_is_detected() {
     // different signature and the old one is rejected.
     let (created_ts, original_exp) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-EXP-TAMPER";
-    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(original_exp), created_ts);
+    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(original_exp), created_ts).unwrap();
 
     let attacker_exp = original_exp + 365 * 24 * 3600 * 1000; // +1 year
     assert!(!verify_invite_signature(
         TEST_SECRET, code, "!r:hs", "@alice:hs", Some(attacker_exp), created_ts, &sig,
-    ));
+    )
+    .unwrap());
 }
 
 #[test]
@@ -112,8 +114,9 @@ fn no_exp_vs_exp_distinct_signatures() {
     let (created_ts, _) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-NO-EXP";
 
-    let sig_no_exp = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", None, created_ts);
-    let sig_exp = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(1_800_000_000_000), created_ts);
+    let sig_no_exp = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", None, created_ts).unwrap();
+    let sig_exp =
+        sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(1_800_000_000_000), created_ts).unwrap();
 
     assert_ne!(sig_no_exp, sig_exp);
 }
@@ -124,12 +127,13 @@ fn cross_secret_isolation() {
     // secret). Old signatures must not verify under the new key.
     let (created_ts, expires_at) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-KEY-ROTATE";
-    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
+    let sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
 
     let new_secret: &[u8; 32] = b"sprint-5-cross-service-test-2!00";
     assert!(!verify_invite_signature(
         new_secret, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &sig,
-    ));
+    )
+    .unwrap());
 }
 
 #[test]
@@ -140,8 +144,8 @@ fn deterministic_signature_produces_audit_friendly_ids() {
     // that two servers can compute independently and compare.
     let (created_ts, expires_at) = invite_ctx("!r:hs", "@alice:hs");
     let code = "INVITE-CONTENT-ADDRESSED";
-    let a = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
-    let b = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
+    let a = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
+    let b = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
     assert_eq!(a, b);
     assert_eq!(a.len(), 64, "hex-encoded SHA-256 → 64 chars");
 }
@@ -175,8 +179,9 @@ fn field_reordering_resilience() {
     // by checking the verifier uses our `build_signing_payload`, not
     // the swapped one.)
     let _ = wrong_sig; // suppress unused
-    let legit_sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts);
+    let legit_sig = sign_invite(TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts).unwrap();
     assert!(verify_invite_signature(
         TEST_SECRET, code, "!r:hs", "@alice:hs", Some(expires_at), created_ts, &legit_sig
-    ));
+    )
+    .unwrap());
 }
