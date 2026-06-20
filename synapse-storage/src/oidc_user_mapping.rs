@@ -1,25 +1,24 @@
+use std::sync::Arc;
+
 #[derive(Clone)]
-pub struct OidcUserMappingStorage;
+pub struct OidcUserMappingStorage {
+    pool: Arc<sqlx::PgPool>,
+}
 
 impl OidcUserMappingStorage {
-    pub async fn get_bound_user_id(
-        pool: &sqlx::PgPool,
-        issuer: &str,
-        subject: &str,
-    ) -> Result<Option<String>, sqlx::Error> {
+    pub fn new(pool: Arc<sqlx::PgPool>) -> Self {
+        Self { pool }
+    }
+
+    pub async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error> {
         sqlx::query_scalar("SELECT user_id FROM oidc_user_mapping WHERE issuer = $1 AND subject = $2")
             .bind(issuer)
             .bind(subject)
-            .fetch_optional(pool)
+            .fetch_optional(&*self.pool)
             .await
     }
 
-    pub async fn update_last_authenticated(
-        pool: &sqlx::PgPool,
-        issuer: &str,
-        subject: &str,
-        now_ts: i64,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error> {
         sqlx::query(
             "UPDATE oidc_user_mapping SET last_authenticated_ts = $1, \
              authentication_count = authentication_count + 1 \
@@ -28,13 +27,13 @@ impl OidcUserMappingStorage {
         .bind(now_ts)
         .bind(issuer)
         .bind(subject)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn insert_mapping(
-        pool: &sqlx::PgPool,
+        &self,
         issuer: &str,
         subject: &str,
         user_id: &str,
@@ -49,7 +48,7 @@ impl OidcUserMappingStorage {
         .bind(subject)
         .bind(user_id)
         .bind(now_ts)
-        .execute(pool)
+        .execute(&*self.pool)
         .await?;
         Ok(())
     }

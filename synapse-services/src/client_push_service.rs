@@ -32,16 +32,18 @@ pub struct UpsertPushRuleRequest {
 
 pub struct ClientPushService {
     account_data_storage: AccountDataStorage,
-    pool: Arc<PgPool>,
+    push_storage: PushStorage,
 }
 
 impl ClientPushService {
     pub fn new(pool: Arc<PgPool>) -> Self {
-        Self { account_data_storage: AccountDataStorage::new(&pool), pool }
+        Self { account_data_storage: AccountDataStorage::new(&pool), push_storage: PushStorage::new(pool) }
     }
 
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {
-        let pushers = PushStorage::get_pushers(&self.pool, user_id, device_id)
+        let pushers = self
+            .push_storage
+            .get_pushers(user_id, device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -65,27 +67,28 @@ impl ClientPushService {
 
     pub async fn upsert_pusher(&self, request: UpsertPusherRequest) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        PushStorage::upsert_pusher(
-            &self.pool,
-            &request.user_id,
-            &request.device_id,
-            &request.pushkey,
-            &request.kind,
-            &request.app_id,
-            &request.app_display_name,
-            &request.device_display_name,
-            &request.profile_tag,
-            &request.lang,
-            &request.data,
-            now,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
+        self.push_storage
+            .upsert_pusher(
+                &request.user_id,
+                &request.device_id,
+                &request.pushkey,
+                &request.kind,
+                &request.app_id,
+                &request.app_display_name,
+                &request.device_display_name,
+                &request.profile_tag,
+                &request.lang,
+                &request.data,
+                now,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to save pusher", &e))?;
         Ok(now)
     }
 
     pub async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), ApiError> {
-        PushStorage::delete_pusher(&self.pool, user_id, device_id, pushkey)
+        self.push_storage
+            .delete_pusher(user_id, device_id, pushkey)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete pusher", &e))?;
         Ok(())
@@ -99,7 +102,9 @@ impl ClientPushService {
     }
 
     pub async fn get_user_push_rules(&self, user_id: &str, scope: &str, kind: &str) -> Result<Vec<Value>, ApiError> {
-        let rules = PushStorage::get_user_push_rules(&self.pool, user_id, scope, kind)
+        let rules = self
+            .push_storage
+            .get_user_push_rules(user_id, scope, kind)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -121,19 +126,19 @@ impl ClientPushService {
 
     pub async fn upsert_push_rule(&self, request: UpsertPushRuleRequest) -> Result<i64, ApiError> {
         let now = chrono::Utc::now().timestamp_millis();
-        PushStorage::upsert_push_rule(
-            &self.pool,
-            &request.user_id,
-            &request.scope,
-            &request.kind,
-            &request.rule_id,
-            &request.pattern,
-            &request.conditions,
-            &request.actions,
-            now,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
+        self.push_storage
+            .upsert_push_rule(
+                &request.user_id,
+                &request.scope,
+                &request.kind,
+                &request.rule_id,
+                &request.pattern,
+                &request.conditions,
+                &request.actions,
+                now,
+            )
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to save push rule", &e))?;
         Ok(now)
     }
 
@@ -144,7 +149,9 @@ impl ClientPushService {
         kind: &str,
         rule_id: &str,
     ) -> Result<bool, ApiError> {
-        let rows = PushStorage::delete_push_rule(&self.pool, user_id, scope, kind, rule_id)
+        let rows = self
+            .push_storage
+            .delete_push_rule(user_id, scope, kind, rule_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete push rule", &e))?;
         Ok(rows > 0)
@@ -158,7 +165,8 @@ impl ClientPushService {
         rule_id: &str,
         actions: &Value,
     ) -> Result<(), ApiError> {
-        PushStorage::update_push_rule_actions(&self.pool, user_id, scope, kind, rule_id, actions)
+        self.push_storage
+            .update_push_rule_actions(user_id, scope, kind, rule_id, actions)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update push rule actions", &e))?;
         Ok(())
@@ -171,7 +179,8 @@ impl ClientPushService {
         kind: &str,
         rule_id: &str,
     ) -> Result<Option<bool>, ApiError> {
-        PushStorage::get_push_rule_enabled(&self.pool, user_id, scope, kind, rule_id)
+        self.push_storage
+            .get_push_rule_enabled(user_id, scope, kind, rule_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
@@ -184,14 +193,17 @@ impl ClientPushService {
         rule_id: &str,
         enabled: bool,
     ) -> Result<(), ApiError> {
-        PushStorage::set_push_rule_enabled(&self.pool, user_id, scope, kind, rule_id, enabled)
+        self.push_storage
+            .set_push_rule_enabled(user_id, scope, kind, rule_id, enabled)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update push rule enabled", &e))?;
         Ok(())
     }
 
     pub async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<Value>, ApiError> {
-        let notifications = PushStorage::get_notifications(&self.pool, user_id, limit)
+        let notifications = self
+            .push_storage
+            .get_notifications(user_id, limit)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -211,10 +223,11 @@ impl ClientPushService {
     }
 
     pub async fn ack_notification(&self, notification_id: i64, user_id: &str) -> Result<bool, ApiError> {
-        let result =
-            PushStorage::ack_notification(&self.pool, notification_id, user_id, chrono::Utc::now().timestamp_millis())
-                .await
-                .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
+        let result = self
+            .push_storage
+            .ack_notification(notification_id, user_id, chrono::Utc::now().timestamp_millis())
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to ack notification", &e))?;
         Ok(result.is_some())
     }
 }
