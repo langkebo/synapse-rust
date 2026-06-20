@@ -634,7 +634,9 @@
 
 ### 5.3 依赖冗余
 
-- `cargo tree -d --workspace` 已确认至少存在一组重复依赖版本：`base64 v0.21.7` 与 `base64 v0.22.1`。
+- `cargo tree -d --workspace` 已确认当前存在 11 组 SemVer 不兼容的深层重复依赖（`rand`/`rand_core`/`rand_chacha`/`hashbrown`/`getrandom`/`socket2`/`prost`/`prost-derive`/`nom`/`itertools`/`core-foundation`），均为不同直接依赖要求不同主版本号的传递依赖，无法通过 `cargo update` 消除。完整根因分析与消除路径已记录于 `project_rules.md` §17.5。
+- 历史已消除的重复依赖：`base64 v0.21.7`（禁用 `config/ron` feature，连带消除 `toml_datetime`/`toml_edit`/`winnow`）。
+- 2026-06-20 第三轮 `cargo update` 统一 4 个兼容补丁（bytes/cc/getrandom/rustls-native-certs）并清理 12 个未使用传递依赖。
 - 这类重复不会立刻造成功能错误，但会增加：
   - 构建体积
   - 编译时间
@@ -1123,7 +1125,7 @@
 
 ### P2-08 重复依赖版本需要专项清理，避免长期积累成供应链负担
 
-- **当前验证**：`cargo tree -d --workspace` 已确认重复依赖。本轮已消除 `base64 v0.21.7`（通过禁用 `config` 的 `ron` feature，同时连带消除 `toml_datetime`/`toml_edit`/`winnow` 重复）。2026-06-17 再次 `cargo update` 统一 6 个兼容依赖（h2 v0.4.14→v0.4.15, smawk v0.3.2→v0.3.3, syn v2.0.117→v2.0.118, time v0.3.47→v0.3.49, time-core v0.1.8→v0.1.9, time-macros v0.2.27→v0.2.29）。剩余重复版本：`getrandom`（3 版本）、`hashbrown`（3 版本）、`itertools`（3 版本）、`rand`（3 版本）、`prost`（2 版本）、`core-foundation`（2 版本）、`hashlink`（2 版本）、`nom`（2 版本）、`socket2`（2 版本），均为深层传递依赖，需等待上游 crate 版本升级。
+- **当前验证**：`cargo tree -d --workspace` 已确认重复依赖。本轮已消除 `base64 v0.21.7`（通过禁用 `config` 的 `ron` feature，同时连带消除 `toml_datetime`/`toml_edit`/`winnow` 重复）。2026-06-17 再次 `cargo update` 统一 6 个兼容依赖（h2 v0.4.14→v0.4.15, smawk v0.3.2→v0.3.3, syn v2.0.117→v2.0.118, time v0.3.47→v0.3.49, time-core v0.1.8→v0.1.9, time-macros v0.2.27→v0.2.29）。2026-06-20 第三轮 `cargo update` 统一 4 个兼容补丁（bytes v1.11.1→v1.12.0, cc v1.2.64→v1.2.65, getrandom v0.4.2→v0.4.3, rustls-native-certs v0.8.3→v0.8.4）并清理 12 个未使用传递依赖（id-arena/leb128fmt/prettyplease/unicode-xid/wasip3/wasm-encoder/wasm-metadata/wasmparser/wit-bindgen*/wit-component/wit-parser）。剩余 11 组 SemVer 不兼容深层重复已完整记录根因与消除路径到 `project_rules.md` §17.5：`rand`（0.8/0.9/0.10，根因 argon2 0.5+vodozemac 0.9→0.8 / opentelemetry_sdk→0.9 / quickcheck→0.10）、`rand_core`/`rand_chacha`（随 rand 分裂）、`hashbrown`（0.14/0.15/0.17，根因 dashmap/sqlx/indexmap）、`getrandom`（0.2/0.3/0.4）、`socket2`（0.5/0.6，根因 redis 0.29→0.5 / tokio→0.6，消除路径=redis 1.x 迁移）、`prost`/`prost-derive`（0.13/0.14，根因 vodozemac→0.13 / tonic→0.14）、`nom`（7/8，根因 config→7 / lettre→8）、`itertools`（0.10/0.14，dev-only criterion）、`core-foundation`（0.9/0.10，macOS only）。
 - **复现步骤**：执行 `cargo tree -d --workspace`。
 - **影响范围**：构建体积、编译时间、安全升级、许可证治理。
 - **发生场景**：依赖升级、供应链审计、二进制体积优化时。
@@ -1131,8 +1133,9 @@
 - **实施步骤**：
   1. ✅ 已完成：生成完整重复依赖清单并按可升级性分级；已消除 `base64 v0.21.7`（禁用 `config` 的 `ron` feature，同时消除 `toml_datetime`/`toml_edit`/`winnow` 重复）。
   2. ✅ 已完成：`cargo update` 统一 101 个兼容依赖（dashmap 6.1.0→6.2.1, axum 0.8.8→0.8.9, h2 0.4.13→0.4.14, hyper 1.8.1→1.10.1 等）。
-  3. ✅ 已完成：剩余 9 组深层重复依赖（hashbrown/getrandom/rand/prost/itertools 等）均为 SemVer 不兼容版本，无法通过 `[patch.crates-io]` 强制统一，已建立 `DEPENDENCY_UPGRADE_TRACKER.md` 白名单与上游跟踪。
-  4. ✅ 已完成：`cargo tree -d --workspace` 纳入定期供应链检查，记录于 DEPENDENCY_UPGRADE_TRACKER.md。
+  3. ✅ 已完成：剩余 11 组深层重复依赖（rand/hashbrown/getrandom/socket2/prost/nom/itertools 等）均为 SemVer 不兼容版本，无法通过 `[patch.crates-io]` 强制统一，已建立完整根因分析与消除路径记录于 `project_rules.md` §17.5。
+  4. ✅ 已完成：`cargo tree -d --workspace` 纳入定期供应链检查，记录于 project_rules.md §17.5。
+  5. ✅ 已完成（2026-06-20）：第三轮 `cargo update` 统一 4 个兼容补丁 + 清理 12 个未使用传递依赖。
 - **责任节点**：平台负责人、依赖治理负责人、安全负责人。
 - **资源投入**：后端/平台 1 人周。
 - **验收标准**：
@@ -1489,6 +1492,7 @@ Synapse v1.153-v1.155 正在将 `Event.signatures`、`Event.unsigned`、`Event.c
 - `cargo test --lib -p synapse-common` ✅ 298 passed（含 38 个 canonical JSON 测试）
 - `cargo test --lib versions` ✅ 33 passed（含 OPT-06 route-surface 声明 + OPT-05 governance 分类）
 - `cargo test --features test-utils --test unit --locked` ✅ 862 passed, 0 failed
+- `cargo update` ✅ 统一 4 个兼容补丁 + 清理 12 个未使用传递依赖（P2-08 第三轮）
 
 ---
 
