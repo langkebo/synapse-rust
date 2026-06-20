@@ -19,6 +19,10 @@ pub enum EduType {
     Typing,
     Presence,
     DeviceListUpdate,
+    /// `m.direct_to_device` — to-device messages relayed via federation.
+    /// Without this handler, to-device messages from remote homeservers are
+    /// silently dropped, breaking cross-server E2EE key exchange.
+    DirectToDevice,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +44,7 @@ impl FromStr for EduType {
             "m.typing" => Ok(Self::Typing),
             "m.presence" => Ok(Self::Presence),
             "m.device_list_update" => Ok(Self::DeviceListUpdate),
+            "m.direct_to_device" => Ok(Self::DirectToDevice),
             other => Err(UnknownEduType(other.to_string())),
         }
     }
@@ -277,6 +282,151 @@ async fn handle_device_list_update_edu(
     }
 }
 
+/// Maximum number of recipients in a single `m.direct_to_device` EDU.
+/// Mirrors the client-side `MAX_TO_DEVICE_RECIPIENTS` limit to prevent
+/// oversized EDUs from blocking the federation transaction dispatch.
+const MAX_FEDERATION_TO_DEVICE_RECIPIENTS: usize = 5000;
+
+/// Maximum size in bytes of a single to-device message content within a
+/// federation EDU. Protects downstream storage and sync queues.
+const MAX_FEDERATION_TO_DEVICE_MSG_BYTES: usize = 64 * 1024;
+
+/// Handle an inbound `m.direct_to_device` EDU from a remote homeserver.
+///
+/// The EDU format per Matrix spec:
+/// ```json
+/// {
+///   "edu_type": "m.direct_to_device",
+///   "sender": "@alice:origin",
+///   "type": "m.room_key",
+///   "content": {
+///     "messages": {
+///       "@bob:remote": { "DEVICE_ID": { ... } }
+///     }
+///   }
+/// }
+/// ```
+///
+/// Without this handler, to-device messages from remote homeservers are
+/// silently dropped, breaking cross-server E2EE key exchange (room key
+/// sharing, verification, etc.).
+async fn handle_direct_to_device_edu(
+    state: &AppState,
+    origin: &str,
+    edu: &Value,
+    _remaining: usize,
+) -> EduProcessResult {
+    let sender = match edu.get("sender").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            ::tracing::debug!("Dropping m.direct_to_device EDU from {} without sender", origin);
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    // The sender user_id must belong to the origin server.
+    if !user_matches_origin(sender, origin) {
+        ::tracing::debug!("Dropping m.direct_to_device EDU: sender {} does not match origin {}", sender, origin);
+        return EduProcessResult { dropped: 1, ..Default::default() };
+    }
+
+    let event_type = edu.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if event_type.is_empty() {
+        ::tracing::debug!("Dropping m.direct_to_device EDU from {} without type", origin);
+        return EduProcessResult { dropped: 1, ..Default::default() };
+    }
+
+    let messages = match edu.get("content").and_then(|c| c.get("messages")) {
+        Some(m) => m,
+        None => {
+            ::tracing::debug!("Dropping m.direct_to_device EDU from {} without content.messages", origin);
+            return EduProcessResult { dropped: 1, ..Default::default() };
+        }
+    };
+
+    let mut result = EduProcessResult::default();
+    let mut recipient_count: usize = 0;
+
+    if let Some(msg_map) = messages.as_object() {
+        for (recipient_user_id, device_map) in msg_map {
+            if let Some(devices) = device_map.as_object() {
+                for (recipient_device_id, content) in devices {
+                    recipient_count += 1;
+                    if recipient_count > MAX_FEDERATION_TO_DEVICE_RECIPIENTS {
+                        ::tracing::warn!(
+                            origin = origin,
+                            sender = sender,
+                            limit = MAX_FEDERATION_TO_DEVICE_RECIPIENTS,
+                            "m.direct_to_device EDU exceeded recipient limit, truncating"
+                        );
+                        result.dropped += 1;
+                        continue;
+                    }
+
+                    // Reject oversized individual messages to protect
+                    // downstream storage and sync queues.
+                    let msg_size = serde_json::to_string(content).map(|s| s.len()).unwrap_or(0);
+                    if msg_size > MAX_FEDERATION_TO_DEVICE_MSG_BYTES {
+                        ::tracing::warn!(
+                            origin = origin,
+                            sender = sender,
+                            size = msg_size,
+                            limit = MAX_FEDERATION_TO_DEVICE_MSG_BYTES,
+                            "m.direct_to_device EDU message exceeds size limit, dropping"
+                        );
+                        result.dropped += 1;
+                        continue;
+                    }
+
+                    // Use the to_device_service to persist the message.
+                    // sender_device_id is empty because federation EDUs do
+                    // not carry the sender's device id; dedup is handled at
+                    // the transaction level (the /send/{txnId} endpoint).
+                    match state
+                        .services
+                        .e2ee
+                        .to_device_service
+                        .send_messages(
+                            sender,
+                            "",
+                            event_type,
+                            None,
+                            &serde_json::json!({
+                                recipient_user_id: { recipient_device_id: content }
+                            }),
+                        )
+                        .await
+                    {
+                        Ok(()) => result.processed += 1,
+                        Err(e) => {
+                            ::tracing::warn!(
+                                "Failed to persist m.direct_to_device EDU for {}:{} from {}: {}",
+                                recipient_user_id,
+                                recipient_device_id,
+                                origin,
+                                e
+                            );
+                            result.errored += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if result.processed > 0 {
+        increment_counter_by(state, "federation_inbound_direct_to_device_processed_total", result.processed as u64);
+    }
+    if result.dropped > 0 {
+        increment_counter_by(state, "federation_inbound_direct_to_device_dropped_total", result.dropped as u64);
+    }
+    if result.errored > 0 {
+        increment_counter_by(state, "federation_inbound_direct_to_device_error_total", result.errored as u64);
+    }
+
+    result
+}
+
 // ---------------------------------------------------------------------------
 // EduDispatcher — routes inbound EDUs to the correct handler
 // ---------------------------------------------------------------------------
@@ -296,6 +446,7 @@ impl EduDispatcher {
             EduType::Presence => handle_presence_edu(state, origin, edu, remaining).await,
             EduType::Typing => handle_typing_edu(state, origin, edu, remaining).await,
             EduType::DeviceListUpdate => handle_device_list_update_edu(state, origin, edu, remaining).await,
+            EduType::DirectToDevice => handle_direct_to_device_edu(state, origin, edu, remaining).await,
         };
 
         Some(result)
@@ -313,6 +464,7 @@ mod tests {
         assert_eq!("m.typing".parse::<EduType>().unwrap(), EduType::Typing);
         assert_eq!("m.presence".parse::<EduType>().unwrap(), EduType::Presence);
         assert_eq!("m.device_list_update".parse::<EduType>().unwrap(), EduType::DeviceListUpdate);
+        assert_eq!("m.direct_to_device".parse::<EduType>().unwrap(), EduType::DirectToDevice);
     }
 
     #[test]
@@ -341,6 +493,8 @@ mod tests {
         assert_eq!(EduType::Typing, EduType::Typing);
         assert_ne!(EduType::Typing, EduType::Presence);
         assert_ne!(EduType::Presence, EduType::DeviceListUpdate);
+        assert_ne!(EduType::DirectToDevice, EduType::Typing);
+        assert_ne!(EduType::DirectToDevice, EduType::DeviceListUpdate);
     }
 
     #[test]
