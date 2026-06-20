@@ -57,7 +57,15 @@ impl RtcSessionService {
             .map_err(|e| ApiError::internal_with_log("Failed to get RTC session", &e))?;
 
         if let Some(ref s) = session {
-            let _ = self.cache.set(&cache_key, s, 60).await;
+            if let Err(e) = self.cache.set(&cache_key, s, 60).await {
+                ::tracing::warn!(
+                    room_id = %room_id,
+                    session_id = %session_id,
+                    cache_key = %cache_key,
+                    error = %e,
+                    "Failed to cache RTC session"
+                );
+            }
         }
 
         Ok(session)
@@ -76,7 +84,9 @@ impl RtcSessionService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get active sessions", &e))?;
 
-        let _ = self.cache.set(&cache_key, &sessions, 30).await;
+        if let Err(e) = self.cache.set(&cache_key, &sessions, 30).await {
+            ::tracing::warn!(room_id = %room_id, cache_key = %cache_key, error = %e, "Failed to cache active RTC sessions");
+        }
 
         Ok(sessions)
     }
@@ -161,7 +171,15 @@ impl RtcSessionService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get memberships", &e))?;
 
-        let _ = self.cache.set(&cache_key, &memberships, 30).await;
+        if let Err(e) = self.cache.set(&cache_key, &memberships, 30).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                session_id = %session_id,
+                cache_key = %cache_key,
+                error = %e,
+                "Failed to cache RTC memberships"
+            );
+        }
 
         Ok(memberships)
     }
@@ -234,7 +252,15 @@ impl RtcSessionService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get encryption keys", &e))?;
 
-        let _ = self.cache.set(&cache_key, &keys, 60).await;
+        if let Err(e) = self.cache.set(&cache_key, &keys, 60).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                session_id = %session_id,
+                cache_key = %cache_key,
+                error = %e,
+                "Failed to cache RTC encryption keys"
+            );
+        }
 
         Ok(keys)
     }
@@ -250,16 +276,21 @@ impl RtcSessionService {
     }
 
     async fn invalidate_room_cache(&self, room_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:sessions:{}", room_id)).await;
+        let cache_key = format!("matrixrtc:sessions:{room_id}");
+        self.cache.delete(&cache_key).await;
     }
 
     async fn invalidate_session_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:session:{}:{}", room_id, session_id)).await;
-        let _ = self.cache.delete(&format!("matrixrtc:memberships:{}:{}", room_id, session_id)).await;
+        let session_cache_key = format!("matrixrtc:session:{room_id}:{session_id}");
+        self.cache.delete(&session_cache_key).await;
+
+        let membership_cache_key = format!("matrixrtc:memberships:{room_id}:{session_id}");
+        self.cache.delete(&membership_cache_key).await;
     }
 
     async fn invalidate_key_cache(&self, room_id: &str, session_id: &str) {
-        let _ = self.cache.delete(&format!("matrixrtc:keys:{}:{}", room_id, session_id)).await;
+        let cache_key = format!("matrixrtc:keys:{room_id}:{session_id}");
+        self.cache.delete(&cache_key).await;
     }
 }
 

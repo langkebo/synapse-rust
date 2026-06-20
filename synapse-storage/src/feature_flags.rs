@@ -132,7 +132,10 @@ impl FeatureFlagStorage {
         transaction.commit().await?;
 
         let flag = to_feature_flag(record, targets);
-        let _ = self.cache.set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
+        let cache_key = Self::flag_cache_key(&flag.flag_key);
+        if let Err(e) = self.cache.set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS).await {
+            ::tracing::warn!(target: "cache", flag_key = %flag.flag_key, cache_key = %cache_key, error = %e, "Failed to cache created feature flag");
+        }
         self.cache.delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix).await;
 
         Ok(flag)
@@ -187,7 +190,10 @@ impl FeatureFlagStorage {
         };
 
         let flag = to_feature_flag(record, targets);
-        let _ = self.cache.set(&Self::flag_cache_key(&flag.flag_key), &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
+        let cache_key = Self::flag_cache_key(&flag.flag_key);
+        if let Err(e) = self.cache.set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS).await {
+            ::tracing::warn!(target: "cache", flag_key = %flag.flag_key, cache_key = %cache_key, error = %e, "Failed to cache updated feature flag");
+        }
         self.cache.delete_with_invalidation(FEATURE_FLAG_LIST_CACHE_PREFIX, InvalidationType::Prefix).await;
 
         Ok(Some(flag))
@@ -216,7 +222,9 @@ impl FeatureFlagStorage {
 
         let targets = self.list_targets(&[flag_key.to_string()]).await?;
         let flag = to_feature_flag(record, targets.get(flag_key).cloned().unwrap_or_default());
-        let _ = self.cache.set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS).await;
+        if let Err(e) = self.cache.set(&cache_key, &flag, FEATURE_FLAG_CACHE_TTL_SECS).await {
+            ::tracing::warn!(target: "cache", flag_key = %flag_key, cache_key = %cache_key, error = %e, "Failed to cache feature flag lookup");
+        }
 
         Ok(Some(flag))
     }
@@ -276,7 +284,9 @@ impl FeatureFlagStorage {
             .collect();
 
         let result = (flags, total);
-        let _ = self.cache.set(&cache_key, &result, FEATURE_FLAG_LIST_CACHE_TTL_SECS).await;
+        if let Err(e) = self.cache.set(&cache_key, &result, FEATURE_FLAG_LIST_CACHE_TTL_SECS).await {
+            ::tracing::warn!(target: "cache", cache_key = %cache_key, error = %e, "Failed to cache feature flag list");
+        }
 
         Ok(result)
     }

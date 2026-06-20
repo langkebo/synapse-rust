@@ -104,7 +104,14 @@ impl DeviceKeyService {
                     Self::populate_user_keys(&mut fetched, keys);
 
                     if !fetched.is_empty() {
-                        let _ = self.cache.set(&cache_key, &fetched, 300).await;
+                        if let Err(e) = self.cache.set(&cache_key, &fetched, 300).await {
+                            ::tracing::warn!(
+                                user_id = %user_id,
+                                cache_key = %cache_key,
+                                error = %e,
+                                "Failed to cache device key query result"
+                            );
+                        }
                     }
                     fetched
                 };
@@ -240,7 +247,15 @@ impl DeviceKeyService {
                     self.storage.create_device_key(&key).await?;
 
                     let cache_key = format!("device_keys:{user_id}:{device_id}");
-                    let _ = self.cache.set(&cache_key, &key, 300).await;
+                    if let Err(e) = self.cache.set(&cache_key, &key, 300).await {
+                        ::tracing::warn!(
+                            user_id = %user_id,
+                            device_id = %device_id,
+                            cache_key = %cache_key,
+                            error = %e,
+                            "Failed to cache uploaded device key"
+                        );
+                    }
                 }
             }
         }

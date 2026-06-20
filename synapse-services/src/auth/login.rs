@@ -125,7 +125,7 @@ impl AuthService {
             if timestamp > Utc::now().timestamp() {
                 return Ok(true);
             }
-            let _ = self.cache.delete(&key).await;
+            self.cache.delete(&key).await;
         }
         Ok(false)
     }
@@ -175,7 +175,7 @@ impl AuthService {
 
     async fn clear_login_failures(&self, user_id: &str) -> ApiResult<()> {
         let key = format!("auth:failures:{user_id}");
-        let _ = self.cache.delete(&key).await;
+        self.cache.delete(&key).await;
         Ok(())
     }
 
