@@ -1455,14 +1455,24 @@
 | **验证** | `cargo check --locked` + `cargo clippy --lib --bins -D warnings` + `cargo test --test unit`（862 passed） |
 | **意义** | 防止 worker lock 争用下的 CPU starvation / DoS，提供锁等待时间可观测性，与 Synapse v1.153 锁退避策略对齐 |
 
+#### OPT-06 MSC3266 稳定化对齐（声明一致性） ✅
+
+| 项 | 内容 |
+|---|---|
+| **对标** | Synapse 上游 unstable MSC 声明治理模式（route-surface 驱动） |
+| **问题** | 审查发现 MSC3266 已无条件启用（无 Cargo feature flag、无 experimental config 字段、无 `#[cfg]` 条件编译），不存在功能性"实验开关残留"。但 `org.matrix.msc3266` 在 `/versions` 中通过 `BASE_UNSTABLE_FEATURES` 硬编码声明，与路由实际注册状态通过不同路径声明，存在声明源不统一 |
+| **位置** | [versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs#L84-L92)（BASE_UNSTABLE_FEATURES）、[versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs#L264-L275)（msc3266_capability）、[versions.rs](file:///Users/ljf/Desktop/hu_ts/synapse-rust/src/web/routes/handlers/versions.rs#L148)（build_client_versions） |
+| **改动** | (1) 将 `org.matrix.msc3266` 从 `BASE_UNSTABLE_FEATURES` 硬编码列表中移除；(2) 新增 `msc3266_capability()` 函数，基于 route manifest 中 `POST /_synapse/room_summary/v1/summaries/batch` 路由是否注册来推导启用状态（与 `msc3886.sliding_sync`/`msc4261.widget` 治理模式一致）；(3) `build_client_versions` 中通过 `msc3266_capability().enabled()` 插入 unstable_features；(4) 修复 OPT-05 遗留的 `io.element.msc4452.preview_url` 未登记到 governance 分类测试的问题 |
+| **验证** | `cargo test --lib versions` → 33 passed（含 `test_versions_response_snapshot_keys`、`test_all_capabilities_have_governance_classification`） |
+| **意义** | 使 `/versions` 的 MSC3266 声明与路由注册自动对齐，当路由被 feature gate 移除时声明自动消失，避免声明与实现不一致 |
+
 ### 12.4 研究发现但未实施的改进
 
 | 编号 | 改进 | 原因 |
 |------|------|------|
-| OPT-06 | MSC3266 稳定化对齐（移除实验开关） | 当前已实现 MSC3266，需审查是否仍有实验开关残留 |
-| OPT-10 | backfill 选点优化（绝对距离优先） | 需修改联邦回填算法，属于协议实现改动 |
+| OPT-10 | backfill 选点优化（绝对距离优先） | 研究发现出站 backfill 服务层完全缺失（`FederationClient::backfill` 是死代码，从未被调用）。"绝对距离优先选点"本质是出站侧的候选服务器排序算法，需从零构建完整链路（候选服务器收集、depth 绝对差值排序、多服务器轮询回退、触发入口、测试）。属于大型新功能而非"优化"，推迟至独立功能迭代实施 |
 
-### 12.4 Synapse Rust 化趋势对本项目的启示
+### 12.5 Synapse Rust 化趋势对本项目的启示
 
 Synapse v1.153-v1.155 正在将 `Event.signatures`、`Event.unsigned`、`Event.content`、canonical JSON 序列化器、`Requester` 类等核心类型逐步 Rust 化。这验证了 synapse-rust 的全 Rust 技术路线，但也意味着：
 
@@ -1470,13 +1480,14 @@ Synapse v1.153-v1.155 正在将 `Event.signatures`、`Event.unsigned`、`Event.c
 2. **类型设计可借鉴**：Synapse 在 Rust 化过程中整理了 `RoomVersion` 结构体、`TypeIs` helper 等，本项目可对照审查类型设计
 3. **性能优势天然存在**：全 Rust 实现无需 PyO3 桥接开销，在事件签名、canonical JSON、状态解析等热点路径上有天然性能优势
 
-### 12.5 验证结果（2026-06-20）
+### 12.6 验证结果（2026-06-20）
 
 - `cargo fmt --all -- --check` ✅ 通过
 - `cargo check --locked` ✅ 通过
 - `cargo clippy --locked --lib --bins -- -D warnings` ✅ 通过（零警告）
 - `cargo clippy --locked --test unit --features test-utils -- -D warnings` ✅ 通过（零警告）
 - `cargo test --lib -p synapse-common` ✅ 298 passed（含 38 个 canonical JSON 测试）
+- `cargo test --lib versions` ✅ 33 passed（含 OPT-06 route-surface 声明 + OPT-05 governance 分类）
 - `cargo test --features test-utils --test unit --locked` ✅ 862 passed, 0 failed
 
 ---
