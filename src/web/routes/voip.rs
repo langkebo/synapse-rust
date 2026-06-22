@@ -101,6 +101,24 @@ pub async fn get_turn_credentials_guest(State(state): State<AppState>) -> Result
     }))
 }
 
+/// Route manifest for the VoIP compat surface registered in `assembly.rs`.
+/// The routes are always registered (not feature-gated), so this manifest is
+/// unconditional. Feature-gated `voip-tracking` routes are declared separately
+/// in `assembly.rs::assembly_compat_manifest`.
+pub fn voip_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    use crate::web::routes::route_ledger::expand_under_prefixes;
+    use axum::http::Method;
+
+    let base: &[(Method, &'static str)] = &[
+        (Method::GET, "/voip/turnServer"),
+        (Method::POST, "/voip/turnServer"),
+        (Method::GET, "/voip/config"),
+        (Method::GET, "/voip/turnServer/guest"),
+    ];
+
+    expand_under_prefixes("voip", &["/_matrix/client/r0", "/_matrix/client/v3"], base)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

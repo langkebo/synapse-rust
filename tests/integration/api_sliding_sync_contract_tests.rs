@@ -21,6 +21,23 @@ async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)>
     Some((synapse_rust::web::create_router(state), pool))
 }
 
+async fn setup_isolated_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+    let state = AppState::new(container, cache);
+    Some((synapse_rust::web::create_router(state), pool))
+}
+
+async fn setup_isolated_test_app_with_state_and_pool() -> Option<(axum::Router, AppState, Arc<sqlx::PgPool>)> {
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+    let state = AppState::new(container, cache);
+    let app = synapse_rust::web::create_router(state.clone());
+    Some((app, state, pool))
+}
+
 async fn setup_test_app_with_sliding_sync_rate_limit(
     initial: RateLimitRule,
     incremental: RateLimitRule,
@@ -84,6 +101,120 @@ async fn create_room(app: &axum::Router, token: &str) -> String {
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     json["room_id"].as_str().unwrap().to_string()
+}
+
+async fn invite_user_to_room(app: &axum::Router, inviter_token: &str, room_id: &str, invitee_user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/invite"))
+        .header("Authorization", format!("Bearer {}", inviter_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/join"))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn leave_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/leave"))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn kick_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/kick"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id, "reason": reason }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn ban_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/ban"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id, "reason": reason }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn unban_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/unban"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn forget_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/forget"))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn set_room_join_rule(app: &axum::Router, token: &str, room_id: &str, join_rule: &str) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/rooms/{room_id}/state/m.room.join_rules"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "join_rule": join_rule }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn knock_room(app: &axum::Router, token: &str, room_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/knock/{room_id}"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "reason": reason }).to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 async fn add_join_membership(pool: &Arc<sqlx::PgPool>, room_id: &str, user_id: &str) {
@@ -184,6 +315,41 @@ async fn upload_device_keys(app: &axum::Router, token: &str, user_id: &str, devi
 
     let response = app.clone().oneshot(super::with_local_connect_info(request)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn upload_cross_signing_keys(state: &AppState, user_id: &str, key_suffix: &str) {
+    state
+        .services
+        .e2ee
+        .cross_signing_service
+        .upload_cross_signing_keys(synapse_rust::e2ee::cross_signing::CrossSigningUpload {
+            master_key: json!({
+                "user_id": user_id,
+                "usage": ["master"],
+                "keys": {
+                    format!("ed25519:{key_suffix}MASTER"): format!("{key_suffix}-master-public-key")
+                },
+                "signatures": {}
+            }),
+            self_signing_key: json!({
+                "user_id": user_id,
+                "usage": ["self_signing"],
+                "keys": {
+                    format!("ed25519:{key_suffix}SELF"): format!("{key_suffix}-self-signing-public-key")
+                },
+                "signatures": {}
+            }),
+            user_signing_key: json!({
+                "user_id": user_id,
+                "usage": ["user_signing"],
+                "keys": {
+                    format!("ed25519:{key_suffix}USER"): format!("{key_suffix}-user-signing-public-key")
+                },
+                "signatures": {}
+            }),
+        })
+        .await
+        .expect("failed to upload cross-signing keys");
 }
 
 async fn send_to_device_message(
@@ -838,7 +1004,7 @@ async fn test_sliding_sync_uses_incremental_ops_for_follow_up_request() {
 
 #[tokio::test]
 async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_deltas() {
-    let Some((app, pool)) = setup_test_app_with_pool().await else {
+    let Some((app, pool)) = setup_isolated_test_app_with_pool().await else {
         eprintln!("Skipping test: database not available");
         return;
     };
@@ -889,6 +1055,719 @@ async fn test_sliding_sync_extensions_e2ee_returns_key_counts_and_device_list_de
     assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
     let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
     assert!(changed.iter().any(|entry| entry == &json!(user_b)));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_exposes_cross_signing_updates_for_shared_users() {
+    let Some((app, state, pool)) = setup_isolated_test_app_with_state_and_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (_user_a, _device_a) = whoami(&app, &token_a).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let shared_room = create_room(&app, &token_a).await;
+    add_join_membership(&pool, &shared_room, &user_b).await;
+
+    let conn_id = "conn-e2ee-cross-signing-shared";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    upload_cross_signing_keys(&state, &user_b, "SLIDINGSHARED").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        changed.iter().any(|entry| entry == &json!(user_b)),
+        "expected sliding-sync e2ee.device_lists.changed to include shared user cross-signing update: {}",
+        second_body
+    );
+    assert!(!left.iter().any(|entry| entry == &json!(user_b)));
+    assert_eq!(second_body["extensions"]["e2ee"]["device_unused_fallback_key_types"], json!([]));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_does_not_leak_cross_signing_updates_without_shared_rooms() {
+    let Some((app, state, _pool)) = setup_isolated_test_app_with_state_and_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (_user_a, _device_a) = whoami(&app, &token_a).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+
+    let conn_id = "conn-e2ee-cross-signing-isolated";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    upload_cross_signing_keys(&state, &user_b, "SLIDINGISOLATED").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "expected sliding-sync e2ee.device_lists.changed to exclude isolated user cross-signing update: {}",
+        second_body
+    );
+    assert!(!left.iter().any(|entry| entry == &json!(user_b)));
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_left_reports_users_who_stop_sharing_rooms() {
+    let Some((app, pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (_user_a, _device_a) = whoami(&app, &token_a).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let shared_room = create_room(&app, &token_a).await;
+    add_join_membership(&pool, &shared_room, &user_b).await;
+
+    let conn_id = "conn-e2ee-left-shared";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+    let first_left = first_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+    assert!(
+        !first_left.iter().any(|entry| entry == &json!(user_b)),
+        "initial sliding-sync response should not report left users: {}",
+        first_body
+    );
+
+    leave_room(&app, &token_b, &shared_room).await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "membership-only unshare should not masquerade as device change: {}",
+        second_body
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(user_b)),
+        "expected sliding-sync e2ee.device_lists.left to include users who stopped sharing rooms: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_invite_decline_does_not_report_left() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+
+    let conn_id = "conn-e2ee-invite-decline";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    leave_room(&app, &token_b, &room_id).await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "invite decline must not masquerade as device change in sliding-sync: {}",
+        second_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "invite decline must not surface as shared-user loss in sliding-sync device_lists.left: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_leave_then_rejoin_does_not_report_left() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let conn_id = "conn-e2ee-leave-rejoin";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    leave_room(&app, &token_b, &room_id).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "leave then rejoin should not masquerade as device change in sliding-sync: {}",
+        second_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "user who re-shares before the next sliding-sync request must not remain in device_lists.left: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_kick_reports_left_for_kicked_shared_user() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let conn_id = "conn-e2ee-kick";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    kick_user_from_room(&app, &token_a, &room_id, &user_b, "moderation kick").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "kick-driven unshare should not masquerade as device change in sliding-sync: {}",
+        second_body
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(user_b)),
+        "kicked shared user should appear in sliding-sync device_lists.left: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_ban_reports_left_for_banned_shared_user() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let conn_id = "conn-e2ee-ban";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    ban_user_from_room(&app, &token_a, &room_id, &user_b, "moderation ban").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "ban-driven unshare should not masquerade as device change in sliding-sync: {}",
+        second_body
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(user_b)),
+        "banned shared user should appear in sliding-sync device_lists.left: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_unban_does_not_repeat_left_for_already_unshared_user() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let conn_id = "conn-e2ee-unban";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    ban_user_from_room(&app, &token_a, &room_id, &user_b, "moderation ban").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+    let ban_left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+    assert!(
+        ban_left.iter().any(|entry| entry == &json!(user_b)),
+        "ban should first report the shared user in sliding-sync device_lists.left: {}",
+        second_body
+    );
+
+    unban_user_from_room(&app, &token_a, &room_id, &user_b).await;
+
+    let (third_status, third_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": second_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(third_status, StatusCode::OK, "{:?}", third_body);
+
+    let changed = third_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = third_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "unban should not masquerade as device change in sliding-sync: {}",
+        third_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "unban after a prior ban must not repeat sliding-sync device_lists.left for an already-unshared user: {}",
+        third_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_forget_does_not_repeat_left_for_already_unshared_user() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+    join_room(&app, &token_b, &room_id).await;
+
+    let conn_id = "conn-e2ee-forget";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    leave_room(&app, &token_a, &room_id).await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+    let leave_left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+    assert!(
+        leave_left.iter().any(|entry| entry == &json!(user_b)),
+        "leaving the last shared room should first report the peer in sliding-sync device_lists.left: {}",
+        second_body
+    );
+
+    forget_room(&app, &token_a, &room_id).await;
+
+    let (third_status, third_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": second_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(third_status, StatusCode::OK, "{:?}", third_body);
+
+    let changed = third_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = third_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "forget should not masquerade as device change in sliding-sync: {}",
+        third_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "forget after a prior leave must not repeat sliding-sync device_lists.left for an already-unshared user: {}",
+        third_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_knock_does_not_leak_non_shared_user() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    set_room_join_rule(&app, &token_a, &room_id, "knock").await;
+
+    let conn_id = "conn-e2ee-knock";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    knock_room(&app, &token_b, &room_id, "let me in").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "knock by a never-shared user must not appear in sliding-sync device_lists.changed: {}",
+        second_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "knock by a never-shared user must not appear in sliding-sync device_lists.left: {}",
+        second_body
+    );
+}
+
+#[tokio::test]
+async fn test_sliding_sync_extensions_e2ee_invite_retract_via_kick_does_not_report_left() {
+    let Some((app, _pool)) = setup_isolated_test_app_with_pool().await else {
+        eprintln!("Skipping test: database not available");
+        return;
+    };
+
+    let token_a = super::create_test_user(&app).await;
+    let token_b = super::create_test_user(&app).await;
+    let (user_b, _device_b) = whoami(&app, &token_b).await;
+    let room_id = create_room(&app, &token_a).await;
+    invite_user_to_room(&app, &token_a, &room_id, &user_b).await;
+
+    let conn_id = "conn-e2ee-invite-retract";
+    let (first_status, first_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{:?}", first_body);
+
+    kick_user_from_room(&app, &token_a, &room_id, &user_b, "invite retracted").await;
+
+    let (second_status, second_body) = post_sliding_sync(
+        &app,
+        Some(&token_a),
+        json!({
+            "conn_id": conn_id,
+            "pos": first_body["pos"].as_str().unwrap(),
+            "lists": {},
+            "extensions": {
+                "e2ee": { "enabled": true }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{:?}", second_body);
+
+    let changed = second_body["extensions"]["e2ee"]["device_lists"]["changed"].as_array().unwrap();
+    let left = second_body["extensions"]["e2ee"]["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(user_b)),
+        "invite retract via kick must not masquerade as device change in sliding-sync: {}",
+        second_body
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(user_b)),
+        "invite retract via kick must not surface as shared-user loss in sliding-sync device_lists.left: {}",
+        second_body
+    );
 }
 
 #[tokio::test]

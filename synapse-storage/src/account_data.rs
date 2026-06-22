@@ -10,7 +10,7 @@ pub struct AccountDataRecord {
     pub content: Value,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AccountDataStorage {
     pool: Arc<PgPool>,
 }

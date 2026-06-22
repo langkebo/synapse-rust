@@ -814,7 +814,7 @@ pub(super) async fn exchange_third_party_invite(
     let room_version = federatable_room_version(&state, &room_id).await?;
 
     let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
-    let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id);
+    let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id).to_string();
 
     let origin_server_ts =
         body.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
@@ -822,7 +822,11 @@ pub(super) async fn exchange_third_party_invite(
     let (sender, state_key) = validate_federation_exchange_third_party_invite_event(&auth.origin, &room_id, &body)?;
     let content = body.get("content").cloned().unwrap_or_else(|| json!({}));
 
-    Ok(Json(serde_json::json!({
+    // Build the event JSON that will be signed and returned to the requesting
+    // (invitee's) homeserver.  The requesting server persists the event; we
+    // only sign it because we are the room's home server and hold the
+    // `m.room.third_party_invite` state that backs this token.
+    let mut signed_event = json!({
         "event_id": event_id,
         "room_id": room_id,
         "type": "m.room.member",
@@ -832,8 +836,27 @@ pub(super) async fn exchange_third_party_invite(
         "room_version": room_version,
         "state_key": state_key,
         "content": content,
-        "processed": true
-    })))
+    });
+
+    // Sign the event with the local server's key.
+    let local_server = &state.services.core.server_name;
+    if let Ok(Some(key)) = state.services.federation.key_rotation_manager.get_current_key().await {
+        if let Err(e) = synapse_federation::signing::sign_and_hash_event(
+            local_server,
+            &key.key_id,
+            &key.secret_key,
+            &mut signed_event,
+        ) {
+            ::tracing::warn!(
+                room_id = %room_id,
+                event_id = %event_id,
+                error = %e,
+                "Failed to sign third-party invite event"
+            );
+        }
+    }
+
+    Ok(Json(signed_event))
 }
 
 fn validate_federation_user_origin(authenticated_origin: &str, user_id: &str) -> Result<(), ApiError> {

@@ -50,34 +50,38 @@ pub(super) async fn get_missing_events(
 ) -> Result<Json<Value>, ApiError> {
     super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
 
-    let _earliest_events = body
+    let earliest_events: Vec<String> = body
         .get("earliest_events")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("earliest_events required".to_string()))?;
-    let _latest_events = body
+        .ok_or_else(|| ApiError::bad_request("earliest_events required".to_string()))?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
+    let latest_events: Vec<String> = body
         .get("latest_events")
         .and_then(|v| v.as_array())
-        .ok_or_else(|| ApiError::bad_request("latest_events required".to_string()))?;
+        .ok_or_else(|| ApiError::bad_request("latest_events required".to_string()))?
+        .iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .collect();
     let limit = body.get("limit").and_then(|v| v.as_i64()).unwrap_or(10).clamp(1, 100);
 
-    let events = state.services.rooms.room_service.get_room_events(&room_id, limit).await?;
-
-    let events_json: Vec<Value> = events
-        .into_iter()
-        .map(|e| {
-            json!({
-                "event_id": e.event_id,
-                "type": e.event_type,
-                "sender": e.user_id,
-                "content": e.content,
-                "room_id": e.room_id,
-                "origin_server_ts": e.origin_server_ts
-            })
-        })
-        .collect();
+    // Walk the event DAG backwards from `latest_events` via `event_edges`
+    // until we hit `earliest_events`, collecting the events in between.
+    // This is the spec-compliant response to `/get_missing_events`: the
+    // requester already has `earliest_events` and `latest_events`, and wants
+    // the events that connect them.
+    let events = state
+        .services
+        .rooms
+        .room_service
+        .event_storage
+        .get_missing_events_between(&room_id, &earliest_events, &latest_events, limit)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to walk event DAG for get_missing_events", &e))?;
 
     Ok(Json(json!({
-        "events": events_json
+        "events": events
     })))
 }
 

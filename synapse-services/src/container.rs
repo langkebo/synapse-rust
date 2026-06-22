@@ -29,7 +29,6 @@ pub use synapse_storage::PresenceStorage;
 use synapse_storage::*;
 
 #[derive(Clone)]
-#[allow(private_interfaces)]
 pub struct ServiceContainer {
     // Domain assemblies
     pub e2ee: E2eeServices,
@@ -304,6 +303,8 @@ fn assemble_room_and_sync(
         relations_storage: relations_storage.clone(),
         event_broadcaster: None,
         app_service_manager: None,
+        key_rotation_manager: None,
+        federation_client: None,
         #[cfg(feature = "beacons")]
         beacon_service: Some(beacon_service.clone()),
         #[cfg(not(feature = "beacons"))]
@@ -600,9 +601,11 @@ fn assemble_admin_support(
     ));
 
     let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
-    let push_notification_service = Arc::new(crate::push_notification_service::PushNotificationService::new(Arc::new(
-        push_notification_storage.clone(),
-    )));
+    let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+    let push_notification_service = Arc::new(
+        crate::push_notification_service::PushNotificationService::new(Arc::new(push_notification_storage.clone()))
+            .with_account_data_storage(account_data_storage_for_push),
+    );
 
     let media_quota_storage = synapse_storage::media_quota::MediaQuotaStorage::new(pool);
     let media_quota_service =
@@ -912,6 +915,7 @@ async fn assemble_core(
 // =============================================================================
 
 #[allow(clippy::too_many_arguments)]
+#[allow(unused_variables)]
 async fn assemble_extensions(
     pool: &Arc<sqlx::PgPool>,
     cache: &Arc<CacheManager>,
@@ -1143,6 +1147,8 @@ impl ServiceContainer {
         )
         .await;
         rooms.room_service.set_event_broadcaster(core.event_broadcaster.clone()).await;
+        rooms.room_service.set_key_rotation_manager(Arc::new(federation.key_rotation_manager.clone())).await;
+        rooms.room_service.set_federation_client(federation.federation_client.clone()).await;
 
         // Media domain service (needs core.media_service and admin.media_quota_service)
         let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(pool.clone()));
@@ -1192,8 +1198,11 @@ impl ServiceContainer {
         // Worker topology — compute before config is moved into the container
         #[cfg(feature = "burn-after-read")]
         let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;
+        #[cfg(feature = "burn-after-read")]
         let run_global_maintenance = should_run_global_maintenance(&config.worker);
+        #[cfg(feature = "burn-after-read")]
         let current_worker_type = current_instance_worker_type(&config.worker);
+        #[cfg(feature = "burn-after-read")]
         let maintenance_owner = global_maintenance_owner(&config.worker);
 
         let container = Self {

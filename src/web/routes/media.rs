@@ -301,15 +301,178 @@ fn ensure_local_media_server_name(state: &AppState, server_name: &str) -> Result
     Ok(())
 }
 
+/// Media CSP / safety header constants mirroring
+/// `synapse-services::media::build_media_response_headers` so that remote
+/// media proxied via federation gets the same sandbox treatment as local
+/// media.
+const MEDIA_CONTENT_SECURITY_POLICY: &str = "sandbox; default-src 'none'; script-src 'none'; \
+plugin-types application/pdf; style-src 'unsafe-inline'; media-src 'self'; \
+object-src 'self'; img-src 'self';";
+
+const SAFE_INLINE_MEDIA_TYPES: &[&str] = &[
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "audio/mpeg",
+    "audio/wav",
+    "audio/ogg",
+    "audio/flac",
+    "video/mp4",
+    "video/webm",
+    "application/pdf",
+];
+
+fn sanitize_attachment_filename(filename: &str) -> String {
+    filename
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(*c, '"' | '\\' | '/' | '\0'))
+        .take(200)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn encode_rfc5987(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~') {
+                c.to_string()
+            } else {
+                format!("%{:02X}", c as u32)
+            }
+        })
+        .collect()
+}
+
+fn build_proxy_media_headers(content_type: String, content_length: usize, filename: Option<&str>) -> crate::services::media::MediaResponseHeaders {
+    let primary_type = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let inline_safe = SAFE_INLINE_MEDIA_TYPES.iter().any(|safe| *safe == primary_type);
+    let disposition_kind = if inline_safe { "inline" } else { "attachment" };
+    let content_disposition = match filename {
+        Some(name) if !name.is_empty() => {
+            let safe = sanitize_attachment_filename(name);
+            if safe.is_empty() {
+                disposition_kind.to_string()
+            } else {
+                let encoded = encode_rfc5987(&safe);
+                format!("{disposition_kind}; filename=\"{safe}\"; filename*=UTF-8''{encoded}")
+            }
+        }
+        _ => disposition_kind.to_string(),
+    };
+    crate::services::media::MediaResponseHeaders {
+        content_type,
+        content_length,
+        content_disposition,
+        x_content_type_options: "nosniff",
+        content_security_policy: MEDIA_CONTENT_SECURITY_POLICY,
+        cross_origin_resource_policy: "cross-origin",
+        referrer_policy: "no-referrer",
+    }
+}
+
+/// Fetch remote media via federation and wrap it into a `MediaResponsePayload`.
+///
+/// This is the outbound counterpart of `/_matrix/federation/v1/media/download`.
+/// Synapse caches remote media locally after the first fetch; we proxy
+/// directly without caching for now (the federation HTTP client already
+/// pools connections and retries on transient failures).
+async fn fetch_remote_media_via_federation(
+    state: &AppState,
+    server_name: &str,
+    media_id: &str,
+    response_filename: Option<&str>,
+) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+    let federation_client = state.services.federation.federation_client.clone();
+    let resp = federation_client
+        .media_download(server_name, server_name, media_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ApiError::not_found(format!(
+            "Remote media fetch failed: {status} {body}"
+        )));
+    }
+
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| "application/octet-stream".to_string(), |s| s.to_string());
+
+    let content = resp
+        .bytes()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to read remote media body: {e}")))?
+        .to_vec();
+
+    let headers = build_proxy_media_headers(content_type, content.len(), response_filename);
+    Ok(crate::services::media::MediaResponsePayload { content, headers })
+}
+
+/// Fetch remote thumbnail via federation.
+async fn fetch_remote_thumbnail_via_federation(
+    state: &AppState,
+    server_name: &str,
+    media_id: &str,
+    width: u32,
+    height: u32,
+    method: &str,
+) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+    let federation_client = state.services.federation.federation_client.clone();
+    let resp = federation_client
+        .media_thumbnail(server_name, server_name, media_id, width, height, method)
+        .await
+        .map_err(ApiError::from)?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(ApiError::not_found(format!(
+            "Remote thumbnail fetch failed: {status} {body}"
+        )));
+    }
+
+    let content_type = resp
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| "image/jpeg".to_string(), |s| s.to_string());
+
+    let content = resp
+        .bytes()
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to read remote thumbnail body: {e}")))?
+        .to_vec();
+
+    let headers = build_proxy_media_headers(content_type, content.len(), None);
+    Ok(crate::services::media::MediaResponsePayload { content, headers })
+}
+
 async fn download_media_common(
     state: &AppState,
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
 ) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
-    ensure_local_media_server_name(state, server_name)?;
+    // Local media: serve directly from storage.
+    if server_name == state.services.core.server_name {
+        return state
+            .services
+            .extensions
+            .media_domain_service
+            .download_media(server_name, media_id, response_filename)
+            .await;
+    }
 
-    state.services.extensions.media_domain_service.download_media(server_name, media_id, response_filename).await
+    // Remote media: proxy via federation.
+    // Reference: element-hq/synapse `synapse/handlers/media.py::MediaRepositoryServer._download_remote`
+    fetch_remote_media_via_federation(state, server_name, media_id, response_filename).await
 }
 
 fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders) -> HeaderMap {
@@ -365,10 +528,20 @@ async fn thumbnail_response_common(
     media_id: &str,
     params: &Value,
 ) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
-    ensure_local_media_server_name(state, server_name)?;
     let (width, height, method) = thumbnail_request_params(params);
 
-    state.services.extensions.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await
+    // Local media: serve thumbnail from storage.
+    if server_name == state.services.core.server_name {
+        return state
+            .services
+            .extensions
+            .media_domain_service
+            .get_thumbnail(server_name, media_id, width, height, method)
+            .await;
+    }
+
+    // Remote media: proxy thumbnail via federation.
+    fetch_remote_thumbnail_via_federation(state, server_name, media_id, width, height, method).await
 }
 
 async fn upload_media_v3(

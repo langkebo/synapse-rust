@@ -90,12 +90,48 @@ pub async fn get_directory_room(
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to lookup room", &e))?;
 
-    match room_id {
-        Some(rid) => Ok(Json(json!({
+    if let Some(rid) = room_id {
+        return Ok(Json(json!({
             "room_id": rid,
             "servers": [state.services.core.server_name.clone()],
-        }))),
-        None => Err(ApiError::not_found("Room not found".to_string())),
+        })));
+    }
+
+    // Local lookup failed — if the alias belongs to a remote server, try
+    // federation directory query.
+    // Reference: element-hq/synapse `synapse/handlers/directory.py::DirectoryHandler.get_association`
+    if let Some(remote_server) = extract_remote_server_from_alias(&room_alias, &state.services.core.server_name) {
+        let federation_client = state.services.federation.federation_client.clone();
+        match federation_client.query_directory(&remote_server, &room_alias).await {
+            Ok(dir_response) => {
+                return Ok(Json(json!({
+                    "room_id": dir_response.room_id,
+                    "servers": dir_response.servers,
+                })));
+            }
+            Err(e) => {
+                ::tracing::warn!(
+                    room_alias = %room_alias,
+                    server = %remote_server,
+                    error = %e,
+                    "Federation query_directory failed"
+                );
+            }
+        }
+    }
+
+    Err(ApiError::not_found("Room not found".to_string()))
+}
+
+/// Extract the server name from a room alias (`#name:server`).
+/// Returns `Some(server)` if the alias belongs to a remote server (i.e. not
+/// the local server), or `None` for local aliases / malformed input.
+fn extract_remote_server_from_alias(alias: &str, local_server: &str) -> Option<String> {
+    let server = alias.rsplit_once(':')?.1;
+    if server == local_server {
+        None
+    } else {
+        Some(server.to_string())
     }
 }
 

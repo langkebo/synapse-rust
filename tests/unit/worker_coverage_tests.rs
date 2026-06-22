@@ -12,7 +12,6 @@ use synapse_rust::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalance
 use synapse_rust::worker::protocol::*;
 use synapse_rust::worker::stream::{StreamWriterManager, StreamWriters};
 use synapse_rust::worker::types::*;
-use synapse_rust::PresenceState;
 
 // ============== Protocol Tests ==============
 

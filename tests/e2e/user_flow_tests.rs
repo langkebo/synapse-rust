@@ -29,6 +29,10 @@ mod e2e_tests {
         false
     }
 
+    fn test_runtime() -> Runtime {
+        Runtime::new().unwrap_or_else(|e| panic!("failed to create Tokio runtime for E2E test: {e}"))
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     struct RegisterResponse {
         user_id: String,
@@ -98,7 +102,7 @@ mod e2e_tests {
             }))
             .send()
             .await
-            .expect("Failed to register user");
+            .unwrap_or_else(|e| panic!("register_user: failed to register user: {e}"));
 
         json_ok(response, "register_user").await
     }
@@ -114,7 +118,7 @@ mod e2e_tests {
             }))
             .send()
             .await
-            .expect("Failed to login user");
+            .unwrap_or_else(|e| panic!("login_user: failed to login user: {e}"));
 
         json_ok(response, "login_user").await
     }
@@ -132,7 +136,7 @@ mod e2e_tests {
             .json(&body)
             .send()
             .await
-            .expect("Failed to create room");
+            .unwrap_or_else(|e| panic!("create_room: failed to create room: {e}"));
 
         json_ok(response, "create_room").await
     }
@@ -153,7 +157,7 @@ mod e2e_tests {
             .json(&body)
             .send()
             .await
-            .expect("Failed to create room");
+            .unwrap_or_else(|e| panic!("create_public_room: failed to create room: {e}"));
 
         json_ok(response, "create_public_room").await
     }
@@ -174,7 +178,7 @@ mod e2e_tests {
             }))
             .send()
             .await
-            .expect("Failed to send message");
+            .unwrap_or_else(|e| panic!("send_message: failed to send message: {e}"));
 
         json_ok(response, "send_message").await
     }
@@ -188,7 +192,7 @@ mod e2e_tests {
             .body(content)
             .send()
             .await
-            .expect("Failed to upload media");
+            .unwrap_or_else(|e| panic!("upload_media: failed to upload media: {e}"));
 
         json_ok(response, "upload_media").await
     }
@@ -204,7 +208,7 @@ mod e2e_tests {
             }))
             .send()
             .await
-            .expect("Failed to search user");
+            .unwrap_or_else(|e| panic!("search_user: failed to search user: {e}"));
 
         let json: serde_json::Value = json_ok(response, "search_user").await;
 
@@ -224,7 +228,7 @@ mod e2e_tests {
             .json(&body)
             .send()
             .await
-            .expect("Failed to send friend request");
+            .unwrap_or_else(|e| panic!("send_friend_request: failed to send friend request: {e}"));
 
         json_ok(response, "send_friend_request").await
     }
@@ -236,7 +240,7 @@ mod e2e_tests {
             .header("Authorization", format!("Bearer {access_token}"))
             .send()
             .await
-            .expect("Failed to accept friend request");
+            .unwrap_or_else(|e| panic!("accept_friend_request: failed to accept friend request: {e}"));
 
         json_ok(response, "accept_friend_request").await
     }
@@ -255,7 +259,7 @@ mod e2e_tests {
             .json(&json!({"reason": "Delete message"}))
             .send()
             .await
-            .expect("Failed to redact event");
+            .unwrap_or_else(|e| panic!("redact_event: failed to redact event: {e}"));
 
         json_ok(response, "redact_event").await
     }
@@ -268,7 +272,7 @@ mod e2e_tests {
             .json(&json!({}))
             .send()
             .await
-            .expect("Failed to join room");
+            .unwrap_or_else(|e| panic!("join_room: failed to join room: {e}"));
 
         json_ok(response, "join_room").await
     }
@@ -276,7 +280,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_complete_user_flow() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -316,7 +320,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_friend_flow() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -352,7 +356,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_private_chat_flow() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -373,7 +377,9 @@ mod e2e_tests {
             // Send friend request
             let _friend_request = send_friend_request(&alice.access_token, &bob.user_id, None).await;
             let accept_response = accept_friend_request(&bob.access_token, &alice.user_id).await;
-            let dm_room_id = accept_response["room_id"].as_str().expect("room_id should be string").to_owned();
+            let dm_room_id = accept_response["room_id"]
+                .as_str()
+                .map_or_else(|| panic!("room_id should be string, response={accept_response}"), str::to_owned);
             assert!(!dm_room_id.is_empty(), "DM room ID should not be empty");
 
             join_room(&alice.access_token, &dm_room_id).await;
@@ -396,7 +402,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_media_upload_and_retrieve() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -418,7 +424,9 @@ mod e2e_tests {
             let client = Client::new();
             let mxc = upload_response.content_uri.trim_start_matches("mxc://");
             let mut parts = mxc.split('/');
-            let server_name = parts.next().expect("mxc:// must include server_name");
+            let server_name = parts
+                .next()
+                .unwrap_or_else(|| panic!("mxc:// must include server_name, content_uri={}", upload_response.content_uri));
             let media_id = parts.next().unwrap_or(upload_response.media_id.as_str());
 
             let response = client
@@ -426,7 +434,7 @@ mod e2e_tests {
                 .header("Authorization", format!("Bearer {}", alice.access_token))
                 .send()
                 .await
-                .expect("Failed to download media");
+                .unwrap_or_else(|e| panic!("download_media: failed to download media: {e}"));
 
             let downloaded_content = bytes_ok(response, "download_media").await;
 
@@ -439,7 +447,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_multi_user_room() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -477,7 +485,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_user_login_logout() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;
@@ -501,7 +509,7 @@ mod e2e_tests {
     #[test]
     #[ignore = "Requires running homeserver and E2E_RUN=1"]
     fn test_e2e_multiple_rooms() {
-        let rt = Runtime::new().unwrap();
+        let rt = test_runtime();
         rt.block_on(async {
             if !require_e2e_enabled() {
                 return;

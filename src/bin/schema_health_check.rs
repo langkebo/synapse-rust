@@ -32,7 +32,7 @@ use std::process::ExitCode;
 use sqlx::postgres::PgPoolOptions;
 
 use synapse_rust::storage::schema_health_check::{
-    detailed_report, quick_validate, run_schema_health_check, HealthCheckResult,
+    detailed_report, run_schema_health_check, HealthCheckResult,
 };
 
 #[tokio::main]
@@ -143,15 +143,4 @@ fn print_summary(result: &HealthCheckResult) {
         }
         println!();
     }
-}
-
-/// 提示：若希望以更安静的方式集成到 CI，可使用：
-/// ```bash
-/// DATABASE_URL=... cargo run --bin schema_health_check --quiet
-/// ```
-/// 当前已通过退出码传达结果。
-#[allow(dead_code)]
-fn quick_check(database_url: &str) -> Result<bool, sqlx::Error> {
-    let pool = futures::executor::block_on(PgPoolOptions::new().max_connections(1).connect(database_url))?;
-    futures::executor::block_on(quick_validate(&pool))
 }

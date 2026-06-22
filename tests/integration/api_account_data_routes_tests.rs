@@ -19,6 +19,10 @@ async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, 
     })
 }
 
+async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+    super::setup_test_app_with_config(|_| {}).await
+}
+
 async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {
     sqlx::query("UPDATE users SET is_admin = TRUE WHERE user_id = $1")
         .bind(user_id)
@@ -419,4 +423,254 @@ async fn test_tags_routes_reject_admin_access_to_other_users_data() {
         .unwrap();
     let admin_put_response = ServiceExt::<Request<Body>>::oneshot(app, admin_put).await.unwrap();
     assert_eq!(admin_put_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_secret_storage_key_account_data_write_syncs_internal_ssss() {
+    let Some((app, state)) = setup_test_app_with_state().await else {
+        return;
+    };
+    let username = unique_username("sss_key_write_sync");
+    let (token, user_id) = register_user(&app, &username).await;
+    let key_id = format!("sync-key-{}", rand::random::<u32>());
+    let key_content = json!({
+        "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+        "auth_data": {
+            "key": "opaque-session-key",
+            "iv": "opaque-iv",
+            "mac": "opaque-mac",
+            "signatures": {
+                user_id.clone(): {
+                    "ed25519:DEVICE": "signed"
+                }
+            }
+        }
+    });
+
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.secret_storage.key.{}", user_id, key_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(key_content.to_string()))
+        .unwrap();
+
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app, put_request).await.unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let stored_key = state
+        .services
+        .e2ee
+        .ssss_service
+        .get_key(&user_id, &key_id)
+        .await
+        .expect("failed to load internal SSSS key")
+        .expect("expected internal SSSS key to be mirrored from account_data");
+
+    assert_eq!(stored_key.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+    assert_eq!(stored_key.encrypted_key, "opaque-session-key");
+    assert_eq!(
+        stored_key.signatures,
+        json!({
+            user_id.clone(): {
+                "ed25519:DEVICE": "signed"
+            }
+        })
+    );
+}
+
+#[tokio::test]
+async fn test_secret_storage_default_key_write_backfills_internal_ssss_from_standard_account_data() {
+    let Some((app, state)) = setup_test_app_with_state().await else {
+        return;
+    };
+    let username = unique_username("sss_default_backfill");
+    let (token, user_id) = register_user(&app, &username).await;
+    let key_id = format!("late-key-{}", rand::random::<u32>());
+    let key_content = json!({
+        "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+        "auth_data": {
+            "key": "late-account-data-key",
+            "iv": "late-iv",
+            "mac": "late-mac",
+            "signatures": {
+                user_id.clone(): {
+                    "ed25519:DEVICE": "late-sig"
+                }
+            }
+        }
+    });
+
+    state
+        .services
+        .core
+        .account_data_service
+        .set_account_data(&user_id, &format!("m.secret_storage.key.{key_id}"), &key_content)
+        .await
+        .expect("failed to seed standard secret storage key account_data");
+
+    let missing_internal_key = state
+        .services
+        .e2ee
+        .ssss_service
+        .get_key(&user_id, &key_id)
+        .await
+        .expect("failed to query internal SSSS store before backfill");
+    assert!(missing_internal_key.is_none(), "internal SSSS key should not exist before default_key backfill");
+
+    let put_default = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.secret_storage.default_key", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "key_id": key_id }).to_string()))
+        .unwrap();
+
+    let put_default_response = ServiceExt::<Request<Body>>::oneshot(app, put_default).await.unwrap();
+    assert_eq!(put_default_response.status(), StatusCode::OK);
+
+    let stored_key = state
+        .services
+        .e2ee
+        .ssss_service
+        .get_key(&user_id, &key_id)
+        .await
+        .expect("failed to load internal SSSS key after default_key backfill")
+        .expect("expected internal SSSS key to be backfilled from standard account_data");
+
+    assert_eq!(stored_key.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+    assert_eq!(stored_key.encrypted_key, "late-account-data-key");
+    assert_eq!(
+        stored_key.signatures,
+        json!({
+            user_id.clone(): {
+                "ed25519:DEVICE": "late-sig"
+            }
+        })
+    );
+}
+
+#[tokio::test]
+async fn test_secret_storage_default_key_falls_back_to_internal_ssss() {
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+    let username = unique_username("sss_default_fallback");
+    let (token, user_id) = register_user(&app, &username).await;
+    let key_id = format!("fallback-key-{}", rand::random::<u32>());
+
+    // Seed the internal SSSS store directly with one active key, but do NOT
+    // write a `m.secret_storage.default_key` account_data event. Stock
+    // Element clients that consult the standard event name during bootstrap
+    // should still get the first key back, courtesy of the read-side bridge
+    // added to `account_data::get_account_data`.
+    sqlx::query(
+        r"
+        INSERT INTO e2ee_secret_storage_keys
+            (key_id, key_name, user_id, algorithm, key_data,
+             encrypted_key, public_key, signatures, created_ts, updated_ts, is_active)
+        VALUES ($1, $1, $2, $3, $4, $5, NULL, $6, $7, $7, TRUE)
+        ",
+    )
+    .bind(&key_id)
+    .bind(&user_id)
+    .bind("m.secret_storage.v1.aes-hmac-sha2")
+    .bind(Vec::<u8>::new())
+    .bind("opaque-ciphertext")
+    .bind(serde_json::json!({}))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("failed to seed internal SSSS key");
+
+    let get_request = Request::builder()
+        .method("GET")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.secret_storage.default_key", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let get_response = ServiceExt::<Request<Body>>::oneshot(app, get_request).await.unwrap();
+    assert_eq!(get_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(get_response.into_body(), 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["key_id"], key_id);
+}
+
+#[tokio::test]
+async fn test_dehydrated_device_ssss_precondition_accepts_account_data_default_key() {
+    // Element sets `m.secret_storage.default_key` via the standard account_data
+    // surface, not via the homeserver's internal SSSS table. The dehydration
+    // `PUT` endpoint must accept either signal as proof that SSSS is set up;
+    // otherwise Element bootstrap on a fresh account is stuck at "no
+    // dehydrated device" forever.
+    let Some((app, pool, _cache)) = setup_test_app_with_pool().await else {
+        return;
+    };
+    let username = unique_username("dh_account_data_ssss");
+    let (token, user_id) = register_user(&app, &username).await;
+
+    // Seed a master cross-signing key so we satisfy the cross-signing
+    // precondition; the SSSS precondition should be satisfied by the
+    // account_data write below, with NO rows in `e2ee_secret_storage_keys`.
+    sqlx::query(
+        r"
+        INSERT INTO cross_signing_keys (user_id, key_type, key_data, signatures, added_ts)
+        VALUES ($1, 'master', $2, $3, $4)
+        ON CONFLICT (user_id, key_type) DO UPDATE
+            SET key_data = EXCLUDED.key_data,
+                signatures = EXCLUDED.signatures,
+                added_ts = EXCLUDED.added_ts
+        ",
+    )
+    .bind(&user_id)
+    .bind("{}")
+    .bind(serde_json::json!({}))
+    .bind(chrono::Utc::now().timestamp_millis())
+    .execute(&*pool)
+    .await
+    .expect("failed to seed cross-signing master key");
+
+    let put_default = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/v3/user/{}/account_data/m.secret_storage.default_key", user_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "key_id": "remote-bootstrap-key" }).to_string()))
+        .unwrap();
+    let put_default_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_default).await.unwrap();
+    assert_eq!(put_default_response.status(), StatusCode::OK);
+
+    let put_dh = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": "ACCDATASSSS01",
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": "ACCDATASSSS01",
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        "curve25519:ACCDATASSSS01": "AAAA",
+                        "ed25519:ACCDATASSSS01": "BBBB"
+                    },
+                    "signatures": {}
+                },
+                "device_data": {
+                    "algorithm": "org.matrix.msc3814.v1.olm"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_dh_response = ServiceExt::<Request<Body>>::oneshot(app, put_dh).await.unwrap();
+    assert_eq!(
+        put_dh_response.status(),
+        StatusCode::OK,
+        "dehydrated_device PUT should pass SSSS precondition via m.secret_storage.default_key account_data"
+    );
 }

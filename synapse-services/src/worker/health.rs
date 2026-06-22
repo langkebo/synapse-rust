@@ -138,6 +138,10 @@ impl HealthChecker {
                     current.status = HealthStatus::Degraded;
                 } else if current.consecutive_failures == 0 {
                     current.status = HealthStatus::Healthy;
+                } else if current.consecutive_failures >= self.config.recovery_threshold {
+                    current.status = HealthStatus::Degraded;
+                } else {
+                    current.status = HealthStatus::Healthy;
                 }
             }
             Err(e) => {
@@ -224,9 +228,12 @@ impl HealthChecker {
                         status.keys().cloned().collect()
                     };
 
-                    for worker_id in workers {
-                        let _ = self.check_health(&worker_id).await;
-                    }
+                    // Parallelize health checks across all registered workers since
+                    // each check_health call is independent (different worker_id) and
+                    // mutates state through internal RwLocks.
+                    let check_futures =
+                        workers.iter().map(|worker_id| self.check_health(worker_id));
+                    futures::future::join_all(check_futures).await;
 
                     debug!("Completed health check cycle for {} workers",
                            self.health_status.read().await.len());
@@ -351,6 +358,53 @@ mod tests {
 
         let stats = checker.get_stats().await;
         assert_eq!(stats.total_workers, 2);
+    }
+
+    #[tokio::test]
+    async fn test_health_checker_marks_worker_unhealthy_after_consecutive_failures() {
+        let checker = HealthChecker::new(HealthCheckConfig {
+            max_consecutive_failures: 3,
+            recovery_threshold: 2,
+            ..HealthCheckConfig::default()
+        });
+
+        checker.register_worker("worker1").await;
+
+        checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+        checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+        let result = checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+
+        assert_eq!(result.status, HealthStatus::Unhealthy);
+        assert_eq!(result.consecutive_failures, 3);
+        assert_eq!(result.error_message.as_deref(), Some("timeout"));
+        assert_eq!(checker.get_unhealthy_workers().await, vec!["worker1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_health_checker_recovers_from_unhealthy_via_degraded_before_healthy() {
+        let checker = HealthChecker::new(HealthCheckConfig {
+            max_consecutive_failures: 3,
+            recovery_threshold: 2,
+            degraded_latency_ms: 1000,
+            ..HealthCheckConfig::default()
+        });
+
+        checker.register_worker("worker1").await;
+
+        checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+        checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+        let unhealthy = checker.update_health_status("worker1", Err("timeout".to_string()), 10).await;
+        assert_eq!(unhealthy.status, HealthStatus::Unhealthy);
+        assert_eq!(unhealthy.consecutive_failures, 3);
+
+        let recovering = checker.update_health_status("worker1", Ok(()), 10).await;
+        assert_eq!(recovering.status, HealthStatus::Degraded);
+        assert_eq!(recovering.consecutive_failures, 2);
+
+        let healthy = checker.update_health_status("worker1", Ok(()), 10).await;
+        assert_eq!(healthy.status, HealthStatus::Healthy);
+        assert_eq!(healthy.consecutive_failures, 1);
+        assert!(checker.is_healthy("worker1").await);
     }
 
     #[test]

@@ -42,14 +42,46 @@ pub(crate) async fn join_room_by_id_or_alias(
         validate_room_id(&room_id_or_alias)?;
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
-        state
+        // Try local alias lookup first.
+        match state
             .services
             .rooms
             .room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
-            .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
-            .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
+        {
+            Ok(Some(rid)) => rid,
+            Ok(None) => {
+                // Local lookup failed — try federation directory query for
+                // remote aliases.
+                // Reference: element-hq/synapse `synapse/handlers/directory.py::DirectoryHandler.get_association`
+                let local_server = &state.services.core.server_name;
+                let remote_server = room_id_or_alias
+                    .rsplit_once(':')
+                    .map(|(_, srv)| srv)
+                    .filter(|srv| *srv != local_server.as_str());
+
+                if let Some(remote_server) = remote_server {
+                    let federation_client = state.services.federation.federation_client.clone();
+                    let dir_response = federation_client
+                        .query_directory(remote_server, &room_id_or_alias)
+                        .await
+                        .map_err(|e| {
+                            ::tracing::warn!(
+                                room_alias = %room_id_or_alias,
+                                server = %remote_server,
+                                error = %e,
+                                "Federation query_directory failed"
+                            );
+                            ApiError::not_found(format!("Room alias not found locally or via federation: {e}"))
+                        })?;
+                    dir_response.room_id
+                } else {
+                    return Err(ApiError::not_found("Room ID not found for alias".to_string()));
+                }
+            }
+            Err(e) => return Err(ApiError::not_found(format!("Room alias not found: {e}"))),
+        }
     } else {
         let alias = format!("#{}:{}", room_id_or_alias, state.services.core.server_name);
         state
@@ -62,7 +94,12 @@ pub(crate) async fn join_room_by_id_or_alias(
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     };
 
-    let via_servers = body.and_then(|b| b.get("via_servers").and_then(|v| v.as_array()).cloned()).unwrap_or_default();
+    let via_servers: Vec<String> = body
+        .and_then(|b| b.get("via_servers").and_then(|v| v.as_array()).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
 
     ::tracing::info!(
         request_id = %request_id,
@@ -72,7 +109,12 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    state.services.rooms.room_service.join_room(&room_id, &user_id).await?;
+    state
+        .services
+        .rooms
+        .room_service
+        .join_room_with_via_servers(&room_id, &user_id, &via_servers)
+        .await?;
 
     Ok(Json(json!({
         "room_id": room_id

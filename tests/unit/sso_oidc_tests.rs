@@ -19,6 +19,7 @@ mod tests {
             token_endpoint: Some("https://oauth2.googleapis.com/token".to_string()),
             userinfo_endpoint: Some("https://openidconnect.googleapis.com/v1/userinfo".to_string()),
             jwks_uri: Some("https://www.googleapis.com/oauth2/v3/certs".to_string()),
+            registration_endpoint: None,
             timeout: 30,
             user_mapping_provider: None,
         }

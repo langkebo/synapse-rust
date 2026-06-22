@@ -163,6 +163,13 @@ oidc:
   callback_url: "http://localhost:8008/_matrix/client/v3/oidc/callback"
   allow_existing_users: true
   block_unknown_users: false
+  # OIDC Dynamic Client Registration endpoint (RFC 7591).
+  # 当外部 IdP 支持动态客户端注册时填写完整 URL，例如：
+  #   registration_endpoint: "https://idp.example.com/realms/matrix/clients-registrations/openid-connect"
+  # Element Web 在 OIDC discovery 阶段会探测此字段；缺失时原生流程会抛出
+  # "Dynamic registration not supported" 并回退到静态 client_id 配置。
+  # 不支持动态注册的 IdP 应保持注释或设为 null。
+  registration_endpoint: null
 
 saml:
   enabled: false
@@ -235,3 +242,24 @@ app_service:
         rooms:
           - exclusive: false
             regex: "!openclaw_.*:cjystx.top"
+
+# =============================================================================
+# 实验性功能与私有扩展声明
+# =============================================================================
+# experimental 段控制 `/capabilities` 接口对外暴露哪些非 Matrix 标准能力。
+# 部署在 stock Element Web（不含 hula 私有补丁）前时，应将
+# `declare_private_extensions` 设为 false，以避免客户端因无法识别
+# `io.hula.friends` / `io.hula.voice_extended` / `io.hula.burn_after_read`
+# 而触发 "unknown capability" 警告或 UI 异常。
+#
+# 当设为 false 时：
+#   - 上述三项 io.hula.* capability 在 `/capabilities` 响应中被抑制
+#   - 治理模式从 RouteSurface（路由注册驱动）降级为 ConfigControlled(false)
+#   - 路由本身仍然注册，已登录客户端仍可直接调用 API（仅声明层被关闭）
+#
+# 当设为 true（默认）时：
+#   - capability 声明由对应 feature flag 与路由注册情况决定
+#   - 适用于 hula 定制版 Element Web 或兼容客户端
+experimental:
+  declare_private_extensions: true
+

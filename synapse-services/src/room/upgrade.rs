@@ -16,6 +16,20 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to get old room", &e))?
             .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
 
+        // Fetch old room members BEFORE creating the tombstone, so we can
+        // invite them to the replacement room.  We collect joined members
+        // excluding the upgrading user (who is auto-invited via create_room).
+        let old_members = self
+            .member_storage
+            .get_room_members(old_room_id, "join")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to fetch old room members for migration", &e))?;
+        let members_to_invite: Vec<String> = old_members
+            .into_iter()
+            .map(|m| m.user_id)
+            .filter(|uid| uid != user_id)
+            .collect();
+
         let tombstone_event_id = generate_event_id(&self.server_name);
         let create_config = CreateRoomConfig {
             visibility: Some(if old_room.is_public { "public".to_string() } else { "private".to_string() }),
@@ -45,7 +59,12 @@ impl RoomService {
             .ok_or_else(|| ApiError::internal("Room upgrade did not return replacement room"))?
             .to_string();
 
-        self.event_storage
+        // Create the tombstone event in the OLD room via the `create_event`
+        // wrapper (not the raw storage layer).  This ensures the event is
+        // signed with the server's signing key and broadcast to all remote
+        // servers with joined members in the old room, so federated
+        // homeservers learn that the room has been replaced.
+        let tombstone_event = self
             .create_event(
                 CreateEventParams {
                     event_id: tombstone_event_id,
@@ -64,6 +83,55 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create tombstone event", &e))?;
+
+        ::tracing::info!(
+            old_room_id = %old_room_id,
+            new_room_id = %new_room_id,
+            tombstone_event_id = %tombstone_event.event_id,
+            "Room upgraded: tombstone event created and broadcast"
+        );
+
+        // Auto-join the upgrading user to the new room.  `create_room` only
+        // invites the creator; we need them to be a joined member so they can
+        // immediately use the replacement room (matches Synapse behavior).
+        if let Err(e) = self.join_room(&new_room_id, user_id).await {
+            ::tracing::warn!(
+                old_room_id = %old_room_id,
+                new_room_id = %new_room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to auto-join upgrading user to replacement room"
+            );
+        }
+
+        // Invite all former joined members of the old room to the new room.
+        // Local users go through the local invite path; remote users go
+        // through the federation invite path (handled transparently by
+        // `invite_user`).
+        for invitee_id in &members_to_invite {
+            if let Err(e) = self.invite_user(&new_room_id, user_id, invitee_id).await {
+                ::tracing::warn!(
+                    old_room_id = %old_room_id,
+                    new_room_id = %new_room_id,
+                    invitee_id = %invitee_id,
+                    error = %e,
+                    "Failed to invite old room member to replacement room"
+                );
+            }
+        }
+
+        // Copy state events (power levels, join_rules, canonical_alias, etc.)
+        // from the old room to the new room.  This is best-effort: failures
+        // are logged but do not fail the upgrade, since the new room is
+        // already functional with its default state.
+        if let Err(e) = self.migrate_room_content(old_room_id, &new_room_id, user_id).await {
+            ::tracing::warn!(
+                old_room_id = %old_room_id,
+                new_room_id = %new_room_id,
+                error = %e,
+                "Failed to migrate room content (best-effort)"
+            );
+        }
 
         Ok(new_room_id)
     }

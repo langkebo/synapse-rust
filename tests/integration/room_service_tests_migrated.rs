@@ -319,6 +319,8 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         relations_storage: RelationsStorage::new(pool),
         event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),
         app_service_manager: None,
+        key_rotation_manager: None,
+        federation_client: None,
         beacon_service: None,
     })
 }

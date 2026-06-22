@@ -28,6 +28,27 @@ pub struct UpdateWidgetBody {
     pub data: Option<serde_json::Value>,
 }
 
+/// Validate a widget URL to mitigate XSS risk. Only `https:` and `http:`
+/// schemes are allowed — `javascript:`, `data:`, and other dangerous schemes
+/// are rejected. The URL must parse successfully and have a host.
+fn validate_widget_url(url: &str) -> Result<(), ApiError> {
+    let parsed = url::Url::parse(url).map_err(|_| {
+        ApiError::bad_request("Widget URL must be a valid absolute URL")
+    })?;
+
+    match parsed.scheme() {
+        "https" | "http" => {
+            if parsed.host_str().is_none() {
+                return Err(ApiError::bad_request("Widget URL must have a host"));
+            }
+            Ok(())
+        }
+        scheme => Err(ApiError::bad_request(format!(
+            "Widget URL scheme '{scheme}' is not allowed; only https and http are permitted"
+        ))),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetPermissionBody {
     pub user_id: String,
@@ -129,6 +150,8 @@ async fn create_widget(
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateWidgetBody>,
 ) -> Result<Json<WidgetResponse>, ApiError> {
+    validate_widget_url(&body.url)?;
+
     if let Some(room_id) = body.room_id.as_deref() {
         let room_exists = state.services.rooms.room_service.room_exists(room_id).await?;
         if !room_exists {
@@ -169,6 +192,9 @@ async fn update_widget(
     Json(body): Json<UpdateWidgetBody>,
 ) -> Result<Json<WidgetResponse>, ApiError> {
     let _widget = get_widget_with_access(&state, &auth_user, &widget_id, "write").await?;
+    if let Some(url) = body.url.as_deref() {
+        validate_widget_url(url)?;
+    }
     let request = UpdateWidgetRequest { url: body.url, name: body.name, data: body.data };
 
     let widget = state
@@ -534,15 +560,16 @@ async fn send_room_widget_message(
         return Err(ApiError::bad_request("Widget does not belong to this room".to_string()));
     }
 
-    let event_id = format!("${}_{}", uuid::Uuid::new_v4(), chrono::Utc::now().timestamp_millis());
-
-    Ok(Json(json!({
-        "event_id": event_id,
-        "widget_id": widget_id,
-        "room_id": room_id,
-        "type": body.msg_type,
-        "content": body.content
-    })))
+    // Widget messaging should be sent as a room event (e.g. `m.widget.*`)
+    // through the standard event pipeline, not synthesized here. Returning a
+    // fake `event_id` without persisting would mislead clients into thinking
+    // the message was delivered. Until the full event-pipeline integration is
+    // implemented, reject with a clear error so callers know to use the
+    // standard room send endpoint instead.
+    let _ = body;
+    Err(ApiError::bad_request(
+        "Widget messaging is not supported via this endpoint. Send widget events through the standard room send API (PUT /_matrix/client/v3/rooms/{room_id}/send/{event_type}/{txn_id}) instead.",
+    ))
 }
 
 #[cfg(test)]
@@ -573,6 +600,28 @@ mod tests {
 
         assert!(body.url.is_some());
         assert!(body.name.is_some());
+    }
+
+    #[test]
+    fn test_validate_widget_url_accepts_https_and_http() {
+        assert!(validate_widget_url("https://example.com/widget").is_ok());
+        assert!(validate_widget_url("http://localhost:8080/widget").is_ok());
+        assert!(validate_widget_url("https://example.com:443/path?query=1#frag").is_ok());
+    }
+
+    #[test]
+    fn test_validate_widget_url_rejects_dangerous_schemes() {
+        assert!(validate_widget_url("javascript:alert(1)").is_err());
+        assert!(validate_widget_url("data:text/html,<script>alert(1)</script>").is_err());
+        assert!(validate_widget_url("file:///etc/passwd").is_err());
+        assert!(validate_widget_url("ftp://example.com/widget").is_err());
+    }
+
+    #[test]
+    fn test_validate_widget_url_rejects_invalid_urls() {
+        assert!(validate_widget_url("not a url").is_err());
+        assert!(validate_widget_url("://missing-scheme").is_err());
+        assert!(validate_widget_url("https://").is_err()); // no host
     }
 
     #[test]

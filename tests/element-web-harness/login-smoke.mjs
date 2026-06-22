@@ -24,12 +24,18 @@ const context = await browser.newContext({
     viewport: { width: 1440, height: 1024 },
 });
 const page = await context.newPage();
+const pageErrors = [];
+const consoleErrors = [];
 
 page.on("console", (msg) => {
+    if (msg.type() === "error") {
+        consoleErrors.push(msg.text());
+    }
     console.log(`[element-web:${msg.type()}] ${msg.text()}`);
 });
 
 page.on("pageerror", (error) => {
+    pageErrors.push(error.stack || error.message);
     console.error(`[element-web:pageerror] ${error.stack || error.message}`);
 });
 
@@ -77,6 +83,17 @@ async function isAuthPageVisible() {
     ]);
 }
 
+async function isVerificationPromptVisible() {
+    return anyVisible([
+        page.getByText(/Verify this device/i).first(),
+        page.getByText(/Unable to verify/i).first(),
+        page.getByText(/Confirm your digital identity/i).first(),
+        page.getByText(/确认你的数字身份/).first(),
+        page.getByText(/无法确认/).first(),
+        page.getByText(/移除此设备/).first(),
+    ]);
+}
+
 async function waitForCondition(conditionFn, timeoutMs = 120_000, intervalMs = 1_000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -104,9 +121,16 @@ async function waitForPostLoginState() {
             page.getByText(/^Home$/i).first(),
             page.getByText(/Setting up keys/i).first(),
             page.getByText(/Confirm your identity by entering your account password below/i).first(),
+            page.getByText(/确认你的数字身份/).first(),
+            page.getByText(/无法确认/).first(),
+            page.getByText(/移除此设备/).first(),
         ];
 
         if (await anyVisible(postLoginMarkers)) {
+            return true;
+        }
+
+        if (await isVerificationPromptVisible()) {
             return true;
         }
 
@@ -183,6 +207,12 @@ try {
     }
 
     console.log("[element-web] login smoke passed");
+    if (pageErrors.length) {
+        console.warn(`[element-web] page errors observed after login: ${JSON.stringify(pageErrors, null, 2)}`);
+    }
+    if (consoleErrors.length) {
+        console.warn(`[element-web] console errors observed after login: ${JSON.stringify(consoleErrors, null, 2)}`);
+    }
 } catch (error) {
     const screenshotPath = `${artifactDir}/element-web-login-failure.png`;
     await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => undefined);

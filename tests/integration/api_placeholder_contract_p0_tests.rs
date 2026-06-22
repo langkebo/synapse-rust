@@ -658,14 +658,17 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
 }
 
 #[tokio::test]
-async fn test_admin_server_placeholder_contract_returns_unrecognized_for_admin() {
+async fn test_admin_server_placeholder_contract_returns_not_implemented_for_admin() {
     let Some(app) = super::setup_test_app().await else {
         return;
     };
 
     let (admin_token, _) = super::get_super_admin_token(&app).await;
 
-    for path in ["/_synapse/admin/v1/backups", "/_synapse/admin/v1/experimental_features"] {
+    // `backups` and `restart` are recognized endpoints that are intentionally
+    // not implemented (managed by external infrastructure). They return 501
+    // (M_UNRECOGNIZED) to distinguish from truly unknown endpoints (404).
+    for path in ["/_synapse/admin/v1/backups"] {
         assert_matrix_error(
             &app,
             Request::builder()
@@ -674,11 +677,35 @@ async fn test_admin_server_placeholder_contract_returns_unrecognized_for_admin()
                 .header("Authorization", format!("Bearer {}", admin_token))
                 .body(Body::empty())
                 .unwrap(),
-            StatusCode::NOT_FOUND,
+            StatusCode::NOT_IMPLEMENTED,
             "M_UNRECOGNIZED",
         )
         .await;
     }
+}
+
+#[tokio::test]
+async fn test_admin_experimental_features_returns_feature_map() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_synapse/admin/v1/experimental_features")
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["features"].is_object());
+    assert!(json["total"].is_i64());
 }
 
 #[tokio::test]

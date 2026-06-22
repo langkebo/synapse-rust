@@ -5,10 +5,12 @@ use synapse_rust::storage::matrixrtc::{
     SessionWithMemberships,
 };
 
+#[allow(dead_code)]
 fn create_test_storage(pool: sqlx::PgPool) -> MatrixRTCStorage {
     MatrixRTCStorage::new(std::sync::Arc::new(pool))
 }
 
+#[allow(dead_code)]
 fn create_test_service(
     storage: MatrixRTCStorage,
     cache: std::sync::Arc<synapse_rust::cache::CacheManager>,

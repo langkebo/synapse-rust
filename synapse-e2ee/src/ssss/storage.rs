@@ -64,13 +64,13 @@ impl SecretStorage {
     }
 
     pub async fn create_key(&self, key: &SecretStorageKey) -> Result<(), ApiError> {
-        sqlx::query(
+        let result = sqlx::query(
             r"
             INSERT INTO e2ee_secret_storage_keys
                 (key_id, key_name, user_id, algorithm, key_data,
                  encrypted_key, public_key, signatures, created_ts, updated_ts, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, TRUE)
-            ON CONFLICT (key_id, user_id) DO UPDATE SET
+            ON CONFLICT (key_id) DO UPDATE SET
                 algorithm = EXCLUDED.algorithm,
                 key_data = EXCLUDED.key_data,
                 encrypted_key = EXCLUDED.encrypted_key,
@@ -78,6 +78,7 @@ impl SecretStorage {
                 signatures = EXCLUDED.signatures,
                 updated_ts = EXCLUDED.updated_ts,
                 is_active = TRUE
+            WHERE e2ee_secret_storage_keys.user_id = EXCLUDED.user_id
             ",
         )
         .bind(&key.key_id)
@@ -95,6 +96,17 @@ impl SecretStorage {
             tracing::error!("Database error: {e}");
             ApiError::database("A database error occurred".to_string())
         })?;
+
+        if result.rows_affected() == 0 {
+            tracing::warn!(
+                user_id = %key.user_id,
+                key_id = %key.key_id,
+                "refused to overwrite SSSS key owned by another user"
+            );
+            return Err(ApiError::bad_request(
+                "Secret storage key id already exists for another user".to_string(),
+            ));
+        }
 
         Ok(())
     }

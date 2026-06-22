@@ -597,6 +597,7 @@ mod tests {
             token_endpoint: None,
             userinfo_endpoint: None,
             jwks_uri: None,
+            registration_endpoint: None,
             timeout: 10,
             user_mapping_provider: None,
         }
