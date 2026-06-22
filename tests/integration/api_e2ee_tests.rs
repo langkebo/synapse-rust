@@ -2,11 +2,38 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
+use std::sync::OnceLock;
+use synapse_rust::cache::{CacheConfig, CacheManager};
+use synapse_rust::services::ServiceContainer;
+use synapse_rust::e2ee::signed_json::{canonical_json_bytes, remove_signatures_and_unsigned};
+use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
+
+static SYNC_DEVICE_LISTS_TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn sync_device_lists_test_mutex() -> &'static tokio::sync::Mutex<()> {
+    SYNC_DEVICE_LISTS_TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 async fn setup_test_app() -> Option<axum::Router> {
     super::setup_test_app().await
+}
+
+async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+    super::setup_test_app_with_state().await
+}
+
+async fn setup_isolated_test_app_with_state() -> Option<(axum::Router, AppState)> {
+    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
+    let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
+    let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
+    let state = AppState::new(container, cache);
+    let app = synapse_rust::web::create_router(state.clone());
+    Some((app, state))
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
@@ -33,6 +60,125 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     }
     let json: Value = serde_json::from_slice(&body).unwrap();
     (json["access_token"].as_str().unwrap().to_string(), json["user_id"].as_str().unwrap().to_string())
+}
+
+async fn register_user_with_device_id(app: &axum::Router, username: &str) -> (String, String, String) {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/register")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "username": username,
+                "password": "Password123!",
+                "auth": {"type": "m.login.dummy"}
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+    if status != StatusCode::OK {
+        panic!("Registration failed with status {}: {:?}", status, String::from_utf8_lossy(&body));
+    }
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    (
+        json["access_token"].as_str().unwrap().to_string(),
+        json["user_id"].as_str().unwrap().to_string(),
+        json["device_id"].as_str().unwrap().to_string(),
+    )
+}
+
+fn matrix_signature(value: &Value, signing_key: &SigningKey) -> String {
+    let mut json_for_signing = value.clone();
+    remove_signatures_and_unsigned(&mut json_for_signing);
+    let message = canonical_json_bytes(&json_for_signing).unwrap();
+    STANDARD.encode(signing_key.sign(&message).to_bytes())
+}
+
+fn attach_matrix_signature(value: &mut Value, signer_user_id: &str, key_id: &str, signing_key: &SigningKey) {
+    let signature = matrix_signature(value, signing_key);
+    value["signatures"] = json!({
+        signer_user_id: {
+            key_id: signature
+        }
+    });
+}
+
+async fn seed_dehydrated_device_preconditions(
+    state: &synapse_rust::web::routes::state::AppState,
+    user_id: &str,
+    key_id: &str,
+) {
+    state
+        .services
+        .e2ee
+        .cross_signing_service
+        .upload_cross_signing_keys(synapse_rust::e2ee::cross_signing::CrossSigningUpload {
+            master_key: json!({
+                "user_id": user_id,
+                "usage": ["master"],
+                "keys": {
+                    "ed25519:MASTER": "master-public-key"
+                },
+                "signatures": {}
+            }),
+            self_signing_key: json!({
+                "user_id": user_id,
+                "usage": ["self_signing"],
+                "keys": {
+                    "ed25519:SELF": "self-signing-public-key"
+                },
+                "signatures": {}
+            }),
+            user_signing_key: json!({
+                "user_id": user_id,
+                "usage": ["user_signing"],
+                "keys": {
+                    "ed25519:USER": "user-signing-public-key"
+                },
+                "signatures": {}
+            }),
+        })
+        .await
+        .expect("failed to seed cross-signing keys");
+
+    state
+        .services
+        .core
+        .account_data_service
+        .set_account_data(
+            user_id,
+            &format!("m.secret_storage.key.{key_id}"),
+            &json!({
+                "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                "auth_data": {
+                    "key": "opaque-secret-storage-key",
+                    "iv": "opaque-iv",
+                    "mac": "opaque-mac",
+                    "signatures": {}
+                }
+            }),
+        )
+        .await
+        .expect("failed to seed m.secret_storage.key account_data");
+
+    state
+        .services
+        .core
+        .account_data_service
+        .set_account_data(
+            user_id,
+            "m.secret_storage.default_key",
+            &json!({
+                "key_id": key_id
+            }),
+        )
+        .await
+        .expect("failed to seed m.secret_storage.default_key account_data");
 }
 
 async fn create_room(app: &axum::Router, token: &str, name: &str) -> String {
@@ -71,6 +217,95 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
         .uri(format!("/_matrix/client/r0/rooms/{}/join", room_id))
         .header("Authorization", format!("Bearer {}", token))
         .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn leave_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/leave", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn kick_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/kick", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id, "reason": reason }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn ban_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/ban", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id, "reason": reason }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn unban_user_from_room(app: &axum::Router, token: &str, room_id: &str, user_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/unban", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "user_id": user_id }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn forget_room(app: &axum::Router, token: &str, room_id: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/r0/rooms/{}/forget", room_id))
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn set_room_join_rule(app: &axum::Router, token: &str, room_id: &str, join_rule: &str) {
+    let request = Request::builder()
+        .method("PUT")
+        .uri(format!("/_matrix/client/r0/rooms/{room_id}/state/m.room.join_rules"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "join_rule": join_rule }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn knock_room(app: &axum::Router, token: &str, room_id: &str, reason: &str) {
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!("/_matrix/client/v3/knock/{room_id}"))
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "reason": reason }).to_string()))
         .unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
@@ -121,6 +356,25 @@ async fn upload_test_device_keys(
 
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+async fn sync_once(app: &axum::Router, token: &str, since: Option<&str>) -> Value {
+    let uri = match since {
+        Some(since) => format!("/_matrix/client/v3/sync?since={since}"),
+        None => "/_matrix/client/v3/sync".to_string(),
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    serde_json::from_slice(&body).unwrap()
 }
 
 #[tokio::test]
@@ -336,13 +590,14 @@ async fn test_e2ee_shared_routes_across_versions() {
         .unwrap();
     let device_signing_response =
         ServiceExt::<Request<Body>>::oneshot(app.clone(), device_signing_request).await.unwrap();
-    // UIA required for device_signing/upload — 401 is expected without auth
-    assert!(
-        device_signing_response.status() == StatusCode::OK
-            || device_signing_response.status() == StatusCode::UNAUTHORIZED,
-        "device_signing/upload returned unexpected status: {}",
-        device_signing_response.status()
-    );
+    // Matrix/Synapse contract: this endpoint is UIA-protected, so a request
+    // without `auth` must return a UIA challenge rather than silently
+    // succeeding.
+    assert_eq!(device_signing_response.status(), StatusCode::UNAUTHORIZED);
+    let body = axum::body::to_bytes(device_signing_response.into_body(), 4096).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_UIA_REQUIRED");
+    assert!(json["session"].is_string(), "missing UIA session in response: {}", json);
 
     let changes_request = Request::builder()
         .method("GET")
@@ -634,6 +889,1033 @@ async fn test_key_changes_allows_users_with_shared_rooms() {
 
     assert!(changed.iter().any(|entry| entry == &json!(bob_user_id)));
     assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
+}
+
+#[tokio::test]
+async fn test_key_changes_exposes_cross_signing_updates_for_shared_users() {
+    let Some((app, state)) = super::setup_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_cross_changes_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_cross_changes_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Cross-Signing Changes Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    state
+        .services
+        .e2ee
+        .cross_signing_service
+        .upload_cross_signing_keys(synapse_rust::e2ee::cross_signing::CrossSigningUpload {
+            master_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["master"],
+                "keys": {
+                    "ed25519:BOBMASTER": "bob-master-public-key"
+                },
+                "signatures": {}
+            }),
+            self_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["self_signing"],
+                "keys": {
+                    "ed25519:BOBSELF": "bob-self-signing-public-key"
+                },
+                "signatures": {}
+            }),
+            user_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["user_signing"],
+                "keys": {
+                    "ed25519:BOBUSER": "bob-user-signing-public-key"
+                },
+                "signatures": {}
+            }),
+        })
+        .await
+        .expect("failed to upload cross-signing keys");
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/keys/changes?from=0&to=1000")
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), 32 * 1024).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let changed = json["changed"].as_array().unwrap();
+    let left = json["left"].as_array().unwrap();
+
+    assert!(
+        changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "expected /keys/changes to include cross-signing-only update for shared user: {}",
+        json
+    );
+    assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_exposes_cross_signing_updates_for_shared_users() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_cross_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_cross_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Cross-Signing Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    state
+        .services
+        .e2ee
+        .cross_signing_service
+        .upload_cross_signing_keys(synapse_rust::e2ee::cross_signing::CrossSigningUpload {
+            master_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["master"],
+                "keys": {
+                    "ed25519:BOBSYNCMASTER": "bob-sync-master-public-key"
+                },
+                "signatures": {}
+            }),
+            self_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["self_signing"],
+                "keys": {
+                    "ed25519:BOBSYNCSELF": "bob-sync-self-signing-public-key"
+                },
+                "signatures": {}
+            }),
+            user_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["user_signing"],
+                "keys": {
+                    "ed25519:BOBSYNCUSER": "bob-sync-user-signing-public-key"
+                },
+                "signatures": {}
+            }),
+        })
+        .await
+        .expect("failed to upload cross-signing keys");
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "expected /sync device_lists.changed to include shared user cross-signing update: {}",
+        incremental_sync
+    );
+    assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_does_not_leak_cross_signing_updates_without_shared_rooms() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_isolated_alice_{}", rand::random::<u32>())).await;
+    let (_, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_isolated_bob_{}", rand::random::<u32>())).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    state
+        .services
+        .e2ee
+        .cross_signing_service
+        .upload_cross_signing_keys(synapse_rust::e2ee::cross_signing::CrossSigningUpload {
+            master_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["master"],
+                "keys": {
+                    "ed25519:BOBISOLATEDMASTER": "bob-isolated-master-public-key"
+                },
+                "signatures": {}
+            }),
+            self_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["self_signing"],
+                "keys": {
+                    "ed25519:BOBISOLATEDSELF": "bob-isolated-self-signing-public-key"
+                },
+                "signatures": {}
+            }),
+            user_signing_key: json!({
+                "user_id": bob_user_id,
+                "usage": ["user_signing"],
+                "keys": {
+                    "ed25519:BOBISOLATEDUSER": "bob-isolated-user-signing-public-key"
+                },
+                "signatures": {}
+            }),
+        })
+        .await
+        .expect("failed to upload isolated cross-signing keys");
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "expected /sync device_lists.changed to exclude non-shared user cross-signing update: {}",
+        incremental_sync
+    );
+    assert!(!left.iter().any(|entry| entry == &json!(bob_user_id)));
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_left_reports_users_who_stop_sharing_rooms() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_left_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_left_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Device List Left Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &bob_token, &room_id).await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "membership-only unshare should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "expected /sync device_lists.left to include user who stopped sharing rooms: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_left_reports_users_when_requester_leaves_last_shared_room() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_self_left_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_self_left_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Requester Leaves Shared Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &alice_token, &room_id).await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "requester leaving shared room should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "expected /sync device_lists.left to include still-joined peer after requester leaves last shared room: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_left_does_not_report_user_still_shared_via_other_room() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_multi_left_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_multi_left_bob_{}", rand::random::<u32>())).await;
+
+    let room_a = create_room(&app, &alice_token, "E2EE Sync Shared Room A").await;
+    invite_user_to_room(&app, &alice_token, &room_a, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_a).await;
+
+    let room_b = create_room(&app, &alice_token, "E2EE Sync Shared Room B").await;
+    invite_user_to_room(&app, &alice_token, &room_b, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_b).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &bob_token, &room_a).await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "membership-only partial unshare should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "user still shared via another room must not appear in /sync device_lists.left: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_leave_then_rejoin_does_not_report_left() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_rejoin_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_rejoin_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Leave Rejoin Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &bob_token, &room_id).await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "leave then rejoin should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "user who re-shares a room before the next /sync must not remain in device_lists.left: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_kick_reports_left_for_kicked_shared_user() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_kick_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_kick_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Kick Shared User Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    kick_user_from_room(&app, &alice_token, &room_id, &bob_user_id, "moderation kick").await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "kick-driven unshare should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "kicked shared user should appear in /sync device_lists.left: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_ban_reports_left_for_banned_shared_user() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_ban_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_ban_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Ban Shared User Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    ban_user_from_room(&app, &alice_token, &room_id, &bob_user_id, "moderation ban").await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "ban-driven unshare should not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "banned shared user should appear in /sync device_lists.left: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_unban_does_not_repeat_left_for_already_unshared_user() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_unban_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_unban_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Unban Shared User Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    ban_user_from_room(&app, &alice_token, &room_id, &bob_user_id, "moderation ban").await;
+
+    let ban_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let ban_left = ban_sync["device_lists"]["left"].as_array().unwrap();
+    assert!(
+        ban_left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "ban should first report the shared user in /sync device_lists.left: {}",
+        ban_sync
+    );
+    let since_after_ban = ban_sync["next_batch"].as_str().expect("missing next_batch after ban").to_string();
+
+    unban_user_from_room(&app, &alice_token, &room_id, &bob_user_id).await;
+
+    let unban_sync = sync_once(&app, &alice_token, Some(&since_after_ban)).await;
+    let changed = unban_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = unban_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "unban should not masquerade as device change in /sync: {}",
+        unban_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "unban after a prior ban must not repeat /sync device_lists.left for an already-unshared user: {}",
+        unban_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_forget_does_not_repeat_left_for_already_unshared_user() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_forget_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_forget_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Forget Shared User Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+    join_room(&app, &bob_token, &room_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &alice_token, &room_id).await;
+
+    let leave_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let leave_left = leave_sync["device_lists"]["left"].as_array().unwrap();
+    assert!(
+        leave_left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "leaving the last shared room should first report the peer in /sync device_lists.left: {}",
+        leave_sync
+    );
+    let since_after_leave = leave_sync["next_batch"].as_str().expect("missing next_batch after leave").to_string();
+
+    forget_room(&app, &alice_token, &room_id).await;
+
+    let forget_sync = sync_once(&app, &alice_token, Some(&since_after_leave)).await;
+    let changed = forget_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = forget_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "forget should not masquerade as device change in /sync: {}",
+        forget_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "forget after a prior leave must not repeat /sync device_lists.left for an already-unshared user: {}",
+        forget_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_knock_does_not_leak_non_shared_user() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_knock_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_knock_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Knock Room").await;
+    set_room_join_rule(&app, &alice_token, &room_id, "knock").await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    knock_room(&app, &bob_token, &room_id, "let me in").await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "knock by a never-shared user must not appear in /sync device_lists.changed: {}",
+        incremental_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "knock by a never-shared user must not appear in /sync device_lists.left: {}",
+        incremental_sync
+    );
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_invite_decline_does_not_report_left_and_updates_membership_state() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_invite_decline_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_invite_decline_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Invite Decline Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    leave_room(&app, &bob_token, &room_id).await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "invite decline must not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "invite decline must not surface as shared-user loss in /sync device_lists.left: {}",
+        incremental_sync
+    );
+
+    let membership = state
+        .services
+        .rooms
+        .member_storage
+        .get_room_member(&room_id, &bob_user_id)
+        .await
+        .expect("failed to load membership after invite decline")
+        .expect("missing membership after invite decline");
+    assert_eq!(membership.membership, "leave");
+    assert!(
+        membership.joined_ts.is_none(),
+        "invite decline should not backfill joined_ts for never-joined user"
+    );
+    assert!(membership.left_ts.is_some(), "invite decline should stamp left_ts");
+}
+
+#[tokio::test]
+async fn test_sync_device_lists_invite_retract_via_kick_does_not_report_left() {
+    let _guard = sync_device_lists_test_mutex().lock().await;
+    let Some((app, state)) = setup_isolated_test_app_with_state().await else {
+        return;
+    };
+    let (alice_token, _) =
+        register_user(&app, &format!("e2ee_sync_invite_retract_alice_{}", rand::random::<u32>())).await;
+    let (_, bob_user_id) =
+        register_user(&app, &format!("e2ee_sync_invite_retract_bob_{}", rand::random::<u32>())).await;
+
+    let room_id = create_room(&app, &alice_token, "E2EE Sync Invite Retract Room").await;
+    invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
+
+    let initial_sync = sync_once(&app, &alice_token, None).await;
+    let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
+
+    kick_user_from_room(&app, &alice_token, &room_id, &bob_user_id, "invite retracted").await;
+
+    let incremental_sync = sync_once(&app, &alice_token, Some(&since)).await;
+    let changed = incremental_sync["device_lists"]["changed"].as_array().unwrap();
+    let left = incremental_sync["device_lists"]["left"].as_array().unwrap();
+
+    assert!(
+        !changed.iter().any(|entry| entry == &json!(bob_user_id)),
+        "invite retract via kick must not masquerade as device change in /sync: {}",
+        incremental_sync
+    );
+    assert!(
+        !left.iter().any(|entry| entry == &json!(bob_user_id)),
+        "invite retract via kick must not surface as shared-user loss in /sync device_lists.left: {}",
+        incremental_sync
+    );
+
+    let membership = state
+        .services
+        .rooms
+        .member_storage
+        .get_room_member(&room_id, &bob_user_id)
+        .await
+        .expect("failed to load membership after invite retract")
+        .expect("missing membership after invite retract");
+    assert_eq!(membership.membership, "leave");
+    assert!(membership.joined_ts.is_none(), "invite retract must not mark invitee as joined");
+}
+
+#[tokio::test]
+async fn test_device_signing_password_uia_upload_enables_dehydrated_device_bootstrap() {
+    let Some((app, state)) = setup_test_app_with_state().await else {
+        return;
+    };
+    let username = format!("e2ee_uia_bootstrap_{}", rand::random::<u32>());
+    let (token, user_id) = register_user(&app, &username).await;
+    let master_key = json!({
+        "user_id": user_id,
+        "usage": ["master"],
+        "keys": {
+            "ed25519:MASTER": "master-public-key-uia"
+        },
+        "signatures": {}
+    });
+
+    let challenge_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({
+            "master_key": master_key
+        }).to_string()))
+        .unwrap();
+    let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
+    assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
+
+    let challenge_body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
+    let challenge_json: Value = serde_json::from_slice(&challenge_body).unwrap();
+    assert_eq!(challenge_json["errcode"], "M_UIA_REQUIRED");
+    let session = challenge_json["session"].as_str().expect("missing UIA session").to_string();
+
+    let complete_uia_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "master_key": master_key,
+                "auth": {
+                    "type": "m.login.password",
+                    "session": session,
+                    "identifier": {
+                        "type": "m.id.user",
+                        "user": username
+                    },
+                    "password": "Password123!"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let complete_uia_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
+    assert_eq!(complete_uia_response.status(), StatusCode::OK);
+
+    let verification_status = state
+        .services
+        .e2ee
+        .cross_signing_service
+        .get_user_verification_status(&user_id)
+        .await
+        .expect("failed to query cross-signing status");
+    assert!(verification_status.has_master_key, "master key upload should satisfy dehydrated-device bootstrap precondition");
+
+    let key_id = format!("uia-ssss-{}", rand::random::<u32>());
+    for (data_type, content) in [
+        (
+            format!("m.secret_storage.key.{key_id}"),
+            json!({
+                "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                "auth_data": {
+                    "key": "opaque-secret-storage-key",
+                    "iv": "opaque-iv",
+                    "mac": "opaque-mac",
+                    "signatures": {}
+                }
+            }),
+        ),
+        (
+            "m.secret_storage.default_key".to_string(),
+            json!({
+                "key_id": key_id
+            }),
+        ),
+    ] {
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(content.to_string()))
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "failed to write account_data {}", data_type);
+    }
+
+    let dehydrated_device_id = format!("UIABOOT{:04}", rand::random::<u16>());
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": dehydrated_device_id,
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": dehydrated_device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", dehydrated_device_id): "AAAA",
+                        format!("ed25519:{}", dehydrated_device_id): "BBBB"
+                    },
+                    "signatures": {}
+                },
+                "device_data": {
+                    "algorithm": "org.matrix.msc3814.v1.olm"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app, delete_request).await.unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_fresh_account_cross_signing_ssss_and_dehydrated_device_end_to_end() {
+    let Some((app, state)) = setup_test_app_with_state().await else {
+        return;
+    };
+    let username = format!("fresh_bootstrap_{}", rand::random::<u32>());
+    let (token, user_id, device_id) = register_user_with_device_id(&app, &username).await;
+
+    let device_signing_key = SigningKey::from_bytes(&[61u8; 32]);
+    let device_ed25519_key_id = format!("ed25519:{device_id}");
+    let device_ed25519_public_key = STANDARD.encode(device_signing_key.verifying_key().as_bytes());
+
+    let master_signing_key = SigningKey::from_bytes(&[62u8; 32]);
+    let master_key_id = "ed25519:FRESHMASTER";
+    let master_public_key = STANDARD.encode(master_signing_key.verifying_key().as_bytes());
+
+    let self_signing_key = SigningKey::from_bytes(&[63u8; 32]);
+    let self_signing_key_id = "ed25519:FRESHSELF";
+    let self_signing_public_key = STANDARD.encode(self_signing_key.verifying_key().as_bytes());
+
+    let user_signing_key = SigningKey::from_bytes(&[64u8; 32]);
+    let user_signing_key_id = "ed25519:FRESHUSER";
+    let user_signing_public_key = STANDARD.encode(user_signing_key.verifying_key().as_bytes());
+
+    let mut device_keys = json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+        "keys": {
+            format!("curve25519:{}", device_id): "fresh-curve25519-public-key",
+            device_ed25519_key_id.clone(): device_ed25519_public_key
+        }
+    });
+    attach_matrix_signature(&mut device_keys, &user_id, &device_ed25519_key_id, &device_signing_key);
+
+    let upload_device_keys_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "device_keys": device_keys }).to_string()))
+        .unwrap();
+    let upload_device_keys_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), upload_device_keys_request).await.unwrap();
+    assert_eq!(upload_device_keys_response.status(), StatusCode::OK);
+
+    let mut master_key = json!({
+        "user_id": user_id,
+        "usage": ["master"],
+        "keys": {
+            master_key_id: master_public_key
+        }
+    });
+    attach_matrix_signature(&mut master_key, &user_id, &device_ed25519_key_id, &device_signing_key);
+
+    let mut self_signing_key_json = json!({
+        "user_id": user_id,
+        "usage": ["self_signing"],
+        "keys": {
+            self_signing_key_id: self_signing_public_key
+        }
+    });
+    attach_matrix_signature(&mut self_signing_key_json, &user_id, master_key_id, &master_signing_key);
+
+    let mut user_signing_key_json = json!({
+        "user_id": user_id,
+        "usage": ["user_signing"],
+        "keys": {
+            user_signing_key_id: user_signing_public_key
+        }
+    });
+    attach_matrix_signature(&mut user_signing_key_json, &user_id, master_key_id, &master_signing_key);
+
+    let cross_signing_payload = json!({
+        "master_key": master_key,
+        "self_signing_key": self_signing_key_json,
+        "user_signing_key": user_signing_key_json
+    });
+
+    let challenge_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(cross_signing_payload.to_string()))
+        .unwrap();
+    let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
+    assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
+
+    let challenge_body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
+    let challenge_json: Value = serde_json::from_slice(&challenge_body).unwrap();
+    assert_eq!(challenge_json["errcode"], "M_UIA_REQUIRED");
+    let session = challenge_json["session"].as_str().expect("missing UIA session").to_string();
+
+    let complete_uia_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "master_key": cross_signing_payload["master_key"].clone(),
+                "self_signing_key": cross_signing_payload["self_signing_key"].clone(),
+                "user_signing_key": cross_signing_payload["user_signing_key"].clone(),
+                "auth": {
+                    "type": "m.login.password",
+                    "session": session,
+                    "identifier": {
+                        "type": "m.id.user",
+                        "user": username
+                    },
+                    "password": "Password123!"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let complete_uia_response =
+        ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
+    assert_eq!(complete_uia_response.status(), StatusCode::OK);
+
+    let verification_status = state
+        .services
+        .e2ee
+        .cross_signing_service
+        .get_user_verification_status(&user_id)
+        .await
+        .expect("failed to query cross-signing status");
+    assert!(verification_status.has_master_key);
+    assert!(verification_status.has_self_signing_key);
+    assert!(verification_status.has_user_signing_key);
+
+    let key_id = format!("fresh-ssss-{}", rand::random::<u32>());
+    let secret_storage_key_content = json!({
+        "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+        "auth_data": {
+            "key": "fresh-secret-storage-key",
+            "iv": "fresh-iv",
+            "mac": "fresh-mac",
+            "signatures": {}
+        }
+    });
+
+    for (data_type, content) in [
+        (format!("m.secret_storage.key.{key_id}"), secret_storage_key_content.clone()),
+        ("m.secret_storage.default_key".to_string(), json!({ "key_id": key_id })),
+    ] {
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(content.to_string()))
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "failed to write account_data {}", data_type);
+    }
+
+    let mirrored_key = state
+        .services
+        .e2ee
+        .ssss_service
+        .get_key(&user_id, &key_id)
+        .await
+        .expect("failed to query mirrored SSSS key")
+        .expect("expected SSSS key to be mirrored into internal store");
+    assert_eq!(mirrored_key.algorithm, "m.secret_storage.v1.aes-hmac-sha2");
+    assert_eq!(mirrored_key.encrypted_key, "fresh-secret-storage-key");
+
+    for (data_type, expected_field, expected_value) in [
+        ("m.secret_storage.default_key".to_string(), "key_id", key_id.as_str()),
+        (format!("m.secret_storage.key.{key_id}"), "algorithm", "m.secret_storage.v1.aes-hmac-sha2"),
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(format!("/_matrix/client/v3/user/{}/account_data/{}", user_id, data_type))
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "failed to read account_data {}", data_type);
+        let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json[expected_field], expected_value);
+    }
+
+    let dehydrated_device_id = format!("FRESHBOOT{:04}", rand::random::<u16>());
+    let put_request = Request::builder()
+        .method("PUT")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_id": dehydrated_device_id,
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": dehydrated_device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", dehydrated_device_id): "fresh-dehydrated-curve",
+                        format!("ed25519:{}", dehydrated_device_id): "fresh-dehydrated-ed"
+                    },
+                    "signatures": {}
+                },
+                "device_data": {
+                    "algorithm": "org.matrix.msc3814.v1.olm"
+                }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let put_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), put_request).await.unwrap();
+    assert_eq!(put_response.status(), StatusCode::OK);
+
+    let query_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/v3/keys/query")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            json!({
+                "device_keys": { user_id.clone(): [] }
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let query_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), query_request).await.unwrap();
+    assert_eq!(query_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(query_response.into_body(), 16 * 1024).await.unwrap();
+    let query_json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(query_json["master_keys"][&user_id]["user_id"], user_id);
+    assert_eq!(query_json["self_signing_keys"][&user_id]["user_id"], user_id);
+    assert_eq!(query_json["user_signing_keys"][&user_id]["user_id"], user_id);
+    let user_devices =
+        query_json["device_keys"][&user_id].as_object().expect("user entry must be present in /keys/query response");
+    assert!(user_devices.contains_key(&dehydrated_device_id));
+    assert_eq!(user_devices[&dehydrated_device_id]["device_id"], dehydrated_device_id);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app, delete_request).await.unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
 }
 
 #[tokio::test]
@@ -1024,12 +2306,14 @@ async fn test_room_key_forward_and_backward_routes() {
 }
 
 #[tokio::test]
-#[ignore = "Requires cross-signing + SSSS preconditions; UIA not available in test infrastructure"]
 async fn test_dehydrated_device_put_get_delete_roundtrip() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, state)) = setup_test_app_with_state().await else {
         return;
     };
-    let (token, _) = register_user(&app, &format!("dehydrated_{}", rand::random::<u32>())).await;
+    let (token, user_id) = register_user(&app, &format!("dehydrated_{}", rand::random::<u32>())).await;
+    let key_id = format!("dh-ssss-{}", rand::random::<u32>());
+    seed_dehydrated_device_preconditions(&state, &user_id, &key_id).await;
+    let device_id = format!("DEHYDRATEDTEST{:04}", rand::random::<u16>());
 
     let put_request = Request::builder()
         .method("PUT")
@@ -1038,13 +2322,22 @@ async fn test_dehydrated_device_put_get_delete_roundtrip() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "algorithm": "org.matrix.msc3814.v1.olm",
-                "account": {
-                    "pickle": "opaque-account"
+                "device_id": device_id,
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", device_id): "AAAA",
+                        format!("ed25519:{}", device_id): "BBBB"
+                    },
+                    "signatures": {}
                 },
+                "algorithm": "org.matrix.msc3814.v1.olm",
                 "device_data": {
-                    "device_keys": {
-                        "algorithms": ["m.olm.v1.curve25519-aes-sha2"]
+                    "algorithm": "org.matrix.msc3814.v1.olm",
+                    "account": {
+                        "pickle": "opaque-account"
                     },
                     "initial_device_display_name": "Dehydrated Test Device"
                 }
@@ -1059,7 +2352,7 @@ async fn test_dehydrated_device_put_get_delete_roundtrip() {
     let put_body = axum::body::to_bytes(put_response.into_body(), 4096).await.unwrap();
     let put_json: Value = serde_json::from_slice(&put_body).unwrap();
     let device_id = put_json["device_id"].as_str().unwrap().to_string();
-    assert!(device_id.starts_with("DEHYDRATED"));
+    assert_eq!(device_id, put_json["device_id"].as_str().unwrap());
 
     let get_request = Request::builder()
         .method("GET")
@@ -1074,8 +2367,8 @@ async fn test_dehydrated_device_put_get_delete_roundtrip() {
     let get_body = axum::body::to_bytes(get_response.into_body(), 4096).await.unwrap();
     let get_json: Value = serde_json::from_slice(&get_body).unwrap();
     assert_eq!(get_json["device_id"], device_id);
-    assert_eq!(get_json["algorithm"], "org.matrix.msc3814.v1.olm");
-    assert_eq!(get_json["account"]["pickle"], "opaque-account");
+    assert_eq!(get_json["device_data"]["algorithm"], "org.matrix.msc3814.v1.olm");
+    assert_eq!(get_json["device_data"]["account"]["pickle"], "opaque-account");
     assert_eq!(get_json["device_data"]["initial_device_display_name"], "Dehydrated Test Device");
 
     let delete_request = Request::builder()
@@ -1087,6 +2380,9 @@ async fn test_dehydrated_device_put_get_delete_roundtrip() {
 
     let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(delete_response.status(), StatusCode::OK);
+    let delete_body = axum::body::to_bytes(delete_response.into_body(), 4096).await.unwrap();
+    let delete_json: Value = serde_json::from_slice(&delete_body).unwrap();
+    assert_eq!(delete_json["device_id"], device_id);
 
     let get_after_delete_request = Request::builder()
         .method("GET")
@@ -1103,14 +2399,15 @@ async fn test_dehydrated_device_put_get_delete_roundtrip() {
 /// surface its `device_keys` so other clients can address to-device messages
 /// to it. This locks in the enrichment added to `query_keys_internal`.
 #[tokio::test]
-#[ignore = "Requires cross-signing + SSSS preconditions; UIA not available in test infrastructure"]
 async fn test_dehydrated_device_appears_in_keys_query() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, state)) = setup_test_app_with_state().await else {
         return;
     };
     let (token, user_id) = register_user(&app, &format!("dh_query_{}", rand::random::<u32>())).await;
+    let key_id = format!("dh-query-ssss-{}", rand::random::<u32>());
+    seed_dehydrated_device_preconditions(&state, &user_id, &key_id).await;
 
-    let dehydrated_device_id = "DEHYDRATEDQUERY1";
+    let dehydrated_device_id = format!("DEHYDRATEDQUERY{:04}", rand::random::<u16>());
     let put_request = Request::builder()
         .method("PUT")
         .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
@@ -1119,7 +2416,6 @@ async fn test_dehydrated_device_appears_in_keys_query() {
         .body(Body::from(
             json!({
                 "device_id": dehydrated_device_id,
-                "algorithm": "org.matrix.msc3814.v1.olm",
                 "device_keys": {
                     "user_id": user_id,
                     "device_id": dehydrated_device_id,
@@ -1133,7 +2429,9 @@ async fn test_dehydrated_device_appears_in_keys_query() {
                     },
                     "signatures": {}
                 },
-                "device_data": { "algorithm": "org.matrix.msc3814.v1.olm" }
+                "device_data": {
+                    "algorithm": "org.matrix.msc3814.v1.olm"
+                }
             })
             .to_string(),
         ))
@@ -1161,23 +2459,34 @@ async fn test_dehydrated_device_appears_in_keys_query() {
     let user_devices =
         json["device_keys"][&user_id].as_object().expect("user entry must be present in /keys/query response");
     assert!(
-        user_devices.contains_key(dehydrated_device_id),
+        user_devices.contains_key(&dehydrated_device_id),
         "expected dehydrated device {} in /keys/query response, got keys {:?}",
         dehydrated_device_id,
         user_devices.keys().collect::<Vec<_>>()
     );
-    assert_eq!(user_devices[dehydrated_device_id]["device_id"], dehydrated_device_id);
+    assert_eq!(user_devices[&dehydrated_device_id]["device_id"], dehydrated_device_id);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app, delete_request).await.unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
 }
 
 /// MSC3814 — `POST .../dehydrated_device/{device_id}/events` returns an empty
 /// page with a `next_batch` cursor when no to-device messages are pending.
 #[tokio::test]
-#[ignore = "Requires cross-signing + SSSS preconditions; UIA not available in test infrastructure"]
 async fn test_dehydrated_device_events_endpoint_empty_batch() {
-    let Some(app) = setup_test_app().await else {
+    let Some((app, state)) = setup_test_app_with_state().await else {
         return;
     };
-    let (token, _user_id) = register_user(&app, &format!("dh_events_{}", rand::random::<u32>())).await;
+    let (token, user_id) = register_user(&app, &format!("dh_events_{}", rand::random::<u32>())).await;
+    let key_id = format!("dh-events-ssss-{}", rand::random::<u32>());
+    seed_dehydrated_device_preconditions(&state, &user_id, &key_id).await;
+    let device_id = format!("DEHYDRATEDEVENT{:04}", rand::random::<u16>());
 
     let put_request = Request::builder()
         .method("PUT")
@@ -1186,9 +2495,19 @@ async fn test_dehydrated_device_events_endpoint_empty_batch() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "algorithm": "org.matrix.msc3814.v1.olm",
+                "device_id": device_id,
+                "device_keys": {
+                    "user_id": user_id,
+                    "device_id": device_id,
+                    "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
+                    "keys": {
+                        format!("curve25519:{}", device_id): "AAAA",
+                        format!("ed25519:{}", device_id): "BBBB"
+                    },
+                    "signatures": {}
+                },
                 "device_data": {
-                    "device_keys": { "algorithms": ["m.olm.v1.curve25519-aes-sha2"] }
+                    "algorithm": "org.matrix.msc3814.v1.olm"
                 }
             })
             .to_string(),
@@ -1199,6 +2518,7 @@ async fn test_dehydrated_device_events_endpoint_empty_batch() {
     let put_body = axum::body::to_bytes(put_response.into_body(), 4096).await.unwrap();
     let put_json: Value = serde_json::from_slice(&put_body).unwrap();
     let device_id = put_json["device_id"].as_str().unwrap().to_string();
+    assert_eq!(device_id, put_json["device_id"].as_str().unwrap());
 
     let events_request = Request::builder()
         .method("POST")
@@ -1207,11 +2527,20 @@ async fn test_dehydrated_device_events_endpoint_empty_batch() {
         .header("Content-Type", "application/json")
         .body(Body::from(json!({}).to_string()))
         .unwrap();
-    let events_response = ServiceExt::<Request<Body>>::oneshot(app, events_request).await.unwrap();
+    let events_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), events_request).await.unwrap();
     assert_eq!(events_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(events_response.into_body(), 4096).await.unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["events"].as_array().map_or(usize::MAX, |v| v.len()), 0, "expected no pending events");
     assert!(json["next_batch"].is_string(), "next_batch must be a string cursor: {}", json);
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_response = ServiceExt::<Request<Body>>::oneshot(app, delete_request).await.unwrap();
+    assert_eq!(delete_response.status(), StatusCode::OK);
 }

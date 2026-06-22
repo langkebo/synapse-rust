@@ -90,11 +90,14 @@ pub async fn get_backups(
     State(_state): State<AppState>,
     axum::extract::Query(_params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("Admin server endpoint 'backups' is not implemented in this deployment"))
+    // Backups are managed by external infrastructure (pg_dump, WAL-G, etc.),
+    // not by the homeserver itself. Return 501 to distinguish "endpoint
+    // recognized but intentionally not implemented" from "endpoint unknown".
+    Err(ApiError::not_implemented("Admin server endpoint 'backups' is not implemented in this deployment; backups are managed by external infrastructure"))
 }
 
 fn unsupported_admin_server_feature(feature: &str) -> ApiError {
-    ApiError::unrecognized(format!("Admin server endpoint '{feature}' is not implemented in this deployment"))
+    ApiError::not_implemented(format!("Admin server endpoint '{feature}' is not implemented in this deployment"))
 }
 
 #[allow(clippy::unused_async)]
@@ -144,6 +147,23 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_users = state.services.account.account_identity_service.get_user_count().await?;
     let total_rooms = state.services.rooms.room_service.get_room_count().await?;
 
+    // Real active-user metrics based on device last_seen_ts.
+    let daily_active_users = state
+        .services
+        .account
+        .user_storage
+        .get_daily_active_users()
+        .await
+        .unwrap_or(0);
+    let monthly_active_users = state
+        .services
+        .account
+        .user_storage
+        .get_monthly_active_users()
+        .await
+        .unwrap_or(0);
+    let r30_users = state.services.account.user_storage.get_r30_users().await.unwrap_or(0);
+
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
         gauge.set(total_users as f64);
@@ -151,14 +171,20 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_rooms") {
         gauge.set(total_rooms as f64);
     }
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_daily_active_users") {
+        gauge.set(daily_active_users as f64);
+    }
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_monthly_active_users") {
+        gauge.set(monthly_active_users as f64);
+    }
 
     Ok(Json(json!({
         "total_users": total_users,
         "total_rooms": total_rooms,
-        "daily_active_users": total_users,
-        "monthly_active_users": total_users,
-        "r30_users": total_users,
-        "r30v2_users": total_users
+        "daily_active_users": daily_active_users,
+        "monthly_active_users": monthly_active_users,
+        "r30_users": r30_users,
+        "r30v2_users": r30_users
     })))
 }
 
@@ -261,18 +287,51 @@ pub async fn get_config(_admin: AdminUser, State(state): State<AppState>) -> Res
     })))
 }
 
-#[allow(clippy::unused_async)]
+#[axum::debug_handler]
 pub async fn get_experimental_features(
     _admin: AdminUser,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(ApiError::unrecognized("Admin server endpoint 'experimental_features' is not implemented in this deployment"))
+    // Bridge the DB-backed FeatureFlagService to Synapse's experimental_features
+    // surface. List all flags and expose their effective enabled state.
+    let filters = crate::storage::FeatureFlagFilters {
+        target_scope: None,
+        status: None,
+        limit: 200,
+        cursor_updated_ts: None,
+        cursor_flag_key: None,
+    };
+    let (flags, total) = state
+        .services
+        .admin
+        .feature_flag_service
+        .list_flags(filters)
+        .await?;
+
+    let features: serde_json::Map<String, Value> = flags
+        .iter()
+        .map(|flag| {
+            let enabled = matches!(
+                flag.status.as_str(),
+                "active" | "fully_enabled" | "ramping"
+            ) && flag.rollout_percent > 0;
+            (flag.flag_key.clone(), Value::Bool(enabled))
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "features": features,
+        "total": total,
+    })))
 }
 
 #[allow(clippy::unused_async)]
 pub async fn get_jitsi_config(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    // Jitsi domain is not hardcoded to a third-party service.  Deployments
+    // should configure their own Jitsi instance; null domain signals "not
+    // configured" to clients.
     Ok(Json(json!({
-        "domain": "meet.jit.si",
+        "domain": null,
         "app_id": null,
         "jwt_enabled": false,
         "jwt_asap_enabled": false,

@@ -12,7 +12,7 @@ async fn resolve_space_id(state: &AppState, identifier: &str) -> Result<String, 
         .rooms
         .space_service
         .resolve_space_id(identifier)
-        .await
+        .await?
         .ok_or_else(|| ApiError::not_found("Space not found".to_string()))
 }
 

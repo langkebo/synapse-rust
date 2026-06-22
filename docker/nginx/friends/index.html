@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="zh-Hans">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>好友中心</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #17212b;
+      --muted: #64748b;
+      --border: #dbe3ef;
+      --primary: #0dbd8b;
+      --primary-dark: #089c72;
+      --danger: #e5484d;
+      --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .hero {
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .panel {
+      grid-column: span 12;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+
+    .panel.half {
+      grid-column: span 6;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
+
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .row+.row {
+      margin-top: 12px;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--text);
+    }
+
+    input:focus {
+      outline: 2px solid rgba(13, 189, 139, 0.18);
+      border-color: var(--primary);
+    }
+
+    .field {
+      flex: 1 1 220px;
+    }
+
+    button,
+    .button-link {
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 15px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #e9eef8;
+      color: var(--text);
+    }
+
+    button.primary,
+    .button-link.primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button.primary:hover,
+    .button-link.primary:hover {
+      background: var(--primary-dark);
+    }
+
+    button.danger {
+      background: #ffe6e7;
+      color: #9f1239;
+    }
+
+    .status {
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #eef8ff;
+      border: 1px solid #cfe9ff;
+      color: #0f4c81;
+      margin-bottom: 16px;
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+    }
+
+    .status.error {
+      background: #fff1f2;
+      border-color: #fecdd3;
+      color: #9f1239;
+    }
+
+    .status.success {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+      color: #065f46;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: #fff;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .card-title {
+      font-weight: 700;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+
+    .card-subtitle {
+      color: var(--muted);
+      font-size: 13px;
+      word-break: break-word;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .empty {
+      color: var(--muted);
+      padding: 18px 8px;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      .panel.half {
+        grid-column: span 12;
+      }
+
+      .hero {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <div class="hero">
+      <div>
+        <h1>好友中心</h1>
+        <p>在 Web 端快速搜索用户、发好友请求、处理好友申请，并一键打开私聊。</p>
+      </div>
+      <div class="hero-actions">
+        <a class="button-link" href="https://element.test/#/home">返回聊天首页</a>
+        <button id="logoutBtn" class="danger hidden" type="button">退出好友中心登录</button>
+      </div>
+    </div>
+
+    <div id="status" class="status">正在初始化好友中心...</div>
+
+    <div class="grid">
+      <section id="loginPanel" class="panel">
+        <h2>登录好友中心</h2>
+        <p class="meta">首次使用请重新输入一次 Matrix 账号密码。好友中心会把令牌保存在当前浏览器本地，方便后续直接进入。</p>
+        <div class="row">
+          <div class="field">
+            <input id="homeserverInput" type="text" value="https://matrix.test" placeholder="Homeserver 地址">
+          </div>
+          <div class="field">
+            <input id="usernameInput" type="text" placeholder="用户名，例如 test1 或 @test1:matrix.test">
+          </div>
+          <div class="field">
+            <input id="passwordInput" type="password" placeholder="密码">
+          </div>
+          <button id="loginBtn" class="primary" type="button">登录</button>
+        </div>
+      </section>
+
+      <section id="friendCenterPanel" class="panel hidden">
+        <h2>当前账号</h2>
+        <div class="row">
+          <div class="field">
+            <input id="currentUserInput" type="text" readonly>
+          </div>
+          <button id="refreshBtn" type="button">刷新好友数据</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>搜索并添加好友</h2>
+        <div class="row">
+          <div class="field">
+            <input id="searchInput" type="text" placeholder="输入用户名、显示名或完整 Matrix ID">
+          </div>
+          <button id="searchBtn" class="primary" type="button">搜索</button>
+        </div>
+        <div id="searchResults" class="list" style="margin-top: 14px;"></div>
+      </section>
+
+      <section class="panel half">
+        <h2>好友列表</h2>
+        <div id="friendsList" class="list"></div>
+      </section>
+
+      <section class="panel half">
+        <h2>待处理好友请求</h2>
+        <div id="incomingRequests" class="list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>我发出的好友请求</h2>
+        <div id="outgoingRequests" class="list"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "synapse_friend_center_session_v1";
+    const BRIDGE_KEY = "synapse_friend_center_bridge_v1";
+    const FRIENDS_PATH = "/_matrix/client/v3/friends";
+    const FRIEND_SEARCH_PATH = "/_matrix/client/v3/friends/search";
+    const FRIEND_INCOMING_PATH = "/_matrix/client/v3/friends/requests/incoming";
+    const FRIEND_OUTGOING_PATH = "/_matrix/client/v3/friends/requests/outgoing";
+    const FRIEND_REQUEST_PATH = "/_matrix/client/v1/friends/request";
+    const FRIEND_DM_PATH = "/_matrix/client/v1/friends/dm";
+    const WHOAMI_PATH = "/_matrix/client/v3/account/whoami";
+
+    const state = {
+      accessToken: "",
+      userId: "",
+      homeserver: "https://matrix.test",
+    };
+
+    const statusEl = document.getElementById("status");
+    const loginPanel = document.getElementById("loginPanel");
+    const friendCenterPanel = document.getElementById("friendCenterPanel");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const currentUserInput = document.getElementById("currentUserInput");
+    const homeserverInput = document.getElementById("homeserverInput");
+    const usernameInput = document.getElementById("usernameInput");
+    const passwordInput = document.getElementById("passwordInput");
+    const searchInput = document.getElementById("searchInput");
+    const friendsListEl = document.getElementById("friendsList");
+    const incomingRequestsEl = document.getElementById("incomingRequests");
+    const outgoingRequestsEl = document.getElementById("outgoingRequests");
+    const searchResultsEl = document.getElementById("searchResults");
+
+    function setStatus(message, tone) {
+      statusEl.textContent = message;
+      statusEl.className = "status" + (tone ? " " + tone : "");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function normalizeUserInput(value) {
+      const raw = value.trim();
+      if (!raw) return raw;
+      if (raw.startsWith("@")) return raw;
+      return "@" + raw + ":matrix.test";
+    }
+
+    function saveSession() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        homeserver: state.homeserver,
+        accessToken: state.accessToken,
+        userId: state.userId,
+      }));
+    }
+
+    function clearSession() {
+      localStorage.removeItem(STORAGE_KEY);
+      state.accessToken = "";
+      state.userId = "";
+      currentUserInput.value = "";
+      friendCenterPanel.classList.add("hidden");
+      loginPanel.classList.remove("hidden");
+      logoutBtn.classList.add("hidden");
+    }
+
+    function applySession(session) {
+      state.accessToken = session.accessToken;
+      state.userId = session.userId;
+      state.homeserver = session.homeserver;
+      homeserverInput.value = session.homeserver;
+      currentUserInput.value = session.userId;
+      friendCenterPanel.classList.remove("hidden");
+      loginPanel.classList.add("hidden");
+      logoutBtn.classList.remove("hidden");
+    }
+
+    function readBridgeSession() {
+      try {
+        const raw = localStorage.getItem(BRIDGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed.accessToken || !parsed.homeserver) return null;
+        return {
+          accessToken: parsed.accessToken,
+          homeserver: parsed.homeserver,
+        };
+      } catch (error) {
+        console.error(error);
+        return null;
+      }
+    }
+
+    function loadSession() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed.accessToken || !parsed.userId || !parsed.homeserver) return false;
+        applySession(parsed);
+        return true;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
+    }
+
+    async function matrixRequest(path, options) {
+      if (!state.accessToken) {
+        throw new Error("请先登录好友中心");
+      }
+      const response = await fetch(state.homeserver + path, {
+        method: options?.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + state.accessToken,
+          ...(options?.headers || {}),
+        },
+        body: options?.body ? JSON.stringify(options.body) : undefined,
+      });
+      const text = await response.text();
+      let data = {};
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch (error) {
+          data = { raw: text };
+        }
+      }
+      if (!response.ok) {
+        const message = data.error || data.errcode || response.status + " " + response.statusText;
+        throw new Error(message);
+      }
+      return data;
+    }
+
+    async function importBridgeSession() {
+      const bridge = readBridgeSession();
+      if (!bridge) {
+        return false;
+      }
+      try {
+        const response = await fetch(bridge.homeserver + WHOAMI_PATH, {
+          headers: {
+            "Authorization": "Bearer " + bridge.accessToken,
+          },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.user_id) {
+          throw new Error(data.error || data.errcode || "无法确认当前用户");
+        }
+        applySession({
+          homeserver: bridge.homeserver,
+          accessToken: bridge.accessToken,
+          userId: data.user_id,
+        });
+        saveSession();
+        return true;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
+    }
+
+    async function login() {
+      const homeserver = homeserverInput.value.trim().replace(/\/$/, "");
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+      if (!homeserver || !username || !password) {
+        setStatus("请输入完整的服务器地址、用户名和密码。", "error");
+        return;
+      }
+
+      setStatus("正在登录好友中心...", "");
+      try {
+        const response = await fetch(homeserver + "/_matrix/client/v3/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "m.login.password",
+            identifier: {
+              type: "m.id.user",
+              user: username.startsWith("@") ? username.slice(1).split(":")[0] : username,
+            },
+            password,
+            initial_device_display_name: "Friend Center",
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || data.errcode || "登录失败");
+        }
+        state.homeserver = homeserver;
+        state.accessToken = data.access_token;
+        state.userId = data.user_id;
+        saveSession();
+        currentUserInput.value = state.userId;
+        friendCenterPanel.classList.remove("hidden");
+        loginPanel.classList.add("hidden");
+        logoutBtn.classList.remove("hidden");
+        passwordInput.value = "";
+        setStatus("登录成功，正在加载好友数据。", "success");
+        await refreshAll();
+      } catch (error) {
+        console.error(error);
+        setStatus("登录失败：" + error.message, "error");
+      }
+    }
+
+    function renderEmpty(target, message) {
+      target.innerHTML = '<div class="empty">' + escapeHtml(message) + "</div>";
+    }
+
+    function renderFriends(items) {
+      if (!items.length) {
+        renderEmpty(friendsListEl, "当前还没有好友，先去搜索并发起好友请求吧。");
+        return;
+      }
+      friendsListEl.innerHTML = items.map((friend) => {
+        const userId = escapeHtml(friend.user_id || friend.userId || "");
+        const displayName = escapeHtml(friend.displayname || friend.display_name || friend.username || userId);
+        const status = escapeHtml(friend.status || "normal");
+        return [
+          '<div class="card">',
+          '<div class="card-header">',
+          '<div>',
+          '<div class="card-title">' + displayName + '</div>',
+          '<div class="card-subtitle">' + userId + '</div>',
+          '</div>',
+          '<div class="meta">状态：' + status + '</div>',
+          '</div>',
+          '<div class="card-actions">',
+          '<button type="button" data-action="dm" data-user-id="' + userId + '">打开私聊</button>',
+          '</div>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function renderRequests(target, items, incoming) {
+      if (!items.length) {
+        renderEmpty(target, incoming ? "当前没有待处理的好友请求。" : "当前没有已发出的好友请求。");
+        return;
+      }
+      target.innerHTML = items.map((item) => {
+        const userId = escapeHtml(item.user_id || item.userId || "");
+        const displayName = escapeHtml(item.displayname || item.display_name || userId);
+        const message = escapeHtml(item.message || "无附言");
+        const timestamp = item.timestamp ? new Date(item.timestamp).toLocaleString("zh-CN") : "未知时间";
+        return [
+          '<div class="card">',
+          '<div class="card-header">',
+          '<div>',
+          '<div class="card-title">' + displayName + '</div>',
+          '<div class="card-subtitle">' + userId + '</div>',
+          '</div>',
+          '<div class="meta">' + escapeHtml(timestamp) + '</div>',
+          '</div>',
+          '<div class="meta" style="margin-top:8px;">附言：' + message + '</div>',
+          '<div class="card-actions">',
+          incoming
+            ? '<button class="primary" type="button" data-action="accept" data-user-id="' + userId + '">接受</button><button class="danger" type="button" data-action="reject" data-user-id="' + userId + '">拒绝</button>'
+            : '<button type="button" data-action="dm" data-user-id="' + userId + '">查看私聊</button>',
+          '</div>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    function renderSearchResults(items) {
+      if (!items.length) {
+        renderEmpty(searchResultsEl, "没有找到匹配用户。");
+        return;
+      }
+      searchResultsEl.innerHTML = items.map((item) => {
+        const userId = escapeHtml(item.user_id || "");
+        const displayName = escapeHtml(item.displayname || item.username || userId);
+        const presence = escapeHtml(item.presence || "offline");
+        return [
+          '<div class="card">',
+          '<div class="card-header">',
+          '<div>',
+          '<div class="card-title">' + displayName + '</div>',
+          '<div class="card-subtitle">' + userId + '</div>',
+          '</div>',
+          '<div class="meta">在线状态：' + presence + '</div>',
+          '</div>',
+          '<div class="card-actions">',
+          '<button class="primary" type="button" data-action="add" data-user-id="' + userId + '">添加好友</button>',
+          '<button type="button" data-action="dm" data-user-id="' + userId + '">发起私聊</button>',
+          '</div>',
+          '</div>'
+        ].join("");
+      }).join("");
+    }
+
+    async function refreshAll() {
+      if (!state.accessToken) {
+        renderEmpty(friendsListEl, "请先登录好友中心。");
+        renderEmpty(incomingRequestsEl, "请先登录好友中心。");
+        renderEmpty(outgoingRequestsEl, "请先登录好友中心。");
+        renderEmpty(searchResultsEl, "登录后可搜索用户。");
+        return;
+      }
+      setStatus("正在刷新好友数据...", "");
+      try {
+        const [friends, incoming, outgoing] = await Promise.all([
+          matrixRequest(FRIENDS_PATH),
+          matrixRequest(FRIEND_INCOMING_PATH),
+          matrixRequest(FRIEND_OUTGOING_PATH),
+        ]);
+        renderFriends(friends.items || friends.friends || []);
+        renderRequests(incomingRequestsEl, incoming.requests || [], true);
+        renderRequests(outgoingRequestsEl, outgoing.requests || [], false);
+        setStatus("好友数据已刷新。", "success");
+      } catch (error) {
+        console.error(error);
+        if (/unauthorized|forbidden|unknown token|access token/i.test(error.message)) {
+          clearSession();
+          setStatus("好友中心登录态已失效，请重新登录。", "error");
+          return;
+        }
+        setStatus("刷新好友数据失败：" + error.message, "error");
+      }
+    }
+
+    async function searchFriends() {
+      const term = searchInput.value.trim();
+      if (!term) {
+        setStatus("请输入要搜索的用户名或 Matrix ID。", "error");
+        return;
+      }
+      setStatus("正在搜索用户...", "");
+      try {
+        const data = await matrixRequest(FRIEND_SEARCH_PATH, {
+          method: "POST",
+          body: { query: term, limit: 10 },
+        });
+        renderSearchResults(data.results || []);
+        setStatus("搜索完成。", "success");
+      } catch (error) {
+        console.error(error);
+        setStatus("搜索失败：" + error.message, "error");
+      }
+    }
+
+    async function sendFriendRequest(userId) {
+      setStatus("正在发送好友请求...", "");
+      try {
+        await matrixRequest(FRIEND_REQUEST_PATH, {
+          method: "POST",
+          body: { user_id: normalizeUserInput(userId) },
+        });
+        setStatus("好友请求已发送。", "success");
+        await refreshAll();
+      } catch (error) {
+        console.error(error);
+        setStatus("发送好友请求失败：" + error.message, "error");
+      }
+    }
+
+    async function acceptFriendRequest(userId) {
+      setStatus("正在接受好友请求...", "");
+      try {
+        const data = await matrixRequest(FRIEND_REQUEST_PATH + "/" + encodeURIComponent(normalizeUserInput(userId)) + "/accept", {
+          method: "POST",
+        });
+        setStatus("已接受好友请求。", "success");
+        await refreshAll();
+        if (data.room_id) {
+          window.location.href = "https://element.test/#/room/" + data.room_id;
+        }
+      } catch (error) {
+        console.error(error);
+        setStatus("接受好友请求失败：" + error.message, "error");
+      }
+    }
+
+    async function rejectFriendRequest(userId) {
+      setStatus("正在拒绝好友请求...", "");
+      try {
+        await matrixRequest(FRIEND_REQUEST_PATH + "/" + encodeURIComponent(normalizeUserInput(userId)) + "/reject", {
+          method: "POST",
+        });
+        setStatus("已拒绝好友请求。", "success");
+        await refreshAll();
+      } catch (error) {
+        console.error(error);
+        setStatus("拒绝好友请求失败：" + error.message, "error");
+      }
+    }
+
+    async function openDirectMessage(userId) {
+      setStatus("正在打开私聊...", "");
+      try {
+        const data = await matrixRequest(FRIEND_DM_PATH + "/" + encodeURIComponent(normalizeUserInput(userId)), {
+          method: "POST",
+        });
+        const roomId = data.room_id;
+        if (!roomId) {
+          throw new Error("未返回私聊房间 ID");
+        }
+        setStatus("已打开私聊。", "success");
+        window.location.href = "https://element.test/#/room/" + roomId;
+      } catch (error) {
+        console.error(error);
+        setStatus("打开私聊失败：" + error.message, "error");
+      }
+    }
+
+    document.getElementById("loginBtn").addEventListener("click", login);
+    document.getElementById("refreshBtn").addEventListener("click", refreshAll);
+    document.getElementById("searchBtn").addEventListener("click", searchFriends);
+    logoutBtn.addEventListener("click", () => {
+      clearSession();
+      setStatus("已退出好友中心登录。", "success");
+      renderEmpty(searchResultsEl, "登录后可搜索用户。");
+      renderEmpty(friendsListEl, "请先登录好友中心。");
+      renderEmpty(incomingRequestsEl, "请先登录好友中心。");
+      renderEmpty(outgoingRequestsEl, "请先登录好友中心。");
+    });
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        searchFriends();
+      }
+    });
+
+    document.body.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+      const userId = button.dataset.userId;
+      if (!action || !userId) return;
+      if (action === "add") sendFriendRequest(userId);
+      if (action === "accept") acceptFriendRequest(userId);
+      if (action === "reject") rejectFriendRequest(userId);
+      if (action === "dm") openDirectMessage(userId);
+    });
+
+    renderEmpty(searchResultsEl, "登录后可搜索用户。");
+    renderEmpty(friendsListEl, "请先登录好友中心。");
+    renderEmpty(incomingRequestsEl, "请先登录好友中心。");
+    renderEmpty(outgoingRequestsEl, "请先登录好友中心。");
+
+    if (loadSession()) {
+      setStatus("已恢复好友中心登录态。", "success");
+      refreshAll();
+    } else {
+      importBridgeSession().then((ok) => {
+        if (ok) {
+          setStatus("已复用 Element 当前登录态。", "success");
+          refreshAll();
+        } else {
+          setStatus("请先登录好友中心。", "");
+        }
+      });
+    }
+  </script>
+</body>
+
+</html>

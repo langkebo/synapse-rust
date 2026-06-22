@@ -324,13 +324,11 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             oidc_token_v3_doc,
             oidc_logout_v3_doc,
             oidc_authorize_v3_doc,
-            oidc_register_v3_doc,
             oidc_callback_v3_doc,
             oidc_userinfo_r0_doc,
             oidc_token_r0_doc,
             oidc_logout_r0_doc,
             oidc_authorize_r0_doc,
-            oidc_register_r0_doc,
             oidc_callback_r0_doc,
             oidc_login_v3_doc,
             appservice_ping_doc,
@@ -352,6 +350,7 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             get_saml_metadata_v3_doc,
             get_sp_metadata_v3_doc,
             get_auth_metadata_doc,
+            get_auth_issuer_doc,
             get_dehydrated_device_doc,
             put_dehydrated_device_doc,
             delete_dehydrated_device_doc,
@@ -7081,21 +7080,6 @@ pub fn oidc_authorize_v3_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `POST /_matrix/client/v3/oidc/register` — Dynamic client registration compatibility endpoint.
-#[cfg(feature = "openapi-docs")]
-#[utoipa::path(
-    post,
-    path = "/_matrix/client/v3/oidc/register",
-    tag = "Authentication",
-    request_body = serde_json::Value,
-    responses(
-        (status = 400, description = "Dynamic client registration is not supported")
-    )
-)]
-pub fn oidc_register_v3_doc() -> axum::Json<serde_json::Value> {
-    unreachable!("This function exists only for OpenAPI documentation purposes")
-}
-
 /// `GET /_matrix/client/v3/oidc/callback` — Consume the upstream OIDC authorization callback.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
@@ -7230,21 +7214,6 @@ pub fn oidc_logout_r0_doc() -> axum::Json<serde_json::Value> {
     )
 )]
 pub fn oidc_authorize_r0_doc() -> axum::Json<serde_json::Value> {
-    unreachable!("This function exists only for OpenAPI documentation purposes")
-}
-
-/// `POST /_matrix/client/r0/oidc/register` — Dynamic client registration compatibility endpoint on the r0 path.
-#[cfg(feature = "openapi-docs")]
-#[utoipa::path(
-    post,
-    path = "/_matrix/client/r0/oidc/register",
-    tag = "Authentication",
-    request_body = serde_json::Value,
-    responses(
-        (status = 400, description = "Dynamic client registration is not supported")
-    )
-)]
-pub fn oidc_register_r0_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
@@ -7754,6 +7723,21 @@ pub fn get_auth_metadata_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
+/// `GET /_matrix/client/unstable/org.matrix.msc2965/auth_issuer` — Return the configured OIDC issuer.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
+    tag = "Authentication",
+    responses(
+        (status = 200, description = "OIDC issuer", body = serde_json::Value),
+        (status = 404, description = "OIDC not configured")
+    )
+)]
+pub fn get_auth_issuer_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
 /// `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device` — Fetch the caller's dehydrated device.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
@@ -7786,6 +7770,7 @@ pub fn get_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
                 "device_id": "DEHYDRATED1"
             })
         ),
+        (status = 400, description = "Invalid dehydrated device payload"),
         (status = 403, description = "Cross-signing or secret storage prerequisites not met")
     ),
     security(
@@ -7803,7 +7788,13 @@ pub fn put_dehydrated_device_doc() -> axum::Json<serde_json::Value> {
     path = "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
     tag = "Client-Server",
     responses(
-        (status = 200, description = "Dehydrated device deleted", body = serde_json::Value)
+        (status = 200, description = "Dehydrated device deleted",
+            body = serde_json::Value,
+            example = json!({
+                "device_id": "DEHYDRATED1"
+            })
+        ),
+        (status = 404, description = "No dehydrated device")
     ),
     security(
         ("BearerAuth" = [])

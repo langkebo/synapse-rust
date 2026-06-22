@@ -4,6 +4,7 @@ import { chromium } from "playwright";
 const elementBaseUrl = process.env.ELEMENT_BASE_URL || "https://element.test";
 const username = process.env.ELEMENT_TEST_USERNAME;
 const password = process.env.ELEMENT_TEST_PASSWORD;
+const peerUsername = process.env.ELEMENT_TEST_PEER_USERNAME || "test2";
 const artifactDir = process.env.ELEMENT_HARNESS_ARTIFACT_DIR || "artifacts/e2ee-interop";
 const headless = process.env.PLAYWRIGHT_HEADLESS !== "0";
 const slowMo = parseInt(process.env.PLAYWRIGHT_SLOWMO || "0", 10);
@@ -27,12 +28,18 @@ const context = await browser.newContext({
     viewport: { width: 1440, height: 1024 },
 });
 const page = await context.newPage();
+const pageErrors = [];
+const consoleErrors = [];
 
 page.on("console", (msg) => {
+    if (msg.type() === "error") {
+        consoleErrors.push(msg.text());
+    }
     console.log(`[element-web:${msg.type()}] ${msg.text()}`);
 });
 
 page.on("pageerror", (error) => {
+    pageErrors.push(error.stack || error.message);
     console.error(`[element-web:pageerror] ${error.stack || error.message}`);
 });
 
@@ -151,10 +158,14 @@ async function dumpDebugSnapshot(name) {
 async function maybeCompleteKeySetup() {
     const setupPanel = page.getByText(/Setting up keys/i).first();
     const passwordPrompt = page.getByText(/Confirm your identity by entering your account password below/i).first();
+    const chineseSetupPanel = page.getByText(/正在设置密钥|设置密钥/).first();
+    const chinesePasswordPrompt = page.getByText(/输入.*密码.*确认.*数字身份|确认你的数字身份/).first();
 
     const setupVisible =
         (await setupPanel.isVisible().catch(() => false)) ||
-        (await passwordPrompt.isVisible().catch(() => false));
+        (await passwordPrompt.isVisible().catch(() => false)) ||
+        (await chineseSetupPanel.isVisible().catch(() => false)) ||
+        (await chinesePasswordPrompt.isVisible().catch(() => false));
 
     if (!setupVisible) {
         return false;
@@ -165,6 +176,7 @@ async function maybeCompleteKeySetup() {
 
     const passwordFields = [
         page.getByLabel(/password/i),
+        page.getByLabel(/密码/),
         page.locator('input[type="password"]'),
         page.locator('input[autocomplete="current-password"]'),
     ];
@@ -173,7 +185,9 @@ async function maybeCompleteKeySetup() {
 
     const continueButtons = [
         page.getByRole("button", { name: /continue|confirm|submit/i }),
+        page.getByRole("button", { name: /继续|确认|提交|下一步/i }),
         page.locator('button').filter({ hasText: /continue|confirm|submit/i }),
+        page.locator('button').filter({ hasText: /继续|确认|提交|下一步/i }),
     ];
 
     await clickFirstVisible(continueButtons, "key setup continue button");
@@ -183,10 +197,85 @@ async function maybeCompleteKeySetup() {
     return true;
 }
 
+async function maybeDismissVerificationPrompt() {
+    const verificationPromptVisible = await anyVisible([
+        page.getByText(/Verify this device/i).first(),
+        page.getByText(/Unable to verify/i).first(),
+        page.getByText(/Confirm your digital identity/i).first(),
+        page.getByText(/确认你的数字身份/).first(),
+        page.getByText(/无法确认/).first(),
+        page.getByText(/移除此设备/).first(),
+    ]);
+
+    if (!verificationPromptVisible) {
+        return false;
+    }
+
+    console.log("[element-web] detected device verification prompt");
+    await takeScreenshot("device-verification-prompt");
+
+    const dismissButtons = [
+        page.getByRole("button", { name: /暂时跳过验证|跳过验证|暂时跳过/i }),
+        page.getByRole("button", { name: /close|关闭|later|稍后|以后|not now/i }),
+        page.locator('[role="button"][aria-label*="暂时跳过验证"]'),
+        page.locator('[aria-label*="暂时跳过验证"]'),
+        page.locator(".mx_CompleteSecurity_skip"),
+        page.locator('button').filter({ hasText: /暂时跳过验证|跳过验证|无法确认/ }),
+        page.locator('button[aria-label*="Close"], button[aria-label*="close"], button[title*="Close"]'),
+    ];
+
+    const dismissTarget = await firstVisible(dismissButtons);
+    if (!dismissTarget) {
+        console.log("[element-web] device verification prompt is visible but no dismiss control was found");
+        return false;
+    }
+
+    await dismissTarget.click();
+    await page.waitForTimeout(3_000);
+    await takeScreenshot("device-verification-dismissed");
+    return true;
+}
+
+async function maybeDismissVerificationConfirmation() {
+    const confirmationVisible = await anyVisible([
+        page.getByText(/Are you sure/i).first(),
+        page.getByText(/是否确定/).first(),
+        page.getByText(/稍后验证/).first(),
+        page.getByText(/在没有验证的情况下/).first(),
+    ]);
+
+    if (!confirmationVisible) {
+        return false;
+    }
+
+    console.log("[element-web] detected verification skip confirmation");
+    await takeScreenshot("device-verification-confirmation");
+
+    const continueButtons = [
+        page.getByRole("button", { name: /verify later|later|continue anyway/i }),
+        page.getByRole("button", { name: /稍后验证|稍后|继续|继续跳过/i }),
+        page.locator("button").filter({ hasText: /verify later|later|continue anyway/i }),
+        page.locator("button").filter({ hasText: /稍后验证|稍后|继续|继续跳过/i }),
+    ];
+
+    const continueTarget = await firstVisible(continueButtons);
+    if (!continueTarget) {
+        console.log("[element-web] verification confirmation is visible but no continue control was found");
+        return false;
+    }
+
+    await continueTarget.click();
+    await page.waitForTimeout(3_000);
+    await takeScreenshot("device-verification-confirmed");
+    return true;
+}
+
 async function maybeDismissKeySetupFailure() {
     const failureTexts = [
         page.getByText(/Unable to set up keys/i).first(),
         page.getByText(/User-Interactive Authentication required/i).first(),
+        page.getByText(/无法设置密钥/).first(),
+        page.getByText(/需要用户交互认证/).first(),
     ];
 
     if (!(await anyVisible(failureTexts))) {
@@ -198,7 +287,9 @@ async function maybeDismissKeySetupFailure() {
 
     const dismissButtons = [
         page.getByRole("button", { name: /cancel|skip|close|done|not now/i }),
+        page.getByRole("button", { name: /取消|跳过|关闭|完成|暂不|稍后/i }),
         page.locator("button").filter({ hasText: /cancel|skip|close|done|not now/i }),
+        page.locator("button").filter({ hasText: /取消|跳过|关闭|完成|暂不|稍后/i }),
     ];
 
     await clickFirstVisible(dismissButtons, "key setup failure dismiss button");
@@ -209,6 +300,14 @@ async function maybeDismissKeySetupFailure() {
 }
 
 async function handlePostLoginBlockers() {
+    if (await maybeDismissVerificationConfirmation()) {
+        return true;
+    }
+
+    if (await maybeDismissVerificationPrompt()) {
+        return true;
+    }
+
     if (await maybeCompleteKeySetup()) {
         return true;
     }
@@ -241,6 +340,9 @@ async function waitForPostLoginState() {
             page.getByText(/^Home$/i).first(),
             page.getByText(/Setting up keys/i).first(),
             page.getByText(/Confirm your identity by entering your account password below/i).first(),
+            page.getByText(/确认你的数字身份/).first(),
+            page.getByText(/无法确认/).first(),
+            page.getByText(/移除此设备/).first(),
         ];
 
         if (await anyVisible(postLoginMarkers)) {
@@ -266,6 +368,11 @@ async function waitForRoomShell() {
             page.getByText(/Confirm your identity by entering your account password below/i).first(),
             page.getByText(/Unable to set up keys/i).first(),
             page.getByText(/User-Interactive Authentication required/i).first(),
+            page.getByText(/确认你的数字身份/).first(),
+            page.getByText(/无法确认/).first(),
+            page.getByText(/移除此设备/).first(),
+            page.getByText(/是否确定/).first(),
+            page.getByText(/稍后验证/).first(),
         ];
 
         for (const blocker of blockers) {
@@ -290,6 +397,7 @@ async function waitForRoomShell() {
             page.getByText(/^People$/i).first(),
             page.getByText(/^Rooms$/i).first(),
             page.getByText(/^Home$/i).first(),
+            page.getByText(/欢迎/).first(),
         ];
 
         for (const marker of shellMarkers) {
@@ -305,11 +413,16 @@ async function waitForRoomShell() {
 async function sendMessageAndAssertVisible(messageText) {
     const messageInputCandidates = [
         page.getByLabel(/Send a message/i),
+        page.getByLabel(/发送消息/),
         page.locator('textarea[placeholder*="Send a message"]'),
+        page.locator('textarea[placeholder*="发送消息"]'),
+        page.locator('textarea[placeholder*="输入消息"]'),
         page.locator('div[role="textbox"]'),
         page.locator('[data-testid*="message-composer"]'),
         page.locator('.mx_SendMessageComposer textarea'),
         page.locator('.mx_BasicMessageComposer textarea'),
+        page.locator('.mx_SendMessageComposer [contenteditable="true"]').first(),
+        page.locator('.mx_BasicMessageComposer [contenteditable="true"]').first(),
         page.locator('[contenteditable="true"]').first(),
     ];
 
@@ -345,6 +458,75 @@ async function sendMessageAndAssertVisible(messageText) {
 
     console.log(`[element-web] message appeared in timeline: ${messageText}`);
     await takeScreenshot("message-sent");
+}
+
+async function maybeCompleteDirectChatFlow() {
+    const directChatDialog = page.locator(".mx_Dialog").last();
+
+    const directChatVisible = await anyVisible([
+        directChatDialog.getByText(/^私聊$/).first(),
+        directChatDialog.getByText(/要与某人开始对话/).first(),
+        directChatDialog.getByRole("button", { name: /Go to|转到/i }).first(),
+    ]);
+
+    if (!directChatVisible) {
+        return false;
+    }
+
+    console.log(`[element-web] detected direct chat dialog, targeting ${peerUsername}`);
+
+    const recentTarget = await firstVisible([
+        directChatDialog.getByText(new RegExp(`^${peerUsername}$`, "i")).first(),
+        directChatDialog.locator("button").filter({ hasText: new RegExp(peerUsername, "i") }).first(),
+        directChatDialog.locator('[role="button"]').filter({ hasText: new RegExp(peerUsername, "i") }).first(),
+        directChatDialog.locator('[data-testid="room-name"]').filter({ hasText: new RegExp(peerUsername, "i") }).first(),
+    ]);
+
+    if (recentTarget) {
+        await recentTarget.click({ force: true });
+    } else {
+        const searchInput = await firstVisible([
+            directChatDialog.getByPlaceholder(/Search/i),
+            directChatDialog.getByPlaceholder(/搜索/),
+            directChatDialog.locator('input[placeholder*="Search"]'),
+            directChatDialog.locator('input[placeholder*="搜索"]'),
+            directChatDialog.locator('input[type="text"]').first(),
+        ]);
+
+        if (!searchInput) {
+            console.log("[element-web] direct chat dialog is visible but no search input was found");
+            return false;
+        }
+
+        await searchInput.fill(peerUsername);
+        await page.waitForTimeout(1_000);
+
+        const suggestedTarget = await firstVisible([
+            directChatDialog.getByText(new RegExp(`^${peerUsername}$`, "i")).first(),
+            directChatDialog.locator('[data-testid="room-name"]').filter({ hasText: new RegExp(peerUsername, "i") }).first(),
+        ]);
+
+        if (suggestedTarget) {
+            await suggestedTarget.click({ force: true });
+        }
+    }
+
+    const goButtons = [
+        directChatDialog.getByRole("button", { name: /Go to|Start chat|Continue/i }),
+        directChatDialog.getByRole("button", { name: /转到|开始聊天|继续/i }),
+        directChatDialog.locator("button").filter({ hasText: /Go to|Start chat|Continue/i }),
+        directChatDialog.locator("button").filter({ hasText: /转到|开始聊天|继续/i }),
+    ];
+
+    const goTarget = await firstVisible(goButtons);
+    if (goTarget) {
+        await goTarget.click();
+    } else {
+        await searchInput.press("Enter");
+    }
+
+    await page.waitForTimeout(5_000);
+    return true;
 }
 
 try {
@@ -428,14 +610,23 @@ try {
     // 查找并点击创建房间按钮
     const createRoomButtonCandidates = [
         page.getByRole("button", { name: /Create|New Room|Add Room|\+ Room|\+ Chat/i }),
+        page.getByRole("button", { name: /创建群聊|创建房间|新建房间|开始聊天|发送私聊/i }),
+        page.getByText(/^创建群聊$/).first(),
+        page.getByText(/^创建房间$/).first(),
+        page.getByText(/^新建房间$/).first(),
+        page.getByText(/^发送私聊$/).first(),
         page.locator('[aria-label*="Create room"]'),
         page.locator('[aria-label*="New room"]'),
+        page.locator('[aria-label*="创建"]'),
+        page.locator('[aria-label*="群聊"]'),
+        page.locator('[aria-label*="房间"]'),
         page.locator('[data-testid*="create-room"]'),
         page.locator('[data-testid*="add-room"]'),
         page.locator('[aria-label*="Start new chat"]'),
         page.locator('.mx_LeftPanel_buttonBar_createButton'),
         page.locator('.mx_HeaderButton_label').filter({ hasText: /\+/i }),
         page.locator('button').filter({ hasText: /Create.*Room|New.*Room|\+/i }),
+        page.locator('button').filter({ hasText: /创建群聊|创建房间|新建房间|开始聊天|发送私聊/ }),
     ];
 
     const createRoomButton = await firstVisible(createRoomButtonCandidates);
@@ -445,13 +636,20 @@ try {
         await page.waitForTimeout(5_000);
         await takeScreenshot("create-room-dialog");
 
+        if (await maybeCompleteDirectChatFlow()) {
+            console.log("[element-web] direct chat flow completed");
+        }
+
         // 填写房间名称
         const roomName = `Test Room ${Date.now()}`;
         const roomNameInputCandidates = [
             page.getByLabel(/Room name/i),
+            page.getByLabel(/房间名称|群聊名称|名称/),
             page.locator('input[name="name"]'),
             page.locator('input[placeholder*="Room name"]'),
             page.locator('input[placeholder*="Name"]'),
+            page.locator('input[placeholder*="房间"]'),
+            page.locator('input[placeholder*="名称"]'),
             page.locator('.mx_Dialog_content input[type="text"]'),
         ];
 
@@ -464,9 +662,11 @@ try {
         // 点击创建按钮
         const finalCreateButtonCandidates = [
             page.getByRole("button", { name: /Create|Start Chat|Continue|Save|Done/i }),
+            page.getByRole("button", { name: /创建|开始聊天|继续|保存|完成|下一步/i }),
             page.locator('button[type="submit"]'),
             page.locator('.mx_Dialog_primary'),
             page.locator('.mx_Dialog button').filter({ hasText: /Create|Start|Done/i }),
+            page.locator('.mx_Dialog button').filter({ hasText: /创建|开始|完成|继续/i }),
         ];
 
         try {
@@ -489,6 +689,13 @@ try {
     } else {
         console.log("[element-web] could not find create room button, skipping room creation, but login was successful!");
         await dumpDebugSnapshot("no-create-room-button");
+    }
+
+    if (pageErrors.length) {
+        console.warn(`[element-web] page errors observed during interactions: ${JSON.stringify(pageErrors, null, 2)}`);
+    }
+    if (consoleErrors.length) {
+        console.warn(`[element-web] console errors observed during interactions: ${JSON.stringify(consoleErrors, null, 2)}`);
     }
 
 } catch (error) {

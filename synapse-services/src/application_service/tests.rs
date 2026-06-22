@@ -5,6 +5,7 @@ use super::scheduler::{
 };
 use super::transaction::{TransactionFailureKind, APPSERVICE_STATE_DELIVERY_STATUS};
 use super::*;
+use reqwest::StatusCode;
 
 fn test_manager() -> ApplicationServiceManager {
     let pool =

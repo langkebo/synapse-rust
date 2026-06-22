@@ -1,4 +1,3 @@
-#![allow(clippy::unwrap_used)]
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -12,10 +11,15 @@ use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
+fn panic_on_err<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
+    result.unwrap_or_else(|e| panic!("{context}: {e}"))
+}
+
 fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
     use std::net::SocketAddr;
-    let local_addr: SocketAddr = "127.0.0.1:65530".parse().expect("valid loopback socket addr");
+    let local_addr: SocketAddr =
+        panic_on_err("127.0.0.1:65530".parse(), "valid loopback socket addr should parse");
     request.extensions_mut().insert(ConnectInfo(local_addr));
     request
 }
@@ -36,55 +40,69 @@ async fn setup_test_app() -> Option<axum::Router> {
 }
 
 async fn create_test_user(app: &axum::Router) -> String {
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_matrix/client/v3/register")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::json!({
-                "username": format!("user_{}", rand::random::<u32>()),
-                "password": "UserTest@123",
-                "device_id": "TESTDEVICE"
-            })
-            .to_string(),
-        ))
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/register")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "username": format!("user_{}", rand::random::<u32>()),
+                    "password": "UserTest@123",
+                    "device_id": "TESTDEVICE"
+                })
+                .to_string(),
+            )),
+        "register request should build",
+    );
 
-    let response = app.clone().oneshot(request).await.unwrap();
-    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    json["access_token"].as_str().unwrap().to_string()
+    let response = panic_on_err(app.clone().oneshot(request).await, "register request should execute");
+    let body = panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "register response body should read");
+    let json: serde_json::Value = panic_on_err(serde_json::from_slice(&body), "register response should be valid JSON");
+    json["access_token"]
+        .as_str()
+        .map_or_else(|| panic!("register response should contain access_token string: {json}"), str::to_owned)
 }
 
 async fn whoami(app: &axum::Router, token: &str) -> String {
-    let request = Request::builder()
-        .method("GET")
-        .uri("/_matrix/client/v3/account/whoami")
-        .header("Authorization", format!("Bearer {}", token))
-        .body(Body::empty())
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("GET")
+            .uri("/_matrix/client/v3/account/whoami")
+            .header("Authorization", format!("Bearer {}", token))
+            .body(Body::empty()),
+        "whoami request should build",
+    );
 
-    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
+    let response = panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "whoami request should execute");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["user_id"].as_str().unwrap().to_string()
+    let body = panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "whoami response body should read");
+    let json: Value = panic_on_err(serde_json::from_slice(&body), "whoami response should be valid JSON");
+    json["user_id"]
+        .as_str()
+        .map_or_else(|| panic!("whoami response should contain user_id string: {json}"), str::to_owned)
 }
 
 async fn create_room(app: &axum::Router, token: &str) -> String {
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_matrix/client/v3/createRoom")
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "name": "Beacon Performance Room" }).to_string()))
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/createRoom")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "name": "Beacon Performance Room" }).to_string())),
+        "create room request should build",
+    );
 
-    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
+    let response =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "create room request should execute");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["room_id"].as_str().unwrap().to_string()
+    let body =
+        panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "create room response body should read");
+    let json: Value = panic_on_err(serde_json::from_slice(&body), "create room response should be valid JSON");
+    json["room_id"]
+        .as_str()
+        .map_or_else(|| panic!("create room response should contain room_id string: {json}"), str::to_owned)
 }
 
 async fn invite_and_join_room(
@@ -94,51 +112,63 @@ async fn invite_and_join_room(
     invitee_token: &str,
     invitee_user_id: &str,
 ) {
-    let invite_req = Request::builder()
-        .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
-        .header("Authorization", format!("Bearer {}", owner_token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "user_id": invitee_user_id }).to_string()))
-        .unwrap();
-    let invite_resp = app.clone().oneshot(with_local_connect_info(invite_req)).await.unwrap();
+    let invite_req = panic_on_err(
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/rooms/{}/invite", room_id))
+            .header("Authorization", format!("Bearer {}", owner_token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "user_id": invitee_user_id }).to_string())),
+        "invite request should build",
+    );
+    let invite_resp =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(invite_req)).await, "invite request should execute");
     assert_eq!(invite_resp.status(), StatusCode::OK);
 
-    let join_req = Request::builder()
-        .method("POST")
-        .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
-        .header("Authorization", format!("Bearer {}", invitee_token))
-        .body(Body::empty())
-        .unwrap();
-    let join_resp = app.clone().oneshot(with_local_connect_info(join_req)).await.unwrap();
+    let join_req = panic_on_err(
+        Request::builder()
+            .method("POST")
+            .uri(format!("/_matrix/client/v3/rooms/{}/join", room_id))
+            .header("Authorization", format!("Bearer {}", invitee_token))
+            .body(Body::empty()),
+        "join request should build",
+    );
+    let join_resp =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(join_req)).await, "join request should execute");
     assert_eq!(join_resp.status(), StatusCode::OK);
 }
 
 async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_key: &str) -> String {
-    let request = Request::builder()
-        .method("PUT")
-        .uri(format!("/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}", room_id, state_key))
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "m.beacon_info": {
-                    "description": "Beacon performance",
-                    "timeout": 60_000,
-                    "live": true
-                },
-                "m.ts": chrono::Utc::now().timestamp_millis(),
-                "m.asset": { "type": "m.self" }
-            })
-            .to_string(),
-        ))
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/rooms/{}/state/m.beacon_info/{}", room_id, state_key))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "m.beacon_info": {
+                        "description": "Beacon performance",
+                        "timeout": 60_000,
+                        "live": true
+                    },
+                    "m.ts": chrono::Utc::now().timestamp_millis(),
+                    "m.asset": { "type": "m.self" }
+                })
+                .to_string(),
+            )),
+        "put beacon info request should build",
+    );
 
-    let response = app.clone().oneshot(with_local_connect_info(request)).await.unwrap();
+    let response =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "put beacon info request should execute");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
-    let json: Value = serde_json::from_slice(&body).unwrap();
-    json["event_id"].as_str().unwrap().to_string()
+    let body =
+        panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "put beacon info response body should read");
+    let json: Value = panic_on_err(serde_json::from_slice(&body), "put beacon info response should be valid JSON");
+    json["event_id"]
+        .as_str()
+        .map_or_else(|| panic!("put beacon info response should contain event_id string: {json}"), str::to_owned)
 }
 
 async fn send_beacon_with_ts(
@@ -148,44 +178,49 @@ async fn send_beacon_with_ts(
     beacon_info_id: String,
     ts: i64,
 ) -> (StatusCode, u64) {
-    let request = Request::builder()
-        .method("PUT")
-        .uri(format!("/_matrix/client/v3/rooms/{}/send/m.beacon/{}", room_id, rand::random::<u32>()))
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            json!({
-                "m.relates_to": {
-                    "rel_type": "m.reference",
-                    "event_id": beacon_info_id
-                },
-                "m.location": {
-                    "uri": "geo:51.5008,0.1247;u=35",
-                    "description": "London"
-                },
-                "m.ts": ts
-            })
-            .to_string(),
-        ))
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("PUT")
+            .uri(format!("/_matrix/client/v3/rooms/{}/send/m.beacon/{}", room_id, rand::random::<u32>()))
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                json!({
+                    "m.relates_to": {
+                        "rel_type": "m.reference",
+                        "event_id": beacon_info_id
+                    },
+                    "m.location": {
+                        "uri": "geo:51.5008,0.1247;u=35",
+                        "description": "London"
+                    },
+                    "m.ts": ts
+                })
+                .to_string(),
+            )),
+        "send beacon request should build",
+    );
 
     let start = Instant::now();
-    let response = app.oneshot(with_local_connect_info(request)).await.unwrap();
+    let response = panic_on_err(app.oneshot(with_local_connect_info(request)).await, "send beacon request should execute");
     let latency_ms = start.elapsed().as_millis() as u64;
     (response.status(), latency_ms)
 }
 
 async fn post_sliding_sync_with_latency(app: axum::Router, token: String) -> (StatusCode, u64) {
-    let request = Request::builder()
-        .method("POST")
-        .uri("/_matrix/client/v3/sync")
-        .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
-        .body(Body::from(json!({ "lists": {} }).to_string()))
-        .unwrap();
+    let request = panic_on_err(
+        Request::builder()
+            .method("POST")
+            .uri("/_matrix/client/v3/sync")
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(json!({ "lists": {} }).to_string())),
+        "sliding sync request should build",
+    );
 
     let start = Instant::now();
-    let response = app.oneshot(with_local_connect_info(request)).await.unwrap();
+    let response =
+        panic_on_err(app.oneshot(with_local_connect_info(request)).await, "sliding sync request should execute");
     let latency_ms = start.elapsed().as_millis() as u64;
     (response.status(), latency_ms)
 }
@@ -215,7 +250,10 @@ async fn sliding_sync_poc_load_smoke() {
 
         let results = join_all(futures).await;
         for result in results {
-            let (status, latency_ms) = result.unwrap();
+            let (status, latency_ms) = match result {
+                Ok(pair) => pair,
+                Err(e) => panic!("sliding sync task should join cleanly: {e}"),
+            };
             latencies_ms.push(latency_ms);
             match status {
                 StatusCode::OK => ok_count += 1,
@@ -297,7 +335,10 @@ async fn beacon_hot_room_backpressure_load_smoke() {
         });
         let results = join_all(futures).await;
         for result in results {
-            let (status, latency_ms) = result.unwrap();
+            let (status, latency_ms) = match result {
+                Ok(pair) => pair,
+                Err(e) => panic!("beacon load task should join cleanly: {e}"),
+            };
             latencies_ms.push(latency_ms);
             match status {
                 StatusCode::OK => ok_count += 1,

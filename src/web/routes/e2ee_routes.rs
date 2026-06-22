@@ -53,6 +53,7 @@ fn create_e2ee_v3_only_router() -> Router<AppState> {
         .route("/keys/backup/secure/{backup_id}/keys", post(store_secure_backup_keys))
         .route("/keys/backup/secure/{backup_id}/restore", post(restore_secure_backup))
         .route("/keys/backup/secure/{backup_id}/verify", post(verify_secure_backup_passphrase))
+        .route("/keys/history", get(get_key_history))
 }
 
 pub fn create_e2ee_router(state: AppState) -> Router<AppState> {
@@ -251,8 +252,107 @@ async fn query_keys(
 
     let response = state.services.e2ee.device_keys_service.query_keys(request).await?;
 
+    // Outbound federation: for remote users (whose server_name differs from
+    // ours), query their home server via `FederationClient::query_keys` and
+    // merge the results.  This is essential for cross-server E2EE — without
+    // it, local users cannot obtain device keys for remote users and cannot
+    // establish Olm sessions with them.
+    //
+    // Reference: element-hq/synapse `synapse/handlers/e2e_keys.py::E2eKeysHandler.query_devices`
+    let local_server = &state.services.core.server_name;
+    let mut merged_device_keys = response.device_keys.clone();
+    let mut merged_master_keys = response.master_keys.clone();
+    let mut merged_self_signing_keys = response.self_signing_keys.clone();
+    let mut merged_user_signing_keys = response.user_signing_keys.clone();
+    let mut merged_failures = response.failures.clone();
+
+    // Collect remote users that have no local device keys (i.e. the local
+    // DB didn't have them — we need to fetch from their home server).
+    let remote_users: Vec<&str> = requested_users
+        .iter()
+        .filter(|uid| uid.rsplit_once(':').is_some_and(|(_, server)| server != local_server.as_str()))
+        .map(String::as_str)
+        .collect();
+
+    if !remote_users.is_empty() {
+        // Group remote users by their home server.
+        let mut by_server: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
+        for uid in &remote_users {
+            if let Some((_, server)) = uid.rsplit_once(':') {
+                by_server.entry(server).or_default().push(uid);
+            }
+        }
+
+        // Query each remote server in parallel.
+        let federation_client = &state.services.federation.federation_client;
+        let mut tasks = Vec::new();
+        for (server, user_ids) in by_server {
+            let mut device_keys_query = serde_json::Map::new();
+            for uid in &user_ids {
+                // Request all devices for each user (empty list = all).
+                device_keys_query.insert((*uid).to_string(), serde_json::json!([]));
+            }
+            let query = serde_json::json!({ "device_keys": device_keys_query });
+            let server_owned = server.to_string();
+            tasks.push(tokio::spawn({
+                let server_owned = server_owned.clone();
+                let fc = federation_client.clone();
+                async move {
+                    let result = fc.query_keys(&server_owned, &query).await;
+                    (server_owned, result)
+                }
+            }));
+        }
+
+        for task in tasks {
+            match task.await {
+                Ok((_server, Ok(remote_response))) => {
+                    // Merge device_keys.
+                    if let Some(remote_dk) = remote_response.get("device_keys").and_then(|v| v.as_object()) {
+                        for (uid, devices) in remote_dk {
+                            merged_device_keys[uid] = devices.clone();
+                        }
+                    }
+                    // Merge master_keys, self_signing_keys, user_signing_keys.
+                    if let Some(remote_mk) = remote_response.get("master_keys").and_then(|v| v.as_object()) {
+                        for (uid, key) in remote_mk {
+                            merged_master_keys[uid] = key.clone();
+                        }
+                    }
+                    if let Some(remote_ssk) = remote_response.get("self_signing_keys").and_then(|v| v.as_object()) {
+                        for (uid, key) in remote_ssk {
+                            merged_self_signing_keys[uid] = key.clone();
+                        }
+                    }
+                    if let Some(remote_usk) = remote_response.get("user_signing_keys").and_then(|v| v.as_object()) {
+                        for (uid, key) in remote_usk {
+                            merged_user_signing_keys[uid] = key.clone();
+                        }
+                    }
+                    // Merge failures.
+                    if let Some(remote_failures) = remote_response.get("failures").and_then(|v| v.as_object()) {
+                        for (k, v) in remote_failures {
+                            merged_failures[k] = v.clone();
+                        }
+                    }
+                }
+                Ok((server, Err(error))) => {
+                    ::tracing::info!(
+                        server = %server,
+                        error = %error,
+                        "Federation query_keys failed for remote server"
+                    );
+                    merged_failures[&server] = serde_json::json!(format!("Failed to query keys: {}", error));
+                }
+                Err(error) => {
+                    ::tracing::warn!(error = %error, "Federation query_keys task panicked");
+                }
+            }
+        }
+    }
+
     let mut verified_devices = serde_json::Map::new();
-    if let Some(device_keys_obj) = response.device_keys.as_object() {
+    if let Some(device_keys_obj) = merged_device_keys.as_object() {
         let user_ids: Vec<String> = device_keys_obj.keys().cloned().collect();
         if !user_ids.is_empty() {
             let batch_result =
@@ -283,11 +383,11 @@ async fn query_keys(
     }
 
     Ok(Json(serde_json::json!({
-        "device_keys": response.device_keys,
-        "master_keys": response.master_keys,
-        "self_signing_keys": response.self_signing_keys,
-        "user_signing_keys": response.user_signing_keys,
-        "failures": response.failures,
+        "device_keys": merged_device_keys,
+        "master_keys": merged_master_keys,
+        "self_signing_keys": merged_self_signing_keys,
+        "user_signing_keys": merged_user_signing_keys,
+        "failures": merged_failures,
         "verified_devices": serde_json::Value::Object(verified_devices)
     })))
 }
@@ -304,6 +404,10 @@ async fn claim_keys(
     let requested_users =
         request.one_time_keys.as_object().map(|map| map.keys().cloned().collect::<Vec<_>>()).unwrap_or_default();
     let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+
+    // Clone the original request before it's consumed, so we can identify
+    // remote users with unclaimed devices after the local claim.
+    let original_one_time_keys = request.one_time_keys.clone();
 
     if let Some(one_time_keys) = request.one_time_keys.as_object_mut() {
         one_time_keys.retain(|user_id, _| allowed_users.iter().any(|allowed| allowed == user_id));
@@ -325,16 +429,108 @@ async fn claim_keys(
 
     let response = state.services.e2ee.device_keys_service.claim_keys(request).await?;
 
-    let claimed_device_count: usize = response
-        .one_time_keys
-        .as_object()
-        .map_or(0, |map| map.values().map(|v| v.as_object().map_or(0, |o| o.len())).sum());
-
-    let mut failures = if let serde_json::Value::Object(failures_map) = response.failures {
+    let mut merged_one_time_keys = response.one_time_keys.clone();
+    let mut failures = if let serde_json::Value::Object(failures_map) = response.failures.clone() {
         failures_map
     } else {
         serde_json::Map::new()
     };
+
+    // Outbound federation: for remote users whose one-time keys were not
+    // found locally, claim directly from their home server via
+    // `FederationClient::claim_keys`.  This is essential for establishing
+    // new Olm sessions with remote users.
+    //
+    // Reference: element-hq/synapse `synapse/handlers/e2e_keys.py::E2eKeysHandler.claim_one_time_keys`
+    let local_server = &state.services.core.server_name;
+
+    // Build per-server claim requests for remote users with unclaimed devices.
+    let mut remote_claims_by_server: std::collections::HashMap<String, serde_json::Map<String, Value>> =
+        std::collections::HashMap::new();
+    if let Some(orig) = original_one_time_keys.as_object() {
+        for (uid, devices) in orig {
+            let is_remote = uid.rsplit_once(':').is_some_and(|(_, server)| server != local_server.as_str());
+            if !is_remote || !allowed_users.contains(uid) {
+                continue;
+            }
+            if let Some(orig_devs) = devices.as_object() {
+                let mut user_claims = serde_json::Map::new();
+                for (device_id, algorithm) in orig_devs {
+                    let locally_claimed =
+                        merged_one_time_keys.get(uid).and_then(|v| v.get(device_id)).is_some_and(|v| !v.is_null());
+                    if !locally_claimed {
+                        user_claims.insert(device_id.clone(), algorithm.clone());
+                    }
+                }
+                if !user_claims.is_empty() {
+                    if let Some((_, server)) = uid.rsplit_once(':') {
+                        remote_claims_by_server
+                            .entry(server.to_string())
+                            .or_default()
+                            .insert(uid.clone(), serde_json::Value::Object(user_claims));
+                    }
+                }
+            }
+        }
+    }
+
+    if !remote_claims_by_server.is_empty() {
+        let federation_client = &state.services.federation.federation_client;
+        let mut tasks = Vec::new();
+        for (server, server_claims) in remote_claims_by_server {
+            let claim_request = serde_json::json!({ "one_time_keys": server_claims });
+            let fc = federation_client.clone();
+            let server_owned = server.clone();
+            tasks.push(tokio::spawn(async move {
+                let result = fc.claim_keys(&server, &claim_request).await;
+                (server_owned, result)
+            }));
+        }
+
+        for task in tasks {
+            match task.await {
+                Ok((_server, Ok(remote_response))) => {
+                    if let Some(remote_otk) = remote_response.get("one_time_keys").and_then(|v| v.as_object()) {
+                        for (uid, devices) in remote_otk {
+                            if let Some(dev_map) = devices.as_object() {
+                                if let Some(local_devices) =
+                                    merged_one_time_keys.get_mut(uid).and_then(|v| v.as_object_mut())
+                                {
+                                    for (device_id, key) in dev_map {
+                                        if local_devices.get(device_id).is_none_or(|v| v.is_null()) {
+                                            local_devices[device_id] = key.clone();
+                                        }
+                                    }
+                                } else {
+                                    merged_one_time_keys[uid] = devices.clone();
+                                }
+                            }
+                        }
+                    }
+                    if let Some(remote_failures) = remote_response.get("failures").and_then(|v| v.as_object()) {
+                        for (k, v) in remote_failures {
+                            failures[k] = v.clone();
+                        }
+                    }
+                }
+                Ok((server, Err(error))) => {
+                    ::tracing::info!(
+                        server = %server,
+                        error = %error,
+                        "Federation claim_keys failed for remote server"
+                    );
+                    failures[&server] = serde_json::json!(format!("Failed to claim keys: {}", error));
+                }
+                Err(error) => {
+                    ::tracing::warn!(error = %error, "Federation claim_keys task panicked");
+                }
+            }
+        }
+    }
+
+    let claimed_device_count: usize = merged_one_time_keys.as_object().map_or(0, |map| {
+        map.values().map(|v| v.as_object().map_or(0, |o| o.values().filter(|v| !v.is_null()).count())).sum()
+    });
 
     if claimed_device_count < requested_device_count {
         let failed_count = requested_device_count - claimed_device_count;
@@ -348,7 +544,7 @@ async fn claim_keys(
     }
 
     Ok(Json(serde_json::json!({
-        "one_time_keys": response.one_time_keys,
+        "one_time_keys": merged_one_time_keys,
         "failures": serde_json::Value::Object(failures)
     })))
 }
@@ -600,6 +796,11 @@ async fn upload_device_signing(
     // UIA passed, proceed with business logic
     let device_id =
         auth_user.device_id.as_ref().ok_or_else(|| ApiError::bad_request("Device ID required".to_string()))?;
+    if !has_upload_device_signing_keys(&body) {
+        return Err(ApiError::bad_request(
+            "At least one of master_key, self_signing_key, or user_signing_key is required".to_string(),
+        ));
+    }
 
     if let Some(master_key) = body.get("master_key") {
         if let Some(key_obj) = master_key.as_object() {
@@ -640,7 +841,17 @@ async fn upload_device_signing(
         }
     }
 
+    // Wake long-polling sync/sliding-sync requests so the client sees the
+    // updated cross-signing state immediately after a successful upload.
+    state.services.core.event_notifier.notify_user(&auth_user.user_id);
+
     Ok(Json(json!({})).into_response())
+}
+
+fn has_upload_device_signing_keys(body: &Value) -> bool {
+    ["master_key", "self_signing_key", "user_signing_key"]
+        .iter()
+        .any(|field| body.get(*field).and_then(Value::as_object).is_some_and(|key_obj| !key_obj.is_empty()))
 }
 
 #[axum::debug_handler]
@@ -1143,7 +1354,6 @@ struct AuditPaginationQuery {
 }
 
 #[axum::debug_handler]
-#[allow(dead_code)]
 async fn get_key_history(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -1182,6 +1392,8 @@ async fn get_key_history(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     #[test]
     fn test_e2ee_routes_structure() {
         let compat_routes = [
@@ -1253,5 +1465,25 @@ mod tests {
         assert_eq!(pending["status"], "pending");
         assert_eq!(pending["request_type"], "request");
         assert_eq!(cancelled["status"], "cancelled");
+    }
+
+    #[test]
+    fn test_has_upload_device_signing_keys_rejects_empty_payload() {
+        assert!(!super::has_upload_device_signing_keys(&json!({})));
+        assert!(!super::has_upload_device_signing_keys(&json!({
+            "master_key": {},
+            "self_signing_key": {},
+            "user_signing_key": {}
+        })));
+    }
+
+    #[test]
+    fn test_has_upload_device_signing_keys_accepts_non_empty_key() {
+        assert!(super::has_upload_device_signing_keys(&json!({
+            "master_key": {
+                "usage": ["master"],
+                "keys": { "ed25519:MASTER": "pubkey" }
+            }
+        })));
     }
 }

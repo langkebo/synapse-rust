@@ -249,7 +249,10 @@ mod load_tests {
             .collect();
 
         for handle in handles {
-            handle.join().unwrap();
+            match handle.join() {
+                Ok(()) => {}
+                Err(_) => panic!("sustained load worker thread should not panic"),
+            }
         }
 
         let total = total_requests.load(Ordering::Relaxed);
@@ -274,7 +277,10 @@ mod load_tests {
             .collect();
 
         for handle in handles {
-            handle.join().unwrap();
+            match handle.join() {
+                Ok(()) => {}
+                Err(_) => panic!("burst load worker thread should not panic"),
+            }
         }
 
         let elapsed = start.elapsed();
@@ -312,7 +318,10 @@ mod load_tests {
 
             let mut stage_total = 0;
             for handle in handles {
-                stage_total += handle.join().unwrap();
+                stage_total += match handle.join() {
+                    Ok(count) => count,
+                    Err(_) => panic!("ramp-up worker thread should not panic"),
+                };
             }
 
             let elapsed = start.elapsed();

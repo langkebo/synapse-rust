@@ -48,6 +48,12 @@ pub struct RoomServiceConfig {
     pub relations_storage: synapse_storage::relations::RelationsStorage,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    /// Server signing key manager, used to sign locally-produced PDUs before
+    /// federating them.  `None` in test setups that don't exercise federation.
+    pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
+    /// Outbound federation client, used for make_join/send_join/make_leave/
+    /// send_leave/invite flows.  `None` in test setups.
+    pub federation_client: Option<Arc<synapse_federation::FederationClient>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -68,6 +74,8 @@ pub struct RoomService {
     pub(crate) relations_storage: synapse_storage::relations::RelationsStorage,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
+    pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
+    pub(crate) federation_client: Arc<RwLock<Option<Arc<synapse_federation::FederationClient>>>>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -91,6 +99,8 @@ impl RoomService {
             relations_storage: config.relations_storage,
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
             app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
+            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
+            federation_client: Arc::new(RwLock::new(config.federation_client)),
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
             #[cfg(not(feature = "beacons"))]
@@ -153,6 +163,17 @@ impl RoomService {
         event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
     ) {
         *self.event_broadcaster.write().await = Some(event_broadcaster);
+    }
+
+    pub async fn set_key_rotation_manager(
+        &self,
+        key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
+    ) {
+        *self.key_rotation_manager.write().await = Some(key_rotation_manager);
+    }
+
+    pub async fn set_federation_client(&self, federation_client: Arc<synapse_federation::FederationClient>) {
+        *self.federation_client.write().await = Some(federation_client);
     }
 
     pub async fn set_app_service_manager(

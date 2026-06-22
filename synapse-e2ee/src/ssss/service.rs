@@ -6,6 +6,7 @@ use aes_gcm::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use rand::RngCore;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::traits::DehydratedDeviceProvider;
@@ -144,6 +145,43 @@ impl SecretStorageService {
             encrypted_key,
             public_key,
             signatures: serde_json::json!({}),
+            created_ts: chrono::Utc::now().timestamp_millis(),
+        };
+
+        self.storage.create_key(&storage_key).await
+    }
+
+    pub async fn store_account_data_key(
+        &self,
+        user_id: &str,
+        key_id: &str,
+        content: &Value,
+    ) -> Result<(), ApiError> {
+        let algorithm = content
+            .get("algorithm")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::bad_request("m.secret_storage.key event is missing algorithm".to_string()))?;
+
+        let auth_data = content
+            .get("auth_data")
+            .and_then(Value::as_object)
+            .ok_or_else(|| ApiError::bad_request("m.secret_storage.key event is missing auth_data".to_string()))?;
+
+        // The internal SSSS table cannot yet preserve the full auth_data
+        // payload (notably iv/mac). Keep the standard account_data event as
+        // the source of truth and mirror just the fields the legacy internal
+        // consumers need for existence checks and minimal metadata reads.
+        let encrypted_key = auth_data.get("key").and_then(Value::as_str).unwrap_or_default().to_string();
+        let public_key = content.get("public_key").and_then(Value::as_str).map(ToOwned::to_owned);
+        let signatures = auth_data.get("signatures").cloned().unwrap_or_else(|| serde_json::json!({}));
+
+        let storage_key = SecretStorageKey {
+            key_id: key_id.to_string(),
+            user_id: user_id.to_string(),
+            algorithm: algorithm.to_string(),
+            encrypted_key,
+            public_key,
+            signatures,
             created_ts: chrono::Utc::now().timestamp_millis(),
         };
 

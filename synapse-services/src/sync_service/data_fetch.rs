@@ -299,16 +299,17 @@ impl SyncService {
         since: &Option<SyncToken>,
     ) -> ApiResult<(serde_json::Value, i64)> {
         let since_stream_id = Self::device_list_since_stream_id(since);
-        let (changed, max_stream_id) = self
+        let (changed, _) = self
             .device_storage
-            .get_device_list_changed_users_since(since_stream_id, user_id)
+            .get_device_lists_since_with_shared_rooms(since_stream_id, user_id)
             .await
             .map_err(map_internal!("Failed to get device lists"))?;
-        let left = self
+        let left = self.get_device_list_left_users_for_sync(user_id, since).await?;
+        let max_stream_id = self
             .device_storage
-            .get_device_list_left_users_since(since_stream_id, user_id)
+            .get_max_device_list_stream_id()
             .await
-            .map_err(map_internal!("Failed to get left device lists"))?;
+            .map_err(map_internal!("Failed to get device list stream position"))?;
 
         Ok((
             json!({
@@ -317,6 +318,138 @@ impl SyncService {
             }),
             max_stream_id,
         ))
+    }
+
+    async fn get_device_list_left_users_for_sync(
+        &self,
+        user_id: &str,
+        since: &Option<SyncToken>,
+    ) -> ApiResult<Vec<String>> {
+        let Some(since_token) = since.as_ref() else {
+            return Ok(Vec::new());
+        };
+        if since_token.stream_id <= 0 {
+            return Ok(Vec::new());
+        }
+
+        let room_memberships = self
+            .member_storage
+            .get_sync_rooms(user_id, true)
+            .await
+            .map_err(map_internal!("Failed to get sync rooms for device list left users"))?;
+        let room_ids: Vec<String> = room_memberships.into_iter().map(|membership| membership.room_id).collect();
+        if room_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let filter = synapse_storage::EventQueryFilter {
+            types: Some(vec!["m.room.member".to_string()]),
+            ..Default::default()
+        };
+        let membership_events_by_room = self
+            .event_storage
+            .get_room_events_since_stream_batch_filtered(&room_ids, since_token.stream_id, 1000, &filter)
+            .await
+            .map_err(map_internal!("Failed to get membership delta for device list left users"))?;
+
+        let current_shared_users: HashSet<String> = self
+            .member_storage
+            .get_shared_room_users(user_id)
+            .await
+            .map_err(map_internal!("Failed to get current shared room users"))?
+            .into_iter()
+            .collect();
+
+        let mut left_candidates: HashSet<String> = HashSet::new();
+
+        for (room_id, mut events) in membership_events_by_room {
+            events.sort_by_key(|event| (event.stream_ordering.unwrap_or_default(), event.origin_server_ts));
+
+            let mut users_with_join_in_delta: HashSet<String> = HashSet::new();
+            let mut requester_left_room = false;
+            let mut latest_membership_by_user: HashMap<String, String> = HashMap::new();
+
+            for event in &events {
+                if event.event_type != "m.room.member" {
+                    continue;
+                }
+                let Some(state_key) = event.state_key.as_deref() else {
+                    continue;
+                };
+                let Some(membership) = event.content.get("membership").and_then(|value| value.as_str()) else {
+                    continue;
+                };
+
+                if membership == "join" {
+                    users_with_join_in_delta.insert(state_key.to_string());
+                }
+                latest_membership_by_user.insert(state_key.to_string(), membership.to_string());
+            }
+
+            for (state_key, membership) in latest_membership_by_user {
+                if state_key == user_id {
+                    if membership != "join" && membership != "invite" {
+                        requester_left_room = true;
+                    }
+                    continue;
+                }
+
+                if membership == "join" || membership == "invite" {
+                    continue;
+                }
+
+                let should_report_left = if users_with_join_in_delta.contains(&state_key) {
+                    membership == "leave" || membership == "ban"
+                } else {
+                    let current_member = self
+                        .member_storage
+                        .get_room_member(&room_id, &state_key)
+                        .await
+                        .map_err(map_internal!("Failed to load room member for device list left users"))?;
+
+                    current_member.is_some_and(|member| {
+                        let was_joined = member.joined_ts.is_some();
+                        match membership.as_str() {
+                            // A ban can directly terminate sharing even if the storage row has not
+                            // been stamped with `left_ts`.
+                            "ban" => was_joined,
+                            // A real leave/kick path stamps `left_ts`; unban transitions back to
+                            // `leave` without creating a new sharing loss and should not re-emit.
+                            "leave" => was_joined && member.left_ts.is_some(),
+                            // Forget only hides an already-left room and must not create a fresh
+                            // device_lists.left entry.
+                            "forget" => false,
+                            _ => false,
+                        }
+                    })
+                };
+
+                if should_report_left {
+                    left_candidates.insert(state_key);
+                }
+            }
+
+            if requester_left_room {
+                let joined_members = self
+                    .member_storage
+                    .get_room_members(&room_id, "join")
+                    .await
+                    .map_err(map_internal!("Failed to load joined members for requester left room"))?;
+                for member in joined_members {
+                    if member.user_id != user_id {
+                        left_candidates.insert(member.user_id);
+                    }
+                }
+            }
+        }
+
+        let mut left: Vec<String> = left_candidates
+            .into_iter()
+            .filter(|candidate| !current_shared_users.contains(candidate))
+            .collect();
+        left.sort();
+        left.dedup();
+        Ok(left)
     }
 
     pub(crate) fn to_device_since_stream_id(since: &Option<SyncToken>) -> i64 {

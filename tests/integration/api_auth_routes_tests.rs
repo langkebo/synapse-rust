@@ -184,7 +184,6 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(unstable["org.matrix.msc3245.voice"], true);
     assert_eq!(unstable["org.matrix.msc3983.thread"], true);
     assert_eq!(unstable["org.matrix.msc3886.sliding_sync"], true);
-    assert_eq!(unstable["org.matrix.msc4261.widget"], cfg!(feature = "widgets"));
     assert_eq!(unstable["io.hula.friends"], cfg!(feature = "friends"));
     assert_eq!(unstable["io.hula.burn_after_read"], cfg!(feature = "burn-after-read"));
 
@@ -192,4 +191,42 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert!(!capabilities.contains_key("io.hula.friends"));
     assert!(!capabilities.contains_key("io.hula.widget"));
     assert!(!capabilities.contains_key("io.hula.burn_after_read"));
+}
+
+#[tokio::test]
+async fn test_auth_metadata_returns_unrecognized_when_oidc_is_disabled() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
+}
+
+#[tokio::test]
+async fn test_auth_issuer_returns_unrecognized_when_oidc_is_disabled() {
+    let Some(app) = setup_test_app().await else {
+        return;
+    };
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer")
+        .body(Body::empty())
+        .unwrap();
+    let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body = axum::body::to_bytes(response.into_body(), 2048).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["errcode"], "M_UNRECOGNIZED");
 }

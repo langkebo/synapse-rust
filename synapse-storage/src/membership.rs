@@ -56,6 +56,7 @@ impl RoomMemberStorage {
     ) -> Result<RoomMember, sqlx::Error> {
         let now = chrono::Utc::now().timestamp_millis();
         let event_id = format!("${}", generate_event_id(&self.server_name));
+        let joined_ts = if membership == "join" { Some(now) } else { None };
         // Use explicit sender if provided (e.g. inviter), otherwise default to user_id
         let effective_sender = sender.unwrap_or(user_id);
 
@@ -66,7 +67,15 @@ impl RoomMemberStorage {
                 display_name = EXCLUDED.display_name,
                 membership = EXCLUDED.membership,
                 join_reason = EXCLUDED.join_reason,
-                updated_ts = EXCLUDED.updated_ts
+                updated_ts = EXCLUDED.updated_ts,
+                joined_ts = CASE
+                    WHEN EXCLUDED.membership = 'join' THEN COALESCE(room_memberships.joined_ts, EXCLUDED.joined_ts)
+                    ELSE room_memberships.joined_ts
+                END,
+                left_ts = CASE
+                    WHEN EXCLUDED.membership = 'join' THEN NULL
+                    ELSE room_memberships.left_ts
+                END
             RETURNING room_id, user_id, sender, membership, event_id, event_type, display_name, avatar_url, is_banned, invite_token, updated_ts, joined_ts, left_ts, reason, banned_by, ban_reason, banned_ts, join_reason
             ";
 
@@ -81,7 +90,7 @@ impl RoomMemberStorage {
                 .bind(display_name)
                 .bind(join_reason)
                 .bind(now)
-                .bind(now)
+                .bind(joined_ts)
                 .fetch_one(&mut **tx)
                 .await
         } else {
@@ -95,7 +104,7 @@ impl RoomMemberStorage {
                 .bind(display_name)
                 .bind(join_reason)
                 .bind(now)
-                .bind(now)
+                .bind(joined_ts)
                 .fetch_one(&*self.pool)
                 .await
         }
@@ -216,7 +225,7 @@ impl RoomMemberStorage {
                 left_ts = $3,
                 updated_ts = $3,
                 is_banned = false
-            WHERE room_id = $1 AND user_id = $2 AND membership IN ('join', 'ban')
+            WHERE room_id = $1 AND user_id = $2 AND membership IN ('join', 'ban', 'invite')
             ",
         )
         .bind(room_id)
@@ -709,6 +718,34 @@ impl RoomMemberStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Returns the distinct server domains of all currently-joined members
+    /// in a room.  Used to build the candidate-server list for outbound
+    /// `/backfill` — servers with a joined member are guaranteed to have
+    /// the room's history (per Matrix federation invariants).
+    ///
+    /// The local server name is excluded from the result, since we never
+    /// need to backfill from ourselves.
+    pub async fn get_joined_servers_in_room(
+        &self,
+        room_id: &str,
+        local_server_name: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<String> = sqlx::query_scalar(
+            r"
+            SELECT DISTINCT
+                SUBSTRING(user_id FROM POSITION(':' IN user_id) + 1) AS server_name
+            FROM room_memberships
+            WHERE room_id = $1
+              AND membership = 'join'
+              AND user_id LIKE '%:%'
+            ",
+        )
+        .bind(room_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().filter(|s| s != local_server_name).collect())
     }
 }
 

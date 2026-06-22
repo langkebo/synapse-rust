@@ -19,6 +19,9 @@ pub struct PushNotificationService {
     webpush_provider: Option<Arc<WebPushProvider>>,
     push_gateway: Option<Arc<PushGateway>>,
     queue: Option<Arc<PushQueue>>,
+    /// Optional account_data storage for looking up `m.ignored_user_list`
+    /// so that push notifications from ignored users are suppressed.
+    account_data_storage: Option<Arc<synapse_storage::account_data::AccountDataStorage>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -65,6 +68,7 @@ impl PushNotificationService {
             webpush_provider: None,
             push_gateway: None,
             queue: None,
+            account_data_storage: None,
         }
     }
 
@@ -90,6 +94,19 @@ impl PushNotificationService {
 
     pub fn with_queue(mut self, config: QueueConfig) -> Self {
         self.queue = Some(Arc::new(PushQueue::new(config)));
+        self
+    }
+
+    /// Enable `m.ignored_user_list` filtering for push rule evaluation.
+    ///
+    /// When set, [`Self::evaluate_push_rules`] will look up the recipient's
+    /// ignored user list and immediately return `notify: false` if the event
+    /// sender is in that list (matching Synapse's behavior).
+    pub fn with_account_data_storage(
+        mut self,
+        account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+    ) -> Self {
+        self.account_data_storage = Some(account_data_storage);
         self
     }
 
@@ -445,6 +462,34 @@ impl PushNotificationService {
     }
 
     pub async fn evaluate_push_rules(&self, user_id: &str, event: &JsonValue) -> Result<PushRuleResult, ApiError> {
+        // Per the Matrix spec, events from users in the recipient's
+        // `m.ignored_user_list` account_data must never produce a push
+        // notification.  Synapse applies this as a pre-filter before
+        // evaluating push rules.  We do the same here: if the sender is
+        // ignored, short-circuit to `notify: false` without loading rules.
+        if let Some(account_data_storage) = &self.account_data_storage {
+            if let Some(sender) = event.get("sender").and_then(|v| v.as_str()) {
+                match account_data_storage.get_account_data_content(user_id, "m.ignored_user_list").await {
+                    Ok(Some(content)) => {
+                        if let Some(ignored_users) = content.get("ignored_users").and_then(|v| v.as_object()) {
+                            if ignored_users.contains_key(sender) {
+                                return Ok(PushRuleResult { notify: false, tweaks: serde_json::json!({}) });
+                            }
+                        }
+                    }
+                    Ok(None) => { /* no ignored list — continue */ }
+                    Err(e) => {
+                        ::tracing::warn!(
+                            user_id = %user_id,
+                            sender = %sender,
+                            error = %e,
+                            "Failed to load m.ignored_user_list — proceeding with rule evaluation"
+                        );
+                    }
+                }
+            }
+        }
+
         let rules = self.storage.get_user_push_rules(user_id).await?;
 
         let mut tweaks = serde_json::json!({});

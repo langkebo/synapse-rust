@@ -1240,6 +1240,148 @@ async fn test_federation_get_missing_events_rejects_server_without_joined_member
 }
 
 #[tokio::test]
+async fn test_federation_get_missing_events_returns_empty_when_no_event_edges() {
+    // When event_edges has no rows for the requested latest_events, the
+    // handler should return an empty events array (not wrong events).
+    // This verifies the DAG traversal handles the empty-graph case gracefully.
+    let server_name = "test.example.com";
+    let key_id = "ed25519:1";
+    let signing_key_seed = [29u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    else {
+        return;
+    };
+
+    let room_id = format!("!missinghappy:{}", server_name);
+    let creator = "@creator:local.example".to_string();
+    let remote_member = "@remote_user:test.example.com".to_string();
+
+    ensure_user_exists(&state, &creator, "creator").await;
+    ensure_user_exists(&state, &remote_member, "remote_user").await;
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
+        .await
+        .unwrap();
+
+    let uri = format!("/_matrix/federation/v1/get_missing_events/{}", room_id);
+    let content = json!({
+        "earliest_events": ["$prev:local.example"],
+        "latest_events": ["$latest:local.example"],
+        "limit": 10
+    });
+    let response =
+        app.oneshot(signed_request("POST", &uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["events"].is_array());
+    assert_eq!(json["events"].as_array().unwrap().len(), 0, "empty event_edges must yield empty response");
+}
+
+#[tokio::test]
+async fn test_federation_get_missing_events_walks_event_edges_dag() {
+    // When event_edges is populated via create_event_with_graph, the handler
+    // should walk the DAG backwards from latest_events to earliest_events
+    // and return the events in between.
+    let server_name = "test.example.com";
+    let key_id = "ed25519:1";
+    let signing_key_seed = [30u8; 32];
+    let signing_key_b64 = STANDARD_NO_PAD.encode(signing_key_seed);
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_seed);
+
+    let Some((app, state)) = setup_federation_ingress_app_with(server_name, key_id, &signing_key_b64, |_| {}).await
+    else {
+        return;
+    };
+
+    let room_id = format!("!missingdag:{}", server_name);
+    let creator = "@creator:local.example".to_string();
+    let remote_member = "@remote_user:test.example.com".to_string();
+
+    ensure_user_exists(&state, &creator, "creator").await;
+    ensure_user_exists(&state, &remote_member, "remote_user").await;
+    state.services.rooms.room_storage.create_room(&room_id, &creator, "public", "1", true).await.unwrap();
+    state
+        .services
+        .rooms
+        .member_storage
+        .add_member(&room_id, &remote_member, "join", None, None, None, None)
+        .await
+        .unwrap();
+
+    // Build a DAG: earliest -> middle -> latest
+    // The requester has earliest and latest, and wants middle.
+    let earliest_id = "$earliest:dag.test".to_string();
+    let middle_id = "$middle:dag.test".to_string();
+    let latest_id = "$latest:dag.test".to_string();
+
+    // Persist middle with prev_events=[earliest], then latest with prev_events=[middle].
+    // earliest itself doesn't need to be in the DB — the DAG walk stops at it.
+    use synapse_rust::storage::event::CreateEventParams;
+    let middle_params = CreateEventParams {
+        event_id: middle_id.clone(),
+        room_id: room_id.clone(),
+        user_id: creator.clone(),
+        event_type: "m.room.message".to_string(),
+        content: json!({ "body": "middle" }),
+        state_key: None,
+        origin_server_ts: 1000,
+        redacts: None,
+    };
+    state
+        .services
+        .rooms
+        .room_service
+        .event_storage
+        .create_event_with_graph(middle_params, &[earliest_id.clone()], &[], 1, None)
+        .await
+        .unwrap();
+
+    let latest_params = CreateEventParams {
+        event_id: latest_id.clone(),
+        room_id: room_id.clone(),
+        user_id: creator.clone(),
+        event_type: "m.room.message".to_string(),
+        content: json!({ "body": "latest" }),
+        state_key: None,
+        origin_server_ts: 2000,
+        redacts: None,
+    };
+    state
+        .services
+        .rooms
+        .room_service
+        .event_storage
+        .create_event_with_graph(latest_params, &[middle_id.clone()], &[], 2, None)
+        .await
+        .unwrap();
+
+    let uri = format!("/_matrix/federation/v1/get_missing_events/{}", room_id);
+    let content = json!({
+        "earliest_events": [earliest_id],
+        "latest_events": [latest_id],
+        "limit": 10
+    });
+    let response =
+        app.oneshot(signed_request("POST", &uri, server_name, key_id, &signing_key, Some(&content))).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    let events = json["events"].as_array().expect("events should be an array");
+    assert_eq!(events.len(), 1, "should return exactly the middle event");
+    assert_eq!(events[0]["event_id"], middle_id, "should return the middle event");
+}
+
+#[tokio::test]
 async fn test_federation_timestamp_to_event_rejects_server_without_joined_member() {
     let server_name = "test.example.com";
     let key_id = "ed25519:1";

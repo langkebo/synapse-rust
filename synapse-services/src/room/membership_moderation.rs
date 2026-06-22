@@ -18,6 +18,12 @@ impl RoomService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
+        // If the invitee is on a remote server, use the federation invite
+        // flow instead of the local invite path.
+        if self.is_remote_user(invitee_id) {
+            return self.invite_user_via_federation(room_id, inviter_id, invitee_id).await;
+        }
+
         if !self
             .user_storage
             .user_exists(invitee_id)
@@ -34,7 +40,8 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
 
-        self.event_storage
+        let invite_event = self
+            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -57,6 +64,17 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
+
+        // Best-effort: sign and broadcast the invite event to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&invite_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                inviter_id = %inviter_id,
+                invitee_id = %invitee_id,
+                error = %e,
+                "Failed to sign and broadcast invite event"
+            );
+        }
 
         Ok(())
     }
@@ -160,7 +178,8 @@ impl RoomService {
             "reason": reason.unwrap_or("")
         });
 
-        self.event_storage
+        let ban_event = self
+            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -176,6 +195,16 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
+
+        // Best-effort: sign and broadcast the ban event to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&ban_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to sign and broadcast ban event"
+            );
+        }
 
         Ok(())
     }
@@ -193,7 +222,8 @@ impl RoomService {
             "membership": "leave"
         });
 
-        self.event_storage
+        let unban_event = self
+            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -209,6 +239,16 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
+
+        // Best-effort: sign and broadcast the unban event to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&unban_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to sign and broadcast unban event"
+            );
+        }
 
         Ok(())
     }
@@ -251,7 +291,8 @@ impl RoomService {
             "reason": reason.unwrap_or("")
         });
 
-        self.event_storage
+        let kick_event = self
+            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id,
@@ -267,6 +308,16 @@ impl RoomService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
+
+        // Best-effort: sign and broadcast the kick event to federation peers.
+        if let Err(e) = self.sign_and_broadcast_event(&kick_event).await {
+            ::tracing::warn!(
+                room_id = %room_id,
+                target_user_id = %target_user_id,
+                error = %e,
+                "Failed to sign and broadcast kick event"
+            );
+        }
 
         Ok(())
     }

@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde_json::{json, Value};
 use synapse_common::error::ApiError;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
@@ -205,16 +207,31 @@ impl SlidingSyncService {
             .await
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
-        let cache_key = Self::e2ee_device_list_stream_cache_key(user_id, device_id, conn_id);
+        let stream_cache_key = Self::e2ee_device_list_stream_cache_key(user_id, device_id, conn_id);
+        let shared_users_cache_key = Self::e2ee_shared_users_cache_key(user_id, device_id, conn_id);
         let since_stream_id = if since_pos.is_some() {
-            self.cache.get_raw(&cache_key).and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(0)
+            self.cache.get_raw(&stream_cache_key).and_then(|raw| raw.parse::<i64>().ok()).unwrap_or(0)
         } else {
             0
         };
         let current_stream_id = self.get_current_device_list_stream_id().await?;
-        let device_lists = self.get_device_lists_since(user_id, since_stream_id).await?;
+        let changed = self.get_changed_device_lists_since(user_id, since_stream_id).await?;
+        let previous_shared_users = if since_pos.is_some() {
+            self.load_cached_shared_users(&shared_users_cache_key)
+        } else {
+            Vec::new()
+        };
+        let current_shared_users = self.get_current_shared_users(user_id).await?;
+        let left = Self::compute_left_shared_users(&previous_shared_users, &current_shared_users);
 
-        self.cache.set_raw(&cache_key, &current_stream_id.to_string(), 3600).await;
+        self.cache.set_raw(&stream_cache_key, &current_stream_id.to_string(), 3600).await;
+        self.cache
+            .set_raw(
+                &shared_users_cache_key,
+                &serde_json::to_string(&current_shared_users).unwrap_or_else(|_| "[]".to_string()),
+                3600,
+            )
+            .await;
 
         let mut otk_counts = serde_json::Map::new();
         for (algo, count) in key_counts {
@@ -225,7 +242,10 @@ impl SlidingSyncService {
             device_key_storage.get_unused_fallback_key_types(user_id, device_id).await.unwrap_or_else(|_| vec![]);
 
         Ok(json!({
-            "device_lists": device_lists,
+            "device_lists": {
+                "changed": changed,
+                "left": left,
+            },
             "device_one_time_keys_count": otk_counts,
             "device_unused_fallback_key_types": unused_fallback_types,
         }))
@@ -268,18 +288,47 @@ impl SlidingSyncService {
         }
     }
 
+    fn e2ee_shared_users_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+        match conn_id {
+            Some(conn_id) => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:{conn_id}"),
+            None => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:"),
+        }
+    }
+
     async fn get_current_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
         self.device_storage.get_max_device_list_stream_id().await
     }
 
-    async fn get_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Value, sqlx::Error> {
-        let (changed, left) =
+    async fn get_changed_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Vec<String>, sqlx::Error> {
+        let (changed, _) =
             self.device_storage.get_device_lists_since_with_shared_rooms(since_stream_id, user_id).await?;
+        Ok(changed)
+    }
 
-        Ok(json!({
-            "changed": changed,
-            "left": left,
-        }))
+    async fn get_current_shared_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        let mut users = self.member_storage.get_shared_room_users(user_id).await?;
+        users.sort();
+        users.dedup();
+        Ok(users)
+    }
+
+    fn load_cached_shared_users(&self, cache_key: &str) -> Vec<String> {
+        self.cache
+            .get_raw(cache_key)
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+            .map(|mut users| {
+                users.sort();
+                users.dedup();
+                users
+            })
+            .unwrap_or_default()
+    }
+
+    fn compute_left_shared_users(previous: &[String], current: &[String]) -> Vec<String> {
+        let previous: BTreeSet<&str> = previous.iter().map(String::as_str).collect();
+        let current: BTreeSet<&str> = current.iter().map(String::as_str).collect();
+
+        previous.difference(&current).map(|user_id| (*user_id).to_string()).collect()
     }
 
     async fn get_to_device_extension_payload(

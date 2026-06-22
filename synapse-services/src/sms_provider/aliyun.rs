@@ -100,14 +100,13 @@ impl AliyunSmsProvider {
     }
 
     /// Compute HMAC-SHA1 signature for Aliyun SMS API.
-    #[allow(clippy::expect_used)]
-    fn sign(&self, query: &str) -> String {
+    fn sign(&self, query: &str) -> Result<String, ApiError> {
         let string_to_sign = format!("GET&{}&{}", aliyun_percent_encode("/"), aliyun_percent_encode(query));
         let mut mac = Hmac::<Sha1>::new_from_slice(format!("{}&", self.access_key_secret).as_bytes())
-            .expect("HMAC key should be valid");
+            .map_err(|e| ApiError::internal(format!("HMAC key initialization failed: {e}")))?;
         mac.update(string_to_sign.as_bytes());
         let result = mac.finalize();
-        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, result.into_bytes())
+        Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, result.into_bytes()))
     }
 }
 
@@ -118,7 +117,7 @@ impl SmsProvider for AliyunSmsProvider {
         let template_param = format!(r#"{{"code":"{}"}}"#, content);
 
         let query = self.build_query(to, &template_param);
-        let signature = self.sign(&query);
+        let signature = self.sign(&query)?;
 
         // Allow endpoints with an explicit scheme (e.g. for tests pointing at a
         // mock server). Bare hostnames default to HTTPS as required by Aliyun.
@@ -201,7 +200,7 @@ mod tests {
 
         // Use a fixed query to verify signature is deterministic
         let query = "AccessKeyId=test-access-key&Action=SendSms&Format=JSON&PhoneNumbers=13800138000&SignName=TestSign&SignatureMethod=HMAC-SHA1&SignatureNonce=abc123&SignatureVersion=1.0&TemplateCode=SMS_123456789&TemplateParam=%7B%22code%22%3A%22123456%22%7D&Timestamp=2024-01-01T00%3A00%3A00Z&Version=2017-05-25";
-        let signature = provider.sign(query);
+        let signature = provider.sign(query).expect("HMAC-SHA1 signing with a valid key should succeed");
 
         // Signature should be a valid base64 string
         assert!(!signature.is_empty());
@@ -315,8 +314,8 @@ mod tests {
         // verify determinism of the HMAC-SHA1 sign() on a fixed query string.
         // The signature must be reproducible for the same input.
         let query = provider.build_query("13800138000", r#"{"code":"123456"}"#);
-        let signature1 = provider.sign(&query);
-        let signature2 = provider.sign(&query);
+        let signature1 = provider.sign(&query).expect("HMAC-SHA1 signing with a valid key should succeed");
+        let signature2 = provider.sign(&query).expect("HMAC-SHA1 signing with a valid key should succeed");
 
         assert_eq!(signature1, signature2, "HMAC-SHA1 signature must be deterministic for the same query");
         assert!(!signature1.is_empty(), "signature should not be empty");

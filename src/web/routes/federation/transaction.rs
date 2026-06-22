@@ -335,6 +335,157 @@ pub(super) async fn send_transaction(
             None
         };
 
+        // Extract DAG metadata from the PDU so we can persist it and detect
+        // gaps in the event graph.  `prev_events` and `auth_events` are arrays
+        // of event ID strings; `depth` is a monotonically increasing integer.
+        let prev_events: Vec<String> = pdu
+            .get("prev_events")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let auth_events: Vec<String> = pdu
+            .get("auth_events")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let depth = pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
+
+        // fill_in_prev_events: if the PDU references prev_events that we don't
+        // have locally, ask the origin server to fill the gap via
+        // `/get_missing_events`.  The origin is guaranteed to have these events
+        // because it just sent us their child.  This is the highest-ROI
+        // backfill trigger and covers the common case of out-of-order delivery
+        // or missed transactions.  Errors are logged but do not block PDU
+        // persistence — the event graph will have a gap, but the PDU itself is
+        // still stored.
+        if !prev_events.is_empty() {
+            if let Ok(missing) =
+                state.services.rooms.room_service.event_storage.find_missing_event_ids(&prev_events).await
+            {
+                if !missing.is_empty() {
+                    ::tracing::debug!(
+                        request_id = %request_id,
+                        txn_id = %txn_id,
+                        origin = origin,
+                        event_id = %event_id,
+                        room_id = room_id,
+                        missing_count = missing.len(),
+                        "PDU references prev_events not in local DB; requesting gap fill from origin"
+                    );
+                    match state
+                        .services
+                        .federation
+                        .federation_client
+                        .get_missing_events(origin, room_id, &prev_events, std::slice::from_ref(&event_id), 20, None)
+                        .await
+                    {
+                        Ok(response) => {
+                            if let Some(events) = response.get("events").and_then(|v| v.as_array()) {
+                                ::tracing::info!(
+                                    request_id = %request_id,
+                                    txn_id = %txn_id,
+                                    origin = origin,
+                                    room_id = room_id,
+                                    fetched_count = events.len(),
+                                    "Received missing events from origin"
+                                );
+                                for missing_pdu in events {
+                                    // Best-effort persist: extract fields and
+                                    // store via create_event_with_graph so the
+                                    // fetched events also populate event_edges.
+                                    if let Some(missing_event_id) = missing_pdu.get("event_id").and_then(|v| v.as_str())
+                                    {
+                                        // Skip if already exists (race or duplicate).
+                                        if state
+                                            .services
+                                            .rooms
+                                            .room_service
+                                            .event_storage
+                                            .get_event(missing_event_id)
+                                            .await
+                                            .ok()
+                                            .flatten()
+                                            .is_some()
+                                        {
+                                            continue;
+                                        }
+                                        let missing_room_id =
+                                            missing_pdu.get("room_id").and_then(|v| v.as_str()).unwrap_or(room_id);
+                                        let missing_user_id =
+                                            missing_pdu.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+                                        let missing_event_type = missing_pdu
+                                            .get("type")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("m.room.message");
+                                        let missing_content = missing_pdu.get("content").cloned().unwrap_or(json!({}));
+                                        let missing_state_key =
+                                            missing_pdu.get("state_key").and_then(|v| v.as_str()).map(String::from);
+                                        let missing_ost =
+                                            missing_pdu.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
+                                        let missing_prev: Vec<String> = missing_pdu
+                                            .get("prev_events")
+                                            .and_then(|v| v.as_array())
+                                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                            .unwrap_or_default();
+                                        let missing_auth: Vec<String> = missing_pdu
+                                            .get("auth_events")
+                                            .and_then(|v| v.as_array())
+                                            .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                            .unwrap_or_default();
+                                        let missing_depth =
+                                            missing_pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
+
+                                        let missing_params = crate::storage::event::CreateEventParams {
+                                            event_id: missing_event_id.to_string(),
+                                            room_id: missing_room_id.to_string(),
+                                            user_id: missing_user_id.to_string(),
+                                            event_type: missing_event_type.to_string(),
+                                            content: missing_content,
+                                            state_key: missing_state_key,
+                                            origin_server_ts: missing_ost,
+                                            redacts: None,
+                                        };
+                                        if let Err(e) = state
+                                            .services
+                                            .rooms
+                                            .room_service
+                                            .create_event_with_graph(
+                                                missing_params,
+                                                &missing_prev,
+                                                &missing_auth,
+                                                missing_depth,
+                                                None,
+                                            )
+                                            .await
+                                        {
+                                            ::tracing::warn!(
+                                                request_id = %request_id,
+                                                txn_id = %txn_id,
+                                                origin = origin,
+                                                event_id = missing_event_id,
+                                                error = %e,
+                                                "Failed to persist gap-filled event"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            ::tracing::warn!(
+                                request_id = %request_id,
+                                txn_id = %txn_id,
+                                origin = origin,
+                                room_id = room_id,
+                                error = %e,
+                                "Failed to fetch missing events from origin; PDU will be persisted with a graph gap"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let params = crate::storage::event::CreateEventParams {
             event_id: event_id.clone(),
             room_id: room_id.to_string(),
@@ -346,7 +497,13 @@ pub(super) async fn send_transaction(
             redacts: redacts_target.clone(),
         };
 
-        match state.services.rooms.room_service.create_event(params, None).await {
+        match state
+            .services
+            .rooms
+            .room_service
+            .create_event_with_graph(params, &prev_events, &auth_events, depth, None)
+            .await
+        {
             Ok(_) => {
                 state
                     .services

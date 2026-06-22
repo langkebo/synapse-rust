@@ -1,9 +1,30 @@
 use axum::body::Body;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+use ed25519_dalek::{Signer, SigningKey};
 use hyper::{Request, StatusCode};
 use serde_json::json;
+use serde_json::Value;
+use synapse_rust::e2ee::signed_json::{canonical_json_bytes, remove_signatures_and_unsigned};
 use tower::ServiceExt;
 
 use crate::{get_admin_token, setup_test_app};
+
+fn matrix_signature(value: &Value, signing_key: &SigningKey) -> String {
+    let mut json_for_signing = value.clone();
+    remove_signatures_and_unsigned(&mut json_for_signing);
+    let message = canonical_json_bytes(&json_for_signing).unwrap();
+    STANDARD.encode(signing_key.sign(&message).to_bytes())
+}
+
+fn attach_matrix_signature(value: &mut Value, signer_user_id: &str, key_id: &str, signing_key: &SigningKey) {
+    let signature = matrix_signature(value, signing_key);
+    value["signatures"] = json!({
+        signer_user_id: {
+            key_id: signature
+        }
+    });
+}
 
 /// P2-1: 密钥备份创建与恢复完整闭环
 /// 验证：用户可以创建密钥备份、存储会话密钥、恢复备份
@@ -211,7 +232,6 @@ async fn test_e2ee_key_backup_lifecycle() {
 /// P2-2: 交叉签名完整流程
 /// 验证：用户可以上传 master/self-signing/user-signing keys，并进行交叉签名
 #[tokio::test]
-#[ignore = "UIA required for cross-signing key upload; test infrastructure needs UIA bypass"]
 async fn test_e2ee_cross_signing_flow() {
     let Some(app) = setup_test_app().await else {
         return;
@@ -242,8 +262,36 @@ async fn test_e2ee_cross_signing_flow() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let user_token = json["access_token"].as_str().unwrap().to_string();
     let user_id = json["user_id"].as_str().unwrap().to_string();
+    let device_id = json["device_id"].as_str().unwrap().to_string();
+
+    let device_signing_key = SigningKey::from_bytes(&[41u8; 32]);
+    let device_ed25519_key_id = format!("ed25519:{device_id}");
+    let device_ed25519_public_key = STANDARD.encode(device_signing_key.verifying_key().as_bytes());
+
+    let master_signing_key = SigningKey::from_bytes(&[42u8; 32]);
+    let master_key_id = "ed25519:master_key_id";
+    let master_public_key = STANDARD.encode(master_signing_key.verifying_key().as_bytes());
+
+    let self_signing_signing_key = SigningKey::from_bytes(&[43u8; 32]);
+    let self_signing_key_id = "ed25519:self_signing_key_id";
+    let self_signing_public_key = STANDARD.encode(self_signing_signing_key.verifying_key().as_bytes());
+
+    let user_signing_signing_key = SigningKey::from_bytes(&[44u8; 32]);
+    let user_signing_key_id = "ed25519:user_signing_key_id";
+    let user_signing_public_key = STANDARD.encode(user_signing_signing_key.verifying_key().as_bytes());
 
     // 2. 上传设备密钥（交叉签名的前提）
+    let mut device_keys = json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+        "keys": {
+            format!("curve25519:{}", device_id): "device_curve_key",
+            device_ed25519_key_id.clone(): device_ed25519_public_key
+        }
+    });
+    attach_matrix_signature(&mut device_keys, &user_id, &device_ed25519_key_id, &device_signing_key);
+
     let upload_device_keys_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/keys/upload")
@@ -251,20 +299,7 @@ async fn test_e2ee_cross_signing_flow() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "device_keys": {
-                    "user_id": user_id,
-                    "device_id": "DEVICE_CROSS",
-                    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-                    "keys": {
-                        "curve25519:DEVICE_CROSS": "device_curve_key",
-                        "ed25519:DEVICE_CROSS": "device_ed_key"
-                    },
-                    "signatures": {
-                        user_id.clone(): {
-                            "ed25519:DEVICE_CROSS": "device_signature"
-                        }
-                    }
-                }
+                "device_keys": device_keys
             })
             .to_string(),
         ))
@@ -274,53 +309,94 @@ async fn test_e2ee_cross_signing_flow() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // 3. 上传交叉签名密钥（master, self_signing, user_signing）
+    let mut master_key = json!({
+        "user_id": user_id,
+        "usage": ["master"],
+        "keys": {
+            master_key_id: master_public_key
+        }
+    });
+    attach_matrix_signature(&mut master_key, &user_id, &device_ed25519_key_id, &device_signing_key);
+
+    let mut self_signing_key = json!({
+        "user_id": user_id,
+        "usage": ["self_signing"],
+        "keys": {
+            self_signing_key_id: self_signing_public_key
+        }
+    });
+    attach_matrix_signature(&mut self_signing_key, &user_id, master_key_id, &master_signing_key);
+
+    let mut user_signing_key = json!({
+        "user_id": user_id,
+        "usage": ["user_signing"],
+        "keys": {
+            user_signing_key_id: user_signing_public_key
+        }
+    });
+    attach_matrix_signature(&mut user_signing_key, &user_id, master_key_id, &master_signing_key);
+
+    let cross_signing_payload = json!({
+        "master_key": master_key,
+        "self_signing_key": self_signing_key,
+        "user_signing_key": user_signing_key
+    });
+
     let upload_cross_signing_request = Request::builder()
+        .method("POST")
+        .uri("/_matrix/client/r0/keys/device_signing/upload")
+        .header("Authorization", format!("Bearer {}", user_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(cross_signing_payload.to_string()))
+        .unwrap();
+
+    let response = app.clone().oneshot(upload_cross_signing_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "Upload cross-signing keys should start with UIA challenge");
+
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let challenge_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(challenge_json["errcode"], "M_UIA_REQUIRED");
+    let session = challenge_json["session"].as_str().expect("missing UIA session").to_string();
+
+    let complete_cross_signing_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/keys/device_signing/upload")
         .header("Authorization", format!("Bearer {}", user_token))
         .header("Content-Type", "application/json")
         .body(Body::from(
             json!({
-                "master_key": {
-                    "user_id": user_id,
-                    "usage": ["master"],
-                    "keys": {
-                        "ed25519:master_key_id": "master_public_key"
-                    }
-                },
-                "self_signing_key": {
-                    "user_id": user_id,
-                    "usage": ["self_signing"],
-                    "keys": {
-                        "ed25519:self_signing_key_id": "self_signing_public_key"
+                "master_key": cross_signing_payload["master_key"].clone(),
+                "self_signing_key": cross_signing_payload["self_signing_key"].clone(),
+                "user_signing_key": cross_signing_payload["user_signing_key"].clone(),
+                "auth": {
+                    "type": "m.login.password",
+                    "session": session,
+                    "identifier": {
+                        "type": "m.id.user",
+                        "user": username
                     },
-                    "signatures": {
-                        user_id.clone(): {
-                            "ed25519:master_key_id": "master_signs_self_signing"
-                        }
-                    }
-                },
-                "user_signing_key": {
-                    "user_id": user_id,
-                    "usage": ["user_signing"],
-                    "keys": {
-                        "ed25519:user_signing_key_id": "user_signing_public_key"
-                    },
-                    "signatures": {
-                        user_id.clone(): {
-                            "ed25519:master_key_id": "master_signs_user_signing"
-                        }
-                    }
+                    "password": "Password123!"
                 }
             })
             .to_string(),
         ))
         .unwrap();
 
-    let response = app.clone().oneshot(upload_cross_signing_request).await.unwrap();
+    let response = app.clone().oneshot(complete_cross_signing_request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "Upload cross-signing keys should return 200 OK");
 
     // 4. 上传签名（设备自签名）
+    let mut signed_device = json!({
+        "user_id": user_id,
+        "device_id": device_id,
+        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+        "keys": {
+            format!("curve25519:{}", device_id): "device_curve_key",
+            device_ed25519_key_id.clone(): device_ed25519_public_key
+        }
+    });
+    attach_matrix_signature(&mut signed_device, &user_id, self_signing_key_id, &self_signing_signing_key);
+
     let upload_signatures_request = Request::builder()
         .method("POST")
         .uri("/_matrix/client/r0/keys/signatures/upload")
@@ -329,19 +405,7 @@ async fn test_e2ee_cross_signing_flow() {
         .body(Body::from(
             json!({
                 user_id.clone(): {
-                    "DEVICE_CROSS": {
-                        "user_id": user_id,
-                        "device_id": "DEVICE_CROSS",
-                        "algorithms": ["m.olm.v1.curve25519-aes-sha2"],
-                        "keys": {
-                            "ed25519:DEVICE_CROSS": "device_ed_key"
-                        },
-                        "signatures": {
-                            user_id.clone(): {
-                                "ed25519:self_signing_key_id": "self_signing_signs_device"
-                            }
-                        }
-                    }
+                    device_id.clone(): signed_device
                 }
             })
             .to_string(),

@@ -156,6 +156,92 @@ impl RoomService {
             .await;
         }
 
+        // Best-effort: sign and broadcast locally-produced events to
+        // federation peers.  Skipped when a transaction is provided (the
+        // caller owns the event lifecycle in that case).  Failures are
+        // logged inside `sign_and_broadcast_event` and do not affect the
+        // local event creation.
+        if should_update_summary {
+            if let Err(e) = self.sign_and_broadcast_event(&event).await {
+                ::tracing::warn!(
+                    event_id = %event.event_id,
+                    room_id = %event.room_id,
+                    event_type = %event.event_type,
+                    error = %e,
+                    "Failed to sign and broadcast event"
+                );
+            }
+        }
+
+        Ok(event)
+    }
+
+    /// Like `create_event` but also persists the PDU's DAG metadata
+    /// (`prev_events`, `auth_events`, `depth`) and populates `event_edges`.
+    /// Used by the inbound federation transaction handler so that
+    /// `/get_missing_events` can walk the DAG and outbound backfill has the
+    /// graph data it needs.
+    pub async fn create_event_with_graph(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> ApiResult<synapse_storage::RoomEvent> {
+        let room_id = params.room_id.clone();
+        let event_id = params.event_id.clone();
+        let event_type = params.event_type.clone();
+        let state_key = params.state_key.clone();
+        let should_update_summary = tx.is_none();
+
+        let event = self
+            .event_storage
+            .create_event_with_graph(params, prev_events, auth_events, depth, tx)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to create event with graph data", &e))?;
+
+        if should_update_summary && event_type == "m.room.canonical_alias" && state_key.as_deref() == Some("") {
+            let canonical_alias = event.content.get("alias").and_then(|value| value.as_str());
+            if let Err(error) = self.room_storage.set_canonical_alias(&room_id, canonical_alias).await {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    canonical_alias = ?canonical_alias,
+                    "Failed to project canonical alias onto room"
+                );
+            }
+        }
+
+        if should_update_summary {
+            if let Err(error) =
+                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+            {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    event_id = %event_id,
+                    event_type = %event_type,
+                    state_key = ?state_key,
+                    "Failed to queue room summary update"
+                );
+            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+                ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
+            }
+        }
+
+        if should_update_summary {
+            self.dispatch_appservice_event(
+                &event.event_id,
+                &event.room_id,
+                &event.event_type,
+                &event.user_id,
+                &event.content,
+                event.state_key.as_deref(),
+            )
+            .await;
+        }
+
         Ok(event)
     }
 

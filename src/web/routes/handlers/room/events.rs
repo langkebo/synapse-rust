@@ -196,14 +196,55 @@ pub(crate) async fn get_messages(
         .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    Ok(Json(
-        state
-            .services
-            .rooms
-            .room_service
-            .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
-            .await?,
-    ))
+    let response = state
+        .services
+        .rooms
+        .room_service
+        .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
+        .await?;
+
+    // Best-effort outbound backfill trigger: when paginating backwards
+    // (`dir=b`) and the local DB returned fewer events than requested, the
+    // room likely has federated history we haven't fetched yet.  Spawn an
+    // async task to request historical events from federated peers without
+    // blocking the current response — the client will pick up the new
+    // events on its next `/messages` call.
+    //
+    // This mirrors Synapse's `FederationHandler.maybe_backfill` trigger
+    // point in the `/messages` path, though we use a simpler "fewer than
+    // requested" heuristic rather than Synapse's extremity-depth check.
+    //
+    // A per-room cooldown (60 s) prevents excessive federation requests
+    // when a client retries backward pagination rapidly.
+    if direction == "b" {
+        let chunk_count = response.get("chunk").and_then(|c| c.as_array()).map_or(0, |a| a.len());
+        if (chunk_count as i64) < limit {
+            let room_id_clone = room_id.clone();
+            let federation_client = state.services.federation.federation_client.clone();
+            let room_service = state.services.rooms.room_service.clone();
+            tokio::spawn(async move {
+                // Rate-limit: skip if this room was backfilled recently.
+                if !synapse_services::room::backfill::check_backfill_cooldown(&room_id_clone).await {
+                    ::tracing::debug!(
+                        room_id = %room_id_clone,
+                        "Best-effort /messages backfill skipped: within cooldown window"
+                    );
+                    return;
+                }
+                if let Err(error) =
+                    room_service.backfill_room_history(&federation_client, &room_id_clone, Some(50)).await
+                {
+                    ::tracing::warn!(
+                        room_id = %room_id_clone,
+                        error = %error,
+                        "Best-effort /messages backfill failed"
+                    );
+                }
+            });
+        }
+    }
+
+    Ok(Json(response))
 }
 
 pub(crate) async fn send_message(
