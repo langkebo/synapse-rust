@@ -10,7 +10,7 @@ use crate::web::middleware::{
     cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, Method},
     routing::{get, post, put},
     Json, Router,
@@ -100,7 +100,7 @@ pub fn declared_route_manifest_for_profile(flags: &ProfileFlags) -> RouteLedger 
 /// Manifest for routes declared inline inside [`create_router`] — i.e. those
 /// registered with `.route(...)` directly on the top-level `Router` rather
 /// than through a `create_*_router()` helper.
-fn top_level_inline_manifest() -> Vec<RouteEntry> {
+pub fn top_level_inline_manifest() -> Vec<RouteEntry> {
     const MODULE: &str = "assembly::create_router";
     [
         (Method::GET, "/"),
@@ -117,6 +117,7 @@ fn top_level_inline_manifest() -> Vec<RouteEntry> {
         (Method::GET, "/.well-known/matrix/client"),
         (Method::GET, "/.well-known/matrix/support"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"),
+        (Method::GET, "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
         (Method::GET, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status"),
         (Method::PUT, "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
@@ -319,6 +320,21 @@ async fn get_client_config(State(state): State<AppState>) -> Result<Json<serde_j
     })))
 }
 
+/// Return `true` when the user has at least one well-known SSSS account_data
+/// event present: `m.secret_storage.default_key` (which names the default
+/// key) and any `m.secret_storage.key.<id>` entry. Element/Synapse clients
+/// consider SSSS "initialised" once either of those is set, regardless of
+/// what the homeserver's internal SSSS table happens to contain.
+async fn user_has_secret_storage_account_data(state: &AppState, user_id: &str) -> Result<bool, ApiError> {
+    let account_data = state.services.core.account_data_service.list_account_data(user_id).await?;
+
+    if account_data.contains_key("m.secret_storage.default_key") {
+        return Ok(true);
+    }
+
+    Ok(account_data.keys().any(|key| key.starts_with("m.secret_storage.key.")))
+}
+
 /// MSC3814 — dehydrated devices. Element probes this on startup. We now expose
 /// a minimal persisted implementation so clients can upload and resume the
 /// dehydrated device state instead of seeing a permanent 404.
@@ -330,7 +346,7 @@ async fn get_dehydrated_device(
 
     match device {
         Some(device) => Ok(Json(device)),
-        None => Err(ApiError::not_found("No dehydrated device for this user")),
+        None => Err(ApiError::not_found("No dehydrated device available")),
     }
 }
 
@@ -350,8 +366,14 @@ async fn put_dehydrated_device(
     }
 
     // 2. Check if user has SSSS keys
+    //
+    // Element actually consults the *standard* account_data event names
+    // (`m.secret_storage.default_key` and the `m.secret_storage.key.<id>` keys)
+    // to decide whether SSSS is set up — not the homeserver's internal table.
+    // We mirror that, and also still accept the internal `ssss_service` rows so
+    // server-initiated bootstrap (e.g. tests / admin tools) keeps working.
     let ssss_keys = state.services.e2ee.ssss_service.get_all_keys(&auth_user.user_id).await?;
-    if ssss_keys.is_empty() {
+    if ssss_keys.is_empty() && !user_has_secret_storage_account_data(&state, &auth_user.user_id).await? {
         return Err(ApiError::forbidden(
             "Secret storage keys not found. Please initialize secret storage (SSSS) before creating a dehydrated device."
                 .to_string(),
@@ -377,8 +399,11 @@ async fn delete_dehydrated_device(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let _deleted = state.services.e2ee.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
-    Ok(Json(json!({})))
+    let device_id = state.services.e2ee.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
+    match device_id {
+        Some(device_id) => Ok(Json(json!({ "device_id": device_id }))),
+        None => Err(ApiError::not_found("No dehydrated device available")),
+    }
 }
 
 /// MSC3814 — claim pending to-device events addressed to a dehydrated device.
@@ -393,14 +418,16 @@ async fn post_dehydrated_device_events(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
+    Query(query): Query<serde_json::Value>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let next_batch = body.get("next_batch").and_then(|v| v.as_str());
+    let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
     let response = state
         .services
         .e2ee
         .dehydrated_device_service
-        .claim_events(&auth_user.user_id, &device_id, next_batch, 100)
+        .claim_events(&auth_user.user_id, &device_id, next_batch, limit)
         .await?;
     Ok(Json(response))
 }
@@ -579,10 +606,10 @@ async fn delete_extended_profile_field(
     }
 
     let mut document = load_extended_profile_document(&state, &user_id).await?;
-    if document.remove(&key_name).is_none() {
-        return Err(ApiError::not_found("Extended profile field not found".to_string()));
+    let removed = document.remove(&key_name).is_some();
+    if removed {
+        save_extended_profile_document(&state, &user_id, &document).await?;
     }
-    save_extended_profile_document(&state, &user_id, &document).await?;
 
     Ok(Json(json!({
         "key_name": key_name,
@@ -595,8 +622,29 @@ async fn delete_extended_profile_field(
 /// we must return `M_UNRECOGNIZED` rather than 404, so clients fall back to the
 /// classic password login flow without surfacing a misleading error to users.
 async fn get_auth_metadata(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    if !oidc::oidc_enabled(&state) {
+        return Err(ApiError::unrecognized(
+            "Authentication metadata is not available because OIDC/SSO is not enabled",
+        ));
+    }
+
     let discovery = oidc::openid_discovery(State(state)).await?;
     Ok(Json(serde_json::to_value(discovery.0).map_err(|e| ApiError::internal(e.to_string()))?))
+}
+
+/// Legacy MSC2965 issuer discovery used by some Element code paths before
+/// fetching the full auth metadata document.
+async fn get_auth_issuer(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    if !oidc::oidc_enabled(&state) {
+        return Err(ApiError::unrecognized(
+            "Authentication issuer is not available because OIDC/SSO is not enabled",
+        ));
+    }
+
+    let discovery = oidc::openid_discovery(State(state)).await?;
+    Ok(Json(json!({
+        "issuer": discovery.0.issuer
+    })))
 }
 
 fn create_client_capabilities_router() -> Router<AppState> {
@@ -681,6 +729,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/.well-known/matrix/client", get(handlers::get_well_known_client))
         .route("/.well-known/matrix/support", get(handlers::get_well_known_support))
         .route("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata", get(get_auth_metadata))
+        .route("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer", get(get_auth_issuer))
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
             get(get_dehydrated_device).put(put_dehydrated_device).delete(delete_dehydrated_device),

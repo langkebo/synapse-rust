@@ -201,9 +201,11 @@ mod tests {
 
     #[test]
     fn parse_args_accepts_separate_and_equals_forms() {
-        let a = parse_args(&["bin".into(), "--profile".into(), "worker".into()]).unwrap();
+        let a = parse_args(&["bin".into(), "--profile".into(), "worker".into()])
+            .unwrap_or_else(|e| panic!("worker profile args should parse: {e}"));
         assert_eq!(a.profile, "worker");
-        let b = parse_args(&["bin".into(), "--profile=worker".into()]).unwrap();
+        let b = parse_args(&["bin".into(), "--profile=worker".into()])
+            .unwrap_or_else(|e| panic!("worker profile args with equals form should parse: {e}"));
         assert_eq!(b.profile, "worker");
     }
 
@@ -219,10 +221,12 @@ mod tests {
 
     #[test]
     fn parse_args_accepts_output_separate_and_equals_forms() {
-        let a = parse_args(&["bin".into(), "--output".into(), "out.json".into()]).unwrap();
+        let a = parse_args(&["bin".into(), "--output".into(), "out.json".into()])
+            .unwrap_or_else(|e| panic!("separate output arg should parse: {e}"));
         assert_eq!(a.output.as_deref(), Some("out.json"));
 
-        let b = parse_args(&["bin".into(), "--output=out.json".into()]).unwrap();
+        let b = parse_args(&["bin".into(), "--output=out.json".into()])
+            .unwrap_or_else(|e| panic!("inline output arg should parse: {e}"));
         assert_eq!(b.output.as_deref(), Some("out.json"));
     }
 

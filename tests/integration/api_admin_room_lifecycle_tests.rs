@@ -374,3 +374,29 @@ async fn test_admin_room_list_and_search() {
     let rooms = json["rooms"].as_array().unwrap();
     assert_eq!(rooms.len(), 2, "Should return exactly 2 rooms with limit=2");
 }
+
+/// `POST /_synapse/admin/v1/rooms/{room_id}/backfill` returns 404 for a
+/// room that does not exist locally.  This locks the contract that the
+/// endpoint validates room existence before attempting any federation
+/// traffic.
+#[tokio::test]
+async fn test_admin_backfill_requires_existing_room() {
+    let Some(app) = super::setup_test_app().await else {
+        return;
+    };
+    let (admin_token, _) = super::get_super_admin_token(&app).await;
+
+    let missing_room_id = format!("!missingbackfill{}:localhost", rand::random::<u32>());
+    let encoded_room_id = missing_room_id.replace('!', "%21").replace(':', "%3A");
+
+    let backfill_request = Request::builder()
+        .method("POST")
+        .uri(format!("/_synapse/admin/v1/rooms/{}/backfill", encoded_room_id))
+        .header("Authorization", format!("Bearer {}", admin_token))
+        .header("Content-Type", "application/json")
+        .body(Body::from(json!({ "limit": 50 }).to_string()))
+        .unwrap();
+
+    let response = ServiceExt::<Request<Body>>::oneshot(app, backfill_request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

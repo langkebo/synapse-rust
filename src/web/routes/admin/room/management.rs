@@ -113,14 +113,7 @@ pub async fn make_room_admin(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    if state
-        .services
-        .account
-        .account_identity_service
-        .get_user_by_id(&body.user_id)
-        .await
-        .is_none()
-    {
+    if state.services.account.account_identity_service.get_user_by_id(&body.user_id).await?.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
@@ -186,6 +179,54 @@ pub async fn purge_history_by_room(
     };
 
     purge_history(admin, State(state), headers, Json(merged_body)).await
+}
+
+/// `POST /_synapse/admin/v1/rooms/{room_id}/backfill`
+///
+/// Manually triggers outbound federation backfill for a room.  The server
+/// contacts federated peers (servers with joined members in the room) and
+/// requests historical events preceding the most recent locally-known
+/// events.  Fetched events are persisted with full DAG metadata via
+/// `create_event_with_graph`.
+///
+/// Request body (all optional):
+///   - `limit`: number of events to request per candidate (default 100)
+///
+/// Response:
+///   ```json
+///   {
+///     "room_id": "!room:server",
+///     "source_server": "remote.example",
+///     "persisted_events": 42,
+///     "candidates_tried": 3
+///   }
+///   ```
+#[axum::debug_handler]
+pub async fn backfill_room(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+        return Err(ApiError::not_found("Room not found".to_string()));
+    }
+
+    let limit = body.get("limit").and_then(|v| v.as_u64()).map(|n| n.min(u64::from(u32::MAX)) as u32);
+
+    let outcome = state
+        .services
+        .rooms
+        .room_service
+        .backfill_room_history(&state.services.federation.federation_client, &room_id, limit)
+        .await?;
+
+    Ok(Json(json!({
+        "room_id": room_id,
+        "source_server": outcome.source_server,
+        "persisted_events": outcome.persisted_events,
+        "candidates_tried": outcome.candidates_tried,
+    })))
 }
 
 #[axum::debug_handler]
@@ -256,9 +297,7 @@ pub async fn ban_user(
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    Ok(Json(
-        ban_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
-    ))
+    Ok(Json(ban_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
 }
 
 #[axum::debug_handler]
@@ -271,8 +310,7 @@ pub async fn ban_user_by_body(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     Ok(Json(
-        ban_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id)
-            .await?,
+        ban_user_internal(&state, &room_id, &body.user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
     ))
 }
 
@@ -298,9 +336,7 @@ pub async fn kick_user(
     Json(body): Json<BanRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    Ok(Json(
-        kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?,
-    ))
+    Ok(Json(kick_user_internal(&state, &room_id, &user_id, &admin.user_id, body.reason.as_deref(), &request_id).await?))
 }
 
 #[axum::debug_handler]
@@ -324,7 +360,7 @@ async fn join_room_member_internal(
     state: &AppState,
     room_id: &str,
     user_id: &str,
-    request_id: &str,
+    _request_id: &str,
 ) -> Result<Value, ApiError> {
     if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -351,7 +387,7 @@ async fn remove_room_member_internal(
     state: &AppState,
     room_id: &str,
     user_id: &str,
-    request_id: &str,
+    _request_id: &str,
 ) -> Result<Value, ApiError> {
     if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -397,7 +433,7 @@ async fn ban_user_internal(
         .account
         .account_identity_service
         .get_user_by_id(actor_user_id)
-        .await
+        .await?
         .is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
@@ -417,6 +453,7 @@ async fn ban_user_internal(
     #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
+        .extensions
         .friend_room_service
         .sync_dm_room_membership_change(room_id, user_id, "banned", Some(actor_user_id), reason)
         .await
@@ -442,7 +479,7 @@ async fn unban_user_internal(
     state: &AppState,
     room_id: &str,
     user_id: &str,
-    request_id: &str,
+    _request_id: &str,
 ) -> Result<Value, ApiError> {
     if !state.services.rooms.room_service.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -493,6 +530,7 @@ async fn kick_user_internal(
     #[cfg(feature = "friends")]
     if let Err(error) = state
         .services
+        .extensions
         .friend_room_service
         .sync_dm_room_membership_change(room_id, user_id, "kicked", Some(actor_user_id), reason)
         .await

@@ -16,6 +16,16 @@ pub struct CrossSigningService {
 }
 
 impl CrossSigningService {
+    async fn record_cross_signing_change(&self, user_id: &str) {
+        if let Some(device_keys_storage) = &self.device_keys_storage {
+            // Cross-signing keys are user-scoped rather than device-scoped, so
+            // we record them as a user-level device-list change with
+            // `device_id = NULL`. This is enough for `/keys/changes` to expose
+            // the user as changed without inventing a fake device.
+            device_keys_storage.record_device_list_change_best_effort(user_id, None, "changed").await;
+        }
+    }
+
     fn extract_ed25519_key(key_json: &serde_json::Value, field_name: &str) -> Result<(String, String), ApiError> {
         let keys = key_json
             .get("keys")
@@ -119,6 +129,7 @@ impl CrossSigningService {
             updated_ts: Utc::now(),
         };
         self.storage.create_cross_signing_key(&user_signing_key).await?;
+        self.record_cross_signing_change(user_id).await;
 
         Ok(())
     }
@@ -277,6 +288,7 @@ impl CrossSigningService {
         };
 
         self.storage.create_cross_signing_key(&cross_signing_key).await?;
+        self.record_cross_signing_change(user_id).await;
         Ok(())
     }
 
@@ -458,6 +470,7 @@ impl CrossSigningService {
 
     pub async fn delete_cross_signing_keys(&self, user_id: &str) -> Result<(), ApiError> {
         self.storage.delete_cross_signing_keys(user_id).await?;
+        self.record_cross_signing_change(user_id).await;
         if let Some(dehydrated_device_service) = &self.dehydrated_device_service {
             dehydrated_device_service.delete_dehydrated_device(user_id, "").await?;
         }

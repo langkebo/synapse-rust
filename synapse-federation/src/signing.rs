@@ -164,6 +164,51 @@ pub fn check_event_federate(room_create_event: &Value) -> bool {
     room_create_event.get("content").and_then(|c| c.get("m.federate")).and_then(|f| f.as_bool()).unwrap_or(true)
 }
 
+/// Sign and hash a locally-produced PDU so it can be federated to remote
+/// servers.
+///
+/// This function:
+/// 1. Ensures the `origin` field is set to `server_name`
+/// 2. Computes the `hashes.sha256` content hash
+/// 3. Signs the event with `sign_json` using the provided key
+///
+/// The `secret_key_base64` and `key_id` come from
+/// `KeyRotationManager::get_current_key`.
+///
+/// Reference: element-hq/synapse `synapse/events/utils.py::maybe_upsert_event_field`
+/// and `synapse/crypto/event_signing.py::add_hashes_and_signatures`
+pub fn sign_and_hash_event(
+    server_name: &str,
+    key_id: &str,
+    secret_key_base64: &str,
+    event: &mut Value,
+) -> Result<(), String> {
+    // 1. Ensure `origin` is set.
+    if let Some(obj) = event.as_object_mut() {
+        if !obj.contains_key("origin") {
+            obj.insert("origin".to_string(), Value::String(server_name.to_string()));
+        }
+    } else {
+        return Err("Event must be a JSON object".to_string());
+    }
+
+    // 2. Compute and set the content hash.
+    let hash = compute_event_content_hash(event).ok_or_else(|| "Failed to compute event content hash".to_string())?;
+    if let Some(obj) = event.as_object_mut() {
+        let hashes = obj
+            .entry("hashes")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(hashes_obj) = hashes.as_object_mut() {
+            hashes_obj.insert("sha256".to_string(), Value::String(hash));
+        }
+    }
+
+    // 3. Sign the event.
+    sign_json(server_name, key_id, secret_key_base64, event)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

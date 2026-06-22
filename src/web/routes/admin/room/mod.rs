@@ -4,7 +4,7 @@ pub mod spaces;
 
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::services::{
+use crate::storage::{
     decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomSearchCursor,
     RoomSearchOrder, RoomTokenSyncCursor,
 };
@@ -25,7 +25,7 @@ mod cursor_tests {
         decode_room_search_cursor, decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomSearchCursor,
         RoomTokenSyncCursor,
     };
-    use crate::services::encode_room_search_cursor;
+    use crate::storage::encode_room_search_cursor;
 
     #[test]
     fn test_room_search_created_cursor_round_trip() {
@@ -145,6 +145,10 @@ pub fn create_room_router(_state: AppState) -> Router<AppState> {
             "/_synapse/admin/v1/rooms/{room_id}/purge_history",
             post(management::purge_history_by_room),
         )
+        .route(
+            "/_synapse/admin/v1/rooms/{room_id}/backfill",
+            post(management::backfill_room),
+        )
         .route("/_synapse/admin/v1/purge_history", post(management::purge_history))
         .route("/_synapse/admin/v1/purge_room", post(management::purge_room))
         .route("/_synapse/admin/v1/shutdown_room", post(shutdown_room))
@@ -257,6 +261,7 @@ pub fn admin_room_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
         (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
         (Method::PUT, "/_synapse/admin/v1/rooms/{room_id}/make_admin"),
         (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/purge_history"),
+        (Method::POST, "/_synapse/admin/v1/rooms/{room_id}/backfill"),
         (Method::POST, "/_synapse/admin/v1/purge_history"),
         (Method::POST, "/_synapse/admin/v1/purge_room"),
         (Method::POST, "/_synapse/admin/v1/shutdown_room"),
@@ -376,7 +381,7 @@ pub async fn get_room(
         Some(r) => {
             // Derive tombstone state from the m.room.tombstone state event.
             let tombstone_events = state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.tombstone").await?;
-            let tombstone_content = tombstone_events.first().map(|e| &e.content);
+            let tombstone_content = tombstone_events.first().and_then(|e| e.get("content"));
             let tombstoned = tombstone_content.is_some();
             let replacement_room = tombstone_content
                 .and_then(|c| c.get("replacement_room"))
@@ -478,11 +483,11 @@ pub async fn get_room_state_admin(
         .iter()
         .map(|e| {
             json!({
-                "type": e.event_type,
-                "state_key": e.state_key,
-                "content": e.content,
-                "sender": e.user_id,
-                "event_id": e.event_id
+                "type": e.get("type").cloned().unwrap_or(Value::Null),
+                "state_key": e.get("state_key").cloned().unwrap_or(Value::Null),
+                "content": e.get("content").cloned().unwrap_or(Value::Null),
+                "sender": e.get("sender").cloned().unwrap_or(Value::Null),
+                "event_id": e.get("event_id").cloned().unwrap_or(Value::Null)
             })
         })
         .collect();
@@ -507,7 +512,7 @@ pub async fn get_room_messages_admin(
         .unwrap_or(100)
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
-    let dir = params.get("dir").map(|s| s.as_str()).unwrap_or("b");
+    let dir = params.get("dir").map_or("b", |s| s.as_str());
 
     let events = state.services.rooms.room_service.get_room_events_paginated_admin(&room_id, from, limit, dir).await?;
 
@@ -532,7 +537,7 @@ pub async fn get_room_messages_admin(
 
     Ok(Json(json!({
         "chunk": messages,
-        "start": from.map(|ts| ts.to_string()).unwrap_or_else(|| "0".to_string()),
+        "start": from.map_or_else(|| "0".to_string(), |ts| ts.to_string()),
         "end": next_batch.clone().unwrap_or_default(),
         "next_batch": next_batch
     })))

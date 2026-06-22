@@ -36,7 +36,11 @@ ip_header_priority:
 include_headers: true
 exempt_paths:
   - "/"
-exempt_path_prefixes: []
+exempt_path_prefixes:
+  - "/_matrix/client/v3/sync"
+  - "/_matrix/client/r0/sync"
+  - "/_matrix/client/v3/events"
+  - "/_matrix/client/r0/events"
 endpoint_aliases: {}
 fail_open_on_error: true
 sync:

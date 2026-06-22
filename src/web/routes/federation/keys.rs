@@ -182,9 +182,14 @@ pub(super) async fn legacy_keys_query(
 }
 
 pub(super) async fn query_auth(State(_state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    Ok(Json(json!({
-        "auth_chain": []
-    })))
+    // Previously this returned `{"auth_chain": []}` as a stub, which could
+    // mislead federation peers into thinking the room has no auth events.
+    // The standard endpoint `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}`
+    // is fully implemented and should be used instead. Return a clear error
+    // rather than an empty chain that could corrupt state resolution.
+    Err(ApiError::unrecognized(
+        "Non-standard /_synapse/federation/v1/query/auth endpoint is not supported. Use /_matrix/federation/v1/get_event_auth/{room_id}/{event_id} instead.",
+    ))
 }
 
 pub(super) async fn event_auth(State(_state): State<AppState>) -> Result<Json<Value>, ApiError> {

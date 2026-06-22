@@ -64,6 +64,67 @@ pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     )
 }
 
+async fn sync_secret_storage_account_data_best_effort(
+    state: &AppState,
+    user_id: &str,
+    data_type: &str,
+    body: &Value,
+) {
+    if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
+        if let Err(error) = state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, body).await {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to mirror m.secret_storage.key account_data into internal SSSS store: {error}"
+            );
+        }
+        return;
+    }
+
+    if data_type != "m.secret_storage.default_key" {
+        return;
+    }
+
+    let Some(key_id) = body.get("key_id").and_then(Value::as_str) else {
+        tracing::warn!(user_id, "m.secret_storage.default_key account_data is missing key_id");
+        return;
+    };
+
+    match state.services.e2ee.ssss_service.get_key(user_id, key_id).await {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to check internal SSSS key while handling default key account_data: {error}"
+            );
+            return;
+        }
+    }
+
+    let key_data_type = format!("m.secret_storage.key.{key_id}");
+    match state.services.core.account_data_service.get_account_data(user_id, &key_data_type).await {
+        Ok(Some(key_content)) => {
+            if let Err(error) = state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, &key_content).await {
+                tracing::warn!(
+                    user_id,
+                    key_id,
+                    "failed to backfill internal SSSS key from standard account_data after default key update: {error}"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                user_id,
+                key_id,
+                "failed to load m.secret_storage.key account_data referenced by default key: {error}"
+            );
+        }
+    }
+}
+
 async fn list_account_data(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
@@ -91,6 +152,7 @@ async fn set_account_data(
     }
 
     state.services.core.account_data_service.set_account_data(&user_id, &data_type, &body).await?;
+    sync_secret_storage_account_data_best_effort(&state, &user_id, &data_type, &body).await;
 
     Ok(Json(json!({})))
 }
@@ -119,6 +181,30 @@ async fn get_account_data(
                         "underride": []
                     }
                 })))
+            } else if data_type == "m.secret_storage.default_key" {
+                // Compatibility bridge: when the user has any SSSS keys
+                // managed by the homeserver's internal store but has not
+                // yet written a `m.secret_storage.default_key` account_data
+                // event, surface the first key as the default so stock
+                // Element/Synapse clients can still discover SSSS.
+                match state.services.e2ee.ssss_service.get_all_keys(&user_id).await {
+                    Ok(keys) if !keys.is_empty() => Ok(Json(json!({ "key_id": keys[0].key_id }))),
+                    _ => Err(ApiError::not_found("Account data not found".to_string())),
+                }
+            } else if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
+                // Compatibility bridge for `m.secret_storage.key.<id>`:
+                // synthesise a minimal key info payload from the internal
+                // SSSS row so clients can complete bootstrap without us
+                // having to teach Element how to call the internal API.
+                match state.services.e2ee.ssss_service.get_key(&user_id, key_id).await {
+                    Ok(Some(key)) => Ok(Json(json!({
+                        "algorithm": key.algorithm,
+                        "auth_data": {
+                            "signatures": key.signatures,
+                        },
+                    }))),
+                    _ => Err(ApiError::not_found("Account data not found".to_string())),
+                }
             } else {
                 Err(ApiError::not_found("Account data not found".to_string()))
             }

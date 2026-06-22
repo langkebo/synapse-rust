@@ -20,7 +20,22 @@ pub(crate) async fn send_receipt(
 
     ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to send receipts").await?;
 
-    get_room_event(&state, &room_id, &event_id).await?;
+    // Element may attempt to send a read receipt for a local-echo event before the
+    // remote echo has landed in the event store. Synapse tolerates that race; we
+    // therefore treat "event not found" as a compatibility no-op while still
+    // rejecting receipts that explicitly target an event from another room.
+    if let Some(event) = state.services.rooms.room_service.get_event_record(&event_id).await? {
+        if event.room_id != room_id {
+            return Err(ApiError::not_found("Event not found".to_string()));
+        }
+    } else {
+        return Ok(Json(json!({
+            "room_id": room_id,
+            "event_id": event_id,
+            "receipt_type": receipt_type,
+            "ts": chrono::Utc::now().timestamp_millis()
+        })));
+    }
 
     let body: Value = if body.trim().is_empty() { json!({}) } else { serde_json::from_str(&body).unwrap_or(json!({})) };
 

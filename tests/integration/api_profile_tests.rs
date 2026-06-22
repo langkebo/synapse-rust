@@ -440,6 +440,15 @@ async fn test_msc4133_extended_profile_fields_support_crud_and_visibility() {
     let delete_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_request).await.unwrap();
     assert_eq!(delete_response.status(), StatusCode::OK);
 
+    let delete_again_request = Request::builder()
+        .method("DELETE")
+        .uri(format!("/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color", alice_id))
+        .header("Authorization", format!("Bearer {}", alice_token))
+        .body(Body::empty())
+        .unwrap();
+    let delete_again_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), delete_again_request).await.unwrap();
+    assert_eq!(delete_again_response.status(), StatusCode::OK);
+
     let get_after_delete_request = Request::builder()
         .method("GET")
         .uri(format!("/_matrix/client/unstable/uk.tcpip.msc4133/profile/{}/favorite_color", alice_id))

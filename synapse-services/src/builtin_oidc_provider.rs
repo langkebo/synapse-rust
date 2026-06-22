@@ -270,7 +270,7 @@ impl BuiltinOidcProvider {
             token_endpoint: format!("{}/_matrix/client/v3/oidc/token", issuer),
             userinfo_endpoint: format!("{}/_matrix/client/v3/oidc/userinfo", issuer),
             jwks_uri: format!("{}/.well-known/jwks.json", issuer),
-            registration_endpoint: Some(format!("{}/_matrix/client/v3/oidc/register", issuer)),
+            registration_endpoint: None,
             revocation_endpoint: Some(format!("{}/_matrix/client/v3/oidc/revoke", issuer)),
             end_session_endpoint: Some(format!("{}/_matrix/client/v3/oidc/logout", issuer)),
             response_types_supported: vec!["code".to_string()],

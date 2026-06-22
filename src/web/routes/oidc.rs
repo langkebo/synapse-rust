@@ -192,14 +192,12 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/oidc/token", post(oidc_token))
         .route("/_matrix/client/v3/oidc/logout", post(oidc_logout))
         .route("/_matrix/client/v3/oidc/authorize", get(oidc_authorize))
-        .route("/_matrix/client/v3/oidc/register", post(oidc_register))
         .route("/_matrix/client/v3/oidc/callback", get(oidc_callback))
         // r0 路径兼容
         .route("/_matrix/client/r0/oidc/userinfo", get(oidc_userinfo))
         .route("/_matrix/client/r0/oidc/token", post(oidc_token))
         .route("/_matrix/client/r0/oidc/logout", post(oidc_logout))
         .route("/_matrix/client/r0/oidc/authorize", get(oidc_authorize))
-        .route("/_matrix/client/r0/oidc/register", post(oidc_register))
         .route("/_matrix/client/r0/oidc/callback", get(oidc_callback));
     // 内置 OIDC Provider 端点
     #[cfg(feature = "builtin-oidc")]
@@ -245,13 +243,11 @@ pub fn oidc_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry
         (Method::POST, "/_matrix/client/v3/oidc/token"),
         (Method::POST, "/_matrix/client/v3/oidc/logout"),
         (Method::GET, "/_matrix/client/v3/oidc/authorize"),
-        (Method::POST, "/_matrix/client/v3/oidc/register"),
         (Method::GET, "/_matrix/client/v3/oidc/callback"),
         (Method::GET, "/_matrix/client/r0/oidc/userinfo"),
         (Method::POST, "/_matrix/client/r0/oidc/token"),
         (Method::POST, "/_matrix/client/r0/oidc/logout"),
         (Method::GET, "/_matrix/client/r0/oidc/authorize"),
-        (Method::POST, "/_matrix/client/r0/oidc/register"),
         (Method::GET, "/_matrix/client/r0/oidc/callback"),
     ]
     .into_iter()
@@ -700,38 +696,6 @@ async fn oidc_authorize(
     })))
 }
 
-/// OIDC Registration Request
-#[derive(Debug, Deserialize)]
-pub struct OidcRegistrationRequest {
-    pub client_id: Option<String>,
-    pub client_secret: Option<String>,
-    pub redirect_uris: Option<Vec<String>>,
-    pub client_name: Option<String>,
-    pub token_endpoint_auth_method: Option<String>,
-}
-
-/// OIDC Registration Response
-#[derive(Debug, Serialize)]
-pub struct OidcRegistrationResponse {
-    pub client_id: String,
-    pub client_secret: Option<String>,
-    pub client_id_issued_at: i64,
-    pub client_secret_expires_at: i64,
-    pub redirect_uris: Vec<String>,
-    pub grant_types: Vec<String>,
-    pub token_endpoint_auth_method: String,
-}
-
-/// OIDC Registration handler
-async fn oidc_register(
-    State(_state): State<AppState>,
-    Json(_body): Json<OidcRegistrationRequest>,
-) -> Result<Json<OidcRegistrationResponse>, ApiError> {
-    Err(ApiError::bad_request(
-        "Dynamic client registration not supported. Please configure OIDC in server configuration.".to_string(),
-    ))
-}
-
 /// OIDC 登出
 async fn oidc_logout(
     State(state): State<AppState>,
@@ -812,6 +776,7 @@ pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<Open
     }
 
     let issuer = state.services.core.config.server.get_public_baseurl();
+    let oidc_config = &state.services.core.config.oidc;
 
     Ok(Json(OpenIdDiscovery {
         issuer: issuer.clone(),
@@ -819,7 +784,7 @@ pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<Open
         token_endpoint: format!("{issuer}/_matrix/client/v3/oidc/token"),
         userinfo_endpoint: format!("{issuer}/_matrix/client/v3/oidc/userinfo"),
         jwks_uri: format!("{issuer}/.well-known/jwks.json"),
-        registration_endpoint: None,
+        registration_endpoint: oidc_config.registration_endpoint.clone(),
         revocation_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/revoke")),
         end_session_endpoint: Some(format!("{issuer}/_matrix/client/v3/oidc/logout")),
         scopes_supported: vec!["openid".to_string(), "profile".to_string(), "email".to_string()],

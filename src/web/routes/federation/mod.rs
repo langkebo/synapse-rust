@@ -45,6 +45,8 @@ async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, ori
     let joined_members = state.services.rooms.room_service.get_room_members_by_membership(room_id, "join").await?;
 
     if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
+        // Server is in the room — now check room-level server ACL
+        check_server_acl(state, room_id, origin).await?;
         return Ok(());
     }
 
@@ -60,6 +62,8 @@ async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: 
     let has_member = state.services.rooms.room_service.has_any_non_banned_member_from_server(room_id, origin).await?;
 
     if has_member {
+        // Server has a member in the room — now check room-level server ACL
+        check_server_acl(state, room_id, origin).await?;
         return Ok(());
     }
 
@@ -87,6 +91,44 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
     } else {
         Err(ApiError::forbidden("Authenticated server does not share a room with this user".to_string()))
     }
+}
+
+/// Check whether the origin server is allowed by the room's `m.room.server_acl`
+/// policy. If no ACL event exists for the room, all servers are allowed.
+///
+/// This should be called for inbound federation requests that are scoped to a
+/// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
+async fn check_server_acl(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
+    let acl_events = state
+        .services
+        .rooms
+        .room_service
+        .get_state_events_by_type(room_id, "m.room.server_acl")
+        .await?;
+
+    let Some(acl_event) = acl_events.first() else {
+        // No ACL event exists — all servers are allowed
+        return Ok(());
+    };
+
+    let Some(acl_content) = acl_event.get("content") else {
+        return Ok(());
+    };
+
+    let Some(acl) = synapse_federation::ServerAclContent::from_value(acl_content) else {
+        // Malformed ACL content — fail open (allow) to avoid breaking federation
+        ::tracing::warn!(room_id = %room_id, origin = %origin, "Failed to parse m.room.server_acl content, allowing request");
+        return Ok(());
+    };
+
+    if !acl.is_server_allowed(origin) {
+        return Err(ApiError::forbidden(format!(
+            "Server '{}' is denied by room ACL for room '{}'",
+            origin, room_id
+        )));
+    }
+
+    Ok(())
 }
 
 fn increment_counter(state: &AppState, name: &str) {

@@ -150,7 +150,7 @@ pub fn create_room_router() -> Router<AppState> {
 
 fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
-    let mut base: Vec<(Method, &'static str)> = vec![
+    let base: Vec<(Method, &'static str)> = vec![
         (Method::GET, "/rooms/{room_id}"),
         (Method::GET, "/rooms/{room_id}/messages"),
         (Method::POST, "/rooms/{room_id}/search"),
@@ -191,7 +191,6 @@ fn room_r0_v3_shared_relative_routes() -> Vec<(axum::http::Method, &'static str)
         (Method::POST, "/rooms/{room_id}/send/{event_type}/{txn_id}"),
         (Method::GET, "/rooms/{room_id}/event/{event_id}"),
     ];
-    base.extend(sticky_event::sticky_event_compat_relative_routes());
     base
 }
 
@@ -202,7 +201,7 @@ fn room_power_levels_compat_relative_routes() -> Vec<(axum::http::Method, &'stat
 
 fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
-    vec![
+    let mut v3_only = vec![
         (Method::POST, "/createRoom"),
         (Method::GET, "/rooms/{room_id}/permissions"),
         (Method::GET, "/rooms/{room_id}/resolve"),
@@ -249,7 +248,9 @@ fn room_v3_only_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
         (Method::POST, "/rooms/{room_id}/invite_blocklist"),
         (Method::GET, "/rooms/{room_id}/invite_allowlist"),
         (Method::POST, "/rooms/{room_id}/invite_allowlist"),
-    ]
+    ];
+    v3_only.extend(sticky_event::sticky_event_compat_relative_routes());
+    v3_only
 }
 
 pub fn room_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {

@@ -52,6 +52,7 @@
 | `bash scripts/detect_shell_routes.sh` | 主门禁 | 阻断新增 shell route / 空成功响应回归 |
 | `bash scripts/detect_unwired_route_candidates.sh` | 主门禁 | 阻断新增未接线的导出路由 handler / router factory |
 | `cargo test --test e2e -- --ignored --nocapture` | 扩展验证 | 真实流程需显式启用，默认不纳入自动主门禁 |
+| `bash scripts/test/run_e2ee_observability_gate.sh` | 扩展验证 | 串联 `/_matrix/client/*/keys/changes`、经典 `/sync` 与 `sliding-sync` 的 E2EE 观察面组合门 |
 | `cargo tarpaulin --output-dir coverage/ --html` | 扩展验证 | 提供覆盖率证据，不单独阻断发布 |
 | `cargo bench --bench performance_api_benchmarks --no-run` | 扩展验证 | 性能专项基准 |
 | `cargo bench --bench performance_federation_benchmarks --no-run` | 扩展验证 | 联邦性能专项基准 |
@@ -77,6 +78,9 @@ cargo test --test integration -- --test-threads=1
 
 # 仅端到端测试（显式执行 ignored 用例）
 cargo test --test e2e -- --ignored --nocapture
+
+# E2EE 三观察面组合门
+bash scripts/test/run_e2ee_observability_gate.sh
 ```
 
 补充说明：
@@ -84,6 +88,7 @@ cargo test --test e2e -- --ignored --nocapture
 - `tests/e2e/mod.rs` 已接入独立测试入口 `e2e`
 - `tests/unit/` 与 `tests/integration/` 的实际执行范围仍受各自 `mod.rs` 接线控制
 - **已知问题**：部分集成测试在高并发时会因数据库连接池耗尽而失败，使用 `--test-threads=1` 或 `--test-threads=2` 可避免此问题。详见 `docs/synapse-rust/FALSE_GREEN_AND_PLACEHOLDER_GOVERNANCE_2026-04-05.md` 第 3.1 节。
+- `bash scripts/test/run_e2ee_observability_gate.sh` 会默认以 `TEST_ISOLATED_SCHEMAS=1` 顺序运行 3 条 `test_key_changes_*` 精确用例，以及 `test_sync_device_lists_`、`sliding_sync_extensions_e2ee_` 两组 composite regression，适合作为 nightly smoke 或本地回归入口
 - `user_flow_tests.rs` 真实 HTTP 流程依赖运行中的服务与 `E2E_RUN=1`，当前应通过 `#[ignore]` + 显式执行方式运行，而不是默认早退后显示通过
 - `tests/performance/mod.rs` 已拆分为手动性能测试入口 `performance_manual`，仅在显式启用 `--features performance-tests` 时执行
 - Criterion 基准入口已拆分为 `performance_api_benchmarks` 与 `performance_federation_benchmarks`，对应 `benches/` 目录下的独立基准文件

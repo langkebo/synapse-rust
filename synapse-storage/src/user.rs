@@ -356,6 +356,58 @@ impl UserStorage {
         row.try_get::<i64, _>("count")
     }
 
+    /// Count daily active users (users with a device seen in the last 24h).
+    pub async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
+        let cutoff = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(DISTINCT user_id) FROM devices
+            WHERE last_seen_ts IS NOT NULL AND last_seen_ts >= $1
+            ",
+        )
+        .bind(cutoff)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    /// Count monthly active users (users with a device seen in the last 30d).
+    pub async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error> {
+        let cutoff = chrono::Utc::now().timestamp_millis() - 30 * 24 * 60 * 60 * 1000;
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(DISTINCT user_id) FROM devices
+            WHERE last_seen_ts IS NOT NULL AND last_seen_ts >= $1
+            ",
+        )
+        .bind(cutoff)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
+    /// Count R30 users: users active today who were also active 30 days ago.
+    /// This is a simplified retention metric matching Synapse's r30_users.
+    pub async fn get_r30_users(&self) -> Result<i64, sqlx::Error> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let thirty_days_ago = now - 30 * 24 * 60 * 60 * 1000;
+        let thirty_one_days_ago = now - 31 * 24 * 60 * 60 * 1000;
+        sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COUNT(DISTINCT user_id) FROM devices
+            WHERE last_seen_ts IS NOT NULL
+              AND last_seen_ts >= $1
+              AND user_id IN (
+                  SELECT DISTINCT user_id FROM devices
+                  WHERE last_seen_ts IS NOT NULL
+                    AND last_seen_ts >= $2 AND last_seen_ts < $1
+              )
+            ",
+        )
+        .bind(thirty_days_ago)
+        .bind(thirty_one_days_ago)
+        .fetch_one(&*self.pool)
+        .await
+    }
+
     pub async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
         sqlx::query_as::<_, UserStatsSummary>(
             r"

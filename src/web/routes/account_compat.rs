@@ -67,6 +67,12 @@ pub(crate) async fn get_profile(
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
+    // Remote user: proxy profile query via federation.
+    // Reference: element-hq/synapse `synapse/handlers/profile.py::ProfileHandler.get_profile`
+    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+        return Ok(Json(remote_profile));
+    }
+
     Ok(Json(state.services.core.registration_service.get_profile(&user_id).await?))
 }
 
@@ -77,6 +83,12 @@ pub(crate) async fn get_displayname(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
+
+    // Remote user: proxy profile query via federation.
+    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+        let displayname = remote_profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
+        return Ok(Json(json!({ "displayname": displayname })));
+    }
 
     let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
@@ -95,6 +107,12 @@ pub(crate) async fn get_avatar_url(
     validate_user_id(&user_id)?;
     enforce_profile_visibility(&state, &headers, &user_id).await?;
 
+    // Remote user: proxy profile query via federation.
+    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+        let avatar_url = remote_profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
+        return Ok(Json(json!({ "avatar_url": avatar_url })));
+    }
+
     let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
         ApiError::database("A database error occurred".to_string())
@@ -102,6 +120,34 @@ pub(crate) async fn get_avatar_url(
 
     let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
     Ok(Json(json!({ "avatar_url": avatar_url })))
+}
+
+/// If `user_id` belongs to a remote server, fetch its profile via
+/// `FederationClient::query_profile`. Returns `Ok(None)` for local users
+/// (caller should fall back to the local DB) and `Ok(Some(json))` for
+/// successfully fetched remote profiles. Remote fetch failures are
+/// propagated as `M_NOT_FOUND` so clients see a consistent error shape.
+async fn try_fetch_remote_profile(state: &AppState, user_id: &str) -> Result<Option<Value>, ApiError> {
+    let local_server = state.services.core.server_name.as_str();
+    let server_name = match user_id.rsplit_once(':') {
+        Some((_, srv)) if srv != local_server => srv,
+        _ => return Ok(None),
+    };
+
+    let federation_client = state.services.federation.federation_client.clone();
+    let profile = federation_client
+        .query_profile(server_name, user_id)
+        .await
+        .map_err(|e| {
+            tracing::warn!(user_id = %user_id, server = %server_name, error = %e, "Federation query_profile failed");
+            ApiError::not_found("Profile not found on remote server".to_string())
+        })?;
+
+    Ok(Some(json!({
+        "user_id": user_id,
+        "displayname": profile.displayname,
+        "avatar_url": profile.avatar_url
+    })))
 }
 
 pub(crate) async fn update_displayname(

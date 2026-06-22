@@ -9,7 +9,7 @@ use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
 use crate::web::routes::friend_room;
 #[cfg(feature = "voice-extended")]
 use crate::web::routes::voice;
-#[cfg(feature = "widgets")]
+#[cfg(all(test, feature = "widgets"))]
 use crate::web::routes::widget;
 use crate::web::routes::{account_compat, room_summary, route_ledger::RouteEntry, sliding_sync};
 use crate::web::AppState;
@@ -86,8 +86,6 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("m.require_identity_server", false),
     ("m.supports_login_via_phone_number", true),
     ("org.matrix.msc3882", true),
-    ("org.matrix.msc3983", true),
-    ("org.matrix.msc3245", true),
     ("uk.tcpip.msc4133", true),
 ];
 
@@ -143,15 +141,21 @@ fn build_client_versions(config: &Config) -> Value {
         unstable_features.insert((*feature).to_string(), json!(enabled));
     }
 
+    // Route-surface driven unstable feature declarations. These are kept
+    // consistent with the `/capabilities.unstable_features` surface so that
+    // clients observe the same availability on both endpoints.
     unstable_features.insert("org.matrix.msc3886.sliding_sync".to_string(), json!(sliding_sync_capability().enabled()));
-    unstable_features.insert("org.matrix.msc4261.widget".to_string(), json!(widget_capability().enabled()));
     unstable_features.insert("org.matrix.msc3266".to_string(), json!(msc3266_capability().enabled()));
-    unstable_features.insert("io.hula.burn_after_read".to_string(), json!(burn_after_read_capability().enabled()));
-    unstable_features.insert("io.hula.friends".to_string(), json!(friends_capability().enabled()));
-
-    if config.experimental.msc3814_enabled {
-        unstable_features.insert("org.matrix.msc3814".to_string(), json!(true));
-    }
+    unstable_features.insert("org.matrix.msc3245".to_string(), json!(msc3245_capability().enabled()));
+    unstable_features.insert("org.matrix.msc3983".to_string(), json!(msc3983_capability().enabled()));
+    unstable_features.insert("org.matrix.msc3814".to_string(), json!(msc3814_capability().enabled()));
+    unstable_features.insert("org.matrix.msc4143".to_string(), json!(msc4143_capability().enabled()));
+    // Private `io.hula.*` extensions are intentionally NOT declared in
+    // `/versions.unstable_features` — that surface is unauthenticated and
+    // consumed by stock Matrix clients which do not understand the
+    // `io.hula.*` namespace. These capabilities remain visible on the
+    // authenticated `/capabilities` surface for clients that opt in.
+    let _ = config;
 
     json!({
         "versions": declared_client_api_versions(),
@@ -218,6 +222,12 @@ fn sso_providers(config: &Config) -> Vec<&'static str> {
     if config.saml.enabled {
         providers.push("saml");
     }
+    // OIDC (external IdP or builtin provider) is treated as an SSO provider
+    // for the `m.sso.providers` capability surface. Synapse exposes the same
+    // `oidc` brand when an external OIDC IdP is configured; we mirror that.
+    if config.oidc.is_enabled() || config.builtin_oidc.is_enabled() {
+        providers.push("oidc");
+    }
     #[cfg(feature = "cas-sso")]
     {
         providers.push("cas");
@@ -225,14 +235,13 @@ fn sso_providers(config: &Config) -> Vec<&'static str> {
     providers
 }
 
-fn build_capabilities_unstable_features() -> Value {
+fn build_capabilities_unstable_features(config: &Config) -> Value {
     json!({
-        "io.hula.friends": friends_capability().enabled(),
+        "io.hula.friends": friends_capability(config).enabled(),
         "org.matrix.msc3245.voice": voice_capability().enabled(),
         "org.matrix.msc3983.thread": thread_capability().enabled(),
         "org.matrix.msc3886.sliding_sync": sliding_sync_capability().enabled(),
-        "org.matrix.msc4261.widget": widget_capability().enabled(),
-        "io.hula.burn_after_read": burn_after_read_capability().enabled()
+        "io.hula.burn_after_read": burn_after_read_capability(config).enabled()
     })
 }
 
@@ -274,12 +283,65 @@ fn msc3266_capability() -> CapabilityFlag {
     ))
 }
 
+/// MSC3814 (Dehydrated device) capability is driven by the route surface:
+/// declared only when the `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
+/// endpoint is registered in the top-level inline manifest.
+fn msc3814_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::web::routes::assembly::top_level_inline_manifest(),
+        &Method::GET,
+        "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
+    ))
+}
+
+/// MSC4143 (MatrixRTC transports) capability is driven by the route surface:
+/// declared only when the `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
+/// endpoint is registered in the top-level inline manifest.
+fn msc4143_capability() -> CapabilityFlag {
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::web::routes::assembly::top_level_inline_manifest(),
+        &Method::GET,
+        "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
+    ))
+}
+
+/// MSC3245 (Room summary) unstable feature is driven by the route surface:
+/// declared only when the room summary endpoint is registered. This keeps
+/// `/versions` and `/capabilities.unstable_features` consistent.
+fn msc3245_capability() -> CapabilityFlag {
+    room_summary_capability()
+}
+
+/// MSC3983 (Thread) unstable feature is driven by the route surface:
+/// declared only when the threads endpoint is registered. This keeps
+/// `/versions` and `/capabilities.unstable_features` consistent.
+fn msc3983_capability() -> CapabilityFlag {
+    thread_capability()
+}
+
 fn room_suggested_capability() -> CapabilityFlag {
-    CapabilityFlag::route_surface(room_summary_capability().enabled())
+    // `m.room.suggested` reflects the space-suggested-rooms surface, which is
+    // served by the room hierarchy endpoint (MSC2946). Derive from the
+    // `/_matrix/client/v1/rooms/{room_id}/hierarchy` route registration instead
+    // of aliasing `room_summary_capability()`, which tracks a different
+    // endpoint (`/_matrix/client/v3/rooms/{room_id}/summary`).
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::web::routes::handlers::search::search_route_manifest(),
+        &Method::GET,
+        "/_matrix/client/v1/rooms/{room_id}/hierarchy",
+    ))
 }
 
 fn voice_capability() -> CapabilityFlag {
-    CapabilityFlag::route_surface(room_summary_capability().enabled())
+    // `m.voice` reflects whether the homeserver can issue TURN credentials.
+    // Derive from the `/voip/turnServer` route registration instead of aliasing
+    // `room_summary_capability()`, which tracks the room summary endpoint and
+    // has nothing to do with VoIP availability.
+    CapabilityFlag::route_surface(manifest_has_route(
+        &crate::web::routes::voip::voip_route_manifest(),
+        &Method::GET,
+        "/_matrix/client/v3/voip/turnServer",
+    ))
 }
 
 fn thread_capability() -> CapabilityFlag {
@@ -348,7 +410,10 @@ fn ai_connection_capability(config: &Config) -> CapabilityFlag {
     CapabilityFlag::config_controlled(openclaw_routes_enabled(config))
 }
 
-fn friends_capability() -> CapabilityFlag {
+fn friends_capability(config: &Config) -> CapabilityFlag {
+    if !config.experimental.declare_private_extensions {
+        return CapabilityFlag::config_controlled(false);
+    }
     #[cfg(feature = "friends")]
     {
         CapabilityFlag::route_surface(manifest_has_route(
@@ -378,7 +443,10 @@ fn external_services_capability() -> CapabilityFlag {
     }
 }
 
-fn voice_extended_capability() -> CapabilityFlag {
+fn voice_extended_capability(config: &Config) -> CapabilityFlag {
+    if !config.experimental.declare_private_extensions {
+        return CapabilityFlag::config_controlled(false);
+    }
     #[cfg(feature = "voice-extended")]
     {
         CapabilityFlag::route_surface(manifest_has_route(
@@ -393,6 +461,7 @@ fn voice_extended_capability() -> CapabilityFlag {
     }
 }
 
+#[cfg(test)]
 fn widget_capability() -> CapabilityFlag {
     #[cfg(feature = "widgets")]
     {
@@ -408,7 +477,10 @@ fn widget_capability() -> CapabilityFlag {
     }
 }
 
-fn burn_after_read_capability() -> CapabilityFlag {
+fn burn_after_read_capability(config: &Config) -> CapabilityFlag {
+    if !config.experimental.declare_private_extensions {
+        return CapabilityFlag::config_controlled(false);
+    }
     #[cfg(feature = "burn-after-read")]
     {
         CapabilityFlag::route_surface(manifest_has_route(
@@ -436,7 +508,11 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     insert_enabled_capability(&mut capabilities, "m.room.suggested", room_suggested_capability().enabled());
     insert_enabled_capability(&mut capabilities, "m.voice", voice_capability().enabled());
     insert_enabled_capability(&mut capabilities, "m.thread", thread_capability().enabled());
-    insert_enabled_capability(&mut capabilities, "io.hula.sliding_sync", sliding_sync_capability().enabled());
+    // Sliding sync is declared via the standard `org.matrix.msc3886.sliding_sync`
+    // unstable feature in `/versions` and `/capabilities.unstable_features`.
+    // The private `io.hula.sliding_sync` capability is intentionally omitted
+    // from the public surface — stock Element discovers sliding sync via the
+    // standard MSC3886 identifier, not the `io.hula.*` namespace.
 
     // MSC4452: Preview URL capabilities API (Synapse v1.154 #19715).
     // Declares the `io.element.msc4452.preview_url` capability so clients
@@ -446,7 +522,7 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
     if authenticated {
         let openclaw_enabled = openclaw_capability(config).enabled();
 
-        capabilities.insert("io.hula.friends".to_string(), json!(friends_capability().enabled()));
+        capabilities.insert("io.hula.friends".to_string(), json!(friends_capability(config).enabled()));
         capabilities.insert(
             "m.sso".to_string(),
             json!({
@@ -457,14 +533,21 @@ fn build_capabilities_response(config: &Config, authenticated: bool) -> Value {
         insert_enabled_capability(&mut capabilities, "ai_connection", ai_connection_capability(config).enabled());
         insert_enabled_capability(&mut capabilities, "openclaw", openclaw_enabled);
         insert_enabled_capability(&mut capabilities, "external_services", external_services_capability().enabled());
-        insert_enabled_capability(&mut capabilities, "io.hula.voice_extended", voice_extended_capability().enabled());
-        insert_enabled_capability(&mut capabilities, "io.hula.widget", widget_capability().enabled());
-        insert_enabled_capability(&mut capabilities, "io.hula.burn_after_read", burn_after_read_capability().enabled());
+        insert_enabled_capability(
+            &mut capabilities,
+            "io.hula.voice_extended",
+            voice_extended_capability(config).enabled(),
+        );
+        insert_enabled_capability(
+            &mut capabilities,
+            "io.hula.burn_after_read",
+            burn_after_read_capability(config).enabled(),
+        );
     }
 
     json!({
         "capabilities": capabilities,
-        "unstable_features": build_capabilities_unstable_features()
+        "unstable_features": build_capabilities_unstable_features(config)
     })
 }
 
@@ -505,39 +588,14 @@ mod tests {
     use super::{
         ai_connection_capability, build_capabilities_response, build_client_versions, build_well_known_client,
         burn_after_read_capability, change_password_capability, client_versions_headers, derive_well_known_server,
-        external_services_capability, friends_capability, get_client_versions, openclaw_capability,
-        room_suggested_capability, room_summary_capability, set_avatar_url_capability, set_displayname_capability,
-        sliding_sync_capability, sso_capability, thread_capability, threepid_changes_capability, voice_capability,
+        external_services_capability, friends_capability, openclaw_capability, room_suggested_capability,
+        room_summary_capability, set_avatar_url_capability, set_displayname_capability, sliding_sync_capability,
+        sso_capability, sso_providers, thread_capability, threepid_changes_capability, voice_capability,
         voice_extended_capability, widget_capability, CapabilityFlag, CapabilityGovernance, ClientApiVersionFamily,
         CLIENT_API_VERSION_SUPPORT,
     };
-    use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::Config;
-    use crate::services::ServiceContainer;
-    use crate::web::AppState;
     use axum::http::header::{CACHE_CONTROL, VARY};
-    use std::sync::Arc;
-
-    async fn make_test_state() -> AppState {
-        let pool = crate::test_utils::take_prepared_test_pool().unwrap_or_else(|| {
-            let db_url = std::env::var("TEST_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
-                .unwrap_or_else(|_| "postgres://localhost/test".to_string());
-            Arc::new(
-                sqlx::postgres::PgPoolOptions::new()
-                    .max_connections(crate::test_utils::configured_test_pool_max_connections())
-                    .min_connections(crate::test_utils::configured_test_pool_min_connections())
-                    .connect_lazy(&db_url)
-                    .expect("Failed to create test database pool"),
-            )
-        });
-
-        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-        let mut config = Config::default();
-        config.experimental.msc3814_enabled = true;
-        let services = ServiceContainer::new(&pool, cache.clone(), config, None).await;
-        AppState::new(services, cache)
-    }
 
     #[test]
     fn test_build_client_versions_keeps_supported_versions_ordered_and_unique() {
@@ -571,15 +629,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_client_versions_omits_disabled_msc3814() {
-        let mut config = Config::default();
-        config.experimental.msc3814_enabled = false;
-        let body = build_client_versions(&config);
-
-        assert!(body["unstable_features"].get("org.matrix.msc3814").is_none());
-    }
-
-    #[test]
     fn test_client_versions_headers_allow_public_cache_and_vary_on_auth() {
         let headers = client_versions_headers();
 
@@ -603,12 +652,14 @@ mod tests {
         assert_eq!(capabilities["m.room.suggested"]["enabled"], room_suggested_capability().enabled());
         assert_eq!(capabilities["m.voice"]["enabled"], voice_capability().enabled());
         assert_eq!(capabilities["m.thread"]["enabled"], thread_capability().enabled());
-        assert_eq!(capabilities["io.hula.sliding_sync"]["enabled"], sliding_sync_capability().enabled());
         assert!(capabilities.contains_key("m.room_versions"));
         assert!(!capabilities.contains_key("m.sso"));
         assert!(!capabilities.contains_key("io.hula.friends"));
         assert!(!capabilities.contains_key("io.hula.widget"));
         assert!(!capabilities.contains_key("io.hula.burn_after_read"));
+        // Private sliding sync capability must not leak to the public surface;
+        // clients discover sliding sync via the standard MSC3886 identifier.
+        assert!(!capabilities.contains_key("io.hula.sliding_sync"));
     }
 
     #[test]
@@ -625,17 +676,69 @@ mod tests {
         assert_eq!(capabilities["m.sso"]["enabled"], sso_capability(&config).enabled());
         assert_eq!(capabilities["m.sso"]["providers"][0], "saml");
         assert_eq!(capabilities["openclaw"]["enabled"], openclaw_capability(&config).enabled());
-        assert_eq!(capabilities["io.hula.friends"], friends_capability().enabled());
+        assert_eq!(capabilities["io.hula.friends"], friends_capability(&config).enabled());
         assert_eq!(capabilities["external_services"]["enabled"], external_services_capability().enabled());
-        assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], voice_extended_capability().enabled());
-        assert_eq!(capabilities["io.hula.widget"]["enabled"], widget_capability().enabled());
-        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], burn_after_read_capability().enabled());
+        assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], voice_extended_capability(&config).enabled());
+        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], burn_after_read_capability(&config).enabled());
         assert_eq!(body["unstable_features"]["org.matrix.msc3245.voice"], voice_capability().enabled());
         assert_eq!(body["unstable_features"]["org.matrix.msc3983.thread"], thread_capability().enabled());
         assert_eq!(body["unstable_features"]["org.matrix.msc3886.sliding_sync"], sliding_sync_capability().enabled());
-        assert_eq!(body["unstable_features"]["org.matrix.msc4261.widget"], widget_capability().enabled());
-        assert_eq!(body["unstable_features"]["io.hula.friends"], friends_capability().enabled());
-        assert_eq!(body["unstable_features"]["io.hula.burn_after_read"], burn_after_read_capability().enabled());
+        // Private io.hula.* extensions remain on the authenticated
+        // `/capabilities.unstable_features` surface for opt-in clients.
+        assert_eq!(body["unstable_features"]["io.hula.friends"], friends_capability(&config).enabled());
+        assert_eq!(body["unstable_features"]["io.hula.burn_after_read"], burn_after_read_capability(&config).enabled());
+    }
+
+    #[test]
+    fn test_declare_private_extensions_suppresses_hula_capabilities() {
+        // When `declare_private_extensions = false`, all `io.hula.*`
+        // capabilities should be disabled regardless of feature gates.
+        let mut config = Config::default();
+        config.experimental.declare_private_extensions = false;
+
+        assert!(!friends_capability(&config).enabled(), "friends should be suppressed");
+        assert!(!voice_extended_capability(&config).enabled(), "voice_extended should be suppressed");
+        assert!(!burn_after_read_capability(&config).enabled(), "burn_after_read should be suppressed");
+
+        // Governance switches to ConfigControlled when suppressed.
+        assert_eq!(friends_capability(&config).governance, CapabilityGovernance::ConfigControlled);
+        assert_eq!(voice_extended_capability(&config).governance, CapabilityGovernance::ConfigControlled);
+        assert_eq!(burn_after_read_capability(&config).governance, CapabilityGovernance::ConfigControlled);
+
+        // The /capabilities response should not declare them as enabled.
+        let body = build_capabilities_response(&config, true);
+        assert_eq!(body["capabilities"]["io.hula.friends"], false);
+        assert_eq!(body["capabilities"]["io.hula.voice_extended"]["enabled"], false);
+        assert_eq!(body["capabilities"]["io.hula.burn_after_read"]["enabled"], false);
+    }
+
+    #[test]
+    fn test_sso_providers_includes_oidc_when_enabled() {
+        // Regression: `sso_providers()` previously omitted OIDC even when an
+        // external IdP or builtin provider was configured, causing the
+        // `m.sso.providers` capability to miss the `oidc` brand.
+        let mut config = Config::default();
+        assert!(!sso_providers(&config).contains(&"oidc"), "default config should not list oidc provider");
+
+        // Simulate external OIDC enabled.
+        config.oidc.enabled = true;
+        config.oidc.issuer = "https://idp.example.com".to_string();
+        config.oidc.client_id = "synapse-rust".to_string();
+        assert!(sso_providers(&config).contains(&"oidc"), "enabled external OIDC should appear as an sso provider");
+
+        // Simulate builtin OIDC enabled (without external OIDC).
+        let mut config2 = Config::default();
+        config2.builtin_oidc.enabled = true;
+        config2.builtin_oidc.issuer = "https://hs.example.com".to_string();
+        config2.builtin_oidc.users.push(crate::common::config::BuiltinOidcUser {
+            id: "@alice:example.com".to_string(),
+            username: "alice".to_string(),
+            password: Some("password".to_string()),
+            password_hash: None,
+            email: "alice@example.com".to_string(),
+            displayname: Some("Alice".to_string()),
+        });
+        assert!(sso_providers(&config2).contains(&"oidc"), "enabled builtin OIDC should appear as an sso provider");
     }
 
     #[test]
@@ -649,24 +752,13 @@ mod tests {
         assert_eq!(set_displayname_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(set_avatar_url_capability().governance, CapabilityGovernance::RouteSurface);
         assert_eq!(threepid_changes_capability().governance, CapabilityGovernance::RouteSurface);
-        assert_eq!(friends_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(friends_capability(&Config::default()).governance, CapabilityGovernance::RouteSurface);
         assert_eq!(external_services_capability().governance, CapabilityGovernance::RouteSurface);
-        assert_eq!(voice_extended_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(voice_extended_capability(&Config::default()).governance, CapabilityGovernance::RouteSurface);
         assert_eq!(widget_capability().governance, CapabilityGovernance::RouteSurface);
-        assert_eq!(burn_after_read_capability().governance, CapabilityGovernance::RouteSurface);
+        assert_eq!(burn_after_read_capability(&Config::default()).governance, CapabilityGovernance::RouteSurface);
         assert_eq!(sso_capability(&Config::default()).governance, CapabilityGovernance::ConfigControlled);
         assert_eq!(openclaw_capability(&Config::default()).governance, CapabilityGovernance::ConfigControlled);
-    }
-
-    #[tokio::test]
-    async fn test_get_client_versions_includes_msc3814() {
-        use axum::response::IntoResponse;
-        let state = make_test_state().await;
-        let response = get_client_versions(axum::extract::State(state)).await.into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), 10000).await.unwrap();
-        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-
-        assert_eq!(body["unstable_features"]["org.matrix.msc3814"], true);
     }
 
     #[test]
@@ -705,18 +797,26 @@ mod tests {
             "m.require_identity_server",
             "m.supports_login_via_phone_number",
             "org.matrix.msc3882",
-            "org.matrix.msc3983",
-            "org.matrix.msc3245",
-            "org.matrix.msc3266",
             "uk.tcpip.msc4133",
             "org.matrix.msc3886.sliding_sync",
-            "org.matrix.msc4261.widget",
-            "io.hula.burn_after_read",
-            "io.hula.friends",
+            "org.matrix.msc3266",
+            "org.matrix.msc3245",
+            "org.matrix.msc3983",
+            "org.matrix.msc3814",
+            "org.matrix.msc4143",
         ];
         for key in expected_unstable {
             assert!(unstable.contains_key(*key), "missing unstable feature: {key}");
         }
+
+        // Private `io.hula.*` extensions must NOT appear in `/versions` —
+        // that surface is unauthenticated and consumed by stock Matrix
+        // clients which do not understand the `io.hula.*` namespace.
+        assert!(
+            !unstable.contains_key("io.hula.burn_after_read"),
+            "private io.hula.burn_after_read must not leak to /versions"
+        );
+        assert!(!unstable.contains_key("io.hula.friends"), "private io.hula.friends must not leak to /versions");
     }
 
     #[test]
@@ -734,13 +834,13 @@ mod tests {
             "m.room.suggested",
             "m.voice",
             "m.thread",
-            "io.hula.sliding_sync",
         ];
         for key in expected_public {
             assert!(capabilities.contains_key(*key), "missing public capability: {key}");
         }
 
-        let private_only: &[&str] = &["m.sso", "io.hula.friends", "io.hula.widget", "io.hula.burn_after_read"];
+        let private_only: &[&str] =
+            &["m.sso", "io.hula.friends", "io.hula.widget", "io.hula.burn_after_read", "io.hula.sliding_sync"];
         for key in private_only {
             assert!(!capabilities.contains_key(*key), "private capability leaked to unauthenticated user: {key}");
         }
@@ -758,7 +858,6 @@ mod tests {
             "openclaw",
             "external_services",
             "io.hula.voice_extended",
-            "io.hula.widget",
             "io.hula.burn_after_read",
         ];
         for key in authenticated_only {
@@ -786,14 +885,12 @@ mod tests {
             "m.room.suggested",
             "m.voice",
             "m.thread",
-            "io.hula.sliding_sync",
             "io.hula.friends",
             "m.sso",
             "ai_connection",
             "openclaw",
             "external_services",
             "io.hula.voice_extended",
-            "io.hula.widget",
             "io.hula.burn_after_read",
             "io.element.msc4452.preview_url",
         ];
@@ -829,11 +926,11 @@ mod tests {
             sso_capability(&config),
             openclaw_capability(&config),
             ai_connection_capability(&config),
-            friends_capability(),
+            friends_capability(&config),
             external_services_capability(),
-            voice_extended_capability(),
+            voice_extended_capability(&config),
             widget_capability(),
-            burn_after_read_capability(),
+            burn_after_read_capability(&config),
         ];
 
         for flag in all_capabilities {

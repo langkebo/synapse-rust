@@ -1,9 +1,6 @@
-// Sibling crate aliases. Downstream code accesses types via the module path
-// (e.g., `synapse_services::cache::CacheManager`). P2-11 removed the crate-
-// level wildcard re-exports that previously flattened these into the root
-// namespace; only narrow `#[allow(ambiguous_glob_reexports)]` annotations on
-// specific conflicting module re-exports remain (see `database_initializer::*`
-// and `room::space::*` below).
+// Sibling crate aliases. Downstream code accesses these via the module path
+// (e.g., `synapse_services::cache::CacheManager`) rather than a flattened
+// root namespace.
 
 pub mod auth;
 pub use synapse_cache as cache;
@@ -76,14 +73,11 @@ pub mod uia_service;
 pub mod user_lock_service;
 
 // =============================================================================
-// Wildcard re-exports of service types.
+// Explicit root re-exports of frequently used service types.
 //
-// Each `pub use <module>::*` below re-exports the public service structs/traits
-// (e.g. `AdminAuditService`, `RoomService`) so callers can write
-// `synapse_services::AdminAuditService` instead of the fully-qualified path.
-// These are wildcards for backward compatibility: the modules historically
-// exposed a flat surface and many call sites rely on the short paths.
-// TODO: Replace with explicit exports for better API control (P2-11).
+// P2-11 removed the old `pub use <module>::*` wildcard surface. The exports
+// below keep the root API ergonomic without reintroducing an uncontrolled
+// public namespace.
 // =============================================================================
 pub use account_device_list_service::{
     AccountDeviceListService, DeviceListDeletion, DeviceListDelta, DeviceListEntry, DeviceListSnapshot,
@@ -248,17 +242,11 @@ pub mod test_config;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
-// P2-11: Crate-level re-exports of sibling crates.
+// Internal bridge imports of sibling crates.
 //
-// These wildcard re-exports are used internally within `synapse-services` (e.g.,
-// `crate::Config` resolves to `synapse_common::Config` via `pub use common::*`).
-// Converting them to explicit exports would require enumerating hundreds of
-// types across five crates and is deferred. The `#[allow(ambiguous_glob_reexports)]`
-// annotations are kept as narrow as possible (per-crate, not crate-wide).
-//
-// Downstream code (main crate, tests) accesses types via the module path
-// (e.g., `synapse_services::cache::CacheManager`), not through the flattened
-// root namespace.
+// `common` and `storage` still expose broad internal namespaces so existing
+// `crate::...` references inside `synapse-services` remain stable while the
+// public root API stays explicit.
 pub use auth::{
     AuthService, Claims, ClaimsBuilder, GuestAuthExt, PasswordPolicy, PasswordPolicyService, PasswordValidationResult,
 }; // AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
@@ -268,14 +256,14 @@ pub use cache::{
     CacheInvalidationManager, CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager,
     CacheStats, CacheTtl, CircuitBreaker, CircuitBreakerMetrics, CircuitState, DegradationMetrics,
     FederationSignatureCache, InvalidationReceiver, InvalidationType, KeyRotationCallback, KeyRotationEvent,
-    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, RedisPoolMetrics, SignatureCacheConfig,
+    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, SignatureCacheConfig,
     SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
     DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
     DEFAULT_SIGNATURE_CACHE_TTL,
 }; // cache crate root items
 pub(crate) use common::*; // internal crate access; no longer flattened into public API
 pub use federation::{
-    client, device_sync, edu_dispatcher, event_auth, event_broadcaster, key_rotation, memory_tracker, signing,
+    client, device_sync, event_auth, event_broadcaster, key_rotation, memory_tracker, signing,
     state_resolution, DeviceSyncManager, EventAuthChain, EventBroadcaster, FederationClient, FederationMemoryReport,
     FederationMemoryTracker, KeyRotationManager, MemoryStats,
 }; // federation crate root items

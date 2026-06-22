@@ -12,7 +12,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
             LIMIT $3
@@ -31,7 +31,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events WHERE origin_server_ts > $1
             ORDER BY origin_server_ts ASC
             LIMIT $2
@@ -115,7 +115,7 @@ impl EventStorage {
         let mut query = QueryBuilder::<Postgres>::new(
             r"
             SELECT event_id, room_id, user_id, event_type, content, state_key,
-                   depth, origin_server_ts, processed_at, not_before, status, reference_image, origin, stream_ordering
+                   depth, origin_server_ts, processed_at, not_before, status, reference_image, origin, stream_ordering, redacts
             FROM (
                 SELECT
                     event_id,
@@ -132,6 +132,7 @@ impl EventStorage {
                     reference_image,
                     COALESCE(origin, 'self') as origin,
                     stream_ordering,
+                    redacts,
                     ROW_NUMBER() OVER (
                         PARTITION BY room_id
                         ORDER BY stream_ordering ASC
@@ -204,7 +205,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE event_id = ANY($1)
             ",
@@ -264,7 +265,7 @@ impl EventStorage {
                    event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts,
                    COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = ANY($1)
             ORDER BY room_id, origin_server_ts DESC
@@ -332,7 +333,7 @@ impl EventStorage {
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = $1
               AND stream_ordering > $2
@@ -362,7 +363,7 @@ impl EventStorage {
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = $1
               AND stream_ordering {op} $2
@@ -408,7 +409,7 @@ impl EventStorage {
             SELECT event_id, room_id, sender as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
                    COALESCE(not_before, 0) as not_before, status, reference_image,
-                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events
             WHERE room_id = $1 AND status = 'pending'
             ORDER BY origin_server_ts ASC

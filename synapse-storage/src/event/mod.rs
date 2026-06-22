@@ -7,7 +7,7 @@ pub use models::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sqlx::{Pool, Postgres, QueryBuilder};
+use sqlx::{Pool, Postgres, QueryBuilder, Row};
 
 impl EventStorage {
     pub fn new(pool: &Arc<Pool<Postgres>>, server_name: String) -> Self {
@@ -55,6 +55,249 @@ impl EventStorage {
                 .fetch_one(&*self.pool)
                 .await
         }
+    }
+
+    /// Like `create_event` but also persists the event DAG metadata
+    /// (`prev_events`, `auth_events`, `depth` columns in `events` plus rows
+    /// in `event_edges`).  Callers that have the PDU's graph fields (notably
+    /// the inbound federation transaction handler) should prefer this method
+    /// so that `event_edges` is populated and `/get_missing_events` can walk
+    /// the DAG.  Callers without graph data (locally-produced events where
+    /// prev_events tracking is not yet wired) can continue to use
+    /// `create_event`, which delegates here with empty arrays and depth 0.
+    pub async fn create_event_with_graph(
+        &self,
+        params: CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<RoomEvent, sqlx::Error> {
+        let prev_events_json = serde_json::to_value(prev_events).unwrap_or(serde_json::Value::Null);
+        let auth_events_json = serde_json::to_value(auth_events).unwrap_or(serde_json::Value::Null);
+
+        let query = r"
+            INSERT INTO events (event_id, room_id, sender, user_id, event_type, content, state_key, origin_server_ts, is_redacted, redacts, depth, prev_events, auth_events)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10, $11, $12)
+            RETURNING event_id, room_id, sender as user_id, event_type, content, state_key,
+                      COALESCE(depth, 0) as depth, origin_server_ts, origin_server_ts as processed_at,
+                      0::BIGINT as not_before, 'pending' as status, null as reference_image,
+                      'self' as origin, stream_ordering, redacts
+            ";
+
+        let event = if let Some(tx) = tx {
+            let event = sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
+                .fetch_one(&mut **tx)
+                .await?;
+
+            // Populate event_edges within the same transaction.
+            if !prev_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), false
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_events)
+                .execute(&mut **tx)
+                .await?;
+            }
+            event
+        } else {
+            let event = sqlx::query_as(query)
+                .bind(&params.event_id)
+                .bind(&params.room_id)
+                .bind(&params.user_id)
+                .bind(&params.user_id)
+                .bind(&params.event_type)
+                .bind(&params.content)
+                .bind(params.state_key.as_deref())
+                .bind(params.origin_server_ts)
+                .bind(params.redacts.as_deref())
+                .bind(depth)
+                .bind(&prev_events_json)
+                .bind(&auth_events_json)
+                .fetch_one(&*self.pool)
+                .await?;
+
+            // Populate event_edges outside a transaction.
+            if !prev_events.is_empty() {
+                sqlx::query(
+                    r"
+                    INSERT INTO event_edges (event_id, prev_event_id, is_state)
+                    SELECT $1, unnest($2::text[]), false
+                    ON CONFLICT DO NOTHING
+                    ",
+                )
+                .bind(&params.event_id)
+                .bind(prev_events)
+                .execute(&*self.pool)
+                .await?;
+            }
+            event
+        };
+
+        Ok(event)
+    }
+
+    /// Update the `signatures` and `hashes` JSONB columns for an event after
+    /// it has been signed locally.  This is the persistence counterpart of
+    /// `synapse_federation::signing::sign_and_hash_event`.
+    pub async fn update_event_signatures_and_hashes(
+        &self,
+        event_id: &str,
+        signatures: &serde_json::Value,
+        hashes: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r"
+            UPDATE events SET signatures = $2, hashes = $3 WHERE event_id = $1
+            ",
+        )
+        .bind(event_id)
+        .bind(signatures)
+        .bind(hashes)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Batch-check which event IDs exist locally.  Returns the subset of
+    /// `event_ids` that are **missing** from the `events` table.  Used by
+    /// the inbound transaction handler to decide whether to trigger
+    /// `get_missing_events` against the origin server.
+    pub async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        if event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let existing: Vec<String> = sqlx::query_scalar(
+            r"
+            SELECT event_id FROM events
+            WHERE event_id = ANY($1)
+            ",
+        )
+        .bind(event_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        let existing_set: std::collections::HashSet<&str> = existing.iter().map(|s| s.as_str()).collect();
+        let missing = event_ids.iter().filter(|id| !existing_set.contains(id.as_str())).cloned().collect();
+        Ok(missing)
+    }
+
+    /// Walk `event_edges` to find events that sit between `earliest_events`
+    /// and `latest_events` in the DAG — i.e. events that the requester is
+    /// missing.  Returns at most `limit` events as JSON values suitable for
+    /// the `/get_missing_events` federation response.
+    ///
+    /// The traversal walks **backwards** from `latest_events` following
+    /// `prev_event_id` edges until it hits any of `earliest_events` or
+    /// exhausts the reachable sub-graph, collecting events that are not in
+    /// `earliest_events` and not in `latest_events`.
+    pub async fn get_missing_events_between(
+        &self,
+        room_id: &str,
+        earliest_events: &[String],
+        latest_events: &[String],
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        if latest_events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let earliest_set: std::collections::HashSet<&str> = earliest_events.iter().map(|s| s.as_str()).collect();
+
+        // BFS backwards from latest_events via event_edges.prev_event_id,
+        // stopping at earliest_events.  Collect visited event IDs that are
+        // neither in earliest_events nor in latest_events.
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut queue: std::collections::VecDeque<String> = latest_events.iter().cloned().collect();
+        let mut collected: Vec<String> = Vec::new();
+
+        for id in latest_events {
+            visited.insert(id.clone());
+        }
+
+        while let Some(current) = queue.pop_front() {
+            if collected.len() as i64 >= limit {
+                break;
+            }
+
+            // Walk prev_event_id edges for `current`.
+            let prev_ids: Vec<String> = sqlx::query_scalar(
+                r"
+                SELECT prev_event_id FROM event_edges
+                WHERE event_id = $1
+                ",
+            )
+            .bind(&current)
+            .fetch_all(&*self.pool)
+            .await?;
+
+            for prev_id in prev_ids {
+                if earliest_set.contains(prev_id.as_str()) {
+                    continue;
+                }
+                if visited.insert(prev_id.clone()) {
+                    collected.push(prev_id.clone());
+                    queue.push_back(prev_id);
+                }
+            }
+        }
+
+        if collected.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fetch the collected events as JSON values, filtered by room_id for
+        // safety (the DAG walk should already be room-scoped, but this
+        // prevents any cross-room leakage).
+        let events: Vec<serde_json::Value> = sqlx::query(
+            r"
+            SELECT event_id, room_id, sender, event_type, content, state_key,
+                   origin_server_ts, depth, origin
+            FROM events
+            WHERE room_id = $1 AND event_id = ANY($2)
+            ORDER BY origin_server_ts ASC
+            LIMIT $3
+            ",
+        )
+        .bind(room_id)
+        .bind(&collected)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            serde_json::json!({
+                "event_id": row.get::<Option<String>, _>("event_id"),
+                "room_id": row.get::<Option<String>, _>("room_id"),
+                "sender": row.get::<Option<String>, _>("sender"),
+                "type": row.get::<Option<String>, _>("event_type"),
+                "content": row.get::<Option<serde_json::Value>, _>("content"),
+                "state_key": row.get::<Option<String>, _>("state_key"),
+                "origin_server_ts": row.get::<Option<i64>, _>("origin_server_ts"),
+                "depth": row.get::<Option<i64>, _>("depth"),
+                "origin": row.get::<Option<String>, _>("origin"),
+            })
+        })
+        .collect();
+
+        Ok(events)
     }
 
     pub async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
@@ -227,7 +470,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events WHERE room_id = $1
             ORDER BY origin_server_ts DESC, stream_ordering DESC NULLS LAST, event_id DESC
             LIMIT $2
@@ -253,7 +496,7 @@ impl EventStorage {
                     r"
                     SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                            COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
                     FROM events
                     WHERE room_id = $1 AND origin_server_ts > $2
                     ORDER BY origin_server_ts ASC
@@ -271,7 +514,7 @@ impl EventStorage {
                     r"
                     SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                            COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
                     FROM events
                     WHERE room_id = $1
                     ORDER BY origin_server_ts ASC
@@ -288,7 +531,7 @@ impl EventStorage {
                     r"
                     SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                            COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
                     FROM events
                     WHERE room_id = $1 AND origin_server_ts < $2
                     ORDER BY origin_server_ts DESC
@@ -306,7 +549,7 @@ impl EventStorage {
                     r"
                     SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                            COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                           COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
                     FROM events
                     WHERE room_id = $1
                     ORDER BY origin_server_ts DESC
@@ -428,7 +671,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events WHERE room_id = $1 AND event_type = $2
             ORDER BY origin_server_ts DESC
             LIMIT $3
@@ -447,7 +690,7 @@ impl EventStorage {
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
                    COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
             FROM events WHERE COALESCE(user_id, sender) = $1
             ORDER BY origin_server_ts DESC
             LIMIT $2
@@ -1016,6 +1259,30 @@ impl EventStorage {
         .fetch_one(&*self.pool)
         .await?;
         Ok(count)
+    }
+
+    /// Returns the `event_id`s of the most recent events in a room, ordered
+    /// by `origin_server_ts DESC`.  Used to seed outbound `/backfill` requests
+    /// — the caller passes these IDs as the `v=` query parameters so the
+    /// remote server knows which point in the DAG to walk backwards from.
+    pub async fn get_latest_event_ids_in_room(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"
+            SELECT event_id FROM events
+            WHERE room_id = $1
+            ORDER BY origin_server_ts DESC NULLS LAST, stream_ordering DESC NULLS LAST, event_id DESC
+            LIMIT $2
+            ",
+        )
+        .bind(room_id)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }
 

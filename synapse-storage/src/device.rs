@@ -806,28 +806,12 @@ impl DeviceStorage {
         .await?;
 
         let changed: Vec<String> = changed_rows.iter().map(|row| row.get("user_id")).collect();
-
-        let left_rows = sqlx::query(
-            r"
-            SELECT DISTINCT dls.user_id
-            FROM device_lists_stream dls
-            WHERE dls.stream_id > $1
-              AND dls.user_id != $2
-              AND NOT EXISTS (
-                SELECT 1 FROM room_memberships rm1
-                INNER JOIN room_memberships rm2 ON rm2.room_id = rm1.room_id AND rm2.user_id = $2 AND rm2.membership = 'join'
-                WHERE rm1.user_id = dls.user_id AND rm1.membership = 'join'
-              )
-            ORDER BY dls.user_id
-            LIMIT 100
-            ",
-        )
-        .bind(since_stream_id)
-        .bind(exclude_user_id)
-        .fetch_all(&*self.pool)
-        .await?;
-
-        let left: Vec<String> = left_rows.iter().map(|row| row.get("user_id")).collect();
+        // We only persist current room membership, not a stream-aware history of
+        // "shared room -> no shared room" transitions for the requesting user.
+        // Returning `left` based only on current membership would leak isolated
+        // users that never shared a room in the first place. Be conservative and
+        // suppress `left` until we can derive it from a proper membership delta.
+        let left = Vec::new();
 
         Ok((changed, left))
     }

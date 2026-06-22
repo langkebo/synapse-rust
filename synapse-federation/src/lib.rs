@@ -1,12 +1,12 @@
 pub mod client;
 pub mod device_sync;
-pub mod edu_dispatcher;
 pub mod event_auth;
 pub mod event_broadcaster;
 #[cfg(feature = "friends")]
 pub mod friend;
 pub mod key_rotation;
 pub mod memory_tracker;
+pub mod server_acl;
 pub mod signing;
 pub mod state_resolution;
 
@@ -18,3 +18,4 @@ pub use event_broadcaster::EventBroadcaster;
 pub use friend::*;
 pub use key_rotation::KeyRotationManager;
 pub use memory_tracker::{FederationMemoryReport, FederationMemoryTracker, MemoryStats};
+pub use server_acl::ServerAclContent;

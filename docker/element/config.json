@@ -11,7 +11,7 @@
   "disable_3pid_login": true,
   "brand": "Element (synapse-rust local)",
   "default_country_code": "CN",
-  "show_labs_settings": true,
+  "show_labs_settings": false,
   "default_federate": true,
   "default_theme": "light",
   "room_directory": {
@@ -22,7 +22,9 @@
   "setting_defaults": {
     "breadcrumbs": true
   },
-  "features": {},
+  "features": {
+    "feature_video_rooms": false
+  },
   "jitsi": {
     "preferred_domain": "meet.jit.si"
   }

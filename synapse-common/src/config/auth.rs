@@ -27,6 +27,14 @@ pub struct OidcConfig {
     pub token_endpoint: Option<String>,
     pub userinfo_endpoint: Option<String>,
     pub jwks_uri: Option<String>,
+    /// OIDC Dynamic Client Registration endpoint (RFC 7591).
+    ///
+    /// When set, this URL is exposed in `/.well-known/openid-configuration`
+    /// as `registration_endpoint`, allowing Element Web's OIDC native flow
+    /// to dynamically register a client. Typically points to the external
+    /// IdP's registration endpoint (e.g.
+    /// `https://idp.example.com/clients/registration`).
+    pub registration_endpoint: Option<String>,
     #[serde(default = "default_oidc_timeout")]
     pub timeout: u64,
 }
@@ -48,6 +56,7 @@ impl Default for OidcConfig {
             token_endpoint: None,
             userinfo_endpoint: None,
             jwks_uri: None,
+            registration_endpoint: None,
             timeout: default_oidc_timeout(),
         }
     }

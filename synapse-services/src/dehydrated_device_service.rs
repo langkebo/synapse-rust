@@ -3,6 +3,15 @@ use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
 use synapse_storage::{DehydratedDevice, DehydratedDeviceStorage, UpsertDehydratedDeviceParams};
 
+#[derive(Debug)]
+struct NormalizedDehydratedDevicePayload {
+    device_id: String,
+    payload: Map<String, Value>,
+    algorithm: String,
+    account: Option<Value>,
+    expires_at: Option<i64>,
+}
+
 #[derive(Clone)]
 pub struct DehydratedDeviceService {
     storage: DehydratedDeviceStorage,
@@ -47,54 +56,44 @@ impl DehydratedDeviceService {
     }
 
     pub async fn put_device(&self, user_id: &str, body: Value) -> Result<String, ApiError> {
-        let mut payload =
-            body.as_object().cloned().ok_or_else(|| ApiError::bad_request("Expected a JSON object body"))?;
         let existing_device_id = self.existing_device_id(user_id).await;
-
-        let device_id = payload
-            .get("device_id")
-            .and_then(|value| value.as_str())
-            .map(str::to_owned)
-            .filter(|value| !value.is_empty())
-            .or(existing_device_id)
-            .unwrap_or_else(Self::generate_device_id);
-
-        payload.insert("device_id".to_string(), Value::String(device_id.clone()));
-
-        let algorithm = payload
-            .get("algorithm")
-            .and_then(|value| value.as_str())
-            .unwrap_or("org.matrix.msc3814.v1.olm")
-            .to_string();
-        let account = payload.get("account").cloned();
-        let expires_at = payload.get("expires_at").and_then(Value::as_i64);
+        let normalized = Self::normalize_put_payload(body, existing_device_id)?;
 
         self.storage
             .upsert_for_user(UpsertDehydratedDeviceParams {
                 user_id: user_id.to_string(),
-                device_id: device_id.clone(),
-                device_data: Value::Object(payload),
-                algorithm,
-                account,
-                expires_at,
+                device_id: normalized.device_id.clone(),
+                device_data: Value::Object(normalized.payload),
+                algorithm: normalized.algorithm,
+                account: normalized.account,
+                expires_at: normalized.expires_at,
             })
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store dehydrated device", &e))?;
 
-        Ok(device_id)
+        Ok(normalized.device_id)
     }
 
     async fn existing_device_id(&self, user_id: &str) -> Option<String> {
         self.storage.get_by_user(user_id).await.ok().flatten().map(|record| record.device_id)
     }
 
-    pub async fn delete_device(&self, user_id: &str) -> Result<bool, ApiError> {
-        let rows = self
+    pub async fn delete_device(&self, user_id: &str) -> Result<Option<String>, ApiError> {
+        let record = self
             .storage
+            .get_by_user(user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load dehydrated device before delete", &e))?;
+
+        let Some(record) = record else {
+            return Ok(None);
+        };
+
+        self.storage
             .delete_by_user(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete dehydrated device", &e))?;
-        Ok(rows > 0)
+        Ok(Some(record.device_id))
     }
 
     pub async fn delete_all_for_user(&self, user_id: &str) -> Result<(), ApiError> {
@@ -163,41 +162,118 @@ impl DehydratedDeviceService {
         format!("DEHYDRATED{}", uuid::Uuid::new_v4().simple().to_string()[..10].to_ascii_uppercase())
     }
 
-    fn record_to_response(record: DehydratedDevice) -> Value {
-        let device_id = record.device_id.clone();
-        let algorithm = record.algorithm.clone();
-        let account = record.account.clone();
-        let expires_at = record.expires_at;
+    fn normalize_put_payload(
+        body: Value,
+        existing_device_id: Option<String>,
+    ) -> Result<NormalizedDehydratedDevicePayload, ApiError> {
+        let mut payload =
+            body.as_object().cloned().ok_or_else(|| ApiError::bad_request("Expected a JSON object body"))?;
 
-        match record.device_data {
-            Value::Object(mut map) => {
-                Self::ensure_response_fields(&mut map, &device_id, &algorithm, account.as_ref(), expires_at);
-                Value::Object(map)
-            }
-            other => {
-                let mut map = Map::new();
-                map.insert("device_data".to_string(), other);
-                Self::ensure_response_fields(&mut map, &device_id, &algorithm, account.as_ref(), expires_at);
-                Value::Object(map)
+        let mut device_data = payload
+            .get("device_data")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+
+        if !matches!(payload.get("device_keys"), Some(Value::Object(_))) {
+            if let Some(nested_device_keys) = device_data.get("device_keys").filter(|value| value.is_object()).cloned() {
+                payload.insert("device_keys".to_string(), nested_device_keys);
+            } else {
+                return Err(ApiError::bad_request("Device key(s) not found, these must be provided."));
             }
         }
+
+        if device_data.is_empty() {
+            if let Some(algorithm) = payload.get("algorithm").cloned() {
+                device_data.insert("algorithm".to_string(), algorithm);
+            }
+            if let Some(account) = payload.get("account").cloned() {
+                device_data.insert("account".to_string(), account);
+            }
+            if let Some(display_name) = payload.get("initial_device_display_name").cloned() {
+                device_data.insert("initial_device_display_name".to_string(), display_name);
+            }
+        }
+
+        if device_data.is_empty() {
+            return Err(ApiError::bad_request("Missing or invalid device_data"));
+        }
+
+        let device_id = payload
+            .get("device_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned)
+            .filter(|value| !value.is_empty())
+            .or(existing_device_id)
+            .unwrap_or_else(Self::generate_device_id);
+        payload.insert("device_id".to_string(), Value::String(device_id.clone()));
+        payload.insert("device_data".to_string(), Value::Object(device_data.clone()));
+
+        let algorithm = device_data
+            .get("algorithm")
+            .and_then(Value::as_str)
+            .or_else(|| payload.get("algorithm").and_then(Value::as_str))
+            .unwrap_or("org.matrix.msc3814.v1.olm")
+            .to_string();
+        let account = device_data.get("account").cloned().or_else(|| payload.get("account").cloned());
+        let expires_at = payload.get("expires_at").and_then(Value::as_i64);
+
+        Ok(NormalizedDehydratedDevicePayload {
+            device_id,
+            payload,
+            algorithm,
+            account,
+            expires_at,
+        })
     }
 
-    fn ensure_response_fields(
-        map: &mut Map<String, Value>,
-        device_id: &str,
+    fn record_to_response(record: DehydratedDevice) -> Value {
+        let device_data =
+            Self::build_response_device_data(record.device_data, &record.algorithm, record.account.as_ref(), record.expires_at);
+        serde_json::json!({
+            "device_id": record.device_id,
+            "device_data": device_data,
+        })
+    }
+
+    fn build_response_device_data(
+        stored_payload: Value,
         algorithm: &str,
         account: Option<&Value>,
         expires_at: Option<i64>,
-    ) {
-        map.insert("device_id".to_string(), Value::String(device_id.to_string()));
-        map.entry("algorithm".to_string()).or_insert_with(|| Value::String(algorithm.to_string()));
+    ) -> Value {
+        let mut device_data = match stored_payload {
+            Value::Object(map) => {
+                let mut device_data = map
+                    .get("device_data")
+                    .and_then(Value::as_object)
+                    .cloned()
+                    .unwrap_or_default();
+
+                if let Some(display_name) = map.get("initial_device_display_name").cloned() {
+                    device_data.entry("initial_device_display_name".to_string()).or_insert(display_name);
+                }
+
+                device_data
+            }
+            other => {
+                let mut map = Map::new();
+                map.insert("raw".to_string(), other);
+                map
+            }
+        };
+
+        device_data
+            .entry("algorithm".to_string())
+            .or_insert_with(|| Value::String(algorithm.to_string()));
         if let Some(account) = account {
-            map.entry("account".to_string()).or_insert_with(|| account.clone());
+            device_data.entry("account".to_string()).or_insert_with(|| account.clone());
         }
         if let Some(expires_at) = expires_at {
-            map.entry("expires_at".to_string()).or_insert_with(|| Value::from(expires_at));
+            device_data.entry("expires_at".to_string()).or_insert_with(|| Value::from(expires_at));
         }
+
+        Value::Object(device_data)
     }
 }
 
@@ -240,67 +316,73 @@ mod tests {
         assert_ne!(id1, id2, "Two generated device IDs should be different");
     }
 
-    // ========== ensure_response_fields tests ==========
+    // ========== normalize_put_payload tests ==========
 
     #[test]
-    fn test_ensure_response_fields_basic() {
-        let mut map = Map::new();
-        DehydratedDeviceService::ensure_response_fields(&mut map, "DEV1", "m.olm.v1.curve25519-aes-sha2", None, None);
-        assert_eq!(map["device_id"], json!("DEV1"));
-        assert_eq!(map["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
-        assert!(!map.contains_key("account"));
-        assert!(!map.contains_key("expires_at"));
-    }
-
-    #[test]
-    fn test_ensure_response_fields_with_account() {
-        let mut map = Map::new();
-        let account = json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]});
-        DehydratedDeviceService::ensure_response_fields(
-            &mut map,
-            "DEV1",
-            "m.olm.v1.curve25519-aes-sha2",
-            Some(&account),
+    fn test_normalize_put_payload_promotes_legacy_nested_device_keys() {
+        let normalized = DehydratedDeviceService::normalize_put_payload(
+            json!({
+                "algorithm": "org.matrix.msc3814.v1.olm",
+                "account": { "pickle": "opaque-account" },
+                "device_data": {
+                    "device_keys": {
+                        "user_id": "@alice:example.com",
+                        "device_id": "DEV1",
+                        "algorithms": ["m.olm.v1.curve25519-aes-sha2"]
+                    },
+                    "initial_device_display_name": "Legacy Device"
+                }
+            }),
             None,
-        );
-        assert_eq!(map["account"], account);
+        )
+        .expect("payload should normalize");
+
+        assert!(normalized.device_id.starts_with("DEHYDRATED"));
+        assert_eq!(normalized.algorithm, "org.matrix.msc3814.v1.olm");
+        assert_eq!(normalized.account, Some(json!({ "pickle": "opaque-account" })));
+        assert!(normalized.payload["device_keys"].is_object());
+        assert_eq!(normalized.payload["device_data"]["initial_device_display_name"], json!("Legacy Device"));
     }
 
     #[test]
-    fn test_ensure_response_fields_with_expires_at() {
-        let mut map = Map::new();
-        DehydratedDeviceService::ensure_response_fields(
-            &mut map,
-            "DEV1",
-            "m.olm.v1.curve25519-aes-sha2",
+    fn test_normalize_put_payload_rejects_missing_device_keys() {
+        let error = DehydratedDeviceService::normalize_put_payload(
+            json!({
+                "device_id": "DEV1",
+                "device_data": {
+                    "algorithm": "org.matrix.msc3814.v1.olm"
+                }
+            }),
             None,
-            Some(1700000000000),
-        );
-        assert_eq!(map["expires_at"], json!(1700000000000_i64));
+        )
+        .expect_err("missing device_keys should be rejected");
+
+        assert!(format!("{error:?}").contains("Device key(s) not found"));
     }
 
     #[test]
-    fn test_ensure_response_fields_does_not_overwrite_existing() {
-        let mut map = Map::new();
-        map.insert("algorithm".to_string(), json!("custom_algo"));
-        map.insert("account".to_string(), json!("existing_account"));
-        map.insert("expires_at".to_string(), json!(1600000000000_i64));
-
-        DehydratedDeviceService::ensure_response_fields(
-            &mut map,
-            "DEV1",
-            "m.olm.v1.curve25519-aes-sha2",
-            Some(&json!("new_account")),
-            Some(1700000000000),
+    fn test_build_response_device_data_returns_synapse_shape() {
+        let response = DehydratedDeviceService::build_response_device_data(
+            json!({
+                "device_id": "DEV1",
+                "device_keys": {
+                    "user_id": "@alice:example.com",
+                    "device_id": "DEV1"
+                },
+                "device_data": {
+                    "initial_device_display_name": "Synapse-style device"
+                }
+            }),
+            "org.matrix.msc3814.v1.olm",
+            Some(&json!({ "pickle": "opaque-account" })),
+            Some(1700000000000_i64),
         );
-        // device_id is always overwritten
-        assert_eq!(map["device_id"], json!("DEV1"));
-        // algorithm should NOT be overwritten (or_insert_with)
-        assert_eq!(map["algorithm"], json!("custom_algo"));
-        // account should NOT be overwritten (or_insert_with)
-        assert_eq!(map["account"], json!("existing_account"));
-        // expires_at should NOT be overwritten (or_insert_with)
-        assert_eq!(map["expires_at"], json!(1600000000000_i64));
+
+        assert_eq!(response["initial_device_display_name"], json!("Synapse-style device"));
+        assert_eq!(response["algorithm"], json!("org.matrix.msc3814.v1.olm"));
+        assert_eq!(response["account"], json!({ "pickle": "opaque-account" }));
+        assert_eq!(response["expires_at"], json!(1700000000000_i64));
+        assert!(response.get("device_keys").is_none());
     }
 
     // ========== record_to_response tests ==========
@@ -311,8 +393,16 @@ mod tests {
             id: 1,
             user_id: "@alice:example.com".to_string(),
             device_id: "DEV123".to_string(),
-            device_data: json!({"key": "value"}),
-            algorithm: "m.olm.v1.curve25519-aes-sha2".to_string(),
+            device_data: json!({
+                "device_keys": {
+                    "user_id": "@alice:example.com",
+                    "device_id": "DEV123"
+                },
+                "device_data": {
+                    "initial_device_display_name": "Stored device"
+                }
+            }),
+            algorithm: "org.matrix.msc3814.v1.olm".to_string(),
             account: None,
             created_ts: 1700000000000,
             updated_ts: 1700000001000,
@@ -320,8 +410,8 @@ mod tests {
         };
         let result = DehydratedDeviceService::record_to_response(record);
         assert_eq!(result["device_id"], json!("DEV123"));
-        assert_eq!(result["key"], json!("value"));
-        assert_eq!(result["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+        assert_eq!(result["device_data"]["initial_device_display_name"], json!("Stored device"));
+        assert_eq!(result["device_data"]["algorithm"], json!("org.matrix.msc3814.v1.olm"));
     }
 
     #[test]
@@ -339,9 +429,9 @@ mod tests {
         };
         let result = DehydratedDeviceService::record_to_response(record);
         assert_eq!(result["device_id"], json!("DEV456"));
-        assert_eq!(result["algorithm"], json!("org.matrix.msc3814.v1.olm"));
-        assert_eq!(result["account"], json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]}));
-        assert_eq!(result["expires_at"], json!(1700086400000_i64));
+        assert_eq!(result["device_data"]["algorithm"], json!("org.matrix.msc3814.v1.olm"));
+        assert_eq!(result["device_data"]["account"], json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]}));
+        assert_eq!(result["device_data"]["expires_at"], json!(1700086400000_i64));
     }
 
     #[test]
@@ -359,7 +449,7 @@ mod tests {
         };
         let result = DehydratedDeviceService::record_to_response(record);
         assert_eq!(result["device_id"], json!("DEV789"));
-        assert_eq!(result["device_data"], json!("non_object_data"));
-        assert_eq!(result["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+        assert_eq!(result["device_data"]["raw"], json!("non_object_data"));
+        assert_eq!(result["device_data"]["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
     }
 }
