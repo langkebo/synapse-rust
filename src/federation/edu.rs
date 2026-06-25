@@ -1,80 +1,14 @@
 //! Unified EDU (Ephemeral Data Unit) dispatch for inbound federation transactions.
 //!
-//! Historically, inbound EDU processing was ad-hoc: only `m.presence` had a
-//! dedicated handler in the transaction endpoint, while `m.typing` and
-//! `m.device_list_update` were silently dropped. This module introduces a
-//! typed `EduType` enum and an `EduDispatcher` that routes each EDU to the
-//! correct handler uniformly.
+//! Pure types (`EduType`, `EduProcessResult`, `user_matches_origin`) live in
+//! `synapse_federation::edu`. This module provides the dispatcher and handlers
+//! that depend on `AppState` and the service container.
+
+pub use synapse_federation::edu::{user_matches_origin, EduProcessResult, EduType, UnknownEduType};
 
 use crate::web::routes::AppState;
 use serde_json::Value;
 use std::str::FromStr;
-
-// ---------------------------------------------------------------------------
-// EduType — discriminant for the three Matrix federation EDU types we handle
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EduType {
-    Typing,
-    Presence,
-    DeviceListUpdate,
-    /// `m.direct_to_device` — to-device messages relayed via federation.
-    /// Without this handler, to-device messages from remote homeservers are
-    /// silently dropped, breaking cross-server E2EE key exchange.
-    DirectToDevice,
-}
-
-#[derive(Debug, Clone)]
-pub struct UnknownEduType(String);
-
-impl std::fmt::Display for UnknownEduType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unknown EDU type: {}", self.0)
-    }
-}
-
-impl std::error::Error for UnknownEduType {}
-
-impl FromStr for EduType {
-    type Err = UnknownEduType;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "m.typing" => Ok(Self::Typing),
-            "m.presence" => Ok(Self::Presence),
-            "m.device_list_update" => Ok(Self::DeviceListUpdate),
-            "m.direct_to_device" => Ok(Self::DirectToDevice),
-            other => Err(UnknownEduType(other.to_string())),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// EduProcessResult — result of processing a batch of EDU updates
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Default)]
-pub struct EduProcessResult {
-    pub processed: usize,
-    pub dropped: usize,
-    pub errored: usize,
-}
-
-impl EduProcessResult {
-    pub fn is_empty(&self) -> bool {
-        self.processed == 0 && self.dropped == 0 && self.errored == 0
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Check that a Matrix user_id belongs to the given origin server.
-fn user_matches_origin(user_id: &str, origin: &str) -> bool {
-    user_id.rsplit_once(':').is_some_and(|(_, server_name)| server_name == origin)
-}
 
 fn increment_counter(state: &AppState, name: &str) {
     if let Some(counter) = state.services.core.metrics.get_counter(name) {
@@ -240,8 +174,6 @@ async fn handle_device_list_update_edu(
 
     let device_id = content.get("device_id").and_then(|v| v.as_str());
 
-    // Record the change in the device_lists_changes stream so that local
-    // clients can pick it up via /keys/changes or /sync.
     let stream_id =
         content.get("stream_id").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
@@ -282,34 +214,9 @@ async fn handle_device_list_update_edu(
     }
 }
 
-/// Maximum number of recipients in a single `m.direct_to_device` EDU.
-/// Mirrors the client-side `MAX_TO_DEVICE_RECIPIENTS` limit to prevent
-/// oversized EDUs from blocking the federation transaction dispatch.
 const MAX_FEDERATION_TO_DEVICE_RECIPIENTS: usize = 5000;
-
-/// Maximum size in bytes of a single to-device message content within a
-/// federation EDU. Protects downstream storage and sync queues.
 const MAX_FEDERATION_TO_DEVICE_MSG_BYTES: usize = 64 * 1024;
 
-/// Handle an inbound `m.direct_to_device` EDU from a remote homeserver.
-///
-/// The EDU format per Matrix spec:
-/// ```json
-/// {
-///   "edu_type": "m.direct_to_device",
-///   "sender": "@alice:origin",
-///   "type": "m.room_key",
-///   "content": {
-///     "messages": {
-///       "@bob:remote": { "DEVICE_ID": { ... } }
-///     }
-///   }
-/// }
-/// ```
-///
-/// Without this handler, to-device messages from remote homeservers are
-/// silently dropped, breaking cross-server E2EE key exchange (room key
-/// sharing, verification, etc.).
 async fn handle_direct_to_device_edu(
     state: &AppState,
     origin: &str,
@@ -324,7 +231,6 @@ async fn handle_direct_to_device_edu(
         }
     };
 
-    // The sender user_id must belong to the origin server.
     if !user_matches_origin(sender, origin) {
         ::tracing::debug!("Dropping m.direct_to_device EDU: sender {} does not match origin {}", sender, origin);
         return EduProcessResult { dropped: 1, ..Default::default() };
@@ -363,8 +269,6 @@ async fn handle_direct_to_device_edu(
                         continue;
                     }
 
-                    // Reject oversized individual messages to protect
-                    // downstream storage and sync queues.
                     let msg_size = serde_json::to_string(content).map(|s| s.len()).unwrap_or(0);
                     if msg_size > MAX_FEDERATION_TO_DEVICE_MSG_BYTES {
                         ::tracing::warn!(
@@ -378,10 +282,6 @@ async fn handle_direct_to_device_edu(
                         continue;
                     }
 
-                    // Use the to_device_service to persist the message.
-                    // sender_device_id is empty because federation EDUs do
-                    // not carry the sender's device id; dedup is handled at
-                    // the transaction level (the /send/{txnId} endpoint).
                     match state
                         .services
                         .e2ee
@@ -434,10 +334,6 @@ async fn handle_direct_to_device_edu(
 pub struct EduDispatcher;
 
 impl EduDispatcher {
-    /// Dispatch a single inbound EDU to the matching handler.
-    ///
-    /// Returns `None` if no handler matches the EDU type (i.e. the EDU type
-    /// is unknown or unsupported). Returns `Some(result)` otherwise.
     pub async fn dispatch(state: &AppState, origin: &str, edu: &Value, remaining: usize) -> Option<EduProcessResult> {
         let edu_type_str = edu.get("edu_type").and_then(|v| v.as_str()).unwrap_or("");
         let edu_type = EduType::from_str(edu_type_str).ok()?;
@@ -450,122 +346,5 @@ impl EduDispatcher {
         };
 
         Some(result)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // --- EduType ---
-
-    #[test]
-    fn test_edu_type_from_str_valid() {
-        assert_eq!("m.typing".parse::<EduType>().unwrap(), EduType::Typing);
-        assert_eq!("m.presence".parse::<EduType>().unwrap(), EduType::Presence);
-        assert_eq!("m.device_list_update".parse::<EduType>().unwrap(), EduType::DeviceListUpdate);
-        assert_eq!("m.direct_to_device".parse::<EduType>().unwrap(), EduType::DirectToDevice);
-    }
-
-    #[test]
-    fn test_edu_type_from_str_invalid() {
-        assert!("m.unknown".parse::<EduType>().is_err());
-        assert!("".parse::<EduType>().is_err());
-        assert!("random".parse::<EduType>().is_err());
-    }
-
-    #[test]
-    fn test_edu_type_from_str_error_message() {
-        let err = "m.typo".parse::<EduType>().unwrap_err();
-        assert_eq!(err.to_string(), "unknown EDU type: m.typo");
-        assert_eq!(err.0, "m.typo");
-    }
-
-    #[test]
-    fn test_edu_type_copy() {
-        let edu = EduType::Presence;
-        let copied = edu;
-        assert_eq!(edu, copied);
-    }
-
-    #[test]
-    fn test_edu_type_equality() {
-        assert_eq!(EduType::Typing, EduType::Typing);
-        assert_ne!(EduType::Typing, EduType::Presence);
-        assert_ne!(EduType::Presence, EduType::DeviceListUpdate);
-        assert_ne!(EduType::DirectToDevice, EduType::Typing);
-        assert_ne!(EduType::DirectToDevice, EduType::DeviceListUpdate);
-    }
-
-    #[test]
-    fn test_edu_type_clone() {
-        assert_eq!(EduType::Typing.clone(), EduType::Typing);
-    }
-
-    // --- UnknownEduType ---
-
-    #[test]
-    fn test_unknown_edu_type_display() {
-        let err = UnknownEduType("m.custom_edu".to_string());
-        assert_eq!(err.to_string(), "unknown EDU type: m.custom_edu");
-    }
-
-    #[test]
-    fn test_unknown_edu_type_clone() {
-        let err = UnknownEduType("test".to_string());
-        assert_eq!(err.0, "test");
-    }
-
-    // --- EduProcessResult ---
-
-    #[test]
-    fn test_edu_process_result_default() {
-        let result = EduProcessResult::default();
-        assert_eq!(result.processed, 0);
-        assert_eq!(result.dropped, 0);
-        assert_eq!(result.errored, 0);
-    }
-
-    #[test]
-    fn test_edu_process_result_is_empty() {
-        assert!(EduProcessResult::default().is_empty());
-        assert!(!EduProcessResult { processed: 1, dropped: 0, errored: 0 }.is_empty());
-        assert!(!EduProcessResult { processed: 0, dropped: 1, errored: 0 }.is_empty());
-        assert!(!EduProcessResult { processed: 0, dropped: 0, errored: 1 }.is_empty());
-    }
-
-    #[test]
-    fn test_edu_process_result_clone() {
-        let result = EduProcessResult { processed: 5, dropped: 2, errored: 1 };
-        let cloned = result;
-        assert_eq!(cloned.processed, 5);
-        assert_eq!(cloned.dropped, 2);
-        assert_eq!(cloned.errored, 1);
-    }
-
-    // --- user_matches_origin ---
-
-    #[test]
-    fn test_user_matches_origin_valid() {
-        assert!(user_matches_origin("@alice:example.com", "example.com"));
-        assert!(user_matches_origin("@bob:matrix.org", "matrix.org"));
-        assert!(user_matches_origin("@user:sub.domain.com", "sub.domain.com"));
-    }
-
-    #[test]
-    fn test_user_matches_origin_invalid() {
-        assert!(!user_matches_origin("@alice:example.com", "other.com"));
-        assert!(!user_matches_origin("@bob:example.com", "example.org"));
-    }
-
-    #[test]
-    fn test_user_matches_origin_no_colon() {
-        // user_id without colon should not match
-        assert!(!user_matches_origin("plainuser", "example.com"));
-    }
-
-    #[test]
-    fn test_user_matches_origin_empty_origin() {
-        assert!(!user_matches_origin("@alice:example.com", ""));
     }
 }
