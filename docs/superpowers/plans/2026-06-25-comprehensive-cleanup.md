@@ -1,3 +1,4 @@
+<!-- /autoplan restore point: /Users/ljf/.gstack/projects/langkebo-synapse-rust/main-autoplan-restore-20260625-223058.md -->
 # Comprehensive Codebase Cleanup Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -1019,3 +1020,340 @@ git commit --allow-empty -m "chore: comprehensive cleanup verification complete
 - AdminServices: 45 fields split into 5 domain sub-structs
 - Storage wrappers: 20 files reduced to 1-line facades"
 ```
+
+---
+
+## GSTACK REVIEW REPORT
+
+**Review date:** 2026-06-25
+**Pipeline:** /autoplan (single-model — Codex unavailable)
+**Mode:** HOLD SCOPE (appropriate for refactoring)
+**Reviewer:** Claude Opus 4.7
+
+---
+
+### Phase 1: CEO Review — Strategy & Scope
+
+**Mode confirmation:** HOLD SCOPE is correct. This is a technical debt cleanup plan — no new features, no user-facing changes, no scope expansion warranted. Each workstream is independently verifiable and produces its own commit.
+
+#### Step 0A: Premise Challenge
+
+Five premises evaluated:
+
+| # | Premise | Verdict |
+|---|---------|---------|
+| P1 | api_doc.rs at 10K lines is unmaintainable | **CONFIRMED** — file was 10,466 lines before split; single-file god modules this size make grep/IDE navigation painful |
+| P2 | Route files >1000 lines should be split by resource | **CONFIRMED** — existing pattern in `src/web/routes/handlers/room/` validates the approach; B1 and membership.rs decomposition follow same pattern |
+| P3 | 131 production `unwrap()` calls are technical debt | **CONFIRMED** — `unwrap_used = "deny"` in Cargo.toml lints makes this a policy violation, not just a style preference |
+| P4 | 45-field AdminServices struct is a god object | **CONFIRMED** — 45 fields in one struct is a coupling smell; 5 domain sub-structs mirror the codebase's own layering |
+| P5 | Storage wrapper files should be 1-line facades | **CONFIRMED** — 27 files at 4-8 lines doing only `pub use` re-exports; consumers already import from `synapse_storage` directly |
+
+All premises sound. No challenges raised.
+
+#### Step 0B: Existing Code Leverage Map
+
+| Sub-problem | Existing Code | Leverage |
+|-------------|---------------|----------|
+| File splitting pattern | `src/web/routes/handlers/room/` sub-modules | Reuse `mod.rs` + child module structure |
+| OpenAPI path annotation | utoipa `#[utoipa::path]` macro | No new annotation framework needed |
+| unwrap → Result | `ApiError::internal()`, `ApiError::internal_with_log()` | Existing error constructors, no new error types |
+| Struct decomposition | `ServiceContainer` field grouping pattern | Reuse same domain-boundary logic |
+| Storage facade thinning | `synapse_storage::*` crate re-exports | Consumers already import directly |
+
+#### Step 0C: Dream State Delta
+
+```
+CURRENT STATE                    THIS PLAN                    12-MONTH IDEAL
+─────────────────────────────────────────────────────────────────────────────
+api_doc.rs (10K lines)    →    api_doc/ (7 files)        →   All routes annotated
+8 route files >1000 lines →    8 dirs with sub-modules    →   No file >500 lines
+131 unwrap() calls         →    0 production unwraps       →   unwrap_used = "deny" clean
+45-field AdminServices     →    5 domain sub-structs       →   Per-domain service groups
+27 thin storage wrappers   →    27 1-line facades          →   Remove wrappers entirely
+```
+
+The plan leaves us at the middle column. The 12-month ideal (removing storage wrappers entirely) would require refactoring all consumers to import from `synapse_storage` directly — out of scope for this cleanup, correctly deferred.
+
+#### Step 0D: Alternatives Considered
+
+| Alternative | Effort | Risk | Verdict |
+|-------------|--------|------|---------|
+| Skip Workstream E (storage wrappers) | Save ~30 min | Accumulates cruft | **Rejected (P2)** — trivial change, in blast radius |
+| Use macro to eliminate unwrap boilerplate | 2h to implement | Adds abstraction | **Rejected (P5)** — explicit `ok_or_else` per call site is clearer |
+| Skip Workstream D (AdminServices split) | Save ~1h | God struct grows further | **Rejected (P1)** — 45 fields today, more coming |
+| Combine all workstreams in one commit | Save git overhead | Hard to review/revert | **Rejected (P5)** — per-workstream commits are clearer |
+
+#### Step 0E: Temporal Interrogation
+
+- **HOUR 1:** Workstreams A + B1 already complete. B2 (membership.rs) in progress.
+- **HOUR 3:** B3-B8 (6 route files), C1-C5 (first 5 unwrap files). These are parallelizable by an agent.
+- **HOUR 6+:** C6 (batch of 14 files), D1 (AdminServices split with all reference updates), E1 (27 storage files). D1 is the highest-risk task due to reference churn.
+
+No task blocks another. Workstreams are independent. An agentic worker could execute all remaining tasks in ~3-4 hours of CC time.
+
+#### Step 0F: Mode Selection — HOLD SCOPE
+
+Confirmed. No scope expansion warranted. This is cleanup, not feature work.
+
+---
+
+#### Section 1: Architecture Review — No issues found
+
+Examined: dependency graph across 5 workstreams, coupling boundaries, single points of failure.
+
+```
+                    ┌──────────────────┐
+                    │   Workstream A   │
+                    │  api_doc/ split  │── COMPLETE
+                    └──────────────────┘
+
+                    ┌──────────────────┐
+                    │   Workstream B   │
+                    │  Route splitting │── B1 COMPLETE, B2-B8 remain
+                    └──────────────────┘
+                                          No cross-workstream
+                    ┌──────────────────┐   dependencies.
+                    │   Workstream C   │   Each produces its
+                    │  unwrap() elim.  │   own commit.
+                    └──────────────────┘
+
+                    ┌──────────────────┐
+                    │   Workstream D   │
+                    │  AdminServices   │── Highest risk: touches
+                    │  decomposition   │   all admin consumers
+                    └──────────────────┘
+
+                    ┌──────────────────┐
+                    │   Workstream E   │
+                    │  Storage facades │── Trivial: 27 one-line edits
+                    └──────────────────┘
+```
+
+Workstreams A and B are file-splitting only — zero behavioral change. Workstream C changes error propagation but preserves all existing error types. Workstream D is the only structural change with cascading references — verified `state.services.admin.X` pattern across `src/server.rs`, `src/web/routes/`, and middleware. Workstream E is purely cosmetic (replacing explicit re-exports with glob re-exports).
+
+**Finding: membership.rs has no public items.** All functions in `src/web/routes/federation/membership.rs` are private `async fn`. The plan assumes a `pub fn create_membership_router()` interface, but the actual file has no public API surface. The split into `invite/join/leave/knock` sub-modules may need to expose more items as `pub(crate)` than the plan anticipates. This is an implementation detail, not a plan defect — the implementer will discover and handle it.
+
+---
+
+#### Section 2: Error & Rescue Map — No issues found
+
+This is a refactoring plan. No new methods, services, or codepaths introduced. Workstream C (unwrap elimination) *improves* error handling by converting panics to `Result<T, ApiError>`. The existing error types (`ApiError::internal`, `ApiError::internal_with_log`) already have rescue paths in the Axum error handler layer. No GAPs to flag.
+
+---
+
+#### Section 3: Security & Threat Model — No issues found
+
+Examined: attack surface expansion, input validation, authorization boundaries, secrets, dependency risk, injection vectors, audit logging.
+
+**Finding: unwrap() elimination reduces DoS surface.** Every `unwrap()` in a request handler is a potential panic → 500 → connection drop. Converting 131 of these to `Result<T, ApiError>` removes 131 panic vectors from request paths. This is a security improvement, not just code quality.
+
+No new attack surface. No new endpoints, params, file paths, or background jobs. No new dependencies. AdminServices decomposition is purely structural — same fields, same types, same access patterns, different struct shape.
+
+---
+
+#### Section 4: Data Flow & Interaction Edge Cases — No issues found
+
+No new data flows. No new user interactions. All changes are structural: files split, functions re-exported, structs regrouped, unwraps converted to Results. Compilation verification (`cargo check --workspace --all-features`) after each task ensures behavioral equivalence.
+
+---
+
+#### Section 5: Dependency & Coupling — One finding
+
+**Finding: AdminServices decomposition touches many consumers.** Workstream D changes `state.services.admin.X` to `state.services.admin.subgroup.X` across all admin route handlers, middleware, and `server.rs`. This is the only workstream with cascading reference updates.
+
+- **Auto-decided (P5):** Proceed as planned. The 5 sub-struct mapping is explicit and mechanical. `grep` + sed/IDE refactor handles this cleanly. Each reference update is a single-line change. Risk is low because Rust's type checker catches every missed reference at compile time.
+
+---
+
+#### Section 6: Test & Verification Strategy — Minor gap
+
+**Finding: No integration test run after each task.** The plan runs `cargo test --test unit --features test-utils` after each task but defers integration tests to final verification (Task F1). This is pragmatic given that most tasks are file-splitting with zero behavioral change. However, Workstream C (unwrap elimination) changes error propagation paths — a missed `.map_err()` conversion could change behavior.
+
+- **Auto-decided (P3):** Accept the plan's approach. Running full integration tests after every unwrap-elimination task would add ~10 min per task without proportional benefit. The final verification gate catches any regressions. If an integration test breaks, `git bisect` across per-task commits pinpoints the cause.
+
+---
+
+#### Section 7: Rollback & Recovery — No issues found
+
+Per-workstream commits with descriptive messages make `git revert` clean and targeted. No database migrations. No config changes. No feature flags needed. Rollback is `git revert <commit>` per workstream.
+
+---
+
+#### Section 8: Observability & Monitoring — No issues found
+
+No new logs, metrics, or traces needed. The plan is behavioral no-op from an observability standpoint.
+
+---
+
+#### Section 9: Documentation & Knowledge — No issues found
+
+File splitting improves discoverability (smaller files, clearer names). No API docs changes needed — utoipa annotations move with their handler code. CLAUDE.md already documents the workspace structure.
+
+---
+
+#### Section 10: Migration & Compatibility — No issues found
+
+No API changes. No config changes. No database schema changes. All workstreams are internal refactoring. External consumers (Matrix clients, federation peers) are unaffected.
+
+---
+
+#### CEO Completion Summary
+
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Premises | 5/5 confirmed | All sound, grounded in measurable code state |
+| Scope calibration | HOLD SCOPE | Correct for cleanup — no expansion warranted |
+| Architecture | PASS | 5 independent workstreams, zero cross-dependencies |
+| Error handling | IMPROVED | 131 unwrap → Result conversions |
+| Security | IMPROVED | Panic surface reduced |
+| Test coverage | ADEQUATE | Per-task unit tests + final integration gate |
+| Rollback safety | SAFE | Per-workstream commits, no schema changes |
+| Codex | UNAVAILABLE | Binary not found — single-model review |
+
+**Phase 1 complete.** Codex: N/A. Claude: 1 finding (membership.rs private fn pattern), 1 minor gap (integration test timing). All auto-decided per principles. Passing to Phase 3.
+
+---
+
+### Phase 2: Design Review — SKIPPED
+
+No UI scope detected. Plan is pure Rust backend refactoring. Zero view/rendering terms matched.
+
+---
+
+### Phase 3: Engineering Review
+
+#### Code Verification
+
+Examined actual filesystem state against plan claims:
+
+| Plan Claim | Actual | Status |
+|------------|--------|--------|
+| Workstream A: api_doc/ 7 files | 7 files exist (`mod.rs`, `admin.rs`, `auth.rs`, `client_server.rs`, `federation.rs`, `health.rs`, `schemas.rs`) | **COMPLETE** |
+| Task B1: e2ee/ 4 files | 4 files exist (`mod.rs`, `backup.rs`, `devices.rs`, `keys.rs`) | **COMPLETE** |
+| 131 production unwrap() calls | `grep -rn '\.unwrap()' src/ --include='*.rs' \| grep -v tests/ \| grep -v '#\[cfg(test)\]' \| grep -v test_utils \| wc -l` → 131 | **CONFIRMED** |
+| 27 storage wrapper files at 4-8 lines | All 27 files exist, 4-8 lines each, `pub use synapse_storage::*` pattern | **CONFIRMED** |
+| membership.rs all private fns | Verified: no `pub fn` items in file | **FINDING** — plan assumes public router fn |
+| AdminServices 45 fields | `state.services.admin.X` pattern verified across `server.rs`, middleware, routes | **CONFIRMED** |
+
+**Discrepancy: membership.rs public API assumption.** The plan describes `pub fn create_membership_router() -> Router<AppState>` as the output interface for B2, but `src/web/routes/federation/membership.rs` has zero public items. The callers likely import the handlers directly. This doesn't block the split — the sub-modules just need appropriate `pub(crate)` visibility on handlers that other federation modules call.
+
+- **Auto-decided (P5):** No plan change needed. The implementer adjusts visibility during the split. This is a code-reading finding, not a plan defect.
+
+#### Section 1: Architecture — No additional issues
+
+CEO architecture review already covers this. ASCII dependency graph produced above. No new concerns.
+
+#### Section 2: Code Quality — No issues
+
+The plan follows existing patterns (sub-module decomposition, `Result<T, ApiError>` propagation, thin facade re-exports). No DRY violations. No naming issues. No complexity introduced — complexity is reduced in every workstream.
+
+#### Section 3: Test Review
+
+**Test plan for remaining workstreams:**
+
+| Workstream | What to test | Test type | Coverage |
+|------------|-------------|-----------|----------|
+| B2-B8 (route splitting) | Router assembly compiles, handlers accessible | `cargo check` | Compile-time |
+| B2-B8 | Unit tests pass after refactor | `cargo test --test unit` | Existing suite |
+| C1-C6 (unwrap elimination) | Each file compiles after conversion | `cargo check` | Compile-time |
+| C1-C6 | Error propagation paths unchanged | `cargo test --test unit` | Existing suite |
+| C1-C6 | No remaining production unwraps | `grep` verification | Script |
+| D1 (AdminServices) | All admin routes compile | `cargo check --workspace` | Compile-time |
+| D1 | Admin unit tests pass | `cargo test --test unit` | Existing suite |
+| E1 (storage facades) | All consumers compile | `cargo check --workspace` | Compile-time |
+| F1 (final) | Full clippy + unit + integration | `scripts/run_ci_tests.sh` | Full suite |
+
+**Gap: no targeted tests for unwrap→Result conversion correctness.** The plan relies on compilation + existing unit tests. This is adequate because:
+1. Rust's type system catches type errors at compile time
+2. `?` operator propagates errors through existing call chains
+3. The existing Axum error handler already maps `ApiError` to HTTP responses
+4. Integration tests in F1 catch behavioral regressions
+
+- **Auto-decided (P5/P6):** Accept the plan's verification strategy. Adding targeted tests for each unwrap conversion would be ideal but the compile-time guard + existing suite is sufficient given this is a cleanup, not a feature.
+
+Test plan artifact written to: `~/.gstack/projects/langkebo-synapse-rust/main-test-plan-20260625.md`
+
+#### Section 4: Performance — No issues
+
+No performance impact. File splitting and struct decomposition are compile-time only. unwrap→Result conversion has identical runtime cost (panic path becomes error path). Storage wrapper glob re-exports have identical import resolution.
+
+---
+
+#### Eng Consensus Table (single-model)
+
+```
+ENG DUAL VOICES — CONSENSUS TABLE:
+═══════════════════════════════════════════════════════════════
+  Dimension                           Claude  Codex  Consensus
+  ──────────────────────────────────── ─────── ─────── ─────────
+  1. Architecture sound?               ✓       N/A     CONFIRMED
+  2. Test coverage sufficient?         ✓       N/A     CONFIRMED
+  3. Performance risks addressed?      ✓       N/A     CONFIRMED (N/A)
+  4. Security threats covered?         ✓       N/A     CONFIRMED
+  5. Error paths handled?              ✓       N/A     CONFIRMED
+  6. Deployment risk manageable?       ✓       N/A     CONFIRMED
+═══════════════════════════════════════════════════════════════
+```
+
+**Phase 3 complete.** Codex: N/A. Claude: 1 finding (membership.rs visibility), 1 gap noted (integration test timing). All auto-decided. Passing to final gate.
+
+---
+
+### Phase 3.5: DX Review — SKIPPED
+
+No developer-facing scope detected. This is internal codebase cleanup — no new APIs, CLI, SDK, or developer tools introduced.
+
+---
+
+### Decision Audit Trail
+
+| ID | Phase | Section | Decision | Principle | Classification |
+|----|-------|---------|----------|-----------|----------------|
+| D-PREMISES | CEO | 0A | All 5 premises confirmed | N/A (user confirmed) | Premise gate |
+| D-MODE | CEO | 0F | HOLD SCOPE confirmed | P3 | Mechanical |
+| D-ALT-MACRO | CEO | 0D | Reject unwrap macro approach | P5 (explicit) | Mechanical |
+| D-ALT-COMBO | CEO | 0D | Reject single-commit approach | P5 (explicit) | Mechanical |
+| D-MEMBERSHIP | CEO | S1 | membership.rs private fn pattern — implementer handles | P5 (explicit) | Mechanical |
+| D-ADMIN-REFS | CEO | S5 | Proceed with grep/sed refactor of admin references | P5 (explicit) | Mechanical |
+| D-INTEGRATION | CEO | S6 | Accept deferred integration tests until F1 | P3 (pragmatic) | Mechanical |
+| D-TEST-GAP | Eng | S3 | Accept compile-time + existing suite for unwrap conversion | P5/P6 | Mechanical |
+
+**Zero taste decisions surfaced.** All findings were mechanical — one clearly correct answer. No borderline scope expansions. No close approaches. No Codex disagreements (Codex unavailable).
+
+**Zero user challenges.** Both models (single model in this case) agree with the plan's direction. No features to merge, split, add, or remove.
+
+---
+
+### Final Scores
+
+| Dimension | Score | Notes |
+|-----------|-------|-------|
+| Strategic alignment | 10/10 | Directly reduces technical debt measured in file size, unwrap count, struct size |
+| Scope calibration | 10/10 | HOLD SCOPE — right call for cleanup |
+| Architecture | 9/10 | Clean independent workstreams; membership.rs visibility is minor |
+| Error handling | 10/10 | 131 panic vectors eliminated |
+| Security | 10/10 | DoS surface reduced |
+| Test coverage | 8/10 | Adequate; integration tests deferred to final gate |
+| Rollback safety | 10/10 | Per-workstream commits, git revert clean |
+| Implementation feasibility | 10/10 | Well-defined tasks, existing patterns, compile-time verification |
+
+**Overall: 96/100 — APPROVED**
+
+### Implementation Tasks (remaining)
+
+Workstreams A and B1 already committed. Remaining:
+
+- [ ] B2: Split `federation/membership.rs` (1192 lines) → `membership/{invite,join,leave,knock}.rs`
+- [ ] B3: Split `room/management.rs` (1159 lines) → `management/{create,upgrade,delete}.rs`
+- [ ] B4: Split `media.rs` (1153 lines) → `media/{download,upload,thumbnail}.rs`
+- [ ] B5: Split `oidc.rs` (1124 lines) → `oidc/{callback,discovery}.rs`
+- [ ] B6: Split `handlers/search.rs` (1092 lines) → `search/{user,room}.rs`
+- [ ] B7: Split `friend_room.rs` (1054 lines) → `friend_room/{create,manage}.rs`
+- [ ] B8: Split `handlers/room/events.rs` (990 lines) → `events/{send,state,redact}.rs`
+- [ ] C1-C6: Eliminate 131 `unwrap()` calls across 19 files
+- [ ] D1: Split AdminServices (45 fields) into 5 domain sub-structs
+- [ ] E1: Reduce 27 storage wrappers to 1-line facades
+- [ ] F1: Full workspace verification (clippy + unit + integration + unwrap grep)
+
+**Estimated CC time:** ~3-4 hours for an agentic worker implementing task-by-task.
+
