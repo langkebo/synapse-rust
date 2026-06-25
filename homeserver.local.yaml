@@ -29,15 +29,11 @@ server:
   warmup_pool: true
 
 database:
-  # NOTE: 15433 is used (instead of the standard 5432) so that this dev config
-  # never collides with a system-installed PostgreSQL on port 5432, which would
-  # otherwise silently route the server to the wrong database and cause
-  # "column does not exist" errors at runtime. Override with `database.port`
-  # if your local container is published on a different port.
+  # NOTE: 15432 is the Docker-mapped port for synapse-postgres container
   host: "localhost"
-  port: 15433
+  port: 15432
   username: "synapse"
-  password: "synapse"
+  password: "d3948c491e7dfaccc848b3568bf1bee7"
   name: "synapse"
   pool_size: 10
   max_size: 20

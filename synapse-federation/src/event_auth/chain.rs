@@ -61,15 +61,17 @@ impl EventAuthChain {
     pub fn build_auth_chain_with_cache(&self, events: &HashMap<String, EventData>, event_id: &str) -> Vec<String> {
         let cache_key = format!("auth_chain:{event_id}");
 
-        let cached_result: Option<bool> = self.get_cached_auth_chain(&cache_key);
-
-        if cached_result.is_some() {
+        // Return the cached chain directly — no recomputation needed.
+        if let Some(cached_chain) = self.get_cached_auth_chain(&cache_key) {
             tracing::debug!("Auth chain cache hit for {}", event_id);
+            return cached_chain;
         }
 
         let result = self.build_auth_chain_from_events(events, event_id);
 
-        self.cache_auth_chain_result(&cache_key, !result.is_empty());
+        // Cache the full chain (not just a bool) so subsequent lookups avoid
+        // the BFS recomputation entirely.
+        self.cache_auth_chain_result(&cache_key, result.clone());
 
         result
     }

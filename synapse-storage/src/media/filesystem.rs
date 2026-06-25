@@ -70,7 +70,12 @@ impl MediaStorageBackend for FilesystemBackend {
         let mut file =
             fs::File::create(&path).await.map_err(|e| ApiError::internal_with_log("Failed to create file", &e))?;
 
-        file.write_all(data).await.map_err(|e| ApiError::internal_with_log("Failed to write file", &e))?;
+        if let Err(e) = file.write_all(data).await {
+            // Clean up the partially written file to prevent corrupted media
+            // from being served on subsequent retrievals.
+            let _ = fs::remove_file(&path).await;
+            return Err(ApiError::internal_with_log("Failed to write file", &e));
+        }
 
         Ok(())
     }
@@ -142,7 +147,10 @@ impl MediaStorageBackend for FilesystemBackend {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create thumbnail file", &e))?;
 
-        file.write_all(data).await.map_err(|e| ApiError::internal_with_log("Failed to write thumbnail", &e))?;
+        if let Err(e) = file.write_all(data).await {
+            let _ = fs::remove_file(&path).await;
+            return Err(ApiError::internal_with_log("Failed to write thumbnail", &e));
+        }
 
         Ok(())
     }

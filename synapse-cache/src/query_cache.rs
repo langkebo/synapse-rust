@@ -4,6 +4,12 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 
+/// Maximum number of distinct keys tracked in `hot_keys` before the map is
+/// cleared. This prevents unbounded memory growth in long-running servers.
+/// The value is advisory — `hot_keys` is used for cache warm-up heuristics,
+/// not for correctness, so periodically resetting it is safe.
+const HOT_KEYS_MAX_ENTRIES: usize = 10_000;
+
 #[derive(Debug, Clone)]
 pub struct CacheEntry<T> {
     pub value: T,
@@ -213,6 +219,12 @@ impl QueryCache {
                 stats.hit_rate = Self::calculate_hit_rate_direct(&stats);
                 if track_access {
                     let mut hot_keys = self.hot_keys.write().await;
+                    // Prevent unbounded growth: if the tracking map has grown
+                    // too large, reset it. This is safe because hot_keys is
+                    // advisory data for cache warm-up heuristics only.
+                    if hot_keys.len() >= HOT_KEYS_MAX_ENTRIES {
+                        hot_keys.clear();
+                    }
                     *hot_keys.entry(key.to_string()).or_insert(0) += 1;
                 }
                 return Some(entry.value.clone());
@@ -431,6 +443,9 @@ impl QueryCache {
 
         if is_hot {
             let mut hot_keys = self.hot_keys.write().await;
+            if hot_keys.len() >= HOT_KEYS_MAX_ENTRIES {
+                hot_keys.clear();
+            }
             *hot_keys.entry(key.to_string()).or_insert(0) += 1000;
         }
 

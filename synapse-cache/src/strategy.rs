@@ -55,6 +55,11 @@ impl CacheKeyBuilder {
         format!("ratelimit:ip:{ip}:{endpoint}")
     }
 
+    /// Cache key for per-origin federation rate limiting.
+    pub fn federation_origin_rate_limit(origin: &str, endpoint: &str) -> String {
+        format!("ratelimit:fed:{origin}:{endpoint}")
+    }
+
     pub fn user_not_found(user_id: &str) -> String {
         format!("user:{user_id}:not_found")
     }

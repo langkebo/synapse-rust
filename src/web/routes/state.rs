@@ -19,6 +19,10 @@ pub struct AppState {
     pub federation_inbound_edu_origin_semaphores: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     pub federation_presence_backoff_until: Arc<RwLock<HashMap<String, i64>>>,
     rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    /// Optional graceful-shutdown signal. When set, the `POST /_synapse/admin/v1/restart`
+    /// endpoint triggers it so the process manager (Docker / systemd) can restart
+    /// the homeserver cleanly.
+    pub shutdown_signal: Option<tokio::sync::broadcast::Sender<()>>,
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: Arc<synapse_storage::ai_connection::AiConnectionStorage>,
     #[cfg(feature = "openclaw-routes")]
@@ -83,6 +87,7 @@ impl AppState {
             federation_inbound_edu_origin_semaphores: Arc::new(Mutex::new(HashMap::new())),
             federation_presence_backoff_until: Arc::new(RwLock::new(HashMap::new())),
             rate_limit_config_manager: None,
+            shutdown_signal: None,
             #[cfg(feature = "openclaw-routes")]
             ai_connection_storage: Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone())),
             #[cfg(feature = "openclaw-routes")]
@@ -101,6 +106,13 @@ impl AppState {
 
     pub fn with_rate_limit_config(mut self, manager: Arc<RateLimitConfigManager>) -> Self {
         self.rate_limit_config_manager = Some(manager);
+        self
+    }
+
+    /// Wire the graceful-shutdown broadcast sender so admin endpoints
+    /// (e.g. `POST /_synapse/admin/v1/restart`) can trigger a clean exit.
+    pub fn with_shutdown_signal(mut self, shutdown_tx: tokio::sync::broadcast::Sender<()>) -> Self {
+        self.shutdown_signal = Some(shutdown_tx);
         self
     }
 

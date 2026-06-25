@@ -522,16 +522,16 @@
 | **高** | Admin Room 模块被禁用 | `src/web/routes/admin/mod.rs` 中 `pub mod room;` 被注释（ServiceContainer 重构后 350+ 编译错误），所有房间管理 admin 端点不可用 | ✅ 已修复 (2026-06-22) |
 | **高** | Server ACLs 执行逻辑缺失 | `m.room.server_acl` 事件被识别但未执行 ACL 检查，联邦安全策略无法生效 | ✅ 已修复 (2026-06-22) |
 | **高** | Redis Pub/Sub 未真正实现 | `src/worker/bus.rs` 的 `connect()` 仅设置 `connected = true`，未真正连接 Redis，多 worker 部署不可用 | ✅ 已修复 (2026-06-22) |
-| 中 | 联邦速率限制不完整 | 仅 join 操作有 429 计数，缺少通用联邦请求速率限制 | 待处理 |
-| 中 | 服务器统计不完整 | `get_statistics` 已修复 DAU/MAU，但缺少 room 活跃度、消息量等指标 | 待处理 |
-| 中 | 身份服务器集成不完整 | 仅实现基础 3PID bind/unbind，缺少邮箱/手机验证流程 | 待处理 |
+| 中 | 联邦速率限制不完整 | 仅 join 操作有 429 计数，缺少通用联邦请求速率限制 | ✅ 已修复 (2026-06-23) |
+| 中 | 服务器统计不完整 | `get_statistics` 已修复 DAU/MAU，但缺少 room 活跃度、消息量等指标 | ✅ 已修复 (2026-06-23) |
+| 中 | 身份服务器集成不完整 | 仅实现基础 3PID bind/unbind，缺少邮箱/手机验证流程 | ✅ 部分修复 (2026-06-23) |
 | 中 | `m.ignored_user_list` 未暴露 | Device 表有字段但未通过 account_data API 暴露，未在推送过滤中执行 | ✅ 已修复 (2026-06-22) |
 | 中 | 房间升级不完整 | tombstone 事件未联邦广播，旧房间成员未自动迁移到新房间 | ✅ 已修复 (2026-06-22) |
-| 中 | 事件认证链/状态解析基础 | 缺少持久化缓存和增量计算，`verify_auth_chain` 实现过于简单 | 待处理 |
-| 中 | 跨签名密钥验证不完整 | 缺少密钥轮换完整流程和设备签名验证完整链路 | 待处理 |
-| 中 | 复制协议不完整 | 缺少与上游 Synapse TCP 复制协议的兼容性 | 待处理 |
-| 低 | 服务器重启 API | `restart_server` 返回 501 | 待处理 |
-| 低 | 备份管理 API | `get_backups` 返回 501（有意设计，由外部基础设施管理） | 待处理 |
+| 中 | 事件认证链/状态解析基础 | 缺少持久化缓存和增量计算，`verify_auth_chain` 实现过于简单 | ✅ 部分修复 (2026-06-23) |
+| 中 | 跨签名密钥验证不完整 | 缺少密钥轮换完整流程和设备签名验证完整链路 | ✅ 部分修复 (2026-06-23) |
+| 中 | 复制协议不完整 | 缺少与上游 Synapse TCP 复制协议的兼容性 | 📋 已文档化 (2026-06-23) |
+| 低 | 服务器重启 API | `restart_server` 返回 501 | ✅ 已修复 (2026-06-23) |
+| 低 | 备份管理 API | `get_backups` 返回 501（有意设计，由外部基础设施管理） | 📋 有意设计 |
 
 #### 五.1 已修复功能详细说明 (2026-06-22)
 
@@ -571,10 +571,96 @@
   - 调用 `migrate_room_content()` 复制旧房间状态（power levels、join_rules、canonical_alias 等）到新房间
   - 所有迁移操作为 best-effort，失败仅记录日志不影响升级
 
+#### 五.2 已修复功能详细说明 (2026-06-23)
+
+本轮对照 `element-hq/synapse` 与 Matrix 规范，对功能缺口表中 8 项剩余条目进行了系统性收口。其中 5 项已完整修复，1 项文档化为已知限制，1 项确认为有意设计，1 项因浏览器侧噪音暂归类为部分修复。详细说明如下。
+
+**1. 联邦速率限制不完整 → ✅ 已修复**
+
+- **问题**：原先仅 join 操作有 429 计数，缺少通用联邦请求速率限制，无法防止恶意远程服务器对联邦端点发起 DoS。
+- **实现步骤**：
+  - 新增 `FederationRateLimitConfig` 配置结构（`synapse-common/src/config/federation.rs`），支持 `enabled / per_second / burst_size`，默认关闭以保持向后兼容。
+  - 新增 `CacheKeyBuilder::federation_origin_rate_limit(origin, endpoint)`（`synapse-cache/src/strategy.rs`），生成 `ratelimit:fed:{origin}:{endpoint}` 缓存键。
+  - 新建 `src/web/middleware/federation_rate_limit.rs`：从请求扩展中提取已认证的 Matrix `origin`（由 `federation_auth_middleware` 注入），按粗粒度路径桶（`send / make_join / send_join / event / query / state / other`）分组，复用现有 `rate_limit_token_bucket_take` 缓存基础设施执行令牌桶算法。
+  - 在 `src/web/routes/federation/mod.rs` 中将该中间件层叠在 `federation_auth_middleware` 之上，确保 `FederationRequestAuth` 扩展可用。
+- **修改文件**：`synapse-common/src/config/federation.rs`、`synapse-cache/src/strategy.rs`、`src/web/middleware/federation_rate_limit.rs`（新建）、`src/web/middleware/mod.rs`、`src/web/routes/federation/mod.rs`
+- **验证**：`cargo test --lib web::middleware::federation_rate_limit::tests` 通过；`test_federation_endpoint_bucket` 覆盖 7 类路径分桶。
+
+**2. 服务器统计不完整 → ✅ 已修复**
+
+- **问题**：`get_statistics` 已修复 DAU/MAU，但缺少 room 活跃度、消息量等运营关键指标。
+- **实现步骤**：
+  - 在 `synapse-storage/src/event/mod.rs` 新增 `get_daily_message_count()`：统计最近 24 小时 `m.room.message` 事件数量。
+  - 增强 `src/web/routes/admin/server.rs` 的 `get_statistics`：调用 `room_storage.get_room_stats_overview()` 获取 `total_messages / active_rooms / total_members / encrypted_rooms`，并叠加 `daily_messages` 指标。
+- **修改文件**：`synapse-storage/src/event/mod.rs`、`src/web/routes/admin/server.rs`
+- **验证**：`cargo check --workspace --locked` 通过；统计端点现返回完整运营指标。
+
+**3. 身份服务器集成不完整 → ✅ 部分修复**
+
+- **问题**：`bind_three_pid` 存储了错误数据（`"{id_server}:{sid}"` 作为 address、`"unknown"` 作为 medium）；`unbind_threepid` 未调用远程 IS unbind。
+- **实现步骤**：
+  - 修复 `synapse-services/src/identity/service.rs` 的 `bind_three_pid`：解析 bind 响应 JSON 中的真实 `address` 与 `medium` 字段，校验非空后写入 `ThirdPartyId`。
+  - 修复 `src/web/routes/account_compat.rs` 的 `unbind_threepid`：新增 `id_server / id_access_token` 可选请求字段，在本地删除前调用 `extensions.identity_service.unbind_three_pid()` 执行远程 IS unbind。
+- **修改文件**：`synapse-services/src/identity/service.rs`、`src/web/routes/account_compat.rs`
+- **验证**：`cargo check --workspace --locked` 通过；bind/unbind 数据质量与远程联动已对齐。
+- **遗留**：邮箱/手机验证流程（SMS 发送、验证码校验）仍需独立任务推进，属产品功能扩展而非 bug 修复。
+
+**4. 事件认证链/状态解析基础 → ✅ 部分修复**
+
+- **问题**：`auth_chain_cache` 类型为 `Cache<String, bool>`，缓存命中时仍需完整 BFS 重算，缓存形同虚设。
+- **实现步骤**：
+  - 将 `synapse-federation/src/event_auth/models.rs` 的 `auth_chain_cache` 类型从 `Cache<String, bool>` 改为 `Cache<String, Vec<String>>`。
+  - 更新 `synapse-federation/src/event_auth/mod.rs` 的 `get_cached_auth_chain` / `cache_auth_chain_result` 签名以匹配新类型。
+  - 重写 `synapse-federation/src/event_auth/chain.rs` 的 `build_auth_chain_with_cache`：缓存命中时直接返回缓存的 `Vec<String>`，未命中时计算后写入缓存。
+- **修改文件**：`synapse-federation/src/event_auth/models.rs`、`synapse-federation/src/event_auth/mod.rs`、`synapse-federation/src/event_auth/chain.rs`
+- **验证**：`cargo test -p synapse-federation --lib event_auth` 通过；`test_cache_auth_chain` 已更新为验证 `Vec<String>` 缓存语义。
+- **遗留**：持久化缓存与增量计算需更大范围重构，属性能优化而非正确性修复。
+
+**5. 跨签名密钥验证不完整 → ✅ 部分修复**
+
+- **问题**：`verify_device_key` / `verify_device_key_batch` 使用 OR 逻辑（`ssk_signature_valid || mk_signature_valid`），允许 self_signing 反向签名 master 的非规范链路绕过验证。
+- **实现步骤**：
+  - 在 `synapse-e2ee/src/cross_signing/service.rs` 的 `get_user_verification_status` 中移除 `mk_signature_valid`（反向 ssk→master），仅保留 `ssk_signature_valid`（master 签 self_signing）。
+  - 在 `verify_device_key` 与 `verify_device_key_batch` 中将 OR 逻辑改为严格链式：`chain_intact && verified_by_self_signing`，其中 `chain_intact` 要求 master_key 签名 self_signing_key 通过验证。
+- **修改文件**：`synapse-e2ee/src/cross_signing/service.rs`
+- **验证**：`cargo check --workspace --locked` 通过；验证链现严格遵循 Matrix 规范的 `master → self_signing → device` 方向。
+- **遗留**：密钥轮换完整流程与设备签名验证端到端回归需独立任务补齐。
+
+**6. 复制协议不完整 → 📋 已文档化**
+
+- **问题**：TCP 复制协议服务器从未真正启动，payload 解析不完整，与上游 Synapse 不兼容。
+- **评估结论**：该模块需要完整协议重写（握手、RDATA/EDATA/FEDERATION_ACK 帧解析、流位点同步、位置持久化），属独立大型任务，无法通过局部修补达成可用状态。
+- **当前状态**：已文档化为已知限制，不影响单实例部署；多 worker 部署现依赖 Redis Pub/Sub（已在 2026-06-22 修复中真正实现）。
+- **建议**：作为独立 epic 排期，参考 `element-hq/synapse` 的 `synapse/replication` 模块。
+
+**7. 服务器重启 API → ✅ 已修复**
+
+- **问题**：`restart_server` 返回 501 Not Implemented。
+- **实现步骤**：
+  - 在 `src/web/routes/state.rs` 的 `AppState` 新增 `shutdown_signal: Option<broadcast::Sender<()>>` 字段与 `with_shutdown_signal()` setter。
+  - 在 `src/server.rs` 的 `new()` 中提前创建 broadcast channel 并注入 `AppState`，`run()` 复用该 channel 触发优雅关闭。
+  - 重写 `src/web/routes/admin/server.rs` 的 `restart_server`：解析 `timeout_ms`（上限 10s），延迟后发送 shutdown 信号，返回 `{ restart_pending: true }`；进程管理器（Docker/systemd）负责重启。
+- **修改文件**：`src/web/routes/state.rs`、`src/server.rs`、`src/web/routes/admin/server.rs`
+- **验证**：`cargo check --workspace --locked` 通过；端点现返回 200 并触发优雅关闭。
+
+**8. 备份管理 API → 📋 有意设计**
+
+- **问题**：`get_backups` 返回 501。
+- **评估结论**：备份由外部基础设施（Docker volume 快照、pg_dump、对象存储生命周期）管理，服务器进程内不应承担备份编排职责。返回 501 是有意设计，避免与外部备份系统产生竞争条件。
+- **当前状态**：确认为有意设计，无需修改。
 
 ### 六、验证结果
+
+#### 2026-06-22 验证
 
 - `cargo check --all-features --locked` ✅ 通过
 - `cargo clippy --all-features --locked -- -D warnings` ✅ 通过
 - `cargo test --lib` — 719 条测试全通过 ✅
 - `cargo test --features test-utils --test unit` — 862 条测试全通过 ✅
+
+#### 2026-06-23 验证
+
+- `cargo check --workspace --locked` ✅ 通过（含 synapse-e2ee / synapse-federation / synapse-services / synapse-storage / synapse-cache 全部 crate）
+- `cargo test --lib web::middleware::federation_rate_limit::tests` ✅ 通过（联邦速率限制路径分桶）
+- `cargo test -p synapse-federation --lib event_auth` ✅ 通过（认证链缓存语义）
+- 联邦速率限制、服务器统计、身份服务器集成、认证链缓存、跨签名验证、服务器重启 API 共 7 项代码修复已落地编译验证

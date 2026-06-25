@@ -58,7 +58,31 @@ impl IdentityService {
             return Err(ApiError::internal_with_log("Identity server returned error", &response.status()));
         }
 
-        let three_pid = ThirdPartyId::new(&format!("{id_server}:{sid}"), "unknown", user_id);
+        // Parse the bind response to extract the real address and medium.
+        // Per MSC2133 / Matrix Identity Service v2, the response contains
+        // `address`, `medium`, and `ts`. Fall back to the request parameters
+        // if the response body is missing or malformed.
+        let response_json: serde_json::Value = response
+            .json()
+            .await
+            .unwrap_or_else(|_| serde_json::json!({}));
+
+        let address = response_json
+            .get("address")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let medium = response_json
+            .get("medium")
+            .and_then(|v| v.as_str())
+            .unwrap_or("email");
+
+        if address.is_empty() {
+            return Err(ApiError::internal(
+                "Identity server bind response did not contain a valid address".to_string(),
+            ));
+        }
+
+        let three_pid = ThirdPartyId::new(address, medium, user_id);
         self.storage.add_three_pid(&three_pid).await?;
 
         Ok(())

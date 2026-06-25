@@ -726,6 +726,21 @@ impl EventStorage {
         Ok(count)
     }
 
+    /// Count `m.room.message` events sent in the last 24 hours.
+    pub async fn get_daily_message_count(&self) -> Result<i64, sqlx::Error> {
+        let cutoff = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
+        let count = sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COALESCE(COUNT(*), 0) FROM events
+            WHERE event_type = 'm.room.message' AND origin_server_ts >= $1
+            ",
+        )
+        .bind(cutoff)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
+
     pub async fn delete_room_events(&self, room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"

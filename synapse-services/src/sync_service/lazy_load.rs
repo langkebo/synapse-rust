@@ -1,5 +1,5 @@
 use super::types::*;
-use super::SyncService;
+use super::{SyncService, LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES};
 use crate::*;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -27,6 +27,12 @@ impl SyncService {
         };
 
         let mut cache = self.lazy_loaded_members_cache.write().await;
+        // Prevent unbounded growth: clear the cache when it exceeds the limit.
+        // This is safe because the cache is an optimization — the database
+        // remains the source of truth for lazy-loaded members.
+        if cache.len() >= LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES {
+            cache.clear();
+        }
         cache.insert(cache_key, known_members.clone());
         known_members
     }
@@ -79,6 +85,10 @@ impl SyncService {
 
         if !known_now.is_empty() {
             let mut cache = self.lazy_loaded_members_cache.write().await;
+            // Enforce the same capacity limit as the insert path.
+            if cache.len() >= LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES {
+                cache.clear();
+            }
             cache.entry(cache_key).or_default().extend(known_now.iter().cloned());
         }
         self.persist_lazy_loaded_members(user_id, device_id, room_id, &known_now).await;

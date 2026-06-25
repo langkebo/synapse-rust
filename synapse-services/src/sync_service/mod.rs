@@ -38,6 +38,13 @@ pub struct SyncService {
     pub(crate) performance: synapse_common::config::PerformanceConfig,
 }
 
+/// Maximum number of (user, device, room) entries kept in the in-memory
+/// lazy-loaded members cache before the map is cleared. This prevents
+/// unbounded memory growth in long-running servers with many users/rooms.
+/// The cache is an optimization to avoid repeated DB lookups; clearing it
+/// only causes a temporary increase in database queries.
+const LAZY_LOADED_MEMBERS_CACHE_MAX_ENTRIES: usize = 50_000;
+
 impl SyncService {
     const TIMESTAMP_TOKEN_MIN: i64 = 1_000_000_000_000;
 

@@ -7,12 +7,12 @@ pub use models::*;
 use std::collections::{HashMap, VecDeque};
 
 impl EventAuthChain {
-    pub fn get_cached_auth_chain(&self, event_id: &str) -> Option<bool> {
+    pub fn get_cached_auth_chain(&self, event_id: &str) -> Option<Vec<String>> {
         self.auth_chain_cache.get(event_id)
     }
 
-    pub fn cache_auth_chain_result(&self, event_id: &str, result: bool) {
-        self.auth_chain_cache.insert(event_id.to_string(), result);
+    pub fn cache_auth_chain_result(&self, event_id: &str, chain: Vec<String>) {
+        self.auth_chain_cache.insert(event_id.to_string(), chain);
     }
 
     pub fn get_cached_depth(&self, event_id: &str) -> Option<i64> {
@@ -183,9 +183,10 @@ mod tests {
         let result = chain.get_cached_auth_chain("$test");
         assert!(result.is_none());
 
-        chain.cache_auth_chain_result("$test", true);
+        let test_chain = vec!["$event1".to_string(), "$event2".to_string()];
+        chain.cache_auth_chain_result("$test", test_chain.clone());
         let result = chain.get_cached_auth_chain("$test");
-        assert_eq!(result, Some(true));
+        assert_eq!(result, Some(test_chain));
     }
 
     #[test]
