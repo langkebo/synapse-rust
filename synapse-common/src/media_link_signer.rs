@@ -150,4 +150,154 @@ mod tests {
 
         assert!(!signer.verify(path, signature, past_expires));
     }
+
+    #[test]
+    fn test_verify_rejects_different_key() {
+        let signer1 = MediaLinkSigner::new(b"key-one-32-bytes-xxxxxxxxxxxxx", 3600);
+        let signer2 = MediaLinkSigner::new(b"key-two-32-bytes-xxxxxxxxxxxxx", 3600);
+        let path = "example.com/abc123";
+        let query = signer1.sign(path);
+
+        let params: std::collections::HashMap<_, _> = query
+            .split('&')
+            .filter_map(|p| {
+                let mut parts = p.splitn(2, '=');
+                Some((parts.next()?.to_string(), parts.next()?.to_string()))
+            })
+            .collect();
+
+        let signature = params.get("signature").unwrap();
+        let expires: u64 = params.get("expires").unwrap().parse().unwrap();
+
+        assert!(!signer2.verify(path, signature, expires));
+    }
+
+    #[test]
+    fn test_different_keys_produce_different_signatures() {
+        let signer1 = MediaLinkSigner::new(b"key-one-32-bytes-xxxxxxxxxxxxx", 3600);
+        let signer2 = MediaLinkSigner::new(b"key-two-32-bytes-xxxxxxxxxxxxx", 3600);
+        let path = "example.com/abc123";
+
+        let query1 = signer1.sign(path);
+        let query2 = signer2.sign(path);
+
+        let sig1 = query1.split('&').next().unwrap();
+        let sig2 = query2.split('&').next().unwrap();
+
+        assert_ne!(sig1, sig2);
+    }
+
+    #[test]
+    fn test_verify_empty_signature() {
+        let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
+        let path = "example.com/abc123";
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        assert!(!signer.verify(path, "", now));
+    }
+
+    #[test]
+    fn test_verify_empty_path() {
+        let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
+        let path = "";
+        let query = signer.sign(path);
+
+        let params: std::collections::HashMap<_, _> = query
+            .split('&')
+            .filter_map(|p| {
+                let mut parts = p.splitn(2, '=');
+                Some((parts.next()?.to_string(), parts.next()?.to_string()))
+            })
+            .collect();
+
+        let signature = params.get("signature").unwrap();
+        let expires: u64 = params.get("expires").unwrap().parse().unwrap();
+
+        assert!(signer.verify(path, signature, expires));
+    }
+
+    #[test]
+    fn test_sign_and_verify_different_paths() {
+        let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
+
+        let paths =
+            vec!["example.com/abc123", "matrix.org/xyz789", "server.test/media-id", "example.com/path/with/slashes"];
+
+        for path in &paths {
+            let query = signer.sign(path);
+            let params: std::collections::HashMap<_, _> = query
+                .split('&')
+                .filter_map(|p| {
+                    let mut parts = p.splitn(2, '=');
+                    Some((parts.next()?.to_string(), parts.next()?.to_string()))
+                })
+                .collect();
+
+            let signature = params.get("signature").unwrap();
+            let expires: u64 = params.get("expires").unwrap().parse().unwrap();
+
+            assert!(signer.verify(path, signature, expires));
+        }
+    }
+
+    #[test]
+    fn test_sign_different_ttl_produces_different_expiry() {
+        let signer_short = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 60);
+        let signer_long = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 86400);
+        let path = "example.com/abc123";
+
+        let query_short = signer_short.sign(path);
+        let query_long = signer_long.sign(path);
+
+        let expires_short: u64 = query_short.split('&').nth(1).unwrap().split('=').nth(1).unwrap().parse().unwrap();
+        let expires_long: u64 = query_long.split('&').nth(1).unwrap().split('=').nth(1).unwrap().parse().unwrap();
+
+        assert!(expires_long > expires_short);
+    }
+
+    #[test]
+    fn test_verify_expires_exactly_now() {
+        let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
+        let path = "example.com/abc123";
+        let query = signer.sign(path);
+
+        let params: std::collections::HashMap<_, _> = query
+            .split('&')
+            .filter_map(|p| {
+                let mut parts = p.splitn(2, '=');
+                Some((parts.next()?.to_string(), parts.next()?.to_string()))
+            })
+            .collect();
+
+        let signature = params.get("signature").unwrap();
+        let expires: u64 = params.get("expires").unwrap().parse().unwrap();
+
+        assert!(signer.verify(path, signature, expires));
+        assert!(!signer.verify(path, signature, expires.saturating_sub(1)));
+    }
+
+    #[test]
+    fn test_default_ttl_constant() {
+        assert_eq!(DEFAULT_MEDIA_LINK_TTL_SECS, 86400);
+    }
+
+    #[test]
+    fn test_sign_and_verify_with_long_path() {
+        let signer = MediaLinkSigner::new(b"test-secret-key-32-bytes-xxxxx", 3600);
+        let path = "very-long-server-name.example.com/very-long-media-id-with-many-characters-1234567890";
+
+        let query = signer.sign(path);
+        let params: std::collections::HashMap<_, _> = query
+            .split('&')
+            .filter_map(|p| {
+                let mut parts = p.splitn(2, '=');
+                Some((parts.next()?.to_string(), parts.next()?.to_string()))
+            })
+            .collect();
+
+        let signature = params.get("signature").unwrap();
+        let expires: u64 = params.get("expires").unwrap().parse().unwrap();
+
+        assert!(signer.verify(path, signature, expires));
+    }
 }
