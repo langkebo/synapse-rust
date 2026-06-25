@@ -1,5 +1,6 @@
 pub mod client;
 pub mod device_sync;
+pub mod edu;
 pub mod event_auth;
 pub mod event_broadcaster;
 #[cfg(feature = "friends")]
