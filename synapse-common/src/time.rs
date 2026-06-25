@@ -73,4 +73,25 @@ mod tests {
 
         assert!(calculate_ttl(None).is_none());
     }
+
+    #[test]
+    fn test_calculate_ttl_expired() {
+        let ttl = calculate_ttl(Some(current_timestamp_millis() - 10000));
+        assert_eq!(ttl, Some(0));
+    }
+
+    #[test]
+    fn test_parse_stream_token_edge_cases() {
+        assert_eq!(parse_stream_token(""), None);
+        assert_eq!(parse_stream_token("t"), None);
+        assert_eq!(parse_stream_token("tabc"), None);
+        assert_eq!(parse_stream_token("t-123"), Some(-123));
+    }
+
+    #[test]
+    fn test_generate_stream_token_from_ts_none() {
+        let token = generate_stream_token_from_ts(None);
+        assert!(token.starts_with('t'));
+        assert!(token.len() > 1);
+    }
 }
