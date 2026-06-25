@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. 初始化全局日志与追踪
     if let Err(e) =
-        synapse_rust::common::logging::init_logging(&config.logging, Some(telemetry_service.clone()), tracer_provider)
+        synapse_rust::common::logging::init_logging(&config.logging, tracer_provider)
     {
         eprintln!("Failed to initialize logging: {e}");
         std::process::exit(1);

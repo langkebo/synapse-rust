@@ -1,7 +1,5 @@
 use crate::common::config::LoggingConfig;
-use crate::services::telemetry_service::TelemetryService;
 use opentelemetry_sdk::trace::SdkTracerProvider as TracerProvider;
-use std::sync::Arc;
 use synapse_common::tracing::RequestIdPropagationLayer;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
@@ -11,7 +9,6 @@ use tracing_subscriber::{fmt, EnvFilter, Registry};
 /// 初始化日志与追踪系统
 pub fn init_logging(
     config: &LoggingConfig,
-    _telemetry_service: Option<Arc<TelemetryService>>,
     tracer_provider: Option<TracerProvider>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 1. 设置环境过滤器。
