@@ -424,9 +424,9 @@ mod e2e_tests {
             let client = Client::new();
             let mxc = upload_response.content_uri.trim_start_matches("mxc://");
             let mut parts = mxc.split('/');
-            let server_name = parts
-                .next()
-                .unwrap_or_else(|| panic!("mxc:// must include server_name, content_uri={}", upload_response.content_uri));
+            let server_name = parts.next().unwrap_or_else(|| {
+                panic!("mxc:// must include server_name, content_uri={}", upload_response.content_uri)
+            });
             let media_id = parts.next().unwrap_or(upload_response.media_id.as_str());
 
             let response = client

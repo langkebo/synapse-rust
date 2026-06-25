@@ -418,12 +418,9 @@ mod smtp_smoke_tests {
     #[test]
     fn test_email_job_message_building() {
         // Verify that a valid email message can be constructed
-        let from: Mailbox = "noreply@example.com"
-            .parse()
-            .unwrap_or_else(|e| panic!("valid from address parse failed: {e}"));
-        let to: Mailbox = "user@example.com"
-            .parse()
-            .unwrap_or_else(|e| panic!("valid to address parse failed: {e}"));
+        let from: Mailbox =
+            "noreply@example.com".parse().unwrap_or_else(|e| panic!("valid from address parse failed: {e}"));
+        let to: Mailbox = "user@example.com".parse().unwrap_or_else(|e| panic!("valid to address parse failed: {e}"));
         let message = Message::builder()
             .from(from)
             .to(to)
@@ -437,36 +434,23 @@ mod smtp_smoke_tests {
 
     #[tokio::test]
     async fn test_process_send_email_job_smoke_against_fake_smtp_server() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap_or_else(|e| panic!("bind fake smtp listener: {e}"));
-        let port = listener
-            .local_addr()
-            .unwrap_or_else(|e| panic!("read fake smtp addr: {e}"))
-            .port();
+        let listener =
+            TcpListener::bind("127.0.0.1:0").await.unwrap_or_else(|e| panic!("bind fake smtp listener: {e}"));
+        let port = listener.local_addr().unwrap_or_else(|e| panic!("read fake smtp addr: {e}")).port();
 
         let server = tokio::spawn(async move {
-            let (stream, _) = listener
-                .accept()
-                .await
-                .unwrap_or_else(|e| panic!("accept smtp client: {e}"));
+            let (stream, _) = listener.accept().await.unwrap_or_else(|e| panic!("accept smtp client: {e}"));
             let (reader, mut writer) = stream.into_split();
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
             let mut data_mode = false;
             let mut message = String::new();
 
-            writer
-                .write_all(b"220 localhost ESMTP test\r\n")
-                .await
-                .unwrap_or_else(|e| panic!("write greeting: {e}"));
+            writer.write_all(b"220 localhost ESMTP test\r\n").await.unwrap_or_else(|e| panic!("write greeting: {e}"));
 
             loop {
                 line.clear();
-                let read = reader
-                    .read_line(&mut line)
-                    .await
-                    .unwrap_or_else(|e| panic!("read smtp line: {e}"));
+                let read = reader.read_line(&mut line).await.unwrap_or_else(|e| panic!("read smtp line: {e}"));
                 if read == 0 {
                     break;
                 }
@@ -474,10 +458,7 @@ mod smtp_smoke_tests {
                 if data_mode {
                     if line == ".\r\n" || line == ".\n" {
                         data_mode = false;
-                        writer
-                            .write_all(b"250 queued\r\n")
-                            .await
-                            .unwrap_or_else(|e| panic!("ack DATA: {e}"));
+                        writer.write_all(b"250 queued\r\n").await.unwrap_or_else(|e| panic!("ack DATA: {e}"));
                     } else {
                         message.push_str(&line);
                     }
@@ -490,10 +471,7 @@ mod smtp_smoke_tests {
                         .await
                         .unwrap_or_else(|e| panic!("reply ehlo: {e}"));
                 } else if line.starts_with("MAIL FROM:") || line.starts_with("RCPT TO:") {
-                    writer
-                        .write_all(b"250 OK\r\n")
-                        .await
-                        .unwrap_or_else(|e| panic!("ack envelope: {e}"));
+                    writer.write_all(b"250 OK\r\n").await.unwrap_or_else(|e| panic!("ack envelope: {e}"));
                 } else if line.starts_with("DATA") {
                     data_mode = true;
                     writer
@@ -501,16 +479,10 @@ mod smtp_smoke_tests {
                         .await
                         .unwrap_or_else(|e| panic!("ack data: {e}"));
                 } else if line.starts_with("QUIT") {
-                    writer
-                        .write_all(b"221 Bye\r\n")
-                        .await
-                        .unwrap_or_else(|e| panic!("ack quit: {e}"));
+                    writer.write_all(b"221 Bye\r\n").await.unwrap_or_else(|e| panic!("ack quit: {e}"));
                     break;
                 } else {
-                    writer
-                        .write_all(b"250 OK\r\n")
-                        .await
-                        .unwrap_or_else(|e| panic!("ack generic: {e}"));
+                    writer.write_all(b"250 OK\r\n").await.unwrap_or_else(|e| panic!("ack generic: {e}"));
                 }
             }
 
@@ -525,8 +497,7 @@ mod smtp_smoke_tests {
             tls: false,
             ..Default::default()
         };
-        let mailer =
-            Arc::new(build_smtp_mailer(&config).unwrap_or_else(|e| panic!("build fake smtp mailer: {e}")));
+        let mailer = Arc::new(build_smtp_mailer(&config).unwrap_or_else(|e| panic!("build fake smtp mailer: {e}")));
 
         process_send_email_job(Some(mailer), &config.from, "user@example.com", "Smoke Test Subject", "Smoke Test Body")
             .await

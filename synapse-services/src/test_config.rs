@@ -8,8 +8,8 @@
 use synapse_common::config::Config;
 use synapse_common::config::{
     AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, FederationRateLimitConfig,
-    PostgresFtsConfig, RateLimitConfig,
-    RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
+    PostgresFtsConfig, RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig,
+    WorkerConfig,
 };
 
 /// Returns the test database URL from environment or default

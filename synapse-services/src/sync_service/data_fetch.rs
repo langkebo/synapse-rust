@@ -342,10 +342,8 @@ impl SyncService {
             return Ok(Vec::new());
         }
 
-        let filter = synapse_storage::EventQueryFilter {
-            types: Some(vec!["m.room.member".to_string()]),
-            ..Default::default()
-        };
+        let filter =
+            synapse_storage::EventQueryFilter { types: Some(vec!["m.room.member".to_string()]), ..Default::default() };
         let membership_events_by_room = self
             .event_storage
             .get_room_events_since_stream_batch_filtered(&room_ids, since_token.stream_id, 1000, &filter)
@@ -443,10 +441,8 @@ impl SyncService {
             }
         }
 
-        let mut left: Vec<String> = left_candidates
-            .into_iter()
-            .filter(|candidate| !current_shared_users.contains(candidate))
-            .collect();
+        let mut left: Vec<String> =
+            left_candidates.into_iter().filter(|candidate| !current_shared_users.contains(candidate)).collect();
         left.sort();
         left.dedup();
         Ok(left)

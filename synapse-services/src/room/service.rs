@@ -165,10 +165,7 @@ impl RoomService {
         *self.event_broadcaster.write().await = Some(event_broadcaster);
     }
 
-    pub async fn set_key_rotation_manager(
-        &self,
-        key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
-    ) {
+    pub async fn set_key_rotation_manager(&self, key_rotation_manager: Arc<synapse_federation::KeyRotationManager>) {
         *self.key_rotation_manager.write().await = Some(key_rotation_manager);
     }
 

@@ -1280,11 +1280,7 @@ impl EventStorage {
     /// by `origin_server_ts DESC`.  Used to seed outbound `/backfill` requests
     /// — the caller passes these IDs as the `v=` query parameters so the
     /// remote server knows which point in the DAG to walk backwards from.
-    pub async fn get_latest_event_ids_in_room(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    pub async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
         let rows: Vec<(String,)> = sqlx::query_as(
             r"
             SELECT event_id FROM events

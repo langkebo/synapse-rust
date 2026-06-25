@@ -43,23 +43,17 @@ pub async fn federation_rate_limit_middleware(
     let endpoint_bucket = federation_endpoint_bucket(path);
 
     let redis_prefix = state.services.core.config.redis.key_prefix.as_str();
-    let cache_key = format!(
-        "{}{}",
-        redis_prefix,
-        CacheKeyBuilder::federation_origin_rate_limit(origin, endpoint_bucket)
-    );
+    let cache_key =
+        format!("{}{}", redis_prefix, CacheKeyBuilder::federation_origin_rate_limit(origin, endpoint_bucket));
 
-    let decision = match state
-        .cache
-        .rate_limit_token_bucket_take(&cache_key, config.per_second, config.burst_size)
-        .await
-    {
-        Ok(d) => d,
-        Err(e) => {
-            tracing::warn!("Federation rate limiter error, allowing request: {}", e);
-            return next.run(request).await;
-        }
-    };
+    let decision =
+        match state.cache.rate_limit_token_bucket_take(&cache_key, config.per_second, config.burst_size).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("Federation rate limiter error, allowing request: {}", e);
+                return next.run(request).await;
+            }
+        };
 
     if !decision.allowed {
         let retry_after_ms = decision.retry_after_seconds.saturating_mul(1000);

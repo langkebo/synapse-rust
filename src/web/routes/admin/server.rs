@@ -137,15 +137,11 @@ pub async fn restart_server(
 ) -> Result<Json<Value>, ApiError> {
     // Optional graceful shutdown delay (ms). Defaults to 100ms to let the
     // HTTP response flush before the process exits.
-    let delay_ms = body
-        .get("timeout_ms")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100)
-        .min(10_000);
+    let delay_ms = body.get("timeout_ms").and_then(|v| v.as_u64()).unwrap_or(100).min(10_000);
 
-    let shutdown_tx = state.shutdown_signal.ok_or_else(|| {
-        ApiError::internal("Shutdown signal is not wired into AppState; restart is unavailable")
-    })?;
+    let shutdown_tx = state
+        .shutdown_signal
+        .ok_or_else(|| ApiError::internal("Shutdown signal is not wired into AppState; restart is unavailable"))?;
 
     // Send the shutdown signal in a background task after a short delay so
     // this handler can return a success response first.
@@ -169,20 +165,8 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_rooms = state.services.rooms.room_service.get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
-    let daily_active_users = state
-        .services
-        .account
-        .user_storage
-        .get_daily_active_users()
-        .await
-        .unwrap_or(0);
-    let monthly_active_users = state
-        .services
-        .account
-        .user_storage
-        .get_monthly_active_users()
-        .await
-        .unwrap_or(0);
+    let daily_active_users = state.services.account.user_storage.get_daily_active_users().await.unwrap_or(0);
+    let monthly_active_users = state.services.account.user_storage.get_monthly_active_users().await.unwrap_or(0);
     let r30_users = state.services.account.user_storage.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.
@@ -195,13 +179,7 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
     let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let daily_messages = state
-        .services
-        .rooms
-        .event_storage
-        .get_daily_message_count()
-        .await
-        .unwrap_or(0);
+    let daily_messages = state.services.rooms.event_storage.get_daily_message_count().await.unwrap_or(0);
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
@@ -352,20 +330,13 @@ pub async fn get_experimental_features(
         cursor_updated_ts: None,
         cursor_flag_key: None,
     };
-    let (flags, total) = state
-        .services
-        .admin
-        .feature_flag_service
-        .list_flags(filters)
-        .await?;
+    let (flags, total) = state.services.admin.feature_flag_service.list_flags(filters).await?;
 
     let features: serde_json::Map<String, Value> = flags
         .iter()
         .map(|flag| {
-            let enabled = matches!(
-                flag.status.as_str(),
-                "active" | "fully_enabled" | "ramping"
-            ) && flag.rollout_percent > 0;
+            let enabled =
+                matches!(flag.status.as_str(), "active" | "fully_enabled" | "ramping") && flag.rollout_percent > 0;
             (flag.flag_key.clone(), Value::Bool(enabled))
         })
         .collect();

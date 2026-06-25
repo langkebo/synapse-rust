@@ -151,12 +151,7 @@ impl SecretStorageService {
         self.storage.create_key(&storage_key).await
     }
 
-    pub async fn store_account_data_key(
-        &self,
-        user_id: &str,
-        key_id: &str,
-        content: &Value,
-    ) -> Result<(), ApiError> {
+    pub async fn store_account_data_key(&self, user_id: &str, key_id: &str, content: &Value) -> Result<(), ApiError> {
         let algorithm = content
             .get("algorithm")
             .and_then(Value::as_str)

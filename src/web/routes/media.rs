@@ -28,9 +28,7 @@ fn create_media_legacy_download_router() -> Router<AppState> {
 }
 
 fn create_media_modern_upload_router() -> Router<AppState> {
-    Router::new()
-        .route("/upload", post(upload_media_v3))
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+    Router::new().route("/upload", post(upload_media_v3)).layer(DefaultBodyLimit::max(50 * 1024 * 1024))
 }
 
 fn create_media_v1_router() -> Router<AppState> {
@@ -349,7 +347,9 @@ fn encode_rfc5987(value: &str) -> String {
     value
         .chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~') {
+            if c.is_ascii_alphanumeric()
+                || matches!(c, '!' | '#' | '$' | '&' | '+' | '-' | '.' | '^' | '_' | '`' | '|' | '~')
+            {
                 c.to_string()
             } else {
                 format!("%{:02X}", c as u32)
@@ -358,7 +358,11 @@ fn encode_rfc5987(value: &str) -> String {
         .collect()
 }
 
-fn build_proxy_media_headers(content_type: String, content_length: usize, filename: Option<&str>) -> crate::services::media::MediaResponseHeaders {
+fn build_proxy_media_headers(
+    content_type: String,
+    content_length: usize,
+    filename: Option<&str>,
+) -> crate::services::media::MediaResponseHeaders {
     let primary_type = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     let inline_safe = SAFE_INLINE_MEDIA_TYPES.iter().any(|safe| *safe == primary_type);
     let disposition_kind = if inline_safe { "inline" } else { "attachment" };
@@ -398,17 +402,12 @@ async fn fetch_remote_media_via_federation(
     response_filename: Option<&str>,
 ) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
     let federation_client = state.services.federation.federation_client.clone();
-    let resp = federation_client
-        .media_download(server_name, server_name, media_id)
-        .await
-        .map_err(ApiError::from)?;
+    let resp = federation_client.media_download(server_name, server_name, media_id).await.map_err(ApiError::from)?;
 
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(ApiError::not_found(format!(
-            "Remote media fetch failed: {status} {body}"
-        )));
+        return Err(ApiError::not_found(format!("Remote media fetch failed: {status} {body}")));
     }
 
     let content_type = resp
@@ -417,11 +416,8 @@ async fn fetch_remote_media_via_federation(
         .and_then(|v| v.to_str().ok())
         .map_or_else(|| "application/octet-stream".to_string(), |s| s.to_string());
 
-    let content = resp
-        .bytes()
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to read remote media body: {e}")))?
-        .to_vec();
+    let content =
+        resp.bytes().await.map_err(|e| ApiError::internal(format!("Failed to read remote media body: {e}")))?.to_vec();
 
     let headers = build_proxy_media_headers(content_type, content.len(), response_filename);
     Ok(crate::services::media::MediaResponsePayload { content, headers })
@@ -445,9 +441,7 @@ async fn fetch_remote_thumbnail_via_federation(
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(ApiError::not_found(format!(
-            "Remote thumbnail fetch failed: {status} {body}"
-        )));
+        return Err(ApiError::not_found(format!("Remote thumbnail fetch failed: {status} {body}")));
     }
 
     let content_type = resp

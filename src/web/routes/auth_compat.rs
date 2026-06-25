@@ -554,9 +554,5 @@ pub(crate) async fn login_fallback_page(
 /// Escape HTML special characters to prevent XSS when inserting untrusted
 /// strings (e.g. SSO provider names) into HTML templates.
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#x27;")
 }

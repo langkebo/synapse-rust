@@ -1674,16 +1674,13 @@ async fn test_send_receipt_accepts_unknown_event_id_as_noop() {
 
     let token =
         register_user(&app, &format!("receipt_unknown_{}", rand::random::<u32>())).await.expect("user should register");
-    let room_id = create_room(&app, &token, "Receipt Unknown Event Compatibility").await.expect("room should be created");
+    let room_id =
+        create_room(&app, &token, "Receipt Unknown Event Compatibility").await.expect("room should be created");
     let missing_event_id = format!("$missing_receipt_event_{}:localhost", rand::random::<u32>());
 
     let request = Request::builder()
         .method("POST")
-        .uri(format!(
-            "/_matrix/client/r0/rooms/{}/receipt/m.read/{}",
-            room_id,
-            missing_event_id.replace('$', "%24")
-        ))
+        .uri(format!("/_matrix/client/r0/rooms/{}/receipt/m.read/{}", room_id, missing_event_id.replace('$', "%24")))
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
         .body(Body::from(json!({}).to_string()))

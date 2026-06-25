@@ -264,5 +264,4 @@ pub use self::privacy::{CreatePrivacySettingsParams, PrivacySettingsUpdate, Priv
 // =============================================================================
 // Database facade — re-export from canonical synapse-storage crate
 // =============================================================================
-pub use synapse_storage::{Database, initialize_database};
-
+pub use synapse_storage::{initialize_database, Database};

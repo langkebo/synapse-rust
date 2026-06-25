@@ -168,11 +168,7 @@ mod tests {
         // When no m.room.server_acl event exists, all servers are allowed.
         // This is represented by the absence of an ACL, not by a default struct.
         // But if we do have a struct with allow=["*"], it should allow all.
-        let acl = ServerAclContent {
-            allow: vec!["*".to_string()],
-            deny: vec![],
-            allow_ip_literals: true,
-        };
+        let acl = ServerAclContent { allow: vec!["*".to_string()], deny: vec![], allow_ip_literals: true };
         assert!(acl.is_server_allowed("example.com"));
         assert!(acl.is_server_allowed("evil.com"));
         assert!(acl.is_server_allowed("192.168.1.1"));
@@ -206,11 +202,7 @@ mod tests {
 
     #[test]
     fn test_deny_ip_literals() {
-        let acl = ServerAclContent {
-            allow: vec!["*".to_string()],
-            deny: vec![],
-            allow_ip_literals: false,
-        };
+        let acl = ServerAclContent { allow: vec!["*".to_string()], deny: vec![], allow_ip_literals: false };
         assert!(acl.is_server_allowed("example.com"));
         assert!(!acl.is_server_allowed("192.168.1.1"));
         assert!(!acl.is_server_allowed("[::1]"));
@@ -219,11 +211,7 @@ mod tests {
 
     #[test]
     fn test_empty_allow_denies_all() {
-        let acl = ServerAclContent {
-            allow: vec![],
-            deny: vec![],
-            allow_ip_literals: true,
-        };
+        let acl = ServerAclContent { allow: vec![], deny: vec![], allow_ip_literals: true };
         assert!(!acl.is_server_allowed("example.com"));
         assert!(!acl.is_server_allowed("any.server"));
     }

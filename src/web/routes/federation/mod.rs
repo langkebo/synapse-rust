@@ -99,12 +99,7 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 /// This should be called for inbound federation requests that are scoped to a
 /// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
 async fn check_server_acl(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
-    let acl_events = state
-        .services
-        .rooms
-        .room_service
-        .get_state_events_by_type(room_id, "m.room.server_acl")
-        .await?;
+    let acl_events = state.services.rooms.room_service.get_state_events_by_type(room_id, "m.room.server_acl").await?;
 
     let Some(acl_event) = acl_events.first() else {
         // No ACL event exists — all servers are allowed
@@ -122,10 +117,7 @@ async fn check_server_acl(state: &AppState, room_id: &str, origin: &str) -> ApiR
     };
 
     if !acl.is_server_allowed(origin) {
-        return Err(ApiError::forbidden(format!(
-            "Server '{}' is denied by room ACL for room '{}'",
-            origin, room_id
-        )));
+        return Err(ApiError::forbidden(format!("Server '{}' is denied by room ACL for room '{}'", origin, room_id)));
     }
 
     Ok(())
@@ -301,14 +293,8 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).
     let protected = protected
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::federation_rate_limit_middleware,
-        ))
-        .layer(middleware::from_fn_with_state(
-            state,
-            crate::web::middleware::federation_auth_middleware,
-        ));
+        .layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::federation_rate_limit_middleware))
+        .layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
 
     public.merge(protected)
 }

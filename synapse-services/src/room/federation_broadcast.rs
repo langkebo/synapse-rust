@@ -40,11 +40,7 @@ impl RoomService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self
-            .event_storage
-            .get_latest_event_ids_in_room(&event.room_id, 10)
-            .await
-            .unwrap_or_default();
+        let prev_events = self.event_storage.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
 
         // Exclude the event itself if it somehow already appears in the
         // extremities list (e.g. re-broadcast after retry).
@@ -84,10 +80,8 @@ impl RoomService {
         // 4. Persist signatures and hashes back to the events table.
         let signatures = pdu.get("signatures").cloned().unwrap_or(Value::Null);
         let hashes = pdu.get("hashes").cloned().unwrap_or(Value::Null);
-        if let Err(e) = self
-            .event_storage
-            .update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes)
-            .await
+        if let Err(e) =
+            self.event_storage.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
         {
             ::tracing::warn!(
                 event_id = %event.event_id,

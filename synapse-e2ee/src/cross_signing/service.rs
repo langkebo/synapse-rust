@@ -768,22 +768,13 @@ impl CrossSigningService {
         // device signatures are not part of the standard cross-signing flow
         // and would bypass the chain of trust.
         let chain_intact = if let (Some(ref mk), Some(ref ssk)) = (&master_key, &self_signing_key) {
-            Self::verify_cross_signing_signature(
-                &mk.public_key,
-                &mk.signatures,
-                ssk.key_json.as_ref(),
-                "self_signing",
-            )
+            Self::verify_cross_signing_signature(&mk.public_key, &mk.signatures, ssk.key_json.as_ref(), "self_signing")
         } else {
             false
         };
 
         let is_verified = chain_intact && verified_by_self_signing;
-        let verification_method = if is_verified {
-            Some("self_signing_key".to_string())
-        } else {
-            None
-        };
+        let verification_method = if is_verified { Some("self_signing_key".to_string()) } else { None };
 
         Ok(DeviceKeyVerificationResult {
             user_id: user_id.to_string(),
@@ -975,22 +966,13 @@ impl CrossSigningService {
         // device signatures are not part of the standard cross-signing flow
         // and would bypass the chain of trust.
         let chain_intact = if let (Some(ref mk), Some(ref ssk)) = (&master_key, &self_signing_key) {
-            Self::verify_cross_signing_signature(
-                &mk.public_key,
-                &mk.signatures,
-                ssk.key_json.as_ref(),
-                "self_signing",
-            )
+            Self::verify_cross_signing_signature(&mk.public_key, &mk.signatures, ssk.key_json.as_ref(), "self_signing")
         } else {
             false
         };
 
         let is_verified = chain_intact && verified_by_self_signing;
-        let verification_method = if is_verified {
-            Some("self_signing_key".to_string())
-        } else {
-            None
-        };
+        let verification_method = if is_verified { Some("self_signing_key".to_string()) } else { None };
 
         DeviceKeyVerificationResult {
             user_id: user_id.to_string(),

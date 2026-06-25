@@ -18,8 +18,7 @@ fn panic_on_err<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) ->
 fn with_local_connect_info(mut request: hyper::Request<axum::body::Body>) -> hyper::Request<axum::body::Body> {
     use axum::extract::ConnectInfo;
     use std::net::SocketAddr;
-    let local_addr: SocketAddr =
-        panic_on_err("127.0.0.1:65530".parse(), "valid loopback socket addr should parse");
+    let local_addr: SocketAddr = panic_on_err("127.0.0.1:65530".parse(), "valid loopback socket addr should parse");
     request.extensions_mut().insert(ConnectInfo(local_addr));
     request
 }
@@ -57,7 +56,8 @@ async fn create_test_user(app: &axum::Router) -> String {
     );
 
     let response = panic_on_err(app.clone().oneshot(request).await, "register request should execute");
-    let body = panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "register response body should read");
+    let body =
+        panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "register response body should read");
     let json: serde_json::Value = panic_on_err(serde_json::from_slice(&body), "register response should be valid JSON");
     json["access_token"]
         .as_str()
@@ -74,7 +74,8 @@ async fn whoami(app: &axum::Router, token: &str) -> String {
         "whoami request should build",
     );
 
-    let response = panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "whoami request should execute");
+    let response =
+        panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "whoami request should execute");
     assert_eq!(response.status(), StatusCode::OK);
     let body = panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "whoami response body should read");
     let json: Value = panic_on_err(serde_json::from_slice(&body), "whoami response should be valid JSON");
@@ -160,11 +161,15 @@ async fn put_beacon_info(app: &axum::Router, token: &str, room_id: &str, state_k
         "put beacon info request should build",
     );
 
-    let response =
-        panic_on_err(app.clone().oneshot(with_local_connect_info(request)).await, "put beacon info request should execute");
+    let response = panic_on_err(
+        app.clone().oneshot(with_local_connect_info(request)).await,
+        "put beacon info request should execute",
+    );
     assert_eq!(response.status(), StatusCode::OK);
-    let body =
-        panic_on_err(axum::body::to_bytes(response.into_body(), 1024).await, "put beacon info response body should read");
+    let body = panic_on_err(
+        axum::body::to_bytes(response.into_body(), 1024).await,
+        "put beacon info response body should read",
+    );
     let json: Value = panic_on_err(serde_json::from_slice(&body), "put beacon info response should be valid JSON");
     json["event_id"]
         .as_str()
@@ -202,7 +207,8 @@ async fn send_beacon_with_ts(
     );
 
     let start = Instant::now();
-    let response = panic_on_err(app.oneshot(with_local_connect_info(request)).await, "send beacon request should execute");
+    let response =
+        panic_on_err(app.oneshot(with_local_connect_info(request)).await, "send beacon request should execute");
     let latency_ms = start.elapsed().as_millis() as u64;
     (response.status(), latency_ms)
 }

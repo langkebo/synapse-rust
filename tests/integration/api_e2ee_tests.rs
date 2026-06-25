@@ -8,8 +8,8 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
 use synapse_rust::e2ee::signed_json::{canonical_json_bytes, remove_signatures_and_unsigned};
+use synapse_rust::services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 
@@ -896,8 +896,7 @@ async fn test_key_changes_exposes_cross_signing_updates_for_shared_users() {
     let Some((app, state)) = super::setup_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_cross_changes_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_cross_changes_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_cross_changes_bob_{}", rand::random::<u32>())).await;
 
@@ -967,10 +966,8 @@ async fn test_sync_device_lists_exposes_cross_signing_updates_for_shared_users()
     let Some((app, state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_cross_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_cross_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_cross_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_cross_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Cross-Signing Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -1030,10 +1027,8 @@ async fn test_sync_device_lists_does_not_leak_cross_signing_updates_without_shar
     let Some((app, state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_isolated_alice_{}", rand::random::<u32>())).await;
-    let (_, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_isolated_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_isolated_alice_{}", rand::random::<u32>())).await;
+    let (_, bob_user_id) = register_user(&app, &format!("e2ee_sync_isolated_bob_{}", rand::random::<u32>())).await;
 
     let initial_sync = sync_once(&app, &alice_token, None).await;
     let since = initial_sync["next_batch"].as_str().expect("missing next_batch").to_string();
@@ -1089,10 +1084,8 @@ async fn test_sync_device_lists_left_reports_users_who_stop_sharing_rooms() {
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_left_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_left_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_left_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_left_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Device List Left Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -1125,8 +1118,7 @@ async fn test_sync_device_lists_left_reports_users_when_requester_leaves_last_sh
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_self_left_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_self_left_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_sync_self_left_bob_{}", rand::random::<u32>())).await;
 
@@ -1161,8 +1153,7 @@ async fn test_sync_device_lists_left_does_not_report_user_still_shared_via_other
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_multi_left_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_multi_left_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_sync_multi_left_bob_{}", rand::random::<u32>())).await;
 
@@ -1201,8 +1192,7 @@ async fn test_sync_device_lists_leave_then_rejoin_does_not_report_left() {
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_rejoin_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_rejoin_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_sync_rejoin_bob_{}", rand::random::<u32>())).await;
 
@@ -1239,10 +1229,8 @@ async fn test_sync_device_lists_kick_reports_left_for_kicked_shared_user() {
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_kick_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_kick_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_kick_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_kick_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Kick Shared User Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -1275,10 +1263,8 @@ async fn test_sync_device_lists_ban_reports_left_for_banned_shared_user() {
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_ban_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_ban_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_ban_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_ban_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Ban Shared User Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -1311,10 +1297,8 @@ async fn test_sync_device_lists_unban_does_not_repeat_left_for_already_unshared_
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_unban_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_unban_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_unban_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_unban_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Unban Shared User Room").await;
     invite_user_to_room(&app, &alice_token, &room_id, &bob_user_id).await;
@@ -1358,8 +1342,7 @@ async fn test_sync_device_lists_forget_does_not_repeat_left_for_already_unshared
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_forget_alice_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_forget_alice_{}", rand::random::<u32>())).await;
     let (bob_token, bob_user_id) =
         register_user(&app, &format!("e2ee_sync_forget_bob_{}", rand::random::<u32>())).await;
 
@@ -1405,10 +1388,8 @@ async fn test_sync_device_lists_knock_does_not_leak_non_shared_user() {
     let Some((app, _state)) = setup_isolated_test_app_with_state().await else {
         return;
     };
-    let (alice_token, _) =
-        register_user(&app, &format!("e2ee_sync_knock_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_user_id) =
-        register_user(&app, &format!("e2ee_sync_knock_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, _) = register_user(&app, &format!("e2ee_sync_knock_alice_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_user_id) = register_user(&app, &format!("e2ee_sync_knock_bob_{}", rand::random::<u32>())).await;
 
     let room_id = create_room(&app, &alice_token, "E2EE Sync Knock Room").await;
     set_room_join_rule(&app, &alice_token, &room_id, "knock").await;
@@ -1477,10 +1458,7 @@ async fn test_sync_device_lists_invite_decline_does_not_report_left_and_updates_
         .expect("failed to load membership after invite decline")
         .expect("missing membership after invite decline");
     assert_eq!(membership.membership, "leave");
-    assert!(
-        membership.joined_ts.is_none(),
-        "invite decline should not backfill joined_ts for never-joined user"
-    );
+    assert!(membership.joined_ts.is_none(), "invite decline should not backfill joined_ts for never-joined user");
     assert!(membership.left_ts.is_some(), "invite decline should stamp left_ts");
 }
 
@@ -1551,9 +1529,12 @@ async fn test_device_signing_password_uia_upload_enables_dehydrated_device_boots
         .uri("/_matrix/client/r0/keys/device_signing/upload")
         .header("Authorization", format!("Bearer {}", token))
         .header("Content-Type", "application/json")
-        .body(Body::from(json!({
-            "master_key": master_key
-        }).to_string()))
+        .body(Body::from(
+            json!({
+                "master_key": master_key
+            })
+            .to_string(),
+        ))
         .unwrap();
     let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
     assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
@@ -1584,8 +1565,7 @@ async fn test_device_signing_password_uia_upload_enables_dehydrated_device_boots
             .to_string(),
         ))
         .unwrap();
-    let complete_uia_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
+    let complete_uia_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
     assert_eq!(complete_uia_response.status(), StatusCode::OK);
 
     let verification_status = state
@@ -1595,7 +1575,10 @@ async fn test_device_signing_password_uia_upload_enables_dehydrated_device_boots
         .get_user_verification_status(&user_id)
         .await
         .expect("failed to query cross-signing status");
-    assert!(verification_status.has_master_key, "master key upload should satisfy dehydrated-device bootstrap precondition");
+    assert!(
+        verification_status.has_master_key,
+        "master key upload should satisfy dehydrated-device bootstrap precondition"
+    );
 
     let key_id = format!("uia-ssss-{}", rand::random::<u32>());
     for (data_type, content) in [
@@ -1785,8 +1768,7 @@ async fn test_fresh_account_cross_signing_ssss_and_dehydrated_device_end_to_end(
             .to_string(),
         ))
         .unwrap();
-    let complete_uia_response =
-        ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
+    let complete_uia_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), complete_uia_request).await.unwrap();
     assert_eq!(complete_uia_response.status(), StatusCode::OK);
 
     let verification_status = state

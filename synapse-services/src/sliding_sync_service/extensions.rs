@@ -216,11 +216,8 @@ impl SlidingSyncService {
         };
         let current_stream_id = self.get_current_device_list_stream_id().await?;
         let changed = self.get_changed_device_lists_since(user_id, since_stream_id).await?;
-        let previous_shared_users = if since_pos.is_some() {
-            self.load_cached_shared_users(&shared_users_cache_key)
-        } else {
-            Vec::new()
-        };
+        let previous_shared_users =
+            if since_pos.is_some() { self.load_cached_shared_users(&shared_users_cache_key) } else { Vec::new() };
         let current_shared_users = self.get_current_shared_users(user_id).await?;
         let left = Self::compute_left_shared_users(&previous_shared_users, &current_shared_users);
 
@@ -299,7 +296,11 @@ impl SlidingSyncService {
         self.device_storage.get_max_device_list_stream_id().await
     }
 
-    async fn get_changed_device_lists_since(&self, user_id: &str, since_stream_id: i64) -> Result<Vec<String>, sqlx::Error> {
+    async fn get_changed_device_lists_since(
+        &self,
+        user_id: &str,
+        since_stream_id: i64,
+    ) -> Result<Vec<String>, sqlx::Error> {
         let (changed, _) =
             self.device_storage.get_device_lists_since_with_shared_rooms(since_stream_id, user_id).await?;
         Ok(changed)

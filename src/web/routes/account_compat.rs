@@ -135,13 +135,10 @@ async fn try_fetch_remote_profile(state: &AppState, user_id: &str) -> Result<Opt
     };
 
     let federation_client = state.services.federation.federation_client.clone();
-    let profile = federation_client
-        .query_profile(server_name, user_id)
-        .await
-        .map_err(|e| {
-            tracing::warn!(user_id = %user_id, server = %server_name, error = %e, "Federation query_profile failed");
-            ApiError::not_found("Profile not found on remote server".to_string())
-        })?;
+    let profile = federation_client.query_profile(server_name, user_id).await.map_err(|e| {
+        tracing::warn!(user_id = %user_id, server = %server_name, error = %e, "Federation query_profile failed");
+        ApiError::not_found("Profile not found on remote server".to_string())
+    })?;
 
     Ok(Some(json!({
         "user_id": user_id,

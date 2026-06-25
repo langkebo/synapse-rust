@@ -199,9 +199,7 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
             return Err(ApiError::bad_request("m.ignored_user_list content must be a JSON object".to_string()));
         };
         let Some(ignored_users) = obj.get("ignored_users") else {
-            return Err(ApiError::bad_request(
-                "m.ignored_user_list content must contain 'ignored_users'".to_string(),
-            ));
+            return Err(ApiError::bad_request("m.ignored_user_list content must contain 'ignored_users'".to_string()));
         };
         let Some(users_map) = ignored_users.as_object() else {
             return Err(ApiError::bad_request("'ignored_users' must be a JSON object".to_string()));

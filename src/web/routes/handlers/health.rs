@@ -13,11 +13,7 @@ use serde_json::json;
 pub async fn health_check(State(state): State<crate::web::routes::AppState>) -> impl IntoResponse {
     let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
     let status = if db_ok { "ok" } else { "unhealthy" };
-    let http_status = if db_ok {
-        axum::http::StatusCode::OK
-    } else {
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    };
+    let http_status = if db_ok { axum::http::StatusCode::OK } else { axum::http::StatusCode::SERVICE_UNAVAILABLE };
 
     (
         http_status,
@@ -107,11 +103,8 @@ pub async fn detailed_health_check(
         // Use a harmless GET on a sentinel key to verify round-trip connectivity.
         // We don't care about the value, only that the call completes without error.
         let redis_ok = state.cache.get::<String>("__health_probe__").await.is_ok();
-        let redis_status = if redis_ok && redis_start.elapsed() < std::time::Duration::from_secs(5) {
-            "healthy"
-        } else {
-            "degraded"
-        };
+        let redis_status =
+            if redis_ok && redis_start.elapsed() < std::time::Duration::from_secs(5) { "healthy" } else { "degraded" };
         if redis_status == "degraded" && overall_status == "healthy" {
             overall_status = "degraded";
         }
