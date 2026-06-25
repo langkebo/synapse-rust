@@ -1,10 +1,8 @@
 #![cfg(feature = "openapi-docs")]
 
-//! Health, version, capabilities, and well-known endpoint annotations.
-
-use super::schemas::*;
 
 /// `GET /_matrix/client/versions` — Return supported Matrix protocol versions.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/_matrix/client/versions",
@@ -27,6 +25,7 @@ pub fn get_client_versions() -> axum::Json<serde_json::Value> {
 }
 
 /// `GET /health` — Basic liveness check.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/health",
@@ -42,22 +41,8 @@ pub fn health_check() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `GET /_health` — Detailed health check with component statuses.
-#[utoipa::path(
-    get,
-    path = "/_health",
-    tag = "Health",
-    responses(
-        (status = 200, description = "Detailed health status",
-            body = ApiHealthStatus,
-        ),
-    ),
-)]
-pub fn detailed_health_check() -> axum::Json<ApiHealthStatus> {
-    unreachable!("This function exists only for OpenAPI documentation purposes")
-}
-
 /// `GET /.well-known/matrix/server` — Server discovery.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/.well-known/matrix/server",
@@ -73,27 +58,8 @@ pub fn get_well_known_server() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
 
-/// `GET /_matrix/server_version` — Return homeserver version metadata.
-#[utoipa::path(
-    get,
-    path = "/_matrix/server_version",
-    tag = "Health",
-    responses(
-        (status = 200, description = "Homeserver version metadata",
-            body = serde_json::Value,
-            example = json!({
-                "server_version": "6.0.4",
-                "python_version": "Rust",
-                "server_name": "example.com"
-            })
-        ),
-    ),
-)]
-pub fn get_server_version() -> axum::Json<serde_json::Value> {
-    unreachable!("This function exists only for OpenAPI documentation purposes")
-}
-
 /// `GET /_matrix/client/v3/capabilities` — Return client capability surface.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/_matrix/client/v3/capabilities",
@@ -138,6 +104,7 @@ pub fn get_capabilities() -> axum::Json<serde_json::Value> {
 }
 
 /// `GET /.well-known/matrix/client` — Client discovery.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/.well-known/matrix/client",
@@ -158,6 +125,7 @@ pub fn get_well_known_client() -> axum::Json<serde_json::Value> {
 }
 
 /// `GET /.well-known/matrix/support` — Support discovery.
+#[cfg(feature = "openapi-docs")]
 #[utoipa::path(
     get,
     path = "/.well-known/matrix/support",
@@ -172,5 +140,131 @@ pub fn get_well_known_client() -> axum::Json<serde_json::Value> {
     ),
 )]
 pub fn get_well_known_support() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_synapse/admin/v1/health` — Read admin health probe output.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_synapse/admin/v1/health",
+    tag = "Admin",
+    responses(
+        (status = 200, description = "Admin health probe",
+            body = serde_json::Value,
+            example = json!({
+                "status": "ok",
+                "database": "ok"
+            })
+        )
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+pub fn admin_health_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/versions` — Compatibility alias for supported Matrix protocol versions.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/versions",
+    tag = "Health",
+    responses(
+        (status = 200, description = "Supported Matrix protocol versions",
+            body = serde_json::Value,
+            example = json!({
+                "versions": ["v1.1", "v1.2", "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11", "v1.12", "v1.13"],
+                "unstable_features": {}
+            })
+        )
+    )
+)]
+pub fn get_client_versions_v3_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities` — Get widget capabilities.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
+    tag = "Private Extension - Widget",
+    params(
+        ("room_id" = String, Path, description = "The ID of the room"),
+        ("widget_id" = String, Path, description = "The ID of the widget"),
+    ),
+    responses(
+        (status = 200, description = "Widget capabilities", body = serde_json::Value),
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+pub fn get_room_widget_capabilities_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `PUT /_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities` — Set widget capabilities.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    put,
+    path = "/_matrix/client/v3/rooms/{room_id}/widgets/{widget_id}/capabilities",
+    tag = "Private Extension - Widget",
+    params(
+        ("room_id" = String, Path, description = "The ID of the room"),
+        ("widget_id" = String, Path, description = "The ID of the widget"),
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Capabilities set", body = serde_json::Value),
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+pub fn set_room_widget_capabilities_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/admin/v1/external_services/{as_id}/health` — Get external service health.
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/admin/v1/external_services/{as_id}/health",
+    tag = "Private Extension - External Services",
+    params(
+        ("as_id" = String, Path, description = "The ID of the service"),
+    ),
+    responses(
+        (status = 200, description = "Health status", body = serde_json::Value),
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+pub fn get_external_service_health_doc() -> axum::Json<serde_json::Value> {
+    unreachable!("This function exists only for OpenAPI documentation purposes")
+}
+
+/// `GET /_matrix/client/v1/external_services/{as_id}/health` — Check external service health (client endpoint).
+#[cfg(feature = "openapi-docs")]
+#[utoipa::path(
+    get,
+    path = "/_matrix/client/v1/external_services/{as_id}/health",
+    tag = "Private Extension - External Services",
+    params(
+        ("as_id" = String, Path, description = "The ID of the service"),
+    ),
+    responses(
+        (status = 200, description = "Health check", body = serde_json::Value),
+    ),
+    security(
+        ("BearerAuth" = [])
+    )
+)]
+pub fn check_service_health_doc() -> axum::Json<serde_json::Value> {
     unreachable!("This function exists only for OpenAPI documentation purposes")
 }
