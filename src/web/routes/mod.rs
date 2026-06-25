@@ -13,7 +13,7 @@ pub mod device;
 pub mod directory;
 mod directory_reporting;
 pub mod dm;
-pub mod e2ee_routes;
+pub mod e2ee;
 pub mod ephemeral;
 pub mod event_report;
 pub mod extractors;
@@ -129,7 +129,7 @@ pub(crate) use directory_reporting::{
     search_user_directory, set_room_alias, set_room_alias_direct, update_report_score,
 };
 pub use dm::create_dm_router;
-pub use e2ee_routes::create_e2ee_router;
+pub use e2ee::create_e2ee_router;
 pub use event_report::create_event_report_router;
 #[cfg(feature = "external-services")]
 pub use external_service::create_external_service_router;
