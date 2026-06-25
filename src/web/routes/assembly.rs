@@ -1,7 +1,7 @@
 use super::route_ledger::{RouteEntry, RouteLedger};
 use super::route_module::{route_modules, ProfileFlags};
 use super::{
-    account_data, background_update, captcha, device, dm, e2ee_routes, ephemeral, event_report, feature_flags, guest,
+    account_data, background_update, captcha, device, dm, e2ee, ephemeral, event_report, feature_flags, guest,
     handlers, key_backup, key_rotation, media, moderation, presence, push, push_notification, reactions, relations,
     rendezvous, room_summary, sliding_sync, space, sync, tags, telemetry, thirdparty, typing, verification_routes,
     worker, *,
@@ -43,7 +43,7 @@ fn base_route_manifest() -> RouteLedger {
     ledger.extend(assembly_compat_manifest());
     ledger.extend(key_backup::key_backup_route_manifest());
     ledger.extend(device::device_route_manifest());
-    ledger.extend(e2ee_routes::e2ee_route_manifest());
+    ledger.extend(e2ee::e2ee_route_manifest());
     ledger.extend(verification_routes::verification_route_manifest());
     ledger.extend(sync::sync_route_manifest());
     ledger.extend(account_data::account_data_route_manifest());
