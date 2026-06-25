@@ -43,7 +43,7 @@ pub use builtin_oidc::{BuiltinOidcConfig, BuiltinOidcUser};
 pub use database::{CircuitBreakerConfig, DatabaseConfig, RedisConfig};
 pub use error::ConfigError;
 pub use experimental::ExperimentalConfig;
-pub use federation::{FederationConfig, TrustedKeyServer};
+pub use federation::{FederationConfig, FederationRateLimitConfig, TrustedKeyServer};
 pub use identity::IdentityConfig;
 pub use logging::LoggingConfig;
 pub use performance::PerformanceConfig;

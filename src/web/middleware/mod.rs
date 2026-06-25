@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cors;
 pub mod csrf;
 pub mod federation_auth;
+pub mod federation_rate_limit;
 pub mod rate_limit;
 pub mod security;
 
@@ -9,6 +10,7 @@ pub use auth::*;
 pub use cors::*;
 pub use csrf::*;
 pub use federation_auth::*;
+pub use federation_rate_limit::*;
 pub use rate_limit::*;
 pub use security::*;
 

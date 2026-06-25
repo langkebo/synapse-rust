@@ -53,12 +53,20 @@ pub async fn set_typing(
                 "user_ids": [user_id]
             }
         });
-        let _ = state
+        if let Err(e) = state
             .services
             .core
             .event_broadcaster
             .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
-            .await;
+            .await
+        {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to broadcast typing EDU to federation — local state already updated"
+            );
+        }
 
         Ok(Json(json!({})))
     } else {
@@ -73,12 +81,20 @@ pub async fn set_typing(
                 "user_ids": []
             }
         });
-        let _ = state
+        if let Err(e) = state
             .services
             .core
             .event_broadcaster
             .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
-            .await;
+            .await
+        {
+            ::tracing::warn!(
+                room_id = %room_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to broadcast typing-clear EDU to federation — local state already updated"
+            );
+        }
 
         Ok(Json(json!({})))
     }

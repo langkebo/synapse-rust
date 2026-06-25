@@ -121,7 +121,18 @@ async fn handle_saml_callback(
     let expires_in = 3600_i64;
 
     let refresh_token =
-        state.services.core.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await.ok();
+        match state.services.core.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await {
+            Ok(token) => Some(token),
+            Err(e) => {
+                ::tracing::warn!(
+                    user_id = %auth_result.user_id,
+                    device_id = %device_id,
+                    error = %e,
+                    "Failed to generate refresh token after SAML login — access token is still valid but user will need to re-authenticate when it expires"
+                );
+                None
+            }
+        };
 
     Ok(Json(SamlAuthResult { user_id: auth_result.user_id, access_token, device_id, expires_in, refresh_token }))
 }

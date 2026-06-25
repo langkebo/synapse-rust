@@ -1,6 +1,6 @@
 # Supported Matrix Surface
 
-审查日期: 2026-06-22（P1-01/T4 收紧超前声明 + 修正 m.voice/m.room.suggested 派生 + 补 MSC3814/MSC4143 声明 + 修复 sso_providers OIDC 遗漏）
+审查日期: 2026-06-23（联邦速率限制 + 服务器重启 API 实现 + m.supports_login_via_phone_number 修正为 false + 身份服务器 bind/unbind 数据质量修复 + 认证链缓存有效性修复 + 跨签名验证严格链修复）；2026-06-22（P1-01/T4 收紧超前声明 + 修正 m.voice/m.room.suggested 派生 + 补 MSC3814/MSC4143 声明 + 修复 sso_providers OIDC 遗漏）
 
 基线:
 - Matrix Specification latest: v1.18
@@ -105,7 +105,7 @@
 | --- | --- | --- |
 | `m.lazy_load_members` | Unconditional (true) | 标准特性，始终支持 |
 | `m.require_identity_server` | Unconditional (false) | 标准特性，不需要 identity server |
-| `m.supports_login_via_phone_number` | Unconditional (true) | 标准特性 |
+| `m.supports_login_via_phone_number` | Unconditional (false) | 无 MSISDN 验证实现（无 SMS 服务、无 msisdn 路由），声明为 false 避免客户端走入不可完成的手机登录路径 |
 | `org.matrix.msc3882` | Unconditional (true) | QR code login，路由始终注册 |
 | `uk.tcpip.msc4133` | Unconditional (true) | Extended profile，路由始终注册 |
 | `org.matrix.msc3886.sliding_sync` | RouteSurface | 检查 `POST /_matrix/client/v1/sync` |
@@ -133,7 +133,7 @@
 | 端点 | 状态 | 说明 |
 | --- | --- | --- |
 | `GET /backups` | 501 M_UNRECOGNIZED | 备份由外部工具（docker volume、pg_dump）管理，非进程内职责；返回 501 区分"端点已知但未实现"与"端点未知" |
-| `POST /restart` | 501 M_UNRECOGNIZED | 进程重启由进程管理器（systemd/docker）负责；返回 501 区分"端点已知但未实现"与"端点未知" |
+| `POST /restart` | ✅ 已实现 | 通过 broadcast channel 触发优雅关闭，进程管理器（Docker/systemd）负责重启；支持 `timeout_ms` 请求参数（上限 10s），返回 `{restart_pending: true}` |
 | `GET /experimental_features` | 200 OK | 已实现：桥接 DB 型 `FeatureFlagService` 到 Synapse `experimental_features` 表面，返回 `{features: {flag_key: enabled_bool}, total}` |
 
 ### Federation 非标准端点（`/_synapse/federation/v1/*`）
@@ -183,6 +183,12 @@
 
 > **影响**：出站联邦能力已全部修复。"半双工联邦"问题已解决——服务器现在可以主动发起联邦请求。`query_keys` / `claim_keys` 支持跨服务器 E2EE；`media_download` / `media_thumbnail` 支持远程媒体访问；`query_profile` 支持远程用户资料查询；`send_transaction` (PDU) 支持本地事件广播；`make_join` / `send_join` 支持联邦加入；`make_leave` / `send_leave` 支持联邦离开；`invite` 支持联邦邀请；`query_directory` 支持远程别名解析；`exchange_third_party_invite` 支持第三方邀请交换。
 
+### Federation 速率限制（2026-06-23 新增）
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| Per-origin 令牌桶速率限制 | ✅ 已实现（默认关闭） | 按 Matrix `origin` 维度执行令牌桶速率限制，粗粒度路径桶分组（`send / make_join / send_join / event / query / state / other`）；配置项 `federation.rate_limit.{enabled,per_second,burst_size}`，默认 `enabled=false` 保持向后兼容；中间件层叠在 `federation_auth_middleware` 之上，复用 `rate_limit_token_bucket_take` 缓存基础设施 |
+
 ### Voice 端点（自定义 Hula 扩展）
 
 | 端点 | 状态 | 说明 |
@@ -210,6 +216,10 @@ Focused gate for this surface:
 ```bash
 # Unit-level contract/snapshot tests (P1-03.2 + P1-01/T4)
 cargo test --lib web::routes::handlers::versions::tests -- --nocapture
+# Federation rate limit middleware (2026-06-23)
+cargo test --lib web::middleware::federation_rate_limit::tests -- --nocapture
+# Auth chain cache semantics (2026-06-23)
+cargo test -p synapse-federation --lib event_auth -- --nocapture
 ```
 
 Broader gates before raising protocol declarations:

@@ -605,15 +605,16 @@ impl CrossSigningService {
 
         let mut is_verified = false;
         if let (Some(mk), Some(ssk)) = (&master_key, &self_signing_key) {
+            // Canonical cross-signing trust chain: master key signs
+            // self_signing key. The reverse direction (ssk signing master) is
+            // NOT a valid trust path per the Matrix cross-signing spec.
             let ssk_signature_valid = Self::verify_cross_signing_signature(
                 &mk.public_key,
                 &mk.signatures,
                 ssk.key_json.as_ref(),
                 "self_signing",
             );
-            let mk_signature_valid =
-                Self::verify_cross_signing_signature(&ssk.public_key, &ssk.signatures, mk.key_json.as_ref(), "master");
-            is_verified = ssk_signature_valid || mk_signature_valid;
+            is_verified = ssk_signature_valid;
         }
 
         if !is_verified && has_master && has_self_signing && has_user_signing {
@@ -760,10 +761,25 @@ impl CrossSigningService {
             false
         };
 
-        let is_verified = verified_by_master || verified_by_self_signing;
-        let verification_method = if verified_by_master {
-            Some("master_key".to_string())
-        } else if verified_by_self_signing {
+        // Enforce the strict cross-signing trust chain:
+        //   master_key -> self_signing_key -> device_key
+        // A device is verified only if the self_signing key signed it AND
+        // the master key signed the self_signing key. Direct master_key ->
+        // device signatures are not part of the standard cross-signing flow
+        // and would bypass the chain of trust.
+        let chain_intact = if let (Some(ref mk), Some(ref ssk)) = (&master_key, &self_signing_key) {
+            Self::verify_cross_signing_signature(
+                &mk.public_key,
+                &mk.signatures,
+                ssk.key_json.as_ref(),
+                "self_signing",
+            )
+        } else {
+            false
+        };
+
+        let is_verified = chain_intact && verified_by_self_signing;
+        let verification_method = if is_verified {
             Some("self_signing_key".to_string())
         } else {
             None
@@ -952,10 +968,25 @@ impl CrossSigningService {
             false
         };
 
-        let is_verified = verified_by_master || verified_by_self_signing;
-        let verification_method = if verified_by_master {
-            Some("master_key".to_string())
-        } else if verified_by_self_signing {
+        // Enforce the strict cross-signing trust chain:
+        //   master_key -> self_signing_key -> device_key
+        // A device is verified only if the self_signing key signed it AND
+        // the master key signed the self_signing key. Direct master_key ->
+        // device signatures are not part of the standard cross-signing flow
+        // and would bypass the chain of trust.
+        let chain_intact = if let (Some(ref mk), Some(ref ssk)) = (&master_key, &self_signing_key) {
+            Self::verify_cross_signing_signature(
+                &mk.public_key,
+                &mk.signatures,
+                ssk.key_json.as_ref(),
+                "self_signing",
+            )
+        } else {
+            false
+        };
+
+        let is_verified = chain_intact && verified_by_self_signing;
+        let verification_method = if is_verified {
             Some("self_signing_key".to_string())
         } else {
             None

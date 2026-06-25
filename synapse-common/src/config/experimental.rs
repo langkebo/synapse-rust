@@ -6,9 +6,6 @@ pub struct ExperimentalConfig {
     #[serde(default)]
     pub openclaw_routes_enabled: bool,
 
-    #[serde(default)]
-    pub msc3814_enabled: bool,
-
     /// MSC4452: Preview URL capabilities API.
     ///
     /// When enabled, the `io.element.msc4452.preview_url` capability is
@@ -42,7 +39,6 @@ impl Default for ExperimentalConfig {
         Self {
             #[cfg(feature = "openclaw-routes")]
             openclaw_routes_enabled: true,
-            msc3814_enabled: false,
             msc4452_enabled: false,
             declare_private_extensions: true,
         }

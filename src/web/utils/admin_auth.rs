@@ -8,6 +8,7 @@ use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
+use synapse_common::crypto::secure_compare;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -396,8 +397,10 @@ fn verify_totp_code(security: &SecurityConfig, provided_code: &str, user: Option
             continue;
         };
 
-        if generate_totp_code(&secret, step).as_deref() == Some(provided_code) {
-            return Ok(());
+        if let Some(expected) = generate_totp_code(&secret, step) {
+            if secure_compare(&expected, provided_code) {
+                return Ok(());
+            }
         }
     }
 
