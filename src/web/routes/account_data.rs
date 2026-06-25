@@ -64,12 +64,7 @@ pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     )
 }
 
-async fn sync_secret_storage_account_data_best_effort(
-    state: &AppState,
-    user_id: &str,
-    data_type: &str,
-    body: &Value,
-) {
+async fn sync_secret_storage_account_data_best_effort(state: &AppState, user_id: &str, data_type: &str, body: &Value) {
     if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
         if let Err(error) = state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, body).await {
             tracing::warn!(
@@ -106,7 +101,9 @@ async fn sync_secret_storage_account_data_best_effort(
     let key_data_type = format!("m.secret_storage.key.{key_id}");
     match state.services.core.account_data_service.get_account_data(user_id, &key_data_type).await {
         Ok(Some(key_content)) => {
-            if let Err(error) = state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, &key_content).await {
+            if let Err(error) =
+                state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, &key_content).await
+            {
                 tracing::warn!(
                     user_id,
                     key_id,

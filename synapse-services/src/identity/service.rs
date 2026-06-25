@@ -62,19 +62,10 @@ impl IdentityService {
         // Per MSC2133 / Matrix Identity Service v2, the response contains
         // `address`, `medium`, and `ts`. Fall back to the request parameters
         // if the response body is missing or malformed.
-        let response_json: serde_json::Value = response
-            .json()
-            .await
-            .unwrap_or_else(|_| serde_json::json!({}));
+        let response_json: serde_json::Value = response.json().await.unwrap_or_else(|_| serde_json::json!({}));
 
-        let address = response_json
-            .get("address")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let medium = response_json
-            .get("medium")
-            .and_then(|v| v.as_str())
-            .unwrap_or("email");
+        let address = response_json.get("address").and_then(|v| v.as_str()).unwrap_or("");
+        let medium = response_json.get("medium").and_then(|v| v.as_str()).unwrap_or("email");
 
         if address.is_empty() {
             return Err(ApiError::internal(

@@ -169,14 +169,11 @@ impl DehydratedDeviceService {
         let mut payload =
             body.as_object().cloned().ok_or_else(|| ApiError::bad_request("Expected a JSON object body"))?;
 
-        let mut device_data = payload
-            .get("device_data")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
+        let mut device_data = payload.get("device_data").and_then(Value::as_object).cloned().unwrap_or_default();
 
         if !matches!(payload.get("device_keys"), Some(Value::Object(_))) {
-            if let Some(nested_device_keys) = device_data.get("device_keys").filter(|value| value.is_object()).cloned() {
+            if let Some(nested_device_keys) = device_data.get("device_keys").filter(|value| value.is_object()).cloned()
+            {
                 payload.insert("device_keys".to_string(), nested_device_keys);
             } else {
                 return Err(ApiError::bad_request("Device key(s) not found, these must be provided."));
@@ -218,18 +215,16 @@ impl DehydratedDeviceService {
         let account = device_data.get("account").cloned().or_else(|| payload.get("account").cloned());
         let expires_at = payload.get("expires_at").and_then(Value::as_i64);
 
-        Ok(NormalizedDehydratedDevicePayload {
-            device_id,
-            payload,
-            algorithm,
-            account,
-            expires_at,
-        })
+        Ok(NormalizedDehydratedDevicePayload { device_id, payload, algorithm, account, expires_at })
     }
 
     fn record_to_response(record: DehydratedDevice) -> Value {
-        let device_data =
-            Self::build_response_device_data(record.device_data, &record.algorithm, record.account.as_ref(), record.expires_at);
+        let device_data = Self::build_response_device_data(
+            record.device_data,
+            &record.algorithm,
+            record.account.as_ref(),
+            record.expires_at,
+        );
         serde_json::json!({
             "device_id": record.device_id,
             "device_data": device_data,
@@ -244,11 +239,7 @@ impl DehydratedDeviceService {
     ) -> Value {
         let mut device_data = match stored_payload {
             Value::Object(map) => {
-                let mut device_data = map
-                    .get("device_data")
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut device_data = map.get("device_data").and_then(Value::as_object).cloned().unwrap_or_default();
 
                 if let Some(display_name) = map.get("initial_device_display_name").cloned() {
                     device_data.entry("initial_device_display_name".to_string()).or_insert(display_name);
@@ -263,9 +254,7 @@ impl DehydratedDeviceService {
             }
         };
 
-        device_data
-            .entry("algorithm".to_string())
-            .or_insert_with(|| Value::String(algorithm.to_string()));
+        device_data.entry("algorithm".to_string()).or_insert_with(|| Value::String(algorithm.to_string()));
         if let Some(account) = account {
             device_data.entry("account".to_string()).or_insert_with(|| account.clone());
         }

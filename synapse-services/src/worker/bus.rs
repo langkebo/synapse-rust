@@ -156,9 +156,7 @@ impl WorkerBus {
         let broadcast_channel = format!("{}:broadcast", channel_prefix);
 
         let subscribed_channels = self.subscribed_channels.read().await.clone();
-        let channels: Vec<String> = std::iter::once(broadcast_channel)
-            .chain(subscribed_channels.into_iter())
-            .collect();
+        let channels: Vec<String> = std::iter::once(broadcast_channel).chain(subscribed_channels.into_iter()).collect();
 
         let join_handle = tokio::spawn(async move {
             use futures::StreamExt;

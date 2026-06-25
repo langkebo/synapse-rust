@@ -37,11 +37,7 @@ impl RoomService {
         let destination = via_servers
             .first()
             .cloned()
-            .or_else(|| {
-                room_id
-                    .rsplit_once(':')
-                    .map(|(_, srv)| srv.to_string())
-            })
+            .or_else(|| room_id.rsplit_once(':').map(|(_, srv)| srv.to_string()))
             .ok_or_else(|| {
                 ApiError::bad_request("Cannot join remote room: no destination server available".to_string())
             })?;

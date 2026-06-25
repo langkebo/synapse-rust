@@ -195,9 +195,7 @@ pub fn sign_and_hash_event(
     // 2. Compute and set the content hash.
     let hash = compute_event_content_hash(event).ok_or_else(|| "Failed to compute event content hash".to_string())?;
     if let Some(obj) = event.as_object_mut() {
-        let hashes = obj
-            .entry("hashes")
-            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        let hashes = obj.entry("hashes").or_insert_with(|| Value::Object(serde_json::Map::new()));
         if let Some(hashes_obj) = hashes.as_object_mut() {
             hashes_obj.insert("sha256".to_string(), Value::String(hash));
         }

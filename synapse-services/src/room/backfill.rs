@@ -103,11 +103,7 @@ impl RoomService {
                 room_id = %room_id,
                 "Backfill skipped: no federated candidates in room"
             );
-            return Ok(BackfillOutcome {
-                source_server: None,
-                persisted_events: 0,
-                candidates_tried: 0,
-            });
+            return Ok(BackfillOutcome { source_server: None, persisted_events: 0, candidates_tried: 0 });
         }
 
         // 2. Seed event IDs — the most recent events we already have.  The
@@ -148,10 +144,7 @@ impl RoomService {
                 "Requesting backfill from candidate"
             );
 
-            let response = match federation_client
-                .backfill(&candidate, room_id, &seed_event_ids, limit)
-                .await
-            {
+            let response = match federation_client.backfill(&candidate, room_id, &seed_event_ids, limit).await {
                 Ok(response) => response,
                 Err(error) => {
                     ::tracing::info!(
@@ -188,13 +181,7 @@ impl RoomService {
                 };
 
                 // Skip if already present locally.
-                let already_present = self
-                    .event_storage
-                    .get_event(event_id)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some();
+                let already_present = self.event_storage.get_event(event_id).await.ok().flatten().is_some();
                 if already_present {
                     continue;
                 }
@@ -216,10 +203,7 @@ impl RoomService {
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
                     .unwrap_or_default();
                 let pdu_depth = pdu.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
-                let pdu_redacts = pdu
-                    .get("redacts")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
+                let pdu_redacts = pdu.get("redacts").and_then(|v| v.as_str()).map(String::from);
 
                 let params = CreateEventParams {
                     event_id: event_id.to_string(),
@@ -232,10 +216,7 @@ impl RoomService {
                     redacts: pdu_redacts,
                 };
 
-                if let Err(error) = self
-                    .create_event_with_graph(params, &pdu_prev, &pdu_auth, pdu_depth, None)
-                    .await
-                {
+                if let Err(error) = self.create_event_with_graph(params, &pdu_prev, &pdu_auth, pdu_depth, None).await {
                     ::tracing::warn!(
                         room_id = %room_id,
                         candidate = %candidate,
@@ -268,10 +249,6 @@ impl RoomService {
             candidates_tried = tried,
             "Backfill exhausted all candidates without receiving PDUs"
         );
-        Ok(BackfillOutcome {
-            source_server: None,
-            persisted_events: 0,
-            candidates_tried: tried,
-        })
+        Ok(BackfillOutcome { source_server: None, persisted_events: 0, candidates_tried: tried })
     }
 }

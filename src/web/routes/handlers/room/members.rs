@@ -43,30 +43,20 @@ pub(crate) async fn join_room_by_id_or_alias(
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         // Try local alias lookup first.
-        match state
-            .services
-            .rooms
-            .room_service
-            .get_room_by_alias(&room_id_or_alias)
-            .await
-        {
+        match state.services.rooms.room_service.get_room_by_alias(&room_id_or_alias).await {
             Ok(Some(rid)) => rid,
             Ok(None) => {
                 // Local lookup failed — try federation directory query for
                 // remote aliases.
                 // Reference: element-hq/synapse `synapse/handlers/directory.py::DirectoryHandler.get_association`
                 let local_server = &state.services.core.server_name;
-                let remote_server = room_id_or_alias
-                    .rsplit_once(':')
-                    .map(|(_, srv)| srv)
-                    .filter(|srv| *srv != local_server.as_str());
+                let remote_server =
+                    room_id_or_alias.rsplit_once(':').map(|(_, srv)| srv).filter(|srv| *srv != local_server.as_str());
 
                 if let Some(remote_server) = remote_server {
                     let federation_client = state.services.federation.federation_client.clone();
-                    let dir_response = federation_client
-                        .query_directory(remote_server, &room_id_or_alias)
-                        .await
-                        .map_err(|e| {
+                    let dir_response =
+                        federation_client.query_directory(remote_server, &room_id_or_alias).await.map_err(|e| {
                             ::tracing::warn!(
                                 room_alias = %room_id_or_alias,
                                 server = %remote_server,
@@ -109,12 +99,7 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    state
-        .services
-        .rooms
-        .room_service
-        .join_room_with_via_servers(&room_id, &user_id, &via_servers)
-        .await?;
+    state.services.rooms.room_service.join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
 
     Ok(Json(json!({
         "room_id": room_id

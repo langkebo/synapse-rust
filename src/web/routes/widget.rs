@@ -32,9 +32,7 @@ pub struct UpdateWidgetBody {
 /// schemes are allowed — `javascript:`, `data:`, and other dangerous schemes
 /// are rejected. The URL must parse successfully and have a host.
 fn validate_widget_url(url: &str) -> Result<(), ApiError> {
-    let parsed = url::Url::parse(url).map_err(|_| {
-        ApiError::bad_request("Widget URL must be a valid absolute URL")
-    })?;
+    let parsed = url::Url::parse(url).map_err(|_| ApiError::bad_request("Widget URL must be a valid absolute URL"))?;
 
     match parsed.scheme() {
         "https" | "http" => {

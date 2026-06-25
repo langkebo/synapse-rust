@@ -31,9 +31,7 @@ use std::process::ExitCode;
 
 use sqlx::postgres::PgPoolOptions;
 
-use synapse_rust::storage::schema_health_check::{
-    detailed_report, run_schema_health_check, HealthCheckResult,
-};
+use synapse_rust::storage::schema_health_check::{detailed_report, run_schema_health_check, HealthCheckResult};
 
 #[tokio::main]
 async fn main() -> ExitCode {

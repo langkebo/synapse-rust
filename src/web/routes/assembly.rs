@@ -7,8 +7,8 @@ use super::{
     worker, *,
 };
 use crate::web::middleware::{
-    cors_middleware, csrf_middleware, rate_limit_middleware, request_id_middleware,
-    security_headers_middleware, shadow_ban_middleware,
+    cors_middleware, csrf_middleware, rate_limit_middleware, request_id_middleware, security_headers_middleware,
+    shadow_ban_middleware,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -624,9 +624,7 @@ async fn delete_extended_profile_field(
 /// classic password login flow without surfacing a misleading error to users.
 async fn get_auth_metadata(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     if !oidc::oidc_enabled(&state) {
-        return Err(ApiError::unrecognized(
-            "Authentication metadata is not available because OIDC/SSO is not enabled",
-        ));
+        return Err(ApiError::unrecognized("Authentication metadata is not available because OIDC/SSO is not enabled"));
     }
 
     let discovery = oidc::openid_discovery(State(state)).await?;
@@ -637,9 +635,7 @@ async fn get_auth_metadata(State(state): State<AppState>) -> Result<Json<serde_j
 /// fetching the full auth metadata document.
 async fn get_auth_issuer(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     if !oidc::oidc_enabled(&state) {
-        return Err(ApiError::unrecognized(
-            "Authentication issuer is not available because OIDC/SSO is not enabled",
-        ));
+        return Err(ApiError::unrecognized("Authentication issuer is not available because OIDC/SSO is not enabled"));
     }
 
     let discovery = oidc::openid_discovery(State(state)).await?;

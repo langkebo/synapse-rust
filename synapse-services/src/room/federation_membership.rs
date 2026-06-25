@@ -113,12 +113,7 @@ impl RoomService {
     /// 4. Create the room locally if it doesn't exist.
     /// 5. Persist the returned state events and auth chain.
     /// 6. Add the user as a joined member.
-    pub async fn join_room_via_federation(
-        &self,
-        destination: &str,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn join_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
         ::tracing::info!(
             destination = %destination,
             room_id = %room_id,
@@ -132,13 +127,10 @@ impl RoomService {
         let federation_client = self.require_federation_client().await?;
 
         // 1. make_join: get the template event from the remote server.
-        let make_join_response = federation_client
-            .make_join(destination, room_id, user_id)
-            .await
-            .map_err(|e| {
-                ::tracing::warn!(error = %e, destination = %destination, "make_join failed");
-                ApiError::bad_request(format!("Remote server rejected make_join: {e}"))
-            })?;
+        let make_join_response = federation_client.make_join(destination, room_id, user_id).await.map_err(|e| {
+            ::tracing::warn!(error = %e, destination = %destination, "make_join failed");
+            ApiError::bad_request(format!("Remote server rejected make_join: {e}"))
+        })?;
 
         let room_version = make_join_response.room_version.unwrap_or_else(|| "10".to_string());
         let mut event_template = make_join_response.event;
@@ -155,10 +147,8 @@ impl RoomService {
             .unwrap_or_else(|| generate_event_id(&self.server_name));
 
         // 3. send_join: send the signed event to the remote server.
-        let send_join_response = federation_client
-            .send_join(destination, room_id, &event_id, &event_template)
-            .await
-            .map_err(|e| {
+        let send_join_response =
+            federation_client.send_join(destination, room_id, &event_id, &event_template).await.map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "send_join failed");
                 ApiError::bad_request(format!("Remote server rejected send_join: {e}"))
             })?;
@@ -243,42 +233,22 @@ impl RoomService {
                     })
                     .unwrap_or_default();
 
-                let depth = state_event
-                    .get("depth")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
+                let depth = state_event.get("depth").and_then(|v| v.as_i64()).unwrap_or(0);
 
-                let event_type = state_event
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("m.unknown")
-                    .to_string();
+                let event_type = state_event.get("type").and_then(|v| v.as_str()).unwrap_or("m.unknown").to_string();
 
-                let sender = state_event
-                    .get("sender")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let sender = state_event.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-                let content = state_event
-                    .get("content")
-                    .cloned()
-                    .unwrap_or(Value::Object(serde_json::Map::new()));
+                let content = state_event.get("content").cloned().unwrap_or(Value::Object(serde_json::Map::new()));
 
-                let state_key = state_event
-                    .get("state_key")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let state_key = state_event.get("state_key").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 let origin_server_ts = state_event
                     .get("origin_server_ts")
                     .and_then(|v| v.as_i64())
                     .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-                let redacts = state_event
-                    .get("redacts")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                let redacts = state_event.get("redacts").and_then(|v| v.as_str()).map(|s| s.to_string());
 
                 // Best-effort persistence — skip on error to avoid blocking the join.
                 if let Err(e) = self
@@ -322,22 +292,11 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to update member count after federation join", &e))?;
 
         // Persist the join event itself.
-        let join_event_id = event_template
-            .get("event_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&event_id)
-            .to_string();
+        let join_event_id = event_template.get("event_id").and_then(|v| v.as_str()).unwrap_or(&event_id).to_string();
 
-        let join_sender = event_template
-            .get("sender")
-            .and_then(|v| v.as_str())
-            .unwrap_or(user_id)
-            .to_string();
+        let join_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
 
-        let join_content = event_template
-            .get("content")
-            .cloned()
-            .unwrap_or(json!({ "membership": "join" }));
+        let join_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "join" }));
 
         let join_ts = event_template
             .get("origin_server_ts")
@@ -377,12 +336,7 @@ impl RoomService {
     /// 2. Sign the template PDU locally.
     /// 3. Call `send_leave` on `destination` with the signed PDU.
     /// 4. Update local membership to "leave".
-    pub async fn leave_room_via_federation(
-        &self,
-        destination: &str,
-        room_id: &str,
-        user_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn leave_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
         ::tracing::info!(
             destination = %destination,
             room_id = %room_id,
@@ -396,13 +350,10 @@ impl RoomService {
         let federation_client = self.require_federation_client().await?;
 
         // 1. make_leave: get the template event from the remote server.
-        let make_leave_response = federation_client
-            .make_leave(destination, room_id, user_id)
-            .await
-            .map_err(|e| {
-                ::tracing::warn!(error = %e, destination = %destination, "make_leave failed");
-                ApiError::bad_request(format!("Remote server rejected make_leave: {e}"))
-            })?;
+        let make_leave_response = federation_client.make_leave(destination, room_id, user_id).await.map_err(|e| {
+            ::tracing::warn!(error = %e, destination = %destination, "make_leave failed");
+            ApiError::bad_request(format!("Remote server rejected make_leave: {e}"))
+        })?;
 
         let mut event_template = make_leave_response.event;
 
@@ -418,13 +369,10 @@ impl RoomService {
             .unwrap_or_else(|| generate_event_id(&self.server_name));
 
         // 3. send_leave: send the signed event to the remote server.
-        federation_client
-            .send_leave(destination, room_id, &event_id, &event_template)
-            .await
-            .map_err(|e| {
-                ::tracing::warn!(error = %e, destination = %destination, "send_leave failed");
-                ApiError::bad_request(format!("Remote server rejected send_leave: {e}"))
-            })?;
+        federation_client.send_leave(destination, room_id, &event_id, &event_template).await.map_err(|e| {
+            ::tracing::warn!(error = %e, destination = %destination, "send_leave failed");
+            ApiError::bad_request(format!("Remote server rejected send_leave: {e}"))
+        })?;
 
         // 4. Update local membership.
         let existing_member = self
@@ -446,16 +394,9 @@ impl RoomService {
         }
 
         // Persist the leave event locally.
-        let leave_sender = event_template
-            .get("sender")
-            .and_then(|v| v.as_str())
-            .unwrap_or(user_id)
-            .to_string();
+        let leave_sender = event_template.get("sender").and_then(|v| v.as_str()).unwrap_or(user_id).to_string();
 
-        let leave_content = event_template
-            .get("content")
-            .cloned()
-            .unwrap_or(json!({ "membership": "leave" }));
+        let leave_content = event_template.get("content").cloned().unwrap_or(json!({ "membership": "leave" }));
 
         let leave_ts = event_template
             .get("origin_server_ts")
@@ -496,12 +437,7 @@ impl RoomService {
     /// 3. Call `invite` on the invitee's home server.
     /// 4. The remote server signs the event and returns it.
     /// 5. Persist the signed event locally.
-    pub async fn invite_user_via_federation(
-        &self,
-        room_id: &str,
-        inviter_id: &str,
-        invitee_id: &str,
-    ) -> ApiResult<()> {
+    pub async fn invite_user_via_federation(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
         let destination = Self::server_name_from_id(invitee_id)
             .ok_or_else(|| ApiError::bad_request("Invalid invitee ID: missing server name".to_string()))?
             .to_string();
@@ -551,10 +487,8 @@ impl RoomService {
             .map_err(|e| ApiError::internal(format!("Failed to sign invite event: {e}")))?;
 
         // 3. Call invite on the remote server.
-        let invite_response = federation_client
-            .invite(&destination, room_id, &event_id, &invite_event)
-            .await
-            .map_err(|e| {
+        let invite_response =
+            federation_client.invite(&destination, room_id, &event_id, &invite_event).await.map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "federation invite failed");
                 ApiError::bad_request(format!("Remote server rejected invite: {e}"))
             })?;
@@ -568,27 +502,13 @@ impl RoomService {
         // 5. Persist the signed event returned by the remote server.
         let final_event = invite_response.event;
 
-        let persisted_event_id = final_event
-            .get("event_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&event_id)
-            .to_string();
+        let persisted_event_id = final_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(&event_id).to_string();
 
-        let persisted_sender = final_event
-            .get("sender")
-            .and_then(|v| v.as_str())
-            .unwrap_or(inviter_id)
-            .to_string();
+        let persisted_sender = final_event.get("sender").and_then(|v| v.as_str()).unwrap_or(inviter_id).to_string();
 
-        let persisted_content = final_event
-            .get("content")
-            .cloned()
-            .unwrap_or(json!({ "membership": "invite" }));
+        let persisted_content = final_event.get("content").cloned().unwrap_or(json!({ "membership": "invite" }));
 
-        let persisted_ts = final_event
-            .get("origin_server_ts")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(now);
+        let persisted_ts = final_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(now);
 
         if let Err(e) = self
             .event_storage
@@ -656,10 +576,8 @@ impl RoomService {
 
         let federation_client = self.require_federation_client().await?;
 
-        let signed_event = federation_client
-            .exchange_third_party_invite(destination, room_id, invite_event)
-            .await
-            .map_err(|e| {
+        let signed_event =
+            federation_client.exchange_third_party_invite(destination, room_id, invite_event).await.map_err(|e| {
                 ::tracing::warn!(error = %e, destination = %destination, "exchange_third_party_invite failed");
                 ApiError::bad_request(format!("Remote server rejected exchange_third_party_invite: {e}"))
             })?;
@@ -671,21 +589,11 @@ impl RoomService {
             .map(|s| s.to_string())
             .ok_or_else(|| ApiError::internal("Remote server returned event without event_id".to_string()))?;
 
-        let sender = signed_event
-            .get("sender")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+        let sender = signed_event.get("sender").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-        let state_key = signed_event
-            .get("state_key")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let state_key = signed_event.get("state_key").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-        let content = signed_event
-            .get("content")
-            .cloned()
-            .unwrap_or(json!({ "membership": "invite" }));
+        let content = signed_event.get("content").cloned().unwrap_or(json!({ "membership": "invite" }));
 
         let origin_server_ts = signed_event
             .get("origin_server_ts")

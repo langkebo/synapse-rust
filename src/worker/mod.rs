@@ -13,11 +13,6 @@ pub mod tcp;
 pub mod topology_validator;
 pub mod types;
 
-pub use synapse_services::worker::{
-    BusMessage, HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus, LoadBalanceStrategy,
-    RedisBusConfig, ReplicationCommand, ReplicationEvent, ReplicationProtocol, StreamWriterManager, WorkerBus,
-    WorkerLoadBalancer, WorkerLoadStats, WorkerManager, WorkerStorage,
-};
 pub use synapse_services::worker::topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,
     resolved_current_instance_name, should_run_global_maintenance, validate_topology, validate_worker_config,
@@ -29,4 +24,9 @@ pub use synapse_services::worker::types::{
     WorkerCommandRow, WorkerConnection, WorkerEvent, WorkerEventRow, WorkerInfo, WorkerLoadStatsUpdate,
     WorkerResponsibilitySummary, WorkerRow, WorkerRuntimeConfig, WorkerStatus, WorkerTaskAssignment,
     WorkerTopologyEntry, WorkerTopologyPreset, WorkerTopologyPresetInstance, WorkerTopologySummary, WorkerType,
+};
+pub use synapse_services::worker::{
+    BusMessage, HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStatus, LoadBalanceStrategy, RedisBusConfig,
+    ReplicationCommand, ReplicationEvent, ReplicationProtocol, StreamWriterManager, WorkerBus, WorkerLoadBalancer,
+    WorkerLoadStats, WorkerManager, WorkerStorage,
 };

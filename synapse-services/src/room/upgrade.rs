@@ -24,11 +24,8 @@ impl RoomService {
             .get_room_members(old_room_id, "join")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to fetch old room members for migration", &e))?;
-        let members_to_invite: Vec<String> = old_members
-            .into_iter()
-            .map(|m| m.user_id)
-            .filter(|uid| uid != user_id)
-            .collect();
+        let members_to_invite: Vec<String> =
+            old_members.into_iter().map(|m| m.user_id).filter(|uid| uid != user_id).collect();
 
         let tombstone_event_id = generate_event_id(&self.server_name);
         let create_config = CreateRoomConfig {

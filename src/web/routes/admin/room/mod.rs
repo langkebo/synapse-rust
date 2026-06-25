@@ -1,6 +1,6 @@
-pub mod types;
 pub mod management;
 pub mod spaces;
+pub mod types;
 
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
@@ -343,7 +343,8 @@ pub async fn get_rooms(
         _ => return Err(ApiError::bad_request("Cursor does not match requested order_by".to_string())),
     }
 
-    let (rooms_with_members, next_batch) = state.services.rooms.room_service.get_all_rooms_with_members(limit, cursor, order).await?;
+    let (rooms_with_members, next_batch) =
+        state.services.rooms.room_service.get_all_rooms_with_members(limit, cursor, order).await?;
 
     let total = state.services.rooms.room_service.get_room_count().await?;
 
@@ -380,7 +381,8 @@ pub async fn get_room(
     match room {
         Some(r) => {
             // Derive tombstone state from the m.room.tombstone state event.
-            let tombstone_events = state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.tombstone").await?;
+            let tombstone_events =
+                state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.tombstone").await?;
             let tombstone_content = tombstone_events.first().and_then(|e| e.get("content"));
             let tombstoned = tombstone_content.is_some();
             let replacement_room = tombstone_content
@@ -438,7 +440,8 @@ pub async fn get_room_members_admin(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = params.get("from").map(|s| s.as_str());
 
-    let members = state.services.rooms.room_service.get_room_members_paginated_admin(&room_id, "join", limit, from).await?;
+    let members =
+        state.services.rooms.room_service.get_room_members_paginated_admin(&room_id, "join", limit, from).await?;
 
     let total = state.services.rooms.room_service.get_room_member_count_admin(&room_id).await?;
 
@@ -454,11 +457,7 @@ pub async fn get_room_members_admin(
         })
         .collect();
 
-    let next_batch = if members.len() as i64 == limit {
-        members.last().map(|m| m.user_id.clone())
-    } else {
-        None
-    };
+    let next_batch = if members.len() as i64 == limit { members.last().map(|m| m.user_id.clone()) } else { None };
 
     Ok(Json(json!({
         "members": member_list,
@@ -529,11 +528,8 @@ pub async fn get_room_messages_admin(
         })
         .collect();
 
-    let next_batch = if events.len() as i64 == limit {
-        events.last().map(|e| e.origin_server_ts.to_string())
-    } else {
-        None
-    };
+    let next_batch =
+        if events.len() as i64 == limit { events.last().map(|e| e.origin_server_ts.to_string()) } else { None };
 
     Ok(Json(json!({
         "chunk": messages,
@@ -606,7 +602,8 @@ pub async fn get_room_token_sync_admin(
         ));
     }
 
-    let (entries, total) = state.services.rooms.sliding_sync_service.get_room_token_sync(&room_id, limit, cursor).await?;
+    let (entries, total) =
+        state.services.rooms.sliding_sync_service.get_room_token_sync(&room_id, limit, cursor).await?;
 
     let has_more = entries.len() as i64 > limit;
     let visible_entries = if has_more { &entries[..limit as usize] } else { &entries[..] };

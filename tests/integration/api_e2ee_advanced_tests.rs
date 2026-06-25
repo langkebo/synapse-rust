@@ -351,7 +351,11 @@ async fn test_e2ee_cross_signing_flow() {
         .unwrap();
 
     let response = app.clone().oneshot(upload_cross_signing_request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "Upload cross-signing keys should start with UIA challenge");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "Upload cross-signing keys should start with UIA challenge"
+    );
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
     let challenge_json: serde_json::Value = serde_json::from_slice(&body).unwrap();

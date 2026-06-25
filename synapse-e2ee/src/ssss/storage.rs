@@ -103,9 +103,7 @@ impl SecretStorage {
                 key_id = %key.key_id,
                 "refused to overwrite SSSS key owned by another user"
             );
-            return Err(ApiError::bad_request(
-                "Secret storage key id already exists for another user".to_string(),
-            ));
+            return Err(ApiError::bad_request("Secret storage key id already exists for another user".to_string()));
         }
 
         Ok(())

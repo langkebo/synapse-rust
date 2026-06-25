@@ -256,15 +256,14 @@ pub use cache::{
     CacheInvalidationManager, CacheInvalidationMessage, CacheInvalidationSubscriber, CacheKeyBuilder, CacheManager,
     CacheStats, CacheTtl, CircuitBreaker, CircuitBreakerMetrics, CircuitState, DegradationMetrics,
     FederationSignatureCache, InvalidationReceiver, InvalidationType, KeyRotationCallback, KeyRotationEvent,
-    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, SignatureCacheConfig,
-    SignatureCacheEntry, SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL,
-    DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
-    DEFAULT_SIGNATURE_CACHE_TTL,
+    LocalCache, QueryCache, QueryCacheConfig, RateLimitDecision, RedisCache, SignatureCacheConfig, SignatureCacheEntry,
+    SignatureCacheStats, CACHE_INVALIDATION_CHANNEL, DEFAULT_KEY_CACHE_TTL, DEFAULT_KEY_ROTATION_GRACE_PERIOD_MS,
+    DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS, DEFAULT_SIGNATURE_CACHE_TTL,
 }; // cache crate root items
 pub(crate) use common::*; // internal crate access; no longer flattened into public API
 pub use federation::{
-    client, device_sync, event_auth, event_broadcaster, key_rotation, memory_tracker, signing,
-    state_resolution, DeviceSyncManager, EventAuthChain, EventBroadcaster, FederationClient, FederationMemoryReport,
+    client, device_sync, event_auth, event_broadcaster, key_rotation, memory_tracker, signing, state_resolution,
+    DeviceSyncManager, EventAuthChain, EventBroadcaster, FederationClient, FederationMemoryReport,
     FederationMemoryTracker, KeyRotationManager, MemoryStats,
 }; // federation crate root items
 #[cfg(feature = "friends")]
