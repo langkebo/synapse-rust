@@ -43,7 +43,17 @@ pub fn swagger_ui_router(_state: AppState) -> axum::Router<AppState> {
             (name = "Admin", description = "Server administration endpoints"),
             (name = "Federation", description = "Server-to-server federation API"),
         ),
-        paths(),
+        paths(
+            // Health, version, capabilities, and well-known endpoints
+            health::health_check,
+            health::detailed_health_check,
+            health::get_client_versions,
+            health::get_server_version,
+            health::get_capabilities,
+            health::get_well_known_server,
+            health::get_well_known_client,
+            health::get_well_known_support,
+        ),
     )]
     struct ApiDoc;
 
