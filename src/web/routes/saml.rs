@@ -56,7 +56,7 @@ pub async fn saml_login(
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
@@ -69,7 +69,7 @@ pub async fn saml_login_redirect(
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
@@ -97,7 +97,7 @@ async fn handle_saml_callback(
     relay_state: Option<&str>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let saml_response = saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
@@ -142,7 +142,7 @@ pub async fn saml_logout(
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let mapping = state.services.sso.saml_service.get_user_mapping(&_auth_user.user_id).await?;
@@ -174,7 +174,7 @@ pub async fn saml_logout_callback(
     Query(query): Query<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let saml_response = query.saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
@@ -188,7 +188,7 @@ pub async fn saml_logout_callback(
 
 pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
@@ -203,7 +203,7 @@ pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl Int
 
 pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let config = state.services.sso.saml_service.get_config();
@@ -239,7 +239,7 @@ pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoR
 
 pub async fn refresh_idp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
@@ -376,7 +376,7 @@ pub async fn saml_logout_admin(
         return Err(ApiError::bad_request("user_id is required"));
     }
     if !state.services.sso.saml_service.is_enabled() {
-        return Err(ApiError::bad_request("SAML authentication is not enabled"));
+        return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let session = state.services.sso.saml_service.get_session_by_user(&body.user_id).await?;
