@@ -11,10 +11,14 @@ docker/nginx/ssl/
 .env
 .env.*
 !.env.example
+!.env.federation-test.example
+docker/.env
 
 # 生产配置文件（包含真实密码）
 homeserver.yaml
+homeserver.local.yaml
 !homeserver.yaml.example
+!homeserver.minimal.yaml
 
 # SQLx 编译期查询缓存（M-3 迁移必须入仓）
 # 不再忽略 .sqlx/，由 `cargo sqlx prepare` 生成并随代码提交
@@ -85,6 +89,4 @@ test-results-*.log
 test-results-fixed/
 .DS_Store
 .trae/
-.env.federation-test
-.env
 .gstack/
