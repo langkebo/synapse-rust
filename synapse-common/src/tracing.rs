@@ -166,4 +166,25 @@ mod tests {
         let result = trace_async!("test_span", async { 42 }).await;
         assert_eq!(result, 42);
     }
+
+    #[test]
+    fn test_init_tracer() {
+        let tracer = DistributedTracer::new("test-service".to_string());
+        let result = tracer.init_tracer();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_trace_id_without_active_span() {
+        let tracer = DistributedTracer::new("test-service".to_string());
+        let trace_id = tracer.get_trace_id();
+        assert!(trace_id.is_none());
+    }
+
+    #[test]
+    fn test_get_span_id_without_active_span() {
+        let tracer = DistributedTracer::new("test-service".to_string());
+        let span_id = tracer.get_span_id();
+        assert!(span_id.is_none());
+    }
 }
