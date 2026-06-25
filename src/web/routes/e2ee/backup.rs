@@ -1,9 +1,12 @@
-use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use super::devices::{decode_key_request_cursor, encode_key_request_cursor};
 use crate::e2ee::secure_backup::RestoreSecureBackupRequest;
 use crate::web::routes::response_helpers::empty_json;
+use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use crate::ApiError;
-use axum::{extract::{Path, Query, State}, Json};
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use serde::Deserialize;
 use serde_json::Value;
 

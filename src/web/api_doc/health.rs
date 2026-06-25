@@ -1,6 +1,5 @@
 #![cfg(feature = "openapi-docs")]
 
-
 /// `GET /_matrix/client/versions` — Return supported Matrix protocol versions.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(

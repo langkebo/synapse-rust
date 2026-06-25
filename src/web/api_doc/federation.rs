@@ -1,6 +1,5 @@
 #![cfg(feature = "openapi-docs")]
 
-
 /// `GET /_matrix/federation/v1/version` — Get the server version.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
