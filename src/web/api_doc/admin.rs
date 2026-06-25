@@ -1,6 +1,5 @@
 #![cfg(feature = "openapi-docs")]
 
-
 /// `GET /_synapse/admin/v1/users` — List registered users (Admin only).
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(

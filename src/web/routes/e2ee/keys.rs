@@ -1,7 +1,11 @@
-use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
+use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use crate::ApiError;
-use axum::{extract::{Path, Query, State}, Json, Router, routing::{delete, get, post, put}};
+use axum::{
+    extract::{Path, Query, State},
+    routing::{delete, get, post, put},
+    Json, Router,
+};
 use serde_json::Value;
 
 use super::backup::*;

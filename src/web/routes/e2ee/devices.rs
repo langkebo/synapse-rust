@@ -1,10 +1,13 @@
-use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use super::keys::parse_stream_id;
 use crate::web::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
+use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
 use crate::ApiError;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{extract::{Path, Query, State}, Json};
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Deserialize;
 use serde_json::{json, Value};

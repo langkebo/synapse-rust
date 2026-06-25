@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run server: `SYNAPSE_CONFIG_PATH=homeserver.yaml cargo run --release`
 - Run worker binary: `cargo run --bin synapse_worker`
 - Format check: `cargo fmt --all -- --check`
-- Clippy: `cargo clippy --all-features --locked -- -D warnings`
+- Clippy: `SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings`
 - Doc tests: `cargo test --doc --locked`
 - Full test suite: `cargo test --all-features --locked -- --test-threads=4`
 - CI-equivalent Rust test entrypoint: `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`

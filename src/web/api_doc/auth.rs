@@ -1,6 +1,5 @@
 #![cfg(feature = "openapi-docs")]
 
-
 /// `GET /_matrix/client/v3/user/{user_id}/account_data/` — List account data for the authenticated user.
 #[cfg(feature = "openapi-docs")]
 #[utoipa::path(
