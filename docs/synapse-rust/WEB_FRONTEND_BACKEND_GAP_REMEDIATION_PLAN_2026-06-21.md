@@ -181,3 +181,54 @@
 - 如果要用于排期会议，建议将 `P0-01`、`P0-02` 直接拆成独立 issue
 - 如果要用于对外能力说明，建议同步更新 `SUPPORTED_MATRIX_SURFACE.md`
 - 如果要用于后续验证，请把本文件与浏览器 harness 失败截图、console log 和 API 探针结果一起归档
+
+---
+
+## 八、修复进度回填 (2026-06-23)
+
+本节回填截至 2026-06-23 的修复进度，与 `WEB_FRONTEND_BACKEND_EXECUTION_CHECKLIST_2026-06-21.md` 第五节保持同步。
+
+### 8.1 P0 修复进度
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| `P0-01` | 🟡 部分修复 | 主流程已从“阻断”下降为“可用但带噪音”。后端侧已收紧 widget / OIDC / receipt 等声明面与兼容性处理；剩余 `Widget*Store ReferenceError` 经确认为 Element Web 前端 bundle 问题，非后端协议问题。详见 EXECUTION_CHECKLIST 第七节回填。 |
+| `P0-02` | 🟡 部分修复 | `cross-signing + SSSS + dehydrated device` 的 fresh-account 端到端回归已解开并稳定通过；`/keys/changes`、经典 `/sync`、`sliding-sync` 三观察面组合门（`bash scripts/test/run_e2ee_observability_gate.sh`）28 条测试全绿。剩余浏览器侧完整 bootstrap 稳定化属 T3 后续工作。 |
+
+### 8.2 P1 修复进度
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| `P1-01` | ✅ 已修复 | `/versions` 与 `/capabilities` 超前声明已收紧：移除 `io.hula.*` 公开声明、修复 `m.voice` / `m.room.suggested` 派生来源、`MSC3245 / MSC3983` 改为路由面驱动、补齐 `MSC3814 / MSC4143` 声明、`m.supports_login_via_phone_number` 改为 `false`（无 MSISDN 实现）。15 条单元测试全通过。 |
+| `P1-02` | 📋 未开始 | `friends` Web 产品入口策略属产品决策，需 Web 产品负责人明确方案。后端 API 已完整。 |
+| `P1-03` | ✅ 已修复 | OIDC 支持边界收口：修复 `sso_providers()` 未检测 OIDC 的 bug，`m.sso.providers` 现可正确反映 OIDC 配置；移除 `registration_endpoint` 与兼容路由 `/_matrix/client/*/oidc/register`。 |
+| `P1-04` | ✅ 已修复 | Widget 运行时异常处理收口：确认 `Widget*Store ReferenceError` 为 Element Web 前端 bundle 问题；后端侧补齐 widget URL XSS 校验、将 `send_room_widget_message` 从假 `event_id` 改为明确错误提示。7 条单元测试全通过。 |
+
+### 8.3 P2 修复进度
+
+| 编号 | 状态 | 说明 |
+|------|------|------|
+| `P2-01` | ✅ 已修复 | 11 个 `M_UNRECOGNIZED` 端点已文档化；修复 `federation/v1/query/auth` 误导性 stub；`SUPPORTED_MATRIX_SURFACE.md` 新增 Admin / Federation 端点支持矩阵。同时本轮收口了功能缺口表中的 8 项剩余条目（联邦速率限制、服务器统计、身份服务器集成、认证链缓存、跨签名验证、复制协议文档化、服务器重启 API、备份管理 API 确认有意设计）。 |
+| `P2-02` | 📋 未开始 | Complement 级互通门禁需 QA / 兼容性负责人建立 nightly 流水线，属 CI 基础设施任务。 |
+| `P2-03` | 📋 未开始 | 浏览器 harness 稳定基线扩展属 Web 测试负责人任务，需将 `pageerror / console error` 收敛为正式门禁。 |
+
+### 8.4 本轮新增修复 (2026-06-23)
+
+除上述 P0/P1/P2 条目外，本轮对照 `element-hq/synapse` 还完成了以下功能缺口修复（详见 `WEB_FRONTEND_BACKEND_EXECUTION_CHECKLIST_2026-06-21.md` 第五节五.2）：
+
+1. **联邦速率限制**：新增 per-origin 令牌桶中间件，默认关闭，支持 `enabled / per_second / burst_size` 配置。
+2. **服务器统计增强**：`get_statistics` 新增 room 活跃度、消息量、加密房间数等运营指标。
+3. **身份服务器 bind/unbind 数据质量**：修复 `bind_three_pid` 解析真实 address/medium；`unbind_threepid` 现调用远程 IS unbind。
+4. **认证链缓存有效性**：`auth_chain_cache` 从 `Cache<String, bool>` 改为 `Cache<String, Vec<String>>`，缓存命中时直接返回结果。
+5. **跨签名验证严格链**：移除 OR 逻辑，强制 `master → self_signing → device` 单向验证链。
+6. **服务器重启 API**：通过 broadcast channel 触发优雅关闭，进程管理器负责重启。
+7. **复制协议状态文档化**：确认为已知限制，需独立 epic 排期。
+8. **备份管理 API**：确认为有意设计，由外部基础设施管理。
+
+### 8.5 剩余未完成任务
+
+截至 2026-06-23，剩余未完成任务共 3 项，均为产品/CI 基础设施任务，非代码实现：
+
+1. **T5 / P1-02**：`friends` Web 产品入口策略（需产品决策）
+2. **T9 / P2-02**：Complement 互通门禁（需 CI 基础设施）
+3. **T10 / P2-03**：浏览器 harness 稳定基线（需 Web 测试治理）

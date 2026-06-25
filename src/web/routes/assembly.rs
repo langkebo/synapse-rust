@@ -7,7 +7,8 @@ use super::{
     worker, *,
 };
 use crate::web::middleware::{
-    cors_middleware, csrf_middleware, rate_limit_middleware, security_headers_middleware, shadow_ban_middleware,
+    cors_middleware, csrf_middleware, rate_limit_middleware, request_id_middleware,
+    security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -808,6 +809,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), shadow_ban_middleware))
+        .layer(axum::middleware::from_fn(request_id_middleware))
         .merge(crate::web::api_doc::swagger_ui_router(state.clone()))
         .with_state(state)
 }

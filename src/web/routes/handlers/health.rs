@@ -1,13 +1,31 @@
 //! 健康检查和根路由处理器
 
-use axum::{response::IntoResponse, Json};
+use axum::extract::State;
+use axum::response::IntoResponse;
+use axum::Json;
 use serde_json::json;
 
-pub async fn health_check() -> impl IntoResponse {
-    Json(json!({
-        "status": "ok",
-        "timestamp": chrono::Utc::now().to_rfc3339()
-    }))
+/// Basic liveness + readiness probe used by Docker healthcheck.
+///
+/// Performs a lightweight database `SELECT 1` so that the container is
+/// marked unhealthy when Postgres is unreachable, even if the HTTP server
+/// itself is still accepting connections.
+pub async fn health_check(State(state): State<crate::web::routes::AppState>) -> impl IntoResponse {
+    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    let status = if db_ok { "ok" } else { "unhealthy" };
+    let http_status = if db_ok {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        http_status,
+        Json(json!({
+            "status": status,
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        })),
+    )
 }
 
 pub async fn detailed_health_check(
@@ -77,6 +95,44 @@ pub async fn detailed_health_check(
                 "status": "degraded",
                 "message": format!("Missing tables: {}", missing_tables.join(", ")),
                 "duration_ms": schema_start.elapsed().as_millis()
+            }),
+        );
+    }
+
+    // Redis connectivity probe — only checked when Redis is enabled in config.
+    // A degraded Redis does NOT make the server unhealthy (in-memory fallback
+    // exists), but it does affect rate-limit consistency in multi-worker setups.
+    if state.cache.is_redis_enabled() {
+        let redis_start = std::time::Instant::now();
+        // Use a harmless GET on a sentinel key to verify round-trip connectivity.
+        // We don't care about the value, only that the call completes without error.
+        let redis_ok = state.cache.get::<String>("__health_probe__").await.is_ok();
+        let redis_status = if redis_ok && redis_start.elapsed() < std::time::Duration::from_secs(5) {
+            "healthy"
+        } else {
+            "degraded"
+        };
+        if redis_status == "degraded" && overall_status == "healthy" {
+            overall_status = "degraded";
+        }
+        checks.insert(
+            "redis".to_string(),
+            json!({
+                "status": redis_status,
+                "message": if redis_status == "healthy" {
+                    "Round-trip completed".to_string()
+                } else {
+                    "Round-trip failed or exceeded 5s threshold".to_string()
+                },
+                "duration_ms": redis_start.elapsed().as_millis()
+            }),
+        );
+    } else {
+        checks.insert(
+            "redis".to_string(),
+            json!({
+                "status": "disabled",
+                "message": "Redis not enabled — using in-memory cache"
             }),
         );
     }

@@ -96,10 +96,6 @@ pub async fn get_backups(
     Err(ApiError::not_implemented("Admin server endpoint 'backups' is not implemented in this deployment; backups are managed by external infrastructure"))
 }
 
-fn unsupported_admin_server_feature(feature: &str) -> ApiError {
-    ApiError::not_implemented(format!("Admin server endpoint '{feature}' is not implemented in this deployment"))
-}
-
 #[allow(clippy::unused_async)]
 pub async fn get_server_version(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -133,13 +129,38 @@ pub async fn purge_media_cache(
     })))
 }
 
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async)] // axum handlers must be async even when the await is inside spawn
 pub async fn restart_server(
     _admin: AdminUser,
-    State(_state): State<AppState>,
-    Json(_body): Json<Value>,
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    Err(unsupported_admin_server_feature("restart"))
+    // Optional graceful shutdown delay (ms). Defaults to 100ms to let the
+    // HTTP response flush before the process exits.
+    let delay_ms = body
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(100)
+        .min(10_000);
+
+    let shutdown_tx = state.shutdown_signal.ok_or_else(|| {
+        ApiError::internal("Shutdown signal is not wired into AppState; restart is unavailable")
+    })?;
+
+    // Send the shutdown signal in a background task after a short delay so
+    // this handler can return a success response first.
+    tokio::spawn(async move {
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        ::tracing::info!("Admin triggered server restart via POST /_synapse/admin/v1/restart");
+        let _ = shutdown_tx.send(());
+    });
+
+    Ok(Json(json!({
+        "restart_pending": true,
+        "message": "Graceful shutdown initiated; the process manager will restart the server"
+    })))
 }
 
 #[axum::debug_handler]
@@ -164,6 +185,24 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
         .unwrap_or(0);
     let r30_users = state.services.account.user_storage.get_r30_users().await.unwrap_or(0);
 
+    // Room activity and message-volume metrics.
+    let room_stats = state.services.rooms.room_storage.get_room_stats_overview().await.unwrap_or_else(|e| {
+        ::tracing::warn!(error = %e, "Failed to fetch room stats overview for /statistics");
+        json!({})
+    });
+    let total_messages = room_stats.get("total_messages").and_then(|v| v.as_i64()).unwrap_or(0);
+    let active_rooms = room_stats.get("active_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
+    let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
+
+    let daily_messages = state
+        .services
+        .rooms
+        .event_storage
+        .get_daily_message_count()
+        .await
+        .unwrap_or(0);
+
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {
         gauge.set(total_users as f64);
@@ -177,6 +216,12 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_monthly_active_users") {
         gauge.set(monthly_active_users as f64);
     }
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_messages") {
+        gauge.set(total_messages as f64);
+    }
+    if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_active_rooms_7d") {
+        gauge.set(active_rooms as f64);
+    }
 
     Ok(Json(json!({
         "total_users": total_users,
@@ -184,7 +229,13 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
         "daily_active_users": daily_active_users,
         "monthly_active_users": monthly_active_users,
         "r30_users": r30_users,
-        "r30v2_users": r30_users
+        "r30v2_users": r30_users,
+        "total_messages": total_messages,
+        "daily_messages": daily_messages,
+        "active_rooms_7d": active_rooms,
+        "total_members": total_members,
+        "encrypted_rooms": encrypted_rooms,
+        "average_messages_per_room": if total_rooms > 0 { total_messages / total_rooms } else { 0 }
     })))
 }
 

@@ -260,6 +260,13 @@ impl SynapseServer {
         }
         let app_state = Arc::new(AppState::new(services, cache));
 
+        // Create the graceful-shutdown broadcast channel early so it can be
+        // wired into AppState. This allows `POST /_synapse/admin/v1/restart`
+        // to trigger a clean shutdown that the process manager (Docker /
+        // systemd) can restart from.
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
+        let app_state = Arc::new((*app_state).clone().with_shutdown_signal(shutdown_tx.clone()));
+
         let rate_limit_config_path = std::path::PathBuf::from(
             std::env::var("RATE_LIMIT_CONFIG_PATH").unwrap_or_else(|_| "/app/config/rate_limit.yaml".to_string()),
         );
@@ -387,44 +394,57 @@ impl SynapseServer {
                 background_tasks_interval
             };
             let megolm_service = self.app_state.services.e2ee.megolm_service.clone();
+            let mut shutdown_rx0 = self
+                .app_state
+                .shutdown_signal
+                .as_ref()
+                .ok_or("shutdown signal must be wired into AppState at construction time")?
+                .subscribe();
 
             tokio::spawn(async move {
                 let mut interval_timer = tokio::time::interval(Duration::from_secs(lifecycle_interval_secs));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
-                    interval_timer.tick().await;
-                    if retention_config.lifecycle_cleanup_enabled {
-                        #[cfg(feature = "beacons")]
-                        {
-                            retention_service.run_data_lifecycle_cycle(&beacon_service, &retention_config).await;
-                        }
-                        #[cfg(not(feature = "beacons"))]
-                        {
-                            retention_service.run_data_lifecycle_cycle_no_beacons(&retention_config).await;
-                        }
-                    } else {
-                        #[cfg(feature = "beacons")]
-                        match beacon_service.cleanup_expired_beacons().await {
-                            Ok(count) => {
-                                if count > 0 {
-                                    ::tracing::info!("Cleaned up {} expired beacons", count);
+                    tokio::select! {
+                        _ = interval_timer.tick() => {
+                            if retention_config.lifecycle_cleanup_enabled {
+                                #[cfg(feature = "beacons")]
+                                {
+                                    retention_service.run_data_lifecycle_cycle(&beacon_service, &retention_config).await;
+                                }
+                                #[cfg(not(feature = "beacons"))]
+                                {
+                                    retention_service.run_data_lifecycle_cycle_no_beacons(&retention_config).await;
+                                }
+                            } else {
+                                #[cfg(feature = "beacons")]
+                                match beacon_service.cleanup_expired_beacons().await {
+                                    Ok(count) => {
+                                        if count > 0 {
+                                            ::tracing::info!("Cleaned up {} expired beacons", count);
+                                        }
+                                    }
+                                    Err(error) => {
+                                        ::tracing::warn!("Failed to cleanup expired beacons: {}", error);
+                                    }
                                 }
                             }
-                            Err(error) => {
-                                ::tracing::warn!("Failed to cleanup expired beacons: {}", error);
-                            }
-                        }
-                    }
 
-                    // Clean up expired Megolm sessions (Synapse v1.153 alignment)
-                    match megolm_service.cleanup_expired_sessions().await {
-                        Ok(count) => {
-                            if count > 0 {
-                                ::tracing::info!("Cleaned up {} expired Megolm sessions", count);
+                            // Clean up expired Megolm sessions (Synapse v1.153 alignment)
+                            match megolm_service.cleanup_expired_sessions().await {
+                                Ok(count) => {
+                                    if count > 0 {
+                                        ::tracing::info!("Cleaned up {} expired Megolm sessions", count);
+                                    }
+                                }
+                                Err(error) => {
+                                    ::tracing::warn!("Failed to cleanup expired Megolm sessions: {}", error);
+                                }
                             }
                         }
-                        Err(error) => {
-                            ::tracing::warn!("Failed to cleanup expired Megolm sessions: {}", error);
+                        _ = shutdown_rx0.recv() => {
+                            ::tracing::info!("Retention/Megolm cleanup task shutting down");
+                            break;
                         }
                     }
                 }
@@ -433,7 +453,14 @@ impl SynapseServer {
 
         let router = self.router.clone();
         let fed_router = self.router.clone();
-        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
+        // Reuse the shutdown broadcast sender wired into AppState at
+        // construction time. `POST /_synapse/admin/v1/restart` sends on this
+        // channel to trigger a graceful shutdown.
+        let shutdown_tx = self
+            .app_state
+            .shutdown_signal
+            .clone()
+            .ok_or("shutdown signal must be wired into AppState at construction time")?;
 
         let client_listener = tokio::net::TcpListener::bind(self.address).await?;
         let federation_listener = tokio::net::TcpListener::bind(self.federation_address).await?;
@@ -753,9 +780,22 @@ impl SynapseServer {
             let _ = shutdown_tx_signal.send(());
         });
 
-        client_rx.await.ok();
-        fed_rx.await.ok();
-        prom_rx.await.ok();
+        // Wait for all listeners to drain, with a hard 30s cap to prevent
+        // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking
+        // rolling updates indefinitely.
+        let drain_timeout = Duration::from_secs(30);
+        let drain_result = tokio::time::timeout(drain_timeout, async {
+            client_rx.await.ok();
+            fed_rx.await.ok();
+            prom_rx.await.ok();
+        })
+        .await;
+        if drain_result.is_err() {
+            ::tracing::warn!(
+                target: "shutdown",
+                "Graceful drain timed out after {drain_timeout:?} — forcing exit with in-flight requests"
+            );
+        }
 
         ::tracing::info!("Servers shutdown complete");
 

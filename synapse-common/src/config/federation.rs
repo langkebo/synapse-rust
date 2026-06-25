@@ -118,6 +118,47 @@ pub struct FederationConfig {
     /// 硬编码为 20，需要保留旧行为的部署可在配置中显式设置该值。
     #[serde(default = "default_event_broadcast_batch_size")]
     pub event_broadcast_batch_size: usize,
+
+    /// Per-origin federation rate limiting. When enabled, each remote server
+    /// is rate-limited independently based on its authenticated `origin`.
+    #[serde(default)]
+    pub rate_limit: FederationRateLimitConfig,
+}
+
+/// Per-origin federation rate limit configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FederationRateLimitConfig {
+    /// Master switch for per-origin federation rate limiting.
+    #[serde(default = "default_federation_rate_limit_enabled")]
+    pub enabled: bool,
+    /// Requests per second per origin.
+    #[serde(default = "default_federation_rate_limit_per_second")]
+    pub per_second: u32,
+    /// Burst size (maximum tokens in the bucket).
+    #[serde(default = "default_federation_rate_limit_burst_size")]
+    pub burst_size: u32,
+}
+
+impl Default for FederationRateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_federation_rate_limit_enabled(),
+            per_second: default_federation_rate_limit_per_second(),
+            burst_size: default_federation_rate_limit_burst_size(),
+        }
+    }
+}
+
+fn default_federation_rate_limit_enabled() -> bool {
+    false
+}
+
+fn default_federation_rate_limit_per_second() -> u32 {
+    50
+}
+
+fn default_federation_rate_limit_burst_size() -> u32 {
+    200
 }
 
 /// 信任的密钥服务器配置

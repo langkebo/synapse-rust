@@ -367,7 +367,16 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
             return None;
         }
 
-        return decode_ed25519_public_key(&current_key.public_key).ok();
+        return match decode_ed25519_public_key(&current_key.public_key) {
+            Ok(key) => Some(key),
+            Err(_) => {
+                ::tracing::warn!(
+                    key_id = %key_id,
+                    "Failed to decode stored federation signing key — federation signature verification will fail for this key"
+                );
+                None
+            }
+        };
     }
 
     if let Some(signing_key) = config.signing_key.as_deref() {
@@ -387,7 +396,16 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
         return None;
     }
 
-    decode_ed25519_public_key(&current_key.public_key).ok()
+    match decode_ed25519_public_key(&current_key.public_key) {
+        Ok(key) => Some(key),
+        Err(_) => {
+            ::tracing::warn!(
+                key_id = %key_id,
+                "Failed to decode stored federation signing key — federation signature verification will fail for this key"
+            );
+            None
+        }
+    }
 }
 
 async fn fetch_federation_verify_key(

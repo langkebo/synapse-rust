@@ -84,7 +84,11 @@ const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
 const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
     ("m.lazy_load_members", true),
     ("m.require_identity_server", false),
-    ("m.supports_login_via_phone_number", true),
+    // Phone (MSISDN) verification is not implemented — no SMS service,
+    // no msisdn requestToken/submitToken routes. Declaring this as false
+    // prevents clients from offering a login-via-phone path that cannot
+    // complete. See WEB_FRONTEND_BACKEND_EXECUTION_CHECKLIST feature gap.
+    ("m.supports_login_via_phone_number", false),
     ("org.matrix.msc3882", true),
     ("uk.tcpip.msc4133", true),
 ];

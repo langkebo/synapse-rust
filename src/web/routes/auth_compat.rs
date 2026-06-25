@@ -466,8 +466,9 @@ pub(crate) async fn login_fallback_page(
                     for provider in providers {
                         let id = provider.get("id").and_then(|i| i.as_str()).unwrap_or("");
                         let name = provider.get("name").and_then(|n| n.as_str()).unwrap_or(id);
+                        let safe_name = html_escape(name);
                         flows_html.push_str(&format!(
-                            r#"<a href="/_matrix/client/v3/login/sso/redirect?redirectUrl=/">Login with {name}</a><br>"#
+                            r#"<a href="/_matrix/client/v3/login/sso/redirect?redirectUrl=/">Login with {safe_name}</a><br>"#
                         ));
                     }
                     flows_html.push_str("</div>");
@@ -548,4 +549,14 @@ pub(crate) async fn login_fallback_page(
     );
 
     Ok(axum::response::Html(html))
+}
+
+/// Escape HTML special characters to prevent XSS when inserting untrusted
+/// strings (e.g. SSO provider names) into HTML templates.
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }

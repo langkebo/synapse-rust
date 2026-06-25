@@ -298,8 +298,17 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/federation/v1/query/auth", get(keys::query_auth))
         .route("/_synapse/federation/v1/event_auth", get(keys::event_auth));
 
-    let protected =
-        protected.layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
+    // Layer order (innermost to outermost): auth first (populates
+    // FederationRequestAuth), then per-origin rate limiting (consumes it).
+    let protected = protected
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::web::middleware::federation_rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state,
+            crate::web::middleware::federation_auth_middleware,
+        ));
 
     public.merge(protected)
 }

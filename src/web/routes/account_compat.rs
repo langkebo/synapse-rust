@@ -635,6 +635,12 @@ pub(crate) async fn request_3pid_add_email_verification(
 pub(crate) struct DeleteThreepidRequest {
     medium: String,
     address: String,
+    /// Identity server to unbind from (required for `unbind`, ignored by `delete`).
+    #[serde(default)]
+    id_server: Option<String>,
+    /// Access token for the identity server (required for `unbind`, ignored by `delete`).
+    #[serde(default)]
+    id_access_token: Option<String>,
 }
 
 pub(crate) async fn delete_threepid(
@@ -664,6 +670,26 @@ pub(crate) async fn unbind_threepid(
     Json(body): Json<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
+
+    // If id_server and id_access_token are provided, unbind from the remote
+    // identity server first. Local removal proceeds regardless of remote
+    // outcome to avoid leaking stale local bindings.
+    if let (Some(id_server), Some(id_access_token)) = (&body.id_server, &body.id_access_token) {
+        if let Err(e) = state
+            .services
+            .extensions
+            .identity_service
+            .unbind_three_pid(id_server, id_access_token, &body.address, &body.medium)
+            .await
+        {
+            tracing::warn!(
+                id_server = %id_server,
+                medium = %body.medium,
+                error = %e,
+                "Failed to unbind 3PID from remote identity server; proceeding with local removal"
+            );
+        }
+    }
 
     state
         .services

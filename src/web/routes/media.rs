@@ -4,7 +4,7 @@ use crate::common::ApiError;
 use crate::web::AuthenticatedUser;
 use axum::{
     body::Bytes,
-    extract::{Json, Path, Query, State},
+    extract::{DefaultBodyLimit, Json, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::{get, post, put},
@@ -28,12 +28,13 @@ fn create_media_legacy_download_router() -> Router<AppState> {
 }
 
 fn create_media_modern_upload_router() -> Router<AppState> {
-    Router::new().route("/upload", post(upload_media_v3))
+    Router::new()
+        .route("/upload", post(upload_media_v3))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
 }
 
 fn create_media_v1_router() -> Router<AppState> {
     Router::new()
-        .route("/upload", post(upload_media_v1))
         .merge(create_media_config_router())
         .merge(create_media_preview_delete_router())
         .merge(create_media_legacy_download_router())
@@ -42,10 +43,21 @@ fn create_media_v1_router() -> Router<AppState> {
         .route("/quota/alerts", get(quota_alerts))
         // Chunked upload routes
         .route("/upload/chunk/start", post(chunked_upload_start))
-        .route("/upload/chunk", post(chunked_upload_chunk))
         .route("/upload/chunk/complete", post(chunked_upload_complete))
         .route("/upload/chunk/cancel", post(chunked_upload_cancel))
         .route("/upload/chunk/progress", get(chunked_upload_progress))
+        // 上传路由单独应用 body 限制，覆盖 Axum 默认 2MB 限制
+        .merge(
+            Router::new()
+                .route("/upload", post(upload_media_v1))
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        )
+        // 分片上传路由单独应用 body 限制
+        .merge(
+            Router::new()
+                .route("/upload/chunk", post(chunked_upload_chunk))
+                .layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
 }
 
 fn create_media_v3_router() -> Router<AppState> {

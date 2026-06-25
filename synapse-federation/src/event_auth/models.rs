@@ -15,7 +15,10 @@ pub(crate) type StateByKey = HashMap<StateKey, Vec<StateEntry>>;
 
 #[derive(Debug, Clone)]
 pub struct EventAuthChain {
-    pub(crate) auth_chain_cache: Cache<String, bool>,
+    /// Caches the full computed auth chain (`Vec<String>`) keyed by event id.
+    /// Previously this stored only a `bool`, which forced a full BFS
+    /// recomputation even on cache hits.
+    pub(crate) auth_chain_cache: Cache<String, Vec<String>>,
     pub(crate) depth_cache: Cache<String, i64>,
 }
 

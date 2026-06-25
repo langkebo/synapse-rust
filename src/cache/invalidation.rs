@@ -296,7 +296,18 @@ impl std::fmt::Debug for CacheInvalidationManager {
 impl CacheInvalidationManager {
     pub fn new(pool: Option<Pool>, config: CacheInvalidationConfig) -> Self {
         let (broadcaster, subscriber) = if let Some(p) = pool {
-            let subscriber = CacheInvalidationSubscriber::new(&config.redis_url, config.clone()).map(Arc::new).ok();
+            let subscriber = match CacheInvalidationSubscriber::new(&config.redis_url, config.clone()) {
+                Ok(s) => Some(Arc::new(s)),
+                Err(e) => {
+                    tracing::warn!(
+                        redis_url = %config.redis_url,
+                        error = %e,
+                        "Failed to create cache invalidation subscriber — multi-worker cache consistency will be degraded. \
+                         Cache updates from other workers will not be received."
+                    );
+                    None
+                }
+            };
             (Some(Arc::new(CacheInvalidationBroadcaster::new(p, config.clone()))), subscriber)
         } else {
             (None, None)

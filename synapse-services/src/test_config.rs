@@ -7,7 +7,8 @@
 
 use synapse_common::config::Config;
 use synapse_common::config::{
-    AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, PostgresFtsConfig, RateLimitConfig,
+    AdminRegistrationConfig, CorsConfig, DatabaseConfig, FederationConfig, FederationRateLimitConfig,
+    PostgresFtsConfig, RateLimitConfig,
     RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, WorkerConfig,
 };
 
@@ -146,6 +147,7 @@ pub fn build_test_config() -> Config {
             admission_mode: false,
             signing_key_master_key: None,
             event_broadcast_batch_size: 100,
+            rate_limit: FederationRateLimitConfig::default(),
         },
         security: SecurityConfig {
             secret: "test_secret".to_string(),

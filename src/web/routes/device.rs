@@ -177,12 +177,19 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
                                 let member_server = &member.user_id[mpos + 1..];
                                 if member_server != server_name && !sent_servers.contains(member_server) {
                                     sent_servers.insert(member_server.to_string());
-                                    let _ = state
+                                    if let Err(e) = state
                                         .services
                                         .core
                                         .event_broadcaster
                                         .broadcast_edu(member_server, &edu, server_name)
-                                        .await;
+                                        .await
+                                    {
+                                        ::tracing::warn!(
+                                            target_server = %member_server,
+                                            error = %e,
+                                            "Failed to broadcast device list update EDU — remote server will not see this device change until next device list resync"
+                                        );
+                                    }
                                 }
                             }
                         }
