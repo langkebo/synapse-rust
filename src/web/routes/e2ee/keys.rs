@@ -11,13 +11,8 @@ use serde_json::Value;
 use super::backup::*;
 use super::devices::*;
 
-pub(crate) fn parse_stream_id(value: &Value) -> Option<i64> {
-    if let Some(n) = value.as_i64() {
-        return Some(n);
-    }
-    let s = value.as_str()?;
-    let s = s.strip_prefix('s').unwrap_or(s);
-    s.parse::<i64>().ok()
+pub(crate) fn parse_stream_id(s: &str) -> Option<i64> {
+    s.strip_prefix('s')?.parse::<i64>().ok().filter(|&n| n >= 0)
 }
 
 fn create_e2ee_compat_router() -> Router<AppState> {
@@ -552,8 +547,8 @@ async fn key_changes(
     auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let from = params.get("from").and_then(parse_stream_id).unwrap_or(0);
-    let to = params.get("to").and_then(parse_stream_id);
+    let from = params.get("from").and_then(|v| v.as_str()).and_then(parse_stream_id).unwrap_or(0);
+    let to = params.get("to").and_then(|v| v.as_str()).and_then(parse_stream_id);
 
     let max_stream_id = state.services.account.account_device_list_service.get_max_stream_id().await?;
 
@@ -579,4 +574,49 @@ async fn key_changes(
         "changed": changed,
         "left": left
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_stream_id_with_s_prefix() {
+        assert_eq!(parse_stream_id("s12345"), Some(12345));
+    }
+
+    #[test]
+    fn test_parse_stream_id_zero() {
+        assert_eq!(parse_stream_id("s0"), Some(0));
+    }
+
+    #[test]
+    fn test_parse_stream_id_max_i64() {
+        assert_eq!(parse_stream_id("s9223372036854775807"), Some(9223372036854775807));
+    }
+
+    #[test]
+    fn test_parse_stream_id_empty_string() {
+        assert_eq!(parse_stream_id(""), None);
+    }
+
+    #[test]
+    fn test_parse_stream_id_no_s_prefix() {
+        assert_eq!(parse_stream_id("12345"), None);
+    }
+
+    #[test]
+    fn test_parse_stream_id_non_numeric() {
+        assert_eq!(parse_stream_id("sabc"), None);
+    }
+
+    #[test]
+    fn test_parse_stream_id_negative() {
+        assert_eq!(parse_stream_id("s-1"), None);
+    }
+
+    #[test]
+    fn test_parse_stream_id_overflow() {
+        assert_eq!(parse_stream_id("s9223372036854775808"), None);
+    }
 }
