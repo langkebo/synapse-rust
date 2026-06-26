@@ -122,6 +122,7 @@ async fn test_register_user_success() {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
+        ..Default::default()
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let canonical_cache = cache.clone();
@@ -165,6 +166,7 @@ async fn test_login_success() {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
+        ..Default::default()
     };
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let canonical_cache = cache.clone();
@@ -219,6 +221,7 @@ async fn test_get_profile_success() {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
+        ..Default::default()
     };
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");

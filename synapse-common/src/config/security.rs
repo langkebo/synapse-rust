@@ -1,3 +1,5 @@
+use base64::Engine;
+use rand::RngCore;
 use serde::Deserialize;
 
 // ============================================================================
@@ -7,7 +9,7 @@ use serde::Deserialize;
 /// 安全配置。
 ///
 /// 配置认证、加密和密码哈希参数。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SecurityConfig {
     /// 密钥字符串
     pub secret: String,
@@ -48,6 +50,12 @@ pub struct SecurityConfig {
     /// UIA 会话超时时间（秒），默认 900 秒（15 分钟）
     #[serde(default = "default_ui_auth_session_timeout")]
     pub ui_auth_session_timeout: i64,
+    /// HMAC secret for CSRF token signing. If not explicitly configured,
+    /// a cryptographically random 32-byte secret is generated at startup.
+    /// This secret is ephemeral (not persisted), so CSRF tokens from
+    /// previous server runs will be invalid after restart.
+    #[serde(default = "default_csrf_secret")]
+    pub csrf_secret: String,
 }
 
 fn default_login_failure_lockout_threshold() -> u32 {
@@ -84,6 +92,36 @@ fn default_argon2_p_cost() -> u32 {
 
 fn default_allow_legacy_hashes() -> bool {
     false
+}
+
+/// Generate a cryptographically random 32-byte secret for CSRF token signing.
+/// This is used as a fallback when no explicit csrf_secret is configured.
+fn default_csrf_secret() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            secret: String::new(),
+            expiry_time: 0,
+            refresh_token_expiry: 0,
+            argon2_m_cost: default_argon2_m_cost(),
+            argon2_t_cost: default_argon2_t_cost(),
+            argon2_p_cost: default_argon2_p_cost(),
+            allow_legacy_hashes: default_allow_legacy_hashes(),
+            login_failure_lockout_threshold: default_login_failure_lockout_threshold(),
+            login_lockout_duration_seconds: default_login_lockout_duration_seconds(),
+            admin_mfa_required: false,
+            admin_mfa_shared_secret: String::new(),
+            admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
+            admin_rbac_enabled: default_admin_rbac_enabled(),
+            ui_auth_session_timeout: default_ui_auth_session_timeout(),
+            csrf_secret: default_csrf_secret(),
+        }
+    }
 }
 
 /// CORS 配置。
