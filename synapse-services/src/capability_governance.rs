@@ -45,7 +45,7 @@ pub(crate) enum ClientApiVersionFamily {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ClientApiVersionSupport {
+pub(crate) struct ClientApiVersionSupport {
     version: &'static str,
     family: ClientApiVersionFamily,
 }
@@ -68,7 +68,7 @@ impl ClientApiVersionSupport {
     }
 }
 
-pub const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
+pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
     ClientApiVersionSupport::legacy("r0.5.0"),
     ClientApiVersionSupport::legacy("r0.6.0"),
     ClientApiVersionSupport::legacy("r0.6.1"),
@@ -104,13 +104,13 @@ const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GovernanceClass {
+pub(crate) enum GovernanceClass {
     ConfigControlled,
     RouteSurface,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CapabilityFlag {
+pub(crate) struct CapabilityFlag {
     enabled: bool,
     governance: GovernanceClass,
 }
