@@ -3,6 +3,8 @@ pub mod container;
 pub mod test_config;
 pub use container::ServiceContainer;
 
+pub use synapse_services::capability_governance::CapabilityGovernance;
+
 // =============================================================================
 // L0 — Core Matrix services (always compiled, required for core-private-chat)
 // =============================================================================
