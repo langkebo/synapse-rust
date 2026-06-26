@@ -269,7 +269,7 @@ impl SynapseServer {
 
         let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
 
-        // P1-12: startup topology validation
+        // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
             let validation = crate::worker::topology_validator::validate_worker_config(&config.worker);
             validation.log();
@@ -463,7 +463,7 @@ impl SynapseServer {
                                 }
                             }
 
-                            // Clean up expired Megolm sessions (Synapse v1.153 alignment)
+                            // Clean up expired Megolm sessions to prevent unbounded table growth
                             match megolm_service.cleanup_expired_sessions().await {
                                 Ok(count) => {
                                     if count > 0 {
@@ -631,7 +631,7 @@ impl SynapseServer {
         if run_global_maintenance {
             // Megolm session expiry cleanup: periodically delete expired megolm
             // sessions to prevent unbounded growth of the megolm_sessions table.
-            // Per Synapse v1.153 behavior, expired sessions should be cleaned up
+            // Expired sessions should be cleaned up
             // automatically. Runs every 6 hours by default.
             let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
             tokio::spawn(async move {
@@ -670,7 +670,7 @@ impl SynapseServer {
         }
 
         if run_global_maintenance {
-            // P3-11: Background pruning of append-only / stale tables to prevent
+            // Background pruning of append-only / stale tables to prevent
             // disk bloat on long-running instances. Prunes:
             //   - device_lists_changes older than 30 days
             //   - presence records inactive beyond the presence prune timeout
@@ -708,9 +708,9 @@ impl SynapseServer {
                                 Err(e) => ::tracing::warn!("One-time key pruning failed: {e}"),
                             }
 
-                            // OPT-07: Extended pruning for additional append-only
+                            // Extended pruning for additional append-only
                             // tables that accumulate without bound on long-running
-                            // instances. Aligned with Synapse v1.152+ pruning strategy.
+                            // instances.
                             match synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool).await {
                                 Ok(0) => ::tracing::debug!("To-device transaction pruning: no rows deleted"),
                                 Ok(n) => ::tracing::info!(deleted = n, "Pruned old to-device transactions"),
