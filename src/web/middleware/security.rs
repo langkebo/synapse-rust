@@ -344,4 +344,48 @@ mod tests {
         assert!(!header_value.is_empty());
         assert_eq!(header_value, body_text);
     }
+
+    #[tokio::test]
+    async fn test_method_not_allowed_passthrough_with_body() {
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode},
+            middleware,
+            response::Response,
+            routing::any,
+            Router,
+        };
+        use tower::ServiceExt;
+
+        // A handler that returns a custom 405 with a body and Content-Length,
+        // exercising the middleware's pass-through path (body_size > 0).
+        async fn custom_405() -> Response {
+            Response::builder()
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .header(axum::http::header::CONTENT_LENGTH, "18")
+                .body(Body::from(r#"{"error":"custom"}"#))
+                .unwrap()
+        }
+
+        let app = Router::new()
+            .route("/test", any(custom_405))
+            .layer(middleware::from_fn(method_not_allowed_middleware));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+        let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert_eq!(body_str, r#"{"error":"custom"}"#);
+    }
 }
