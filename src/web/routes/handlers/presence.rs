@@ -189,8 +189,13 @@ pub(crate) async fn presence_list(
         }));
     }
 
+    let present_user_ids: HashSet<String> = presences
+        .iter()
+        .filter_map(|p| p["user_id"].as_str().map(String::from))
+        .collect();
+
     for target_id in &subscriptions {
-        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+        if !present_user_ids.contains(target_id.as_str()) {
             presences.push(json!({
                 "user_id": target_id,
                 "presence": PresenceState::Offline.to_string(),
@@ -231,8 +236,13 @@ pub(crate) async fn get_presence_list_no_path(
         }));
     }
 
+    let present_user_ids: HashSet<String> = presences
+        .iter()
+        .filter_map(|p| p["user_id"].as_str().map(String::from))
+        .collect();
+
     for target_id in &subscriptions {
-        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+        if !present_user_ids.contains(target_id.as_str()) {
             presences.push(json!({
                 "user_id": target_id,
                 "presence": PresenceState::Offline.to_string(),
@@ -276,8 +286,13 @@ pub(crate) async fn get_presence_list(
         }));
     }
 
+    let present_user_ids: HashSet<String> = presences
+        .iter()
+        .filter_map(|p| p["user_id"].as_str().map(String::from))
+        .collect();
+
     for target_id in &subscriptions {
-        if !presences.iter().any(|p| p["user_id"] == *target_id) {
+        if !present_user_ids.contains(target_id.as_str()) {
             presences.push(json!({
                 "user_id": target_id,
                 "presence": PresenceState::Offline.to_string(),
