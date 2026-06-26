@@ -107,32 +107,57 @@ struct SsoRedirectQuery {
     redirect_url_compat: Option<String>,
 }
 
-fn is_safe_redirect_url(url: &str) -> bool {
+fn is_safe_redirect_url(url: &str, allowlist: &[String]) -> bool {
+    // Block dangerous URL schemes
     if url.starts_with("javascript:") || url.starts_with("data:") {
         return false;
     }
-    if url.starts_with('/') && !url.starts_with("//") {
+    // Block protocol-relative URLs (e.g. //evil.com/callback)
+    if url.starts_with("//") {
+        return false;
+    }
+    // Same-origin path is always safe
+    if url.starts_with('/') {
         return true;
     }
-    if url.starts_with("http://") || url.starts_with("https://") {
-        let host_part = url.trim_start_matches("http://").trim_start_matches("https://");
-        let host = host_part.split('/').next().unwrap_or("");
-        // Extract hostname: handle IPv6 brackets [::1]:port or [::1]
-        let ip_str = if host.starts_with('[') {
-            // IPv6: extract content between [ and ]
-            host.find(']').map_or("", |end| &host[1..end])
-        } else {
-            // IPv4 or hostname: strip port
-            host.split(':').next().unwrap_or("")
-        };
-        if ip_str == "localhost" || ip_str == "127.0.0.1" || ip_str == "0.0.0.0" {
+
+    // For absolute URLs, validate against the allowlist
+    if let Ok(parsed) = url::Url::parse(url) {
+        // Only allow http and https schemes
+        if parsed.scheme() != "http" && parsed.scheme() != "https" {
             return false;
         }
-        if ip_str.parse::<std::net::IpAddr>().is_ok() {
-            return false;
+        if let Some(host) = parsed.host() {
+            // Block localhost and loopback addresses
+            match host {
+                url::Host::Domain("localhost") => return false,
+                url::Host::Ipv4(ip) => {
+                    if ip.is_loopback() || ip.is_unspecified() {
+                        return false;
+                    }
+                    // Block all raw IPv4 addresses
+                    return false;
+                }
+                url::Host::Ipv6(ip) => {
+                    if ip.is_loopback() || ip.is_unspecified() {
+                        return false;
+                    }
+                    // Block all raw IPv6 addresses
+                    return false;
+                }
+                _ => {}
+            }
+
+            // Allowlist check for cross-origin redirects
+            if allowlist.is_empty() {
+                // No allowlist configured — only same-origin paths permitted
+                return false;
+            }
+            let url_str = parsed.as_str();
+            return allowlist.iter().any(|allowed| url_str.starts_with(allowed));
         }
-        return true;
     }
+
     false
 }
 
@@ -141,7 +166,7 @@ fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> Strin
         format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl())
     });
 
-    if !url.is_empty() && !is_safe_redirect_url(&url) {
+    if !url.is_empty() && !is_safe_redirect_url(&url, &state.services.core.config.sso_redirect_allowlist) {
         tracing::warn!("Blocked unsafe SSO redirect URL: {}", &url[..url.len().min(64)]);
         return format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl());
     }
@@ -1080,45 +1105,55 @@ mod tests {
 
     #[test]
     fn test_is_safe_redirect_url_accepts_relative_paths() {
-        assert!(is_safe_redirect_url("/_matrix/client/v3/oidc/callback"));
-        assert!(is_safe_redirect_url("/home"));
+        assert!(is_safe_redirect_url("/_matrix/client/v3/oidc/callback", &[]));
+        assert!(is_safe_redirect_url("/home", &[]));
     }
 
     #[test]
-    fn test_is_safe_redirect_url_accepts_https_with_hostname() {
-        assert!(is_safe_redirect_url("https://example.com/callback"));
-        assert!(is_safe_redirect_url("https://matrix.example.org/_matrix/client/v3/oidc/callback"));
+    fn test_is_safe_redirect_url_rejects_cross_origin_without_allowlist() {
+        // Without an allowlist, cross-origin URLs are rejected
+        assert!(!is_safe_redirect_url("https://example.com/callback", &[]));
+        assert!(!is_safe_redirect_url("https://matrix.example.org/_matrix/client/v3/oidc/callback", &[]));
+    }
+
+    #[test]
+    fn test_is_safe_redirect_url_accepts_cross_origin_with_allowlist() {
+        let allowlist = vec!["https://example.com/".to_string()];
+        assert!(is_safe_redirect_url("https://example.com/callback", &allowlist));
+        assert!(is_safe_redirect_url("https://example.com/home", &allowlist));
+        // Not in allowlist
+        assert!(!is_safe_redirect_url("https://other.example.com/callback", &allowlist));
     }
 
     #[test]
     fn test_is_safe_redirect_url_rejects_dangerous_schemes() {
-        assert!(!is_safe_redirect_url("javascript:alert(1)"));
-        assert!(!is_safe_redirect_url("data:text/html,<script>alert(1)</script>"));
+        assert!(!is_safe_redirect_url("javascript:alert(1)", &[]));
+        assert!(!is_safe_redirect_url("data:text/html,<script>alert(1)</script>", &[]));
     }
 
     #[test]
     fn test_is_safe_redirect_url_rejects_localhost_and_loopback() {
-        assert!(!is_safe_redirect_url("http://localhost/callback"));
-        assert!(!is_safe_redirect_url("http://127.0.0.1/callback"));
-        assert!(!is_safe_redirect_url("http://[::1]/callback"));
-        assert!(!is_safe_redirect_url("http://0.0.0.0/callback"));
+        assert!(!is_safe_redirect_url("http://localhost/callback", &[]));
+        assert!(!is_safe_redirect_url("http://127.0.0.1/callback", &[]));
+        assert!(!is_safe_redirect_url("http://[::1]/callback", &[]));
+        assert!(!is_safe_redirect_url("http://0.0.0.0/callback", &[]));
     }
 
     #[test]
     fn test_is_safe_redirect_url_rejects_raw_ips() {
-        assert!(!is_safe_redirect_url("http://192.168.1.1/callback"));
-        assert!(!is_safe_redirect_url("https://10.0.0.1/callback"));
+        assert!(!is_safe_redirect_url("http://192.168.1.1/callback", &[]));
+        assert!(!is_safe_redirect_url("https://10.0.0.1/callback", &[]));
     }
 
     #[test]
     fn test_is_safe_redirect_url_rejects_protocol_relative_urls() {
-        assert!(!is_safe_redirect_url("//evil.com/callback"));
+        assert!(!is_safe_redirect_url("//evil.com/callback", &[]));
     }
 
     #[test]
     fn test_is_safe_redirect_url_rejects_empty_and_unknown_schemes() {
-        assert!(!is_safe_redirect_url(""));
-        assert!(!is_safe_redirect_url("ftp://example.com/file"));
-        assert!(!is_safe_redirect_url("mailto:test@example.com"));
+        assert!(!is_safe_redirect_url("", &[]));
+        assert!(!is_safe_redirect_url("ftp://example.com/file", &[]));
+        assert!(!is_safe_redirect_url("mailto:test@example.com", &[]));
     }
 }

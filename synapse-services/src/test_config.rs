@@ -203,6 +203,7 @@ pub fn build_test_config() -> Config {
         experimental: synapse_common::config::ExperimentalConfig::default(),
         identity: synapse_common::config::IdentityConfig::default(),
         translate: synapse_common::config::TranslateConfig::default(),
+        sso_redirect_allowlist: vec![],
     }
 }
 

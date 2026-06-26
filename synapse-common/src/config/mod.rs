@@ -146,6 +146,11 @@ pub struct Config {
     /// Translation service configuration
     #[serde(default)]
     pub translate: TranslateConfig,
+    /// Allowed redirect URL prefixes for SSO post-login redirects.
+    /// If empty, only same-origin paths (starting with `/`) are permitted.
+    /// Example: `["https://app.example.com/"]`
+    #[serde(default)]
+    pub sso_redirect_allowlist: Vec<String>,
 }
 
 impl Config {
