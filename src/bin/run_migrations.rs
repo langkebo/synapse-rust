@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::Command;
+use tokio::process::Command;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📌 迁移主链以 docker/db_migrate.sh 与 db-migration-gate.yml 为准");
     println!("🚀 正在委托执行: {} migrate", script_path.display());
 
-    let status = Command::new("bash").arg(&script_path).arg("migrate").status()?;
+    let status = Command::new("bash").arg(&script_path).arg("migrate").status().await?;
 
     if !status.success() {
         return Err(format!("db_migrate.sh 执行失败，退出码: {:?}", status.code()).into());
