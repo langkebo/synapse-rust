@@ -4,6 +4,8 @@ use sqlx::{FromRow, PgPool, Row};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::trigram_ranking::TrigramRanking;
+
 fn escape_like_pattern(input: &str) -> String {
     input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
@@ -634,7 +636,10 @@ impl SpaceStorage {
 
         match user_id {
             Some(uid) => {
-                sqlx::query_as::<_, Space>(
+                let name_rank = TrigramRanking::new("s.name", "spaces s");
+                let topic_rank = TrigramRanking::new("s.topic", "spaces s");
+
+                let sql = format!(
                     r"
                     WITH visible_spaces AS (
                         SELECT DISTINCT s.space_id
@@ -649,45 +654,23 @@ impl SpaceStorage {
                             MIN(match_priority) AS match_priority,
                             MAX(match_similarity) AS match_similarity
                         FROM (
-                            SELECT
-                                s.space_id,
-                                CASE
-                                    WHEN s.name ILIKE $1 ESCAPE '\' THEN 0
-                                    WHEN s.name ILIKE $2 ESCAPE '\' THEN 1
-                                    WHEN s.name ILIKE $3 ESCAPE '\' THEN 2
-                                    ELSE 3
-                                END AS match_priority,
-                                COALESCE(similarity(s.name, $4), 0.0) AS match_similarity
+                            SELECT s.space_id,
+                                {},
+                                COALESCE({}, 0.0) AS match_similarity
                             FROM spaces s
                             JOIN visible_spaces vs ON vs.space_id = s.space_id
                             WHERE s.name IS NOT NULL
-                              AND (
-                                    s.name ILIKE $1 ESCAPE '\'
-                                    OR s.name ILIKE $2 ESCAPE '\'
-                                    OR s.name ILIKE $3 ESCAPE '\'
-                                    OR (char_length($4) >= 3 AND s.name % $4)
-                              )
+                              AND ({})
 
                             UNION ALL
 
-                            SELECT
-                                s.space_id,
-                                CASE
-                                    WHEN s.topic ILIKE $1 ESCAPE '\' THEN 0
-                                    WHEN s.topic ILIKE $2 ESCAPE '\' THEN 1
-                                    WHEN s.topic ILIKE $3 ESCAPE '\' THEN 2
-                                    ELSE 3
-                                END AS match_priority,
-                                COALESCE(similarity(s.topic, $4), 0.0) AS match_similarity
+                            SELECT s.space_id,
+                                {},
+                                COALESCE({}, 0.0) AS match_similarity
                             FROM spaces s
                             JOIN visible_spaces vs ON vs.space_id = s.space_id
                             WHERE s.topic IS NOT NULL
-                              AND (
-                                    s.topic ILIKE $1 ESCAPE '\'
-                                    OR s.topic ILIKE $2 ESCAPE '\'
-                                    OR s.topic ILIKE $3 ESCAPE '\'
-                                    OR (char_length($4) >= 3 AND s.topic % $4)
-                              )
+                              AND ({})
                         ) AS matches
                         GROUP BY space_id
                     )
@@ -713,18 +696,29 @@ impl SpaceStorage {
                         s.created_ts DESC
                     LIMIT $6
                     ",
-                )
-                .bind(&exact_pattern)
-                .bind(&prefix_pattern)
-                .bind(&contains_pattern)
-                .bind(normalized)
-                .bind(uid)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
+                    name_rank.match_priority_case(),
+                    name_rank.similarity_expr(),
+                    name_rank.where_clause(),
+                    topic_rank.match_priority_case(),
+                    topic_rank.similarity_expr(),
+                    topic_rank.where_clause(),
+                );
+
+                sqlx::query_as::<_, Space>(&sql)
+                    .bind(&exact_pattern)
+                    .bind(&prefix_pattern)
+                    .bind(&contains_pattern)
+                    .bind(normalized)
+                    .bind(uid)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
             }
             None => {
-                sqlx::query_as::<_, Space>(
+                let name_rank = TrigramRanking::new("name", "spaces");
+                let topic_rank = TrigramRanking::new("topic", "spaces");
+
+                let sql = format!(
                     r"
                     WITH candidate_matches AS (
                         SELECT
@@ -732,45 +726,9 @@ impl SpaceStorage {
                             MIN(match_priority) AS match_priority,
                             MAX(match_similarity) AS match_similarity
                         FROM (
-                            SELECT
-                                space_id,
-                                CASE
-                                    WHEN name ILIKE $1 ESCAPE '\' THEN 0
-                                    WHEN name ILIKE $2 ESCAPE '\' THEN 1
-                                    WHEN name ILIKE $3 ESCAPE '\' THEN 2
-                                    ELSE 3
-                                END AS match_priority,
-                                COALESCE(similarity(name, $4), 0.0) AS match_similarity
-                            FROM spaces
-                            WHERE is_public = TRUE
-                              AND name IS NOT NULL
-                              AND (
-                                    name ILIKE $1 ESCAPE '\'
-                                    OR name ILIKE $2 ESCAPE '\'
-                                    OR name ILIKE $3 ESCAPE '\'
-                                    OR (char_length($4) >= 3 AND name % $4)
-                              )
-
+                            {}
                             UNION ALL
-
-                            SELECT
-                                space_id,
-                                CASE
-                                    WHEN topic ILIKE $1 ESCAPE '\' THEN 0
-                                    WHEN topic ILIKE $2 ESCAPE '\' THEN 1
-                                    WHEN topic ILIKE $3 ESCAPE '\' THEN 2
-                                    ELSE 3
-                                END AS match_priority,
-                                COALESCE(similarity(topic, $4), 0.0) AS match_similarity
-                            FROM spaces
-                            WHERE is_public = TRUE
-                              AND topic IS NOT NULL
-                              AND (
-                                    topic ILIKE $1 ESCAPE '\'
-                                    OR topic ILIKE $2 ESCAPE '\'
-                                    OR topic ILIKE $3 ESCAPE '\'
-                                    OR (char_length($4) >= 3 AND topic % $4)
-                              )
+                            {}
                         ) AS matches
                         GROUP BY space_id
                     )
@@ -796,14 +754,18 @@ impl SpaceStorage {
                         s.created_ts DESC
                     LIMIT $5
                     ",
-                )
-                .bind(&exact_pattern)
-                .bind(&prefix_pattern)
-                .bind(&contains_pattern)
-                .bind(normalized)
-                .bind(limit)
-                .fetch_all(&*self.pool)
-                .await
+                    name_rank.column_match_subquery("space_id", Some("is_public = TRUE"), true),
+                    topic_rank.column_match_subquery("space_id", Some("is_public = TRUE"), true),
+                );
+
+                sqlx::query_as::<_, Space>(&sql)
+                    .bind(&exact_pattern)
+                    .bind(&prefix_pattern)
+                    .bind(&contains_pattern)
+                    .bind(normalized)
+                    .bind(limit)
+                    .fetch_all(&*self.pool)
+                    .await
             }
         }
     }

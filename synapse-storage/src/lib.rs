@@ -56,6 +56,7 @@ pub mod state_groups;
 pub mod sticky_event;
 pub mod thread;
 pub mod threepid;
+pub mod trigram_ranking;
 pub mod token;
 pub mod user;
 pub mod user_store_fake;
