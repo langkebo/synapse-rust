@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 use std::sync::Arc;
@@ -108,6 +109,27 @@ pub struct LockedUser {
     pub created_ts: i64,
     pub unlocked_ts: Option<i64>,
     pub is_active: bool,
+}
+
+/// Storage trait for user lock operations.
+/// Two adapters justify the seam: Postgres (prod) and in-memory (test).
+#[async_trait]
+pub trait UserStore: Send + Sync {
+    async fn lock_user(
+        &self,
+        user_id: &str,
+        reason: Option<&str>,
+        locked_by: &str,
+        now_ts: i64,
+    ) -> Result<LockedUser, sqlx::Error>;
+
+    async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error>;
+
+    async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error>;
+
+    async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error>;
+
+    async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -1311,5 +1333,34 @@ impl UserStorage {
         let guest_cache_key = format!("user:guest:{user_id}");
         self.cache.delete(&guest_cache_key).await;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl UserStore for UserStorage {
+    async fn lock_user(
+        &self,
+        user_id: &str,
+        reason: Option<&str>,
+        locked_by: &str,
+        now_ts: i64,
+    ) -> Result<LockedUser, sqlx::Error> {
+        self.lock_user(user_id, reason, locked_by, now_ts).await
+    }
+
+    async fn unlock_user(&self, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error> {
+        self.unlock_user(user_id, now_ts).await
+    }
+
+    async fn is_user_locked(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.is_user_locked(user_id).await
+    }
+
+    async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error> {
+        self.get_active_user_lock(user_id).await
+    }
+
+    async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
+        self.get_locked_users(limit, offset).await
     }
 }
