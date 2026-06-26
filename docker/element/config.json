@@ -27,5 +27,10 @@
   },
   "jitsi": {
     "preferred_domain": "meet.jit.si"
+  },
+  "bug_report_endpoint_url": "https://matrix.test/bugs/submit",
+  "rageshake": {
+    "submit_url": "https://matrix.test/bugs/submit",
+    "collect_logs": true
   }
 }

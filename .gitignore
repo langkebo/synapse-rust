@@ -73,6 +73,9 @@ docker/deploy/logs/
 *_token.txt
 test_tokens.json
 
+# 诊断/验证输出（根目录）
+matrix.txt
+
 # 临时探测/分析脚本
 .tmp_*.py
 analyze_results.py

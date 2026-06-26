@@ -60,6 +60,7 @@ services:
       - ./nginx/ssl/matrix.test.crt:/etc/nginx/ssl/matrix.test.crt:ro
       - ./nginx/ssl/matrix.test.key:/etc/nginx/ssl/matrix.test.key:ro
       - ./nginx/friends:/usr/share/nginx/friends:ro
+      - ./element/favicon.ico:/usr/share/nginx/static/favicon.ico:ro
       - ./logs/nginx:/var/log/nginx
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O- --no-check-certificate https://127.0.0.1/health >/dev/null || exit 1"]
