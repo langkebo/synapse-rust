@@ -32,6 +32,39 @@ const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
 
+// --- Tuning constants ---
+
+/// Minimum idle database connections maintained in the connection pool.
+const DB_MIN_IDLE_CONNECTIONS: u32 = 5;
+
+/// Interval (seconds) between background maintenance task ticks.
+const BACKGROUND_TASK_INTERVAL_SECS: u64 = 60;
+
+/// Minimum interval (seconds) between background task executions to prevent
+/// tight loops when a task completes quickly.
+const MIN_BACKGROUND_INTERVAL_SECS: u64 = 10;
+
+/// Capacity of the tokio broadcast channel used for graceful shutdown signaling.
+const SHUTDOWN_BROADCAST_CAPACITY: usize = 3;
+
+/// Maximum retries for federation destination connection attempts
+/// before marking a destination as unreachable.
+const FEDERATION_RETRY_MAX_COUNT: u64 = 5;
+
+/// Timeout (seconds) for draining in-flight requests during graceful shutdown.
+const DRAIN_TIMEOUT_SECS: u64 = 30;
+
+/// Interval (seconds) between megolm session key cleanup runs.
+const MEGOLM_CLEANUP_INTERVAL_SECS: u64 = 6 * 3600;
+
+/// Interval (seconds) between event pruning runs.
+const PRUNING_INTERVAL_SECS: u64 = 86400;
+
+/// Database session timeout SQL queries.
+const DB_SET_STATEMENT_TIMEOUT: &str = "SET statement_timeout = '30s'";
+const DB_SET_LOCK_TIMEOUT: &str = "SET lock_timeout = '10s'";
+const DB_SET_IDLE_TIMEOUT: &str = "SET idle_in_transaction_session_timeout = '60s'";
+
 fn global_maintenance_tasks_enabled() -> bool {
     !matches!(
         std::env::var("SYNAPSE_ENABLE_GLOBAL_MAINTENANCE_TASKS").ok().as_deref(),
@@ -92,15 +125,15 @@ impl SynapseServer {
 
         let pool_options = PgPoolOptions::new()
             .max_connections(config.database.max_size)
-            .min_connections(config.database.min_idle.unwrap_or(5))
+            .min_connections(config.database.min_idle.unwrap_or(DB_MIN_IDLE_CONNECTIONS))
             .acquire_timeout(Duration::from_secs(config.database.connection_timeout))
             .max_lifetime(DEFAULT_MAX_LIFETIME)
             .idle_timeout(DEFAULT_IDLE_TIMEOUT)
             .after_connect(|conn, _meta| {
                 Box::pin(async move {
-                    sqlx::query("SET statement_timeout = '30s'").execute(&mut *conn).await?;
-                    sqlx::query("SET lock_timeout = '10s'").execute(&mut *conn).await?;
-                    sqlx::query("SET idle_in_transaction_session_timeout = '60s'").execute(&mut *conn).await?;
+                    sqlx::query(DB_SET_STATEMENT_TIMEOUT).execute(&mut *conn).await?;
+                    sqlx::query(DB_SET_LOCK_TIMEOUT).execute(&mut *conn).await?;
+                    sqlx::query(DB_SET_IDLE_TIMEOUT).execute(&mut *conn).await?;
                     Ok(())
                 })
             })
@@ -250,7 +283,7 @@ impl SynapseServer {
         if !config.server.app_service_config_files.is_empty() {
             let imported_services = services
                 .admin
-                .app_service_manager
+                .modules.app_service_manager
                 .load_from_config_files(&config.server.app_service_config_files)
                 .await?;
             ::tracing::info!(
@@ -264,7 +297,7 @@ impl SynapseServer {
         // wired into AppState. This allows `POST /_synapse/admin/v1/restart`
         // to trigger a clean shutdown that the process manager (Docker /
         // systemd) can restart from.
-        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(3);
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(SHUTDOWN_BROADCAST_CAPACITY);
         let app_state = Arc::new((*app_state).clone().with_shutdown_signal(shutdown_tx.clone()));
 
         let rate_limit_config_path = std::path::PathBuf::from(
@@ -384,9 +417,9 @@ impl SynapseServer {
 
         #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.rooms.beacon_service.clone();
-        let background_tasks_interval = self.app_state.services.core.config.server.background_tasks_interval.max(10);
+        let background_tasks_interval = self.app_state.services.core.config.server.background_tasks_interval.max(MIN_BACKGROUND_INTERVAL_SECS);
         if run_global_maintenance {
-            let retention_service = self.app_state.services.admin.retention_service.clone();
+            let retention_service = self.app_state.services.admin.modules.retention_service.clone();
             let retention_config = self.app_state.services.core.config.retention.clone();
             let lifecycle_interval_secs = if retention_config.lifecycle_cleanup_enabled {
                 retention_config.lifecycle_cleanup_interval_secs.max(background_tasks_interval)
@@ -490,8 +523,8 @@ impl SynapseServer {
         let mut shutdown_rx7 = shutdown_tx.subscribe();
 
         if run_global_maintenance {
-            let bg_service = self.app_state.services.admin.background_update_service.clone();
-            let retention_service = self.app_state.services.admin.retention_service.clone();
+            let bg_service = self.app_state.services.admin.modules.background_update_service.clone();
+            let retention_service = self.app_state.services.admin.modules.retention_service.clone();
             let media_service = self.app_state.services.core.media_service.clone();
             let event_broadcaster = self.app_state.services.core.event_broadcaster.clone();
             let remote_media_lifetime = self.app_state.services.core.config.server.remote_media_lifetime;
@@ -499,7 +532,7 @@ impl SynapseServer {
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(BACKGROUND_TASK_INTERVAL_SECS));
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -531,7 +564,7 @@ impl SynapseServer {
                                 }
                             }
                             federation_retry_counter += 1;
-                            if federation_retry_counter >= 5 {
+                            if federation_retry_counter >= FEDERATION_RETRY_MAX_COUNT {
                                 federation_retry_counter = 0;
                                 if let Ok(retried) = event_broadcaster.retry_pending_transactions().await {
                                     if retried > 0 {
@@ -602,7 +635,7 @@ impl SynapseServer {
             // automatically. Runs every 6 hours by default.
             let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
             tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(6 * 3600));
+                let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(MEGOLM_CLEANUP_INTERVAL_SECS));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 
@@ -645,7 +678,7 @@ impl SynapseServer {
             // Runs daily.
             let pruning_pool = self.app_state.services.account.user_storage.pool.clone();
             tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(Duration::from_secs(86400));
+                let mut interval_timer = tokio::time::interval(Duration::from_secs(PRUNING_INTERVAL_SECS));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 
@@ -729,7 +762,7 @@ impl SynapseServer {
         if let Some(prometheus_listener) = prometheus_listener {
             let metrics_state = PrometheusMetricsState {
                 metrics: self.app_state.services.core.metrics.clone(),
-                app_service_manager: self.app_state.services.admin.app_service_manager.clone(),
+                app_service_manager: self.app_state.services.admin.modules.app_service_manager.clone(),
             };
             let prometheus_path = prometheus_config.path.clone();
             let prometheus_router =
@@ -783,7 +816,7 @@ impl SynapseServer {
         // Wait for all listeners to drain, with a hard 30s cap to prevent
         // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking
         // rolling updates indefinitely.
-        let drain_timeout = Duration::from_secs(30);
+        let drain_timeout = Duration::from_secs(DRAIN_TIMEOUT_SECS);
         let drain_result = tokio::time::timeout(drain_timeout, async {
             client_rx.await.ok();
             fed_rx.await.ok();
@@ -1055,8 +1088,8 @@ mod tests {
     async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
         let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");
         let container = crate::services::ServiceContainer::new_test_with_pool(pool.clone()).await;
-        let manager = container.admin.app_service_manager.clone();
-        let scheduler = container.admin.app_service_scheduler.clone();
+        let manager = container.admin.modules.app_service_manager.clone();
+        let scheduler = container.admin.modules.app_service_scheduler.clone();
         let storage = ApplicationServiceStorage::new(&pool);
 
         let failing_server = MockServer::start().await;
