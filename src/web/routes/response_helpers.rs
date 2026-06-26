@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 
@@ -45,8 +47,9 @@ pub(crate) async fn filter_users_with_shared_rooms(
     state: &AppState,
     current_user_id: &str,
     requested_users: &[String],
-) -> Vec<String> {
-    let mut allowed = vec![current_user_id.to_string()];
+) -> HashSet<String> {
+    let mut allowed = HashSet::new();
+    allowed.insert(current_user_id.to_string());
 
     let others: Vec<String> = requested_users
         .iter()
@@ -66,7 +69,9 @@ pub(crate) async fn filter_users_with_shared_rooms(
         .await
         .unwrap_or_default();
 
-    allowed.extend(shared);
+    for uid in shared {
+        allowed.insert(uid);
+    }
     allowed
 }
 
