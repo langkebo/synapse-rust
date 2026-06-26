@@ -344,7 +344,7 @@ pub async fn get_device_list_updates(
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
 
-    let users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
+    let users: Vec<String> = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
 
     let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
 

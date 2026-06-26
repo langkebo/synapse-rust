@@ -44,8 +44,8 @@ async fn ensure_presence_access_or_shared_room(
 }
 
 async fn filter_visible_presence_targets(state: &AppState, current_user_id: &str, targets: &[String]) -> Vec<String> {
-    let allowed: HashSet<String> =
-        filter_users_with_shared_rooms(state, current_user_id, targets).await.into_iter().collect();
+    let allowed =
+        filter_users_with_shared_rooms(state, current_user_id, targets).await;
 
     targets.iter().filter(|target_id| allowed.contains(*target_id)).cloned().collect()
 }
