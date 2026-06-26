@@ -58,6 +58,7 @@ pub mod thread;
 pub mod threepid;
 pub mod token;
 pub mod user;
+pub mod user_store_fake;
 pub mod worker;
 
 // =============================================================================
@@ -110,6 +111,7 @@ pub mod url_preview_storage;
 
 pub use self::threepid::UserThreepid;
 pub use self::user::*;
+pub use user_store_fake::FakeUserStore;
 
 #[cfg(test)]
 pub mod test_utils;
