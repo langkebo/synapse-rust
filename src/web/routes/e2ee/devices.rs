@@ -28,7 +28,7 @@ pub(crate) async fn device_list_update(
 
     let users: Vec<String> = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
 
-    let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
+    let since = body.get("since").or_else(|| body.get("from")).and_then(|v| v.as_str()).and_then(parse_stream_id);
 
     if since.is_none() {
         let snapshot = state.services.account.account_device_list_service.get_device_list_snapshot(&users).await?;
@@ -54,7 +54,7 @@ pub(crate) async fn device_list_update(
     }
 
     let since = since.unwrap_or(0);
-    let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
+    let to = body.get("to").and_then(|v| v.as_str()).and_then(parse_stream_id).unwrap_or(0);
     let delta = state
         .services
         .account
@@ -581,4 +581,48 @@ pub(crate) async fn get_security_summary(
         "security_score": summary.security_score,
         "recommendations": summary.recommendations
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_key_request_cursor_round_trip() {
+        let ts: i64 = 12345;
+        let id = "test_token";
+        let encoded = encode_key_request_cursor(ts, id);
+        let decoded = decode_key_request_cursor(&encoded);
+        assert_eq!(decoded, Some((ts, id.to_string())));
+    }
+
+    #[test]
+    fn test_key_request_cursor_empty_string() {
+        let decoded = decode_key_request_cursor("");
+        assert_eq!(decoded, None);
+    }
+
+    #[test]
+    fn test_key_request_cursor_invalid_base64() {
+        let decoded = decode_key_request_cursor("!!!not-valid-base64!!!");
+        assert_eq!(decoded, None);
+    }
+
+    #[test]
+    fn test_key_request_cursor_with_special_chars() {
+        let ts: i64 = 12345;
+        let id = "a/b+c=";
+        let encoded = encode_key_request_cursor(ts, id);
+        let decoded = decode_key_request_cursor(&encoded);
+        assert_eq!(decoded, Some((ts, id.to_string())));
+    }
+
+    #[test]
+    fn test_key_request_cursor_with_newline() {
+        let ts: i64 = 12345;
+        let id = "test\ntoken";
+        let encoded = encode_key_request_cursor(ts, id);
+        let decoded = decode_key_request_cursor(&encoded);
+        assert_eq!(decoded, Some((ts, id.to_string())));
+    }
 }
