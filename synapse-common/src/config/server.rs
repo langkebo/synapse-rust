@@ -292,6 +292,16 @@ impl ServerConfig {
             }
         }
         let host = if self.host == "0.0.0.0" || self.host == "::" { "localhost" } else { self.host.as_str() };
+        #[cfg(not(debug_assertions))]
+        {
+            let fallback = format!("http://{}:{}", host, self.port);
+            tracing::warn!(
+                host = %host,
+                port = %self.port,
+                "public_baseurl is not configured — falling back to HTTP ({fallback}). \
+                 Set public_baseurl to an HTTPS URL in production."
+            );
+        }
         format!("http://{}:{}", host, self.port)
     }
 
