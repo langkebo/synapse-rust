@@ -63,7 +63,7 @@ pub async fn shadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_security_service.set_shadow_ban(&user_id, true).await?;
+    state.services.admin.security.admin_security_service.set_shadow_ban(&user_id, true).await?;
 
     record_audit_event(
         &state,
@@ -86,7 +86,7 @@ pub async fn unshadow_ban_user(
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_security_service.set_shadow_ban(&user_id, false).await?;
+    state.services.admin.security.admin_security_service.set_shadow_ban(&user_id, false).await?;
 
     record_audit_event(
         &state,
@@ -110,7 +110,7 @@ pub async fn get_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let limit = state.services.admin.admin_security_service.get_user_rate_limit(&user_id).await?;
+    let limit = state.services.admin.security.admin_security_service.get_user_rate_limit(&user_id).await?;
 
     Ok(Json(json!({
         "messages_per_second": limit.messages_per_second,
@@ -134,7 +134,7 @@ pub async fn set_user_rate_limit(
     let limit = state
         .services
         .admin
-        .admin_security_service
+        .security.admin_security_service
         .set_user_rate_limit(&user_id, messages_per_second, burst_count)
         .await?;
 
@@ -167,7 +167,7 @@ pub async fn delete_user_rate_limit(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.admin.admin_security_service.delete_user_rate_limit(&user_id).await?;
+    state.services.admin.security.admin_security_service.delete_user_rate_limit(&user_id).await?;
 
     record_audit_event(
         &state,

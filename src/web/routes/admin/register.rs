@@ -330,7 +330,7 @@ async fn verify_additional_registration_controls(
         let verified = state
             .services
             .admin
-            .captcha_service
+            .security.captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", e.to_string()))?;
@@ -384,7 +384,7 @@ async fn get_nonce(
     let response = state
         .services
         .admin
-        .admin_registration_service
+        .user.admin_registration_service
         .generate_nonce()
         .await
         .map_err(map_admin_register_service_error)?;
@@ -425,7 +425,7 @@ async fn register(
     let response = state
         .services
         .admin
-        .admin_registration_service
+        .user.admin_registration_service
         .register_admin_user(AdminRegisterRequest {
             nonce: payload.nonce.clone(),
             username: payload.username.clone(),

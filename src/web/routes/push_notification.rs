@@ -129,7 +129,7 @@ pub async fn register_device(
         metadata: None,
     };
 
-    let device: PushDevice = state.services.admin.push_notification_service.register_device(request).await?;
+    let device: PushDevice = state.services.admin.modules.push_notification_service.register_device(request).await?;
 
     Ok(Json(DeviceResponse::from(device)))
 }
@@ -139,7 +139,7 @@ pub async fn unregister_device(
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.push_notification_service.unregister_device(&auth_user.user_id, &device_id).await?;
+    state.services.admin.modules.push_notification_service.unregister_device(&auth_user.user_id, &device_id).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Device unregistered"
@@ -151,7 +151,7 @@ pub async fn get_devices(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let devices: Vec<PushDevice> =
-        state.services.admin.push_notification_service.get_user_devices(&auth_user.user_id).await?;
+        state.services.admin.modules.push_notification_service.get_user_devices(&auth_user.user_id).await?;
 
     let response: Vec<DeviceResponse> = devices.into_iter().map(DeviceResponse::from).collect();
 
@@ -175,7 +175,7 @@ pub async fn send_notification(
         priority: body.priority,
     };
 
-    state.services.admin.push_notification_service.send_notification(request).await?;
+    state.services.admin.modules.push_notification_service.send_notification(request).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Notification queued"
@@ -198,7 +198,7 @@ pub async fn create_rule(
         enabled: body.enabled,
     };
 
-    let rule: PushRule = state.services.admin.push_notification_service.create_push_rule(request).await?;
+    let rule: PushRule = state.services.admin.modules.push_notification_service.create_push_rule(request).await?;
 
     Ok(Json(RuleResponse::from(rule)))
 }
@@ -208,7 +208,7 @@ pub async fn get_rules(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let rules: Vec<PushRule> =
-        state.services.admin.push_notification_service.get_push_rules(&auth_user.user_id).await?;
+        state.services.admin.modules.push_notification_service.get_push_rules(&auth_user.user_id).await?;
 
     let response: Vec<RuleResponse> = rules.into_iter().map(RuleResponse::from).collect();
 
@@ -223,7 +223,7 @@ pub async fn delete_rule(
     state
         .services
         .admin
-        .push_notification_service
+        .modules.push_notification_service
         .delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id)
         .await?;
 
@@ -240,7 +240,7 @@ pub async fn process_queue(
     let batch_size: i32 = query.batch_size.unwrap_or(100).clamp(1, 500);
 
     let processed_u64: u64 =
-        state.services.admin.push_notification_service.process_pending_notifications(batch_size).await?;
+        state.services.admin.modules.push_notification_service.process_pending_notifications(batch_size).await?;
     let processed = processed_u64 as i32;
 
     Ok(Json(serde_json::json!({
@@ -256,7 +256,7 @@ pub async fn cleanup_logs(
 ) -> Result<impl IntoResponse, ApiError> {
     let days: i32 = query.days.unwrap_or(30).clamp(1, 200);
 
-    let cleaned_u64: u64 = state.services.admin.push_notification_service.cleanup_old_logs(days).await?;
+    let cleaned_u64: u64 = state.services.admin.modules.push_notification_service.cleanup_old_logs(days).await?;
     let cleaned = cleaned_u64 as i32;
 
     Ok(Json(serde_json::json!({

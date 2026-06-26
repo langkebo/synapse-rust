@@ -11,7 +11,7 @@ use serde_json::json;
 /// marked unhealthy when Postgres is unreachable, even if the HTTP server
 /// itself is still accepting connections.
 pub async fn health_check(State(state): State<crate::web::routes::AppState>) -> impl IntoResponse {
-    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
     let status = if db_ok { "ok" } else { "unhealthy" };
     let http_status = if db_ok { axum::http::StatusCode::OK } else { axum::http::StatusCode::SERVICE_UNAVAILABLE };
 
@@ -31,7 +31,7 @@ pub async fn detailed_health_check(
     let mut overall_status = "healthy";
 
     let db_start = std::time::Instant::now();
-    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
     if db_ok {
         checks.insert(
             "database".to_string(),
@@ -70,7 +70,7 @@ pub async fn detailed_health_check(
     let missing_tables = state
         .services
         .admin
-        .admin_server_service
+        .security.admin_server_service
         .validate_required_tables(&required_tables)
         .await
         .unwrap_or_else(|_| required_tables.iter().map(|table| (*table).to_string()).collect());

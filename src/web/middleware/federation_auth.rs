@@ -111,7 +111,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
     let origin_server = &params.origin;
 
     if state.services.core.config.federation.admission_mode {
-        match state.services.admin.admin_federation_service.check_admission(origin_server).await {
+        match state.services.admin.federation.admin_federation_service.check_admission(origin_server).await {
             Ok(Some(status)) if status != "active" => {
                 tracing::warn!("Federation request rejected from server '{}' with status '{}'", origin_server, status);
                 return ApiError::forbidden(format!(

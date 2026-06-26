@@ -74,7 +74,7 @@ pub async fn get_all_reports(
     }
 
     let reports =
-        state.services.admin.event_report_service.get_all_reports(limit, since_score, since_ts, since_id).await?;
+        state.services.admin.modules.event_report_service.get_all_reports(limit, since_score, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -86,7 +86,7 @@ pub async fn get_report(
     State(state): State<AppState>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let report = state.services.admin.event_report_service.get_report(report_id).await?;
+    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) => Ok(Json(report_to_json(&report))),
@@ -100,7 +100,7 @@ pub async fn delete_report(
     State(state): State<AppState>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.event_report_service.delete_report(report_id).await?;
+    state.services.admin.modules.event_report_service.delete_report(report_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -133,7 +133,7 @@ pub async fn get_room_reports(
     }
 
     let reports =
-        state.services.admin.event_report_service.get_reports_by_room(&room_id, limit, since_ts, since_id).await?;
+        state.services.admin.modules.event_report_service.get_reports_by_room(&room_id, limit, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -151,7 +151,7 @@ pub async fn get_room_report(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let report = state.services.admin.event_report_service.get_report(report_id).await?;
+    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) if report.room_id == room_id => Ok(Json(report_to_json(&report))),
@@ -171,11 +171,11 @@ pub async fn delete_room_report(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let report = state.services.admin.event_report_service.get_report(report_id).await?;
+    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) if report.room_id == room_id => {
-            state.services.admin.event_report_service.delete_report(report_id).await?;
+            state.services.admin.modules.event_report_service.delete_report(report_id).await?;
             Ok(Json(json!({})))
         }
         _ => Err(ApiError::not_found("Report not found".to_string())),

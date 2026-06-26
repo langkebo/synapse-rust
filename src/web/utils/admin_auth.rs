@@ -82,7 +82,7 @@ pub(crate) async fn authorize_admin_request(
         })),
     };
 
-    if let Err(e) = state.services.admin.admin_audit_service.create_event(audit_request).await {
+    if let Err(e) = state.services.admin.security.admin_audit_service.create_event(audit_request).await {
         ::tracing::error!(target: "security_audit", "Failed to create audit event: {}", e);
     }
 

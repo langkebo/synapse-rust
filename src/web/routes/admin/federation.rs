@@ -150,7 +150,7 @@ pub async fn get_destinations(
     let (limit, cursor) = validate_destinations_query(&query)?;
 
     let (destinations, total, next_batch) =
-        state.services.admin.admin_federation_service.list_destinations(limit, cursor).await?;
+        state.services.admin.federation.admin_federation_service.list_destinations(limit, cursor).await?;
 
     Ok(Json(json!({
         "destinations": destinations,
@@ -166,7 +166,7 @@ pub async fn get_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    match state.services.admin.admin_federation_service.get_destination(&destination).await? {
+    match state.services.admin.federation.admin_federation_service.get_destination(&destination).await? {
         Some(row) => Ok(Json(json!(row))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
@@ -178,7 +178,7 @@ pub async fn reset_connection(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_federation_service.reset_connection(&destination).await?;
+    state.services.admin.federation.admin_federation_service.reset_connection(&destination).await?;
     Ok(Json(json!({})))
 }
 
@@ -188,7 +188,7 @@ pub async fn delete_destination(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_federation_service.delete_destination(&destination).await?;
+    state.services.admin.federation.admin_federation_service.delete_destination(&destination).await?;
     Ok(Json(json!({})))
 }
 
@@ -198,7 +198,7 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_list = state.services.admin.admin_federation_service.get_destination_rooms(&destination).await?;
+    let room_list = state.services.admin.federation.admin_federation_service.get_destination_rooms(&destination).await?;
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -214,7 +214,7 @@ pub async fn rewrite_federation(
     let rooms_count = state
         .services
         .admin
-        .admin_federation_service
+        .federation.admin_federation_service
         .rewrite_federation(from_server, to_server, &admin.user_id)
         .await?;
 
@@ -239,7 +239,7 @@ pub async fn resolve_federation(
     Json(body): Json<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let server_name = &body.server_name;
-    let result = state.services.admin.admin_federation_service.resolve_federation(server_name).await?;
+    let result = state.services.admin.federation.admin_federation_service.resolve_federation(server_name).await?;
 
     info!("Federation resolve for {}: resolved={}, blacklisted={}", server_name, result.resolved, result.blacklisted);
 
@@ -261,7 +261,7 @@ pub async fn confirm_federation(
     let result = state
         .services
         .admin
-        .admin_federation_service
+        .federation.admin_federation_service
         .confirm_federation(&body.server_name, body.accept, &admin.user_id)
         .await?;
 
@@ -290,7 +290,7 @@ pub async fn list_pending_federation(
     let limit = query.limit.unwrap_or(100).min(500);
     let cursor = decode_pending_federation_cursor(query.from.as_deref());
     let (list, total, next_batch) =
-        state.services.admin.admin_federation_service.list_pending_federation(limit, cursor).await?;
+        state.services.admin.federation.admin_federation_service.list_pending_federation(limit, cursor).await?;
     let next_batch = next_batch.as_ref().map(encode_pending_federation_cursor);
 
     Ok(Json(json!({
@@ -314,7 +314,7 @@ pub async fn get_blacklist(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (blacklist, next_batch) = state.services.admin.federation_blacklist_service.get_blacklist(limit, from).await?;
+    let (blacklist, next_batch) = state.services.admin.federation.federation_blacklist_service.get_blacklist(limit, from).await?;
 
     let list: Vec<Value> = blacklist
         .iter()
@@ -340,7 +340,7 @@ pub async fn add_to_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
+    state.services.admin.federation.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
@@ -350,13 +350,13 @@ pub async fn remove_from_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
+    state.services.admin.federation.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn get_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let entries = state.services.admin.admin_federation_service.get_federation_cache().await?;
+    let entries = state.services.admin.federation.admin_federation_service.get_federation_cache().await?;
 
     Ok(Json(json!({ "cache": entries, "total": entries.len() })))
 }
@@ -367,13 +367,13 @@ pub async fn delete_federation_cache_entry(
     State(state): State<AppState>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_federation_service.delete_federation_cache_entry(&key).await?;
+    state.services.admin.federation.admin_federation_service.delete_federation_cache_entry(&key).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn clear_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let deleted = state.services.admin.admin_federation_service.clear_federation_cache().await?;
+    let deleted = state.services.admin.federation.admin_federation_service.clear_federation_cache().await?;
     Ok(Json(json!({ "deleted": deleted })))
 }
 

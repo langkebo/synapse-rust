@@ -171,7 +171,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
     let token_id = state
         .services
         .admin
-        .email_verification_storage
+        .user.email_verification_storage
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {
@@ -238,7 +238,7 @@ pub(crate) async fn submit_email_token(
     let verification_token = state
         .services
         .admin
-        .email_verification_storage
+        .user.email_verification_storage
         .get_verification_token_by_id(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
@@ -267,7 +267,7 @@ pub(crate) async fn submit_email_token(
     state
         .services
         .admin
-        .email_verification_storage
+        .user.email_verification_storage
         .mark_token_used(sid_int)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;

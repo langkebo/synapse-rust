@@ -40,7 +40,7 @@ async fn test_telemetry_metrics_alerts_and_ack() {
     state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: as_id.clone(),
             url: "http://localhost:8080".to_string(),
@@ -71,13 +71,13 @@ async fn test_telemetry_metrics_alerts_and_ack() {
         state
             .services
             .admin
-            .app_service_manager
+            .modules.app_service_manager
             .set_state(&as_id, state_key, state_value)
             .await
             .expect("scheduler state should be persisted");
     }
 
-    let manual_alert = state.services.admin.telemetry_alert_service.raise_alert(
+    let manual_alert = state.services.admin.security.telemetry_alert_service.raise_alert(
         "telemetry_test_alert",
         "Telemetry test alert",
         &TelemetryAlertSeverity::Critical,
@@ -193,7 +193,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: failing_as_id.clone(),
             url: failing_server.uri(),
@@ -217,7 +217,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_txn_as_id.clone(),
             url: healthy_txn_server.uri(),
@@ -241,7 +241,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .register(RegisterApplicationServiceRequest {
             as_id: healthy_event_as_id.clone(),
             url: healthy_event_server.uri(),
@@ -286,7 +286,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
         state
             .services
             .admin
-            .app_service_manager
+            .modules.app_service_manager
             .push_event(
                 &healthy_event_as_id,
                 &healthy_event_room_id,
@@ -299,10 +299,10 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
             .expect("healthy event enqueue should succeed");
     }
 
-    state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick one should complete");
-    state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick two should complete");
+    state.services.admin.modules.app_service_scheduler.run_once().await.expect("telemetry recovery tick one should complete");
+    state.services.admin.modules.app_service_scheduler.run_once().await.expect("telemetry recovery tick two should complete");
     tokio::time::sleep(std::time::Duration::from_millis(5_200)).await;
-    state.services.admin.app_service_scheduler.run_once().await.expect("telemetry recovery tick three should complete");
+    state.services.admin.modules.app_service_scheduler.run_once().await.expect("telemetry recovery tick three should complete");
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/metrics")
@@ -318,7 +318,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     let failing_last_result = state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .get_state(&failing_as_id, "scheduler_last_result")
         .await
         .expect("failing last result lookup should succeed")
@@ -331,7 +331,7 @@ async fn test_telemetry_metrics_reflect_real_scheduler_recovery_flow() {
     let failing_transaction_state = state
         .services
         .admin
-        .app_service_manager
+        .modules.app_service_manager
         .get_state(&failing_as_id, "scheduler_transaction_state")
         .await
         .expect("failing transaction state lookup should succeed")
@@ -403,7 +403,7 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
         state
             .services
             .admin
-            .app_service_manager
+            .modules.app_service_manager
             .register(RegisterApplicationServiceRequest {
                 as_id: as_id.clone(),
                 url,
@@ -449,7 +449,7 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
         state
             .services
             .admin
-            .app_service_manager
+            .modules.app_service_manager
             .push_event(
                 &event_heavy_a_as_id,
                 &event_heavy_a_room_id,
@@ -463,7 +463,7 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
         state
             .services
             .admin
-            .app_service_manager
+            .modules.app_service_manager
             .push_event(
                 &event_heavy_b_as_id,
                 &event_heavy_b_room_id,
@@ -476,8 +476,8 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
             .expect("event-heavy b enqueue should succeed");
     }
 
-    state.services.admin.app_service_scheduler.run_once().await.expect("mixed contention tick one should complete");
-    state.services.admin.app_service_scheduler.run_once().await.expect("mixed contention tick two should complete");
+    state.services.admin.modules.app_service_scheduler.run_once().await.expect("mixed contention tick one should complete");
+    state.services.admin.modules.app_service_scheduler.run_once().await.expect("mixed contention tick two should complete");
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/metrics")
