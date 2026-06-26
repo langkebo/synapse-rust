@@ -163,37 +163,44 @@ impl SecureBackupService {
 
         let key = Self::derive_key(passphrase, &salt_bytes, auth_data.iterations)?;
 
-        // 3. Encrypt and store each session key
-        let mut key_count = 0i64;
+        // 3. Encrypt all session keys, then store in a single batch INSERT
+        if session_keys.is_empty() {
+            return Ok(0);
+        }
 
-        for session_key in session_keys {
-            // Encrypt session key
+        let mut room_ids: Vec<&str> = Vec::with_capacity(session_keys.len());
+        let mut sids: Vec<&str> = Vec::with_capacity(session_keys.len());
+        let mut encrypted_keys: Vec<String> = Vec::with_capacity(session_keys.len());
+
+        for session_key in &session_keys {
             let encrypted = Self::encrypt_aes_gcm(&key, session_key.session_key.as_bytes())?;
             let encrypted_b64 = base64::engine::general_purpose::STANDARD.encode(&encrypted);
-
-            // Store encrypted key
-            sqlx::query(
-                r"
-                INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET
-                    encrypted_key = EXCLUDED.encrypted_key
-                ",
-            )
-            .bind(user_id)
-            .bind(backup_id)
-            .bind(&session_key.room_id)
-            .bind(&session_key.session_id)
-            .bind(&encrypted_b64)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Database error: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
-
-            key_count += 1;
+            room_ids.push(&session_key.room_id);
+            sids.push(&session_key.session_id);
+            encrypted_keys.push(encrypted_b64);
         }
+
+        let key_count = session_keys.len() as i64;
+
+        sqlx::query(
+            r"
+            INSERT INTO secure_backup_session_keys (user_id, backup_id, room_id, session_id, encrypted_key)
+            SELECT $1, $2, unnest($3::text[]), unnest($4::text[]), unnest($5::text[])
+            ON CONFLICT (user_id, backup_id, room_id, session_id) DO UPDATE SET
+                encrypted_key = EXCLUDED.encrypted_key
+            ",
+        )
+        .bind(user_id)
+        .bind(backup_id)
+        .bind(&room_ids)
+        .bind(&sids)
+        .bind(&encrypted_keys)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
 
         // 4. Update backup key count
         sqlx::query(

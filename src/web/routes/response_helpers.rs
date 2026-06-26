@@ -48,19 +48,25 @@ pub(crate) async fn filter_users_with_shared_rooms(
 ) -> Vec<String> {
     let mut allowed = vec![current_user_id.to_string()];
 
-    for user_id in requested_users {
-        if user_id == current_user_id {
-            continue;
-        }
+    let others: Vec<String> = requested_users
+        .iter()
+        .filter(|uid| uid.as_str() != current_user_id)
+        .cloned()
+        .collect();
 
-        let shared =
-            state.services.rooms.room_service.share_common_room(current_user_id, user_id).await.unwrap_or(false);
-
-        if shared {
-            allowed.push(user_id.clone());
-        }
+    if others.is_empty() {
+        return allowed;
     }
 
+    let shared = state
+        .services
+        .rooms
+        .room_service
+        .share_common_rooms_batch(current_user_id, &others)
+        .await
+        .unwrap_or_default();
+
+    allowed.extend(shared);
     allowed
 }
 

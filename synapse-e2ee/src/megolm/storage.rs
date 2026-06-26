@@ -276,32 +276,29 @@ impl MegolmSessionStorage {
             return Ok(0);
         }
 
-        let mut total: u64 = 0;
-        for user_id in user_ids {
-            let result = sqlx::query(
-                r"
-                INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)
-                VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (user_id, session_id) DO UPDATE
-                SET encrypted_key = EXCLUDED.encrypted_key,
-                    created_ts = EXCLUDED.created_ts,
-                    expires_at = EXCLUDED.expires_at
-                ",
-            )
-            .bind(user_id)
-            .bind(session_id)
-            .bind(encrypted_key)
-            .bind(created_ts)
-            .bind(expires_at)
-            .execute(&*self.pool)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to upsert megolm session key: {e}");
-                ApiError::database("A database error occurred".to_string())
-            })?;
-            total += result.rows_affected();
-        }
-        Ok(total)
+        let result = sqlx::query(
+            r"
+            INSERT INTO megolm_session_keys (user_id, session_id, encrypted_key, created_ts, expires_at)
+            SELECT unnest($1::text[]), $2, $3, $4, $5
+            ON CONFLICT (user_id, session_id) DO UPDATE
+            SET encrypted_key = EXCLUDED.encrypted_key,
+                created_ts = EXCLUDED.created_ts,
+                expires_at = EXCLUDED.expires_at
+            ",
+        )
+        .bind(user_ids)
+        .bind(session_id)
+        .bind(encrypted_key)
+        .bind(created_ts)
+        .bind(expires_at)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to batch upsert megolm session keys: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(result.rows_affected())
     }
 
     /// 单用户查询共享的 session key（vodozemac import_session 后使用）

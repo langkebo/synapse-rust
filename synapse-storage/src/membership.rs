@@ -474,6 +474,31 @@ impl RoomMemberStorage {
         Ok(result.is_some())
     }
 
+    pub async fn share_common_rooms_batch(
+        &self,
+        user_id: &str,
+        other_user_ids: &[String],
+    ) -> Result<Vec<String>, sqlx::Error> {
+        if other_user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r"
+            SELECT DISTINCT m2.user_id
+            FROM room_memberships m1
+            JOIN room_memberships m2 ON m1.room_id = m2.room_id
+            WHERE m1.user_id = $1 AND m1.membership = 'join'
+              AND m2.user_id = ANY($2) AND m2.membership = 'join'
+            ",
+        )
+        .bind(user_id)
+        .bind(other_user_ids)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(uid,)| uid).collect())
+    }
+
     pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> Result<Vec<RoomMember>, sqlx::Error> {
         let memberships = sqlx::query_as::<_, RoomMember>(
             r"
