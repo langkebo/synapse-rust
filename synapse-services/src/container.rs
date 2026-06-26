@@ -74,7 +74,6 @@ pub struct CoreServices {
 pub struct AccountServices {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
-    pub presence_service: Arc<crate::presence_service::PresenceService>,
     pub user_storage: UserStorage,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
@@ -1206,8 +1205,6 @@ impl ServiceContainer {
         ));
         let account_device_list_service =
             Arc::new(crate::account_device_list_service::AccountDeviceListService::new(DeviceStorage::new(pool)));
-        let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
-
         // Worker topology — compute before config is moved into the container
         #[cfg(feature = "burn-after-read")]
         let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;
@@ -1227,7 +1224,6 @@ impl ServiceContainer {
             account: AccountServices {
                 account_device_list_service,
                 account_identity_service,
-                presence_service,
                 user_storage,
                 threepid_storage,
                 device_storage: DeviceStorage::new(pool),

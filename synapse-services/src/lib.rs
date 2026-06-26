@@ -48,7 +48,6 @@ pub mod media_service;
 pub mod module_service;
 pub mod oidc_mapping_service;
 pub mod oidc_service;
-pub mod presence_service;
 pub mod push;
 pub use push::service as push_notification_service;
 pub mod refresh_token_service;
@@ -110,7 +109,6 @@ pub use federation_key_rotation_service::FederationKeyRotationService; // federa
 #[allow(deprecated)]
 pub use media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, ThumbnailSettings}; // media service types
 pub use oidc_service::OidcService;
-pub use presence_service::PresenceService;
 pub use push::service::{NotificationPayload, PushNotificationService, PushRuleResult, SendNotificationRequest}; // push notification service types
 pub use registration_service::RegistrationService; // registration service types
 pub use room::service::{CreateRoomConfig, RoomService, RoomServiceConfig}; // RoomService and room config types
