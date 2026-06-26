@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Backtrace: {:?}", std::backtrace::Backtrace::capture());
     }));
 
-    // 1. 预加载配置
+    // 1. Load configuration
     let config = match Config::load() {
         Ok(c) => c,
         Err(e) => {
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 2. 初始化遥测服务 (OpenTelemetry)
+    // 2. Initialize telemetry (OpenTelemetry)
     let telemetry_service = Arc::new(synapse_rust::services::telemetry_service::TelemetryService::new(
         Arc::new(config.telemetry.clone()),
         Arc::new(config.prometheus.clone()),
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 3. 初始化全局日志与追踪
+    // 3. Initialize global logging and tracing
     if let Err(e) = synapse_rust::common::logging::init_logging(&config.logging, tracer_provider) {
         eprintln!("Failed to initialize logging: {e}");
         std::process::exit(1);
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     server.run().await?;
 
-    // 4. 优雅停机
+    // 4. Graceful shutdown
     telemetry_service.shutdown();
 
     Ok(())
