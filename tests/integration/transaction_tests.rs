@@ -170,6 +170,7 @@ fn create_test_config() -> Config {
         experimental: ExperimentalConfig::default(),
         identity: synapse_rust::common::config::IdentityConfig::default(),
         translate: synapse_rust::common::config::TranslateConfig::default(),
+        sso_redirect_allowlist: vec![],
     }
 }
 
