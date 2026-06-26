@@ -187,7 +187,7 @@ async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "server_name": state.services.core.server_name,
         "capabilities": {
-            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(),
+            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&state.services.core.config),
             "m.room_versions": federation_room_versions_capability()
         }
     }))

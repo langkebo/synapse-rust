@@ -12,6 +12,8 @@ pub use synapse_storage as storage;
 pub mod container;
 pub use container::ServiceContainer;
 
+pub mod capability_governance;
+
 // =============================================================================
 // L0 — Core Matrix services (always compiled, required for core-private-chat)
 // =============================================================================
