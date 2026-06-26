@@ -82,6 +82,11 @@ fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration
     Duration::from_secs(configured_interval_secs.max(MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS))
 }
 
+fn create_rate_limit_manager(config_path: &std::path::Path) -> Arc<RateLimitConfigManager> {
+    let default_config = RateLimitConfigFile::default();
+    Arc::new(RateLimitConfigManager::new(default_config, config_path.to_path_buf()))
+}
+
 pub struct SynapseServer {
     app_state: Arc<AppState>,
     router: Router,
@@ -319,8 +324,7 @@ impl SynapseServer {
                         rate_limit_config_path,
                         e
                     );
-                    let default_config = RateLimitConfigFile::default();
-                    let manager = Arc::new(RateLimitConfigManager::new(default_config, rate_limit_config_path));
+                    let manager = create_rate_limit_manager(&rate_limit_config_path);
                     (Some(manager), None)
                 }
             }
@@ -329,8 +333,7 @@ impl SynapseServer {
                 "Rate limit config file not found at {:?}. Using default config.",
                 rate_limit_config_path.display()
             );
-            let default_config = RateLimitConfigFile::default();
-            let manager = Arc::new(RateLimitConfigManager::new(default_config, rate_limit_config_path));
+            let manager = create_rate_limit_manager(&rate_limit_config_path);
             (Some(manager), None)
         };
 
