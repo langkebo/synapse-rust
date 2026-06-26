@@ -7,8 +7,8 @@ use super::{
     worker, *,
 };
 use crate::web::middleware::{
-    cors_middleware, csrf_middleware, rate_limit_middleware, request_id_middleware, security_headers_middleware,
-    shadow_ban_middleware,
+    cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware,
+    request_id_middleware, security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -798,9 +798,23 @@ pub fn create_router(state: AppState) -> Router {
         .merge(create_rendezvous_router(state.clone()))
         .merge(create_presence_router());
 
+    // Fallback handler: unmatched routes return M_UNRECOGNIZED per Matrix spec.
+    // Without this, axum returns an empty-body 404 which breaks client error handling.
+    // Uses pre-serialized Bytes to avoid per-request allocation from serde_json::json!().
+    const FALLBACK_BODY: &[u8] =
+        b"{\"errcode\":\"M_UNRECOGNIZED\",\"error\":\"Unrecognized request\"}";
+    router = router.fallback(|| async {
+        (
+            axum::http::StatusCode::NOT_FOUND,
+            [(axum::http::header::CONTENT_TYPE, "application/json")],
+            axum::body::Bytes::from_static(FALLBACK_BODY),
+        )
+    });
+
     router
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
+        .layer(axum::middleware::from_fn(method_not_allowed_middleware))
         .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
         .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))

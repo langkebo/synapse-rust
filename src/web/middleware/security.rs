@@ -60,6 +60,16 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
     );
 
     response.headers_mut().insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+
+    response.headers_mut().insert(
+        "Referrer-Policy",
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    response.headers_mut().insert(
         "Permissions-Policy",
         HeaderValue::from_static(
             "camera=(), microphone=(), geolocation=(), \
@@ -180,6 +190,39 @@ pub async fn request_id_middleware(mut request: Request<Body>, next: Next) -> Re
     }
 
     response
+}
+
+/// Converts axum's default empty-body 405 responses into Matrix-compliant
+/// M_UNRECOGNIZED JSON. The Router::fallback handles path-not-found (404);
+/// this middleware catches method-not-allowed (405) which axum auto-generates
+/// when a path matches but the method doesn't.
+pub async fn method_not_allowed_middleware(request: Request<Body>, next: Next) -> Response {
+    let response = next.run(request).await;
+
+    if response.status() != axum::http::StatusCode::METHOD_NOT_ALLOWED {
+        return response;
+    }
+
+    // Only replace empty-body 405s to avoid clobbering custom 405 responses.
+    let body_size = response
+        .headers()
+        .get(axum::http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    if body_size > 0 {
+        return response;
+    }
+
+    (
+        axum::http::StatusCode::METHOD_NOT_ALLOWED,
+        axum::Json(serde_json::json!({
+            "errcode": "M_UNRECOGNIZED",
+            "error": "Method not allowed for this endpoint"
+        })),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
