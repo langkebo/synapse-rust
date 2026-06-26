@@ -65,6 +65,32 @@ const DB_SET_STATEMENT_TIMEOUT: &str = "SET statement_timeout = '30s'";
 const DB_SET_LOCK_TIMEOUT: &str = "SET lock_timeout = '10s'";
 const DB_SET_IDLE_TIMEOUT: &str = "SET idle_in_transaction_session_timeout = '60s'";
 
+/// Helper macro for pruning background tasks.
+/// Each pruning operation follows the same pattern: call an async function,
+/// log success with a count, or log a warning on failure.
+macro_rules! prune_step {
+    ($label:expr, $prune_fn:expr) => {{
+        match $prune_fn.await {
+            Ok(count) => {
+                if count > 0 {
+                    tracing::info!(
+                        count = count,
+                        "{}: pruned {count} expired entries",
+                        $label
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "{}: prune operation failed",
+                    $label
+                );
+            }
+        }
+    }};
+}
+
 fn global_maintenance_tasks_enabled() -> bool {
     !matches!(
         std::env::var("SYNAPSE_ENABLE_GLOBAL_MAINTENANCE_TASKS").ok().as_deref(),
@@ -688,49 +714,20 @@ impl SynapseServer {
                 loop {
                     tokio::select! {
                         _ = interval_timer.tick() => {
-                            match synapse_storage::pruning::prune_old_device_list_changes(
-                                &pruning_pool,
-                                synapse_storage::pruning::DEVICE_LIST_CHANGES_RETENTION_DAYS,
-                            )
-                            .await
-                            {
-                                Ok(0) => ::tracing::debug!("Device list change pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old device list changes"),
-                                Err(e) => ::tracing::warn!("Device list change pruning failed: {e}"),
-                            }
+                            prune_step!("device list changes", synapse_storage::pruning::prune_old_device_list_changes(&pruning_pool, synapse_storage::pruning::DEVICE_LIST_CHANGES_RETENTION_DAYS));
 
-                            match synapse_storage::pruning::prune_expired_presence(&pruning_pool).await {
-                                Ok(0) => ::tracing::debug!("Presence pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired presence records"),
-                                Err(e) => ::tracing::warn!("Presence pruning failed: {e}"),
-                            }
+                            prune_step!("presence", synapse_storage::pruning::prune_expired_presence(&pruning_pool));
 
-                            match synapse_storage::pruning::prune_expired_one_time_keys(&pruning_pool).await {
-                                Ok(0) => ::tracing::debug!("One-time key pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired one-time keys"),
-                                Err(e) => ::tracing::warn!("One-time key pruning failed: {e}"),
-                            }
+                            prune_step!("one-time keys", synapse_storage::pruning::prune_expired_one_time_keys(&pruning_pool));
 
                             // Extended pruning for additional append-only
                             // tables that accumulate without bound on long-running
                             // instances.
-                            match synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool).await {
-                                Ok(0) => ::tracing::debug!("To-device transaction pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old to-device transactions"),
-                                Err(e) => ::tracing::warn!("To-device transaction pruning failed: {e}"),
-                            }
+                            prune_step!("to-device transactions", synapse_storage::pruning::prune_old_to_device_transactions(&pruning_pool));
 
-                            match synapse_storage::pruning::prune_expired_token_blacklist(&pruning_pool).await {
-                                Ok(0) => ::tracing::debug!("Token blacklist pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned expired token blacklist entries"),
-                                Err(e) => ::tracing::warn!("Token blacklist pruning failed: {e}"),
-                            }
+                            prune_step!("token blacklist", synapse_storage::pruning::prune_expired_token_blacklist(&pruning_pool));
 
-                            match synapse_storage::pruning::prune_old_federation_queue(&pruning_pool).await {
-                                Ok(0) => ::tracing::debug!("Federation queue pruning: no rows deleted"),
-                                Ok(n) => ::tracing::info!(deleted = n, "Pruned old federation queue entries"),
-                                Err(e) => ::tracing::warn!("Federation queue pruning failed: {e}"),
-                            }
+                            prune_step!("federation queue", synapse_storage::pruning::prune_old_federation_queue(&pruning_pool));
                         }
                         _ = shutdown_rx7.recv() => {
                             ::tracing::info!("Database pruning task shutting down");
