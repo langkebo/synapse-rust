@@ -135,7 +135,7 @@ async fn evict_user(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let eviction = state.services.admin.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
+    let eviction = state.services.admin.user.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
     let failures: Vec<Value> = eviction
         .failures
         .into_iter()
@@ -177,7 +177,7 @@ pub struct CreateUpdateUserRequest {
 }
 
 async fn resolve_user(state: &AppState, identifier: &str) -> Result<AdminUserRecord, ApiError> {
-    state.services.admin.admin_user_service.get_user_or_not_found(identifier).await
+    state.services.admin.user.admin_user_service.get_user_or_not_found(identifier).await
 }
 
 // Moved to admin/mod.rs
@@ -205,7 +205,7 @@ pub async fn get_users(
     let page = state
         .services
         .admin
-        .admin_user_service
+        .user.admin_user_service
         .list_users_legacy(
             limit,
             cursor.as_ref().map(|cursor| cursor.created_ts),
@@ -252,7 +252,7 @@ async fn get_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.admin_user_service.get_user_by_identifier(&user_id).await?;
+    let user = state.services.admin.user.admin_user_service.get_user_by_identifier(&user_id).await?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -284,7 +284,7 @@ async fn delete_user(
         "Admin deleting user"
     );
 
-    state.services.admin.admin_user_service.delete_user(&user.user_id).await.map_err(|e| {
+    state.services.admin.user.admin_user_service.delete_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -349,7 +349,7 @@ pub async fn set_admin(
         "Admin changing user admin status"
     );
 
-    state.services.admin.admin_user_service.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
+    state.services.admin.user.admin_user_service.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -489,7 +489,7 @@ pub async fn get_user_rooms_admin(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
     let from = params.get("from").map(|s| s.as_str());
 
-    let room_ids = state.services.admin.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
+    let room_ids = state.services.admin.user.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
 
     let next_batch = if room_ids.len() as i64 == limit { room_ids.last().cloned() } else { None };
 
@@ -507,7 +507,7 @@ pub async fn get_user_devices_admin(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
-    let devices = state.services.admin.admin_user_service.get_user_devices(&user.user_id).await?;
+    let devices = state.services.admin.user.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let device_list: Vec<Value> = devices
         .iter()
@@ -579,7 +579,7 @@ pub async fn login_as_user(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.admin_user_service.get_user_or_not_found(&user_id).await?;
+    let user = state.services.admin.user.admin_user_service.get_user_or_not_found(&user_id).await?;
 
     if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
@@ -611,7 +611,7 @@ pub async fn logout_user_devices(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let device_count = state.services.admin.admin_user_service.get_user_device_count(&user.user_id).await?;
+    let device_count = state.services.admin.user.admin_user_service.get_user_device_count(&user.user_id).await?;
 
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
@@ -645,7 +645,7 @@ pub async fn get_users_v2(
     let page = state
         .services
         .admin
-        .admin_user_service
+        .user.admin_user_service
         .list_users_v2(limit, cursor, params.get("name").map(String::as_str))
         .await?;
 
@@ -680,7 +680,7 @@ pub async fn get_user_v2(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.admin_user_service.get_user_v2(&user_id).await?;
+    let user = state.services.admin.user.admin_user_service.get_user_v2(&user_id).await?;
 
     match user {
         Some(details) => {
@@ -729,7 +729,7 @@ pub async fn create_or_update_user_v2(
     state
         .services
         .admin
-        .admin_user_service
+        .user.admin_user_service
         .create_or_update_user_v2(
             &user_id,
             body.displayname.as_deref(),
@@ -746,7 +746,7 @@ pub async fn create_or_update_user_v2(
 
 #[axum::debug_handler]
 pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.admin.admin_user_service.get_user_stats().await?;
+    let stats = state.services.admin.user.admin_user_service.get_user_stats().await?;
 
     Ok(Json(json!({
         "total_users": stats.total_users,
@@ -765,7 +765,7 @@ pub async fn get_single_user_stats(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.admin.admin_user_service.get_single_user_stats(&user_id).await?;
+    let stats = state.services.admin.user.admin_user_service.get_single_user_stats(&user_id).await?;
 
     Ok(Json(json!({
         "user_id": stats.user.user_id,
@@ -819,7 +819,7 @@ pub async fn batch_create_users(
             )
         })
         .collect();
-    let result = state.services.admin.admin_user_service.batch_create_users(&users).await?;
+    let result = state.services.admin.user.admin_user_service.batch_create_users(&users).await?;
 
     Ok(Json(json!({
         "created": result.succeeded,
@@ -845,7 +845,7 @@ pub async fn batch_deactivate_users(
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
     }
 
-    let result = state.services.admin.admin_user_service.batch_deactivate_users(&body.users).await?;
+    let result = state.services.admin.user.admin_user_service.batch_deactivate_users(&body.users).await?;
 
     Ok(Json(json!({
         "deactivated": result.succeeded,
@@ -863,7 +863,7 @@ pub async fn get_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
 
-    let devices = state.services.admin.admin_user_service.get_user_devices(&user.user_id).await?;
+    let devices = state.services.admin.user.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let sessions: Vec<Value> = devices
         .iter()
@@ -894,7 +894,7 @@ pub async fn invalidate_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed = state.services.admin.admin_user_service.get_user_device_count(&canonical_user_id).await?;
+    let sessions_removed = state.services.admin.user.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
     state.services.core.auth_service.logout_all(&canonical_user_id).await?;
 
@@ -914,9 +914,9 @@ pub async fn get_account_details(
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
-    let device_count = state.services.admin.admin_user_service.get_user_device_count(canonical_user_id).await?;
+    let device_count = state.services.admin.user.admin_user_service.get_user_device_count(canonical_user_id).await?;
 
-    let room_count = state.services.admin.admin_user_service.get_joined_room_count(canonical_user_id).await?;
+    let room_count = state.services.admin.user.admin_user_service.get_joined_room_count(canonical_user_id).await?;
 
     Ok(Json(json!({
         "name": user.username,
@@ -955,7 +955,7 @@ pub async fn update_account(
     state
         .services
         .admin
-        .admin_user_service
+        .user.admin_user_service
         .update_account(canonical_user_id, body.displayname.as_deref(), body.avatar_url.as_deref(), body.admin)
         .await?;
 

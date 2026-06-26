@@ -1103,9 +1103,9 @@ pub(crate) async fn get_retention_policy(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let room_policy = state.services.admin.retention_service.get_room_policy(&room_id).await?;
+    let room_policy = state.services.admin.modules.retention_service.get_room_policy(&room_id).await?;
 
-    let server_policy = state.services.admin.retention_service.get_server_policy_optional().await?;
+    let server_policy = state.services.admin.modules.retention_service.get_server_policy_optional().await?;
 
     match room_policy {
         Some(policy) => Ok(Json(serde_json::json!({

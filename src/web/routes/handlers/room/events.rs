@@ -146,7 +146,7 @@ pub(crate) async fn get_room_notifications(
     let notifications = state
         .services
         .admin
-        .push_notification_service
+        .modules.push_notification_service
         .get_room_notifications(&auth_user.user_id, &room_id, limit)
         .await
         .map_err(map_internal!("Database error"))?;

@@ -56,10 +56,10 @@ pub async fn cleanup_all(
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state.services.admin.refresh_token_service.cleanup_expired_tokens().await?;
+    let refresh_tokens = state.services.admin.user.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
-    let reg_tokens = state.services.admin.registration_token_service.cleanup_expired_tokens().await?;
+    let reg_tokens = state.services.admin.user.registration_token_service.cleanup_expired_tokens().await?;
     token_results.insert("registration_tokens_deleted".to_string(), json!(reg_tokens));
 
     let qr_txns = state
@@ -74,7 +74,7 @@ pub async fn cleanup_all(
     let email_tokens = state
         .services
         .admin
-        .email_verification_storage
+        .user.email_verification_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Email token cleanup failed", &e))?;
@@ -115,7 +115,7 @@ pub async fn cleanup_tokens(_admin: AdminUser, State(state): State<AppState>) ->
         .map_err(|e| ApiError::internal_with_log("Access token cleanup failed", &e))?;
     token_results.insert("access_tokens_deleted".to_string(), json!(access_tokens));
 
-    let refresh_tokens = state.services.admin.refresh_token_service.cleanup_expired_tokens().await?;
+    let refresh_tokens = state.services.admin.user.refresh_token_service.cleanup_expired_tokens().await?;
     token_results.insert("refresh_tokens_deleted".to_string(), json!(refresh_tokens));
 
     Ok(Json(Value::Object(token_results)))

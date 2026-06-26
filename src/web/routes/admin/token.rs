@@ -85,7 +85,7 @@ pub async fn get_registration_tokens(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (tokens, next_batch) = state.services.admin.registration_token_service.get_all_tokens(limit, from).await?;
+    let (tokens, next_batch) = state.services.admin.user.registration_token_service.get_all_tokens(limit, from).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -120,7 +120,7 @@ pub async fn create_registration_token(
     let registration_token = state
         .services
         .admin
-        .admin_token_service
+        .user.admin_token_service
         .create_registration_token(Some(token), max_uses, body.expiry_time, &admin.user_id)
         .await?;
 
@@ -140,7 +140,7 @@ pub async fn get_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state.services.admin.admin_token_service.get_registration_token(&token).await?;
+    let result = state.services.admin.user.admin_token_service.get_registration_token(&token).await?;
 
     match result {
         Some(row) => Ok(Json(json!({
@@ -161,7 +161,7 @@ pub async fn delete_registration_token(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.admin_token_service.delete_registration_token(&token).await?;
+    state.services.admin.user.admin_token_service.delete_registration_token(&token).await?;
 
     Ok(Json(json!({})))
 }
@@ -176,7 +176,7 @@ pub async fn update_registration_token(
     let row = state
         .services
         .admin
-        .admin_token_service
+        .user.admin_token_service
         .update_registration_token(&token, body.uses_allowed, body.expiry_time)
         .await?;
 
@@ -198,7 +198,7 @@ pub async fn get_user_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = state.services.admin.admin_token_service.get_user_access_tokens(&user_id).await?;
+    let tokens = state.services.admin.user.admin_token_service.get_user_access_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -224,7 +224,7 @@ pub async fn delete_user_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.admin.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
+    state.services.admin.user.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -237,7 +237,7 @@ pub async fn get_user_refresh_tokens(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    let tokens = state.services.admin.admin_token_service.get_user_refresh_tokens(&user_id).await?;
+    let tokens = state.services.admin.user.admin_token_service.get_user_refresh_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -263,7 +263,7 @@ pub async fn delete_refresh_token(
 ) -> Result<Json<Value>, ApiError> {
     ensure_user_exists(&state, &user_id).await?;
 
-    state.services.admin.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
+    state.services.admin.user.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }

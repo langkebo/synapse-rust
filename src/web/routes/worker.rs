@@ -301,7 +301,7 @@ pub async fn register_worker(
 ) -> Result<impl IntoResponse, ApiError> {
     let request: RegisterWorkerRequest = body.into_request()?;
 
-    let worker: WorkerInfo = state.services.admin.worker_manager.register(request).await?;
+    let worker: WorkerInfo = state.services.admin.modules.worker_manager.register(request).await?;
 
     Ok(created_json_from::<_, WorkerResponse>(worker))
 }
@@ -311,7 +311,7 @@ pub async fn get_worker(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker: Option<WorkerInfo> = state.services.admin.worker_manager.get(&worker_id).await?;
+    let worker: Option<WorkerInfo> = state.services.admin.modules.worker_manager.get(&worker_id).await?;
 
     Ok(json_from::<_, WorkerResponse>(require_found(worker, "Worker not found")?))
 }
@@ -320,7 +320,7 @@ pub async fn list_workers(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let workers: Vec<WorkerInfo> = state.services.admin.worker_manager.get_active().await?;
+    let workers: Vec<WorkerInfo> = state.services.admin.modules.worker_manager.get_active().await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
@@ -332,7 +332,7 @@ pub async fn list_workers_by_type(
 ) -> Result<impl IntoResponse, ApiError> {
     let wtype: WorkerType = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
 
-    let workers: Vec<WorkerInfo> = state.services.admin.worker_manager.get_by_type(wtype).await?;
+    let workers: Vec<WorkerInfo> = state.services.admin.modules.worker_manager.get_by_type(wtype).await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
@@ -344,7 +344,7 @@ pub async fn heartbeat(
 ) -> Result<impl IntoResponse, ApiError> {
     let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
 
-    state.services.admin.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
+    state.services.admin.modules.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
 
     Ok(status_json("ok"))
 }
@@ -354,7 +354,7 @@ pub async fn unregister_worker(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.unregister(&worker_id).await?;
+    state.services.admin.modules.worker_manager.unregister(&worker_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -367,7 +367,7 @@ pub async fn send_command(
 ) -> Result<impl IntoResponse, ApiError> {
     let request: SendCommandRequest = body.into_request(worker_id);
 
-    let command: WorkerCommand = state.services.admin.worker_manager.send_command(request).await?;
+    let command: WorkerCommand = state.services.admin.modules.worker_manager.send_command(request).await?;
 
     Ok(created_json_from::<_, WorkerCommandResponse>(command))
 }
@@ -379,7 +379,7 @@ pub async fn get_pending_commands(
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
     let commands: Vec<WorkerCommand> =
-        state.services.admin.worker_manager.get_pending_commands(&worker_id, limit).await?;
+        state.services.admin.modules.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
@@ -388,7 +388,7 @@ pub async fn complete_command(
     State(state): State<AppState>,
     Path(command_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.complete_command(&command_id).await?;
+    state.services.admin.modules.worker_manager.complete_command(&command_id).await?;
 
     Ok(status_json("completed"))
 }
@@ -398,7 +398,7 @@ pub async fn fail_command(
     Path(command_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.fail_command(&command_id, &body.error).await?;
+    state.services.admin.modules.worker_manager.fail_command(&command_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
@@ -410,7 +410,7 @@ pub async fn assign_task(
 ) -> Result<impl IntoResponse, ApiError> {
     let request: AssignTaskRequest = body.into_request();
 
-    let task: WorkerTaskAssignment = state.services.admin.worker_manager.assign_task(request).await?;
+    let task: WorkerTaskAssignment = state.services.admin.modules.worker_manager.assign_task(request).await?;
 
     Ok(created_json_from::<_, WorkerTaskResponse>(task))
 }
@@ -421,7 +421,7 @@ pub async fn get_pending_tasks(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
-    let tasks: Vec<WorkerTaskAssignment> = state.services.admin.worker_manager.get_pending_tasks(limit).await?;
+    let tasks: Vec<WorkerTaskAssignment> = state.services.admin.modules.worker_manager.get_pending_tasks(limit).await?;
 
     Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
@@ -431,7 +431,7 @@ pub async fn claim_next_task(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task: WorkerTaskAssignment = state.services.admin.worker_manager.claim_next_pending_task(&worker_id).await?;
+    let task: WorkerTaskAssignment = state.services.admin.modules.worker_manager.claim_next_pending_task(&worker_id).await?;
 
     Ok(Json(WorkerTaskResponse::from(task)))
 }
@@ -441,7 +441,7 @@ pub async fn claim_task(
     Path((task_id, worker_id)): Path<(String, String)>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.claim_task(&task_id, &worker_id).await?;
+    state.services.admin.modules.worker_manager.claim_task(&task_id, &worker_id).await?;
 
     Ok(status_json("claimed"))
 }
@@ -451,7 +451,7 @@ pub async fn complete_task(
     Path(task_id): Path<String>,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.complete_task(&task_id, body.result).await?;
+    state.services.admin.modules.worker_manager.complete_task(&task_id, body.result).await?;
 
     Ok(status_json("completed"))
 }
@@ -461,7 +461,7 @@ pub async fn fail_task(
     Path(task_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.fail_task(&task_id, &body.error).await?;
+    state.services.admin.modules.worker_manager.fail_task(&task_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
@@ -471,7 +471,7 @@ pub async fn connect_worker(
     Path(worker_id): Path<String>,
     Json(body): Json<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
+    state.services.admin.modules.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
 
     Ok(status_json("connected"))
 }
@@ -480,7 +480,7 @@ pub async fn disconnect_worker(
     State(state): State<AppState>,
     Path(worker_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.disconnect_from_worker(&worker_id).await?;
+    state.services.admin.modules.worker_manager.disconnect_from_worker(&worker_id).await?;
 
     Ok(status_json("disconnected"))
 }
@@ -491,7 +491,7 @@ pub async fn get_replication_position(
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
     let position_opt: Option<i64> =
-        state.services.admin.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
+        state.services.admin.modules.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
     let position = position_opt.unwrap_or(0);
 
     Ok(Json(serde_json::json!({
@@ -506,7 +506,7 @@ pub async fn update_replication_position(
     Path((worker_id, stream_name)): Path<(String, String)>,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
+    state.services.admin.modules.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
 
     Ok(status_json("updated"))
 }
@@ -517,7 +517,7 @@ pub async fn get_events(
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id: i64 = query.stream_id.unwrap_or(0);
     let limit: i64 = 100;
-    let events = state.services.admin.worker_manager.get_events_since(stream_id, limit).await?;
+    let events = state.services.admin.modules.worker_manager.get_events_since(stream_id, limit).await?;
 
     Ok(Json(events))
 }
@@ -528,7 +528,7 @@ pub async fn get_statistics(
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 1000);
-    let stats = state.services.admin.worker_manager.get_statistics(limit).await?;
+    let stats = state.services.admin.modules.worker_manager.get_statistics(limit).await?;
 
     Ok(Json(stats))
 }
@@ -548,7 +548,7 @@ pub async fn get_type_statistics(
     State(state): State<AppState>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.admin.worker_manager.get_type_statistics().await?;
+    let stats = state.services.admin.modules.worker_manager.get_type_statistics().await?;
 
     Ok(Json(stats))
 }
@@ -558,7 +558,7 @@ pub async fn select_worker(
     Path(task_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_id_opt: Option<String> = state.services.admin.worker_manager.select_worker_for_task(&task_type).await?;
+    let worker_id_opt: Option<String> = state.services.admin.modules.worker_manager.select_worker_for_task(&task_type).await?;
     let worker_id = worker_id_opt.ok_or_else(|| ApiError::not_found("No worker found for task type"))?;
 
     Ok(Json(serde_json::json!({

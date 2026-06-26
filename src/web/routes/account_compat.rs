@@ -297,7 +297,7 @@ pub(crate) async fn change_password_uia(
             let verification_token = state
                 .services
                 .admin
-                .email_verification_service
+                .user.email_verification_service
                 .claim_used_token(sid_int)
                 .await
                 .map_err(|e| {
@@ -488,7 +488,7 @@ pub(crate) async fn add_threepid(
     let verification_token = state
         .services
         .admin
-        .email_verification_service
+        .user.email_verification_service
         .claim_used_token(sid_int)
         .await
         .map_err(|e| {

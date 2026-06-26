@@ -79,7 +79,7 @@ async fn create_session(
     let session: RendezvousSession = state
         .services
         .admin
-        .rendezvous_storage
+        .modules.rendezvous_storage
         .create_session(params)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create session", &e))?;
@@ -104,7 +104,7 @@ async fn load_rendezvous_session(state: &AppState, session_id: &str) -> Result<R
     state
         .services
         .admin
-        .rendezvous_storage
+        .modules.rendezvous_storage
         .get_session(session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get session", &e))?
@@ -191,7 +191,7 @@ async fn update_session(
     state
         .services
         .admin
-        .rendezvous_storage
+        .modules.rendezvous_storage
         .update_session_status(&session_id, status)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update session", &e))?;
@@ -203,7 +203,7 @@ async fn update_session(
         state
             .services
             .admin
-            .rendezvous_storage
+            .modules.rendezvous_storage
             .bind_user_to_session(&session_id, &user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to bind user", &e))?;
@@ -253,7 +253,7 @@ async fn delete_session(
     state
         .services
         .admin
-        .rendezvous_storage
+        .modules.rendezvous_storage
         .delete_session(&session_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to delete session", &e))?;
@@ -282,7 +282,7 @@ async fn send_message(
     state
         .services
         .admin
-        .rendezvous_message_storage
+        .modules.rendezvous_message_storage
         .store_message(&session_id, "outbound", &message)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to send message", &e))?;
@@ -310,7 +310,7 @@ async fn get_messages(
     let messages: Vec<StoredRendezvousMessage> = state
         .services
         .admin
-        .rendezvous_message_storage
+        .modules.rendezvous_message_storage
         .get_messages(&session_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get messages", &e))?;

@@ -249,7 +249,7 @@ pub(crate) async fn report_room(
         score: Some(0),
     };
 
-    let report = state.services.admin.event_report_service.create_report(request).await?;
+    let report = state.services.admin.modules.event_report_service.create_report(request).await?;
 
     ::tracing::info!(
         request_id = %request_id,

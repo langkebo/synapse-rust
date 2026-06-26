@@ -70,7 +70,7 @@ impl From<crate::storage::application_service::ApplicationService> for ExternalS
 }
 
 fn external_service_integration(state: &AppState) -> Arc<ExternalServiceIntegration> {
-    state.services.admin.external_service_integration.clone()
+    state.services.admin.modules.external_service_integration.clone()
 }
 
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {

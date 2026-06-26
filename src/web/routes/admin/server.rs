@@ -219,7 +219,7 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
 
 #[axum::debug_handler]
 pub async fn get_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
 
     Ok(Json(json!({
         "db_ok": db_ok,
@@ -298,7 +298,7 @@ pub async fn whois_device(
 
 #[axum::debug_handler]
 pub async fn get_health(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let db_ok = state.services.admin.admin_server_service.is_database_healthy().await;
+    let db_ok = state.services.admin.security.admin_server_service.is_database_healthy().await;
 
     Ok(Json(json!({
         "status": if db_ok { "ok" } else { "error" },
@@ -330,7 +330,7 @@ pub async fn get_experimental_features(
         cursor_updated_ts: None,
         cursor_flag_key: None,
     };
-    let (flags, total) = state.services.admin.feature_flag_service.list_flags(filters).await?;
+    let (flags, total) = state.services.admin.modules.feature_flag_service.list_flags(filters).await?;
 
     let features: serde_json::Map<String, Value> = flags
         .iter()

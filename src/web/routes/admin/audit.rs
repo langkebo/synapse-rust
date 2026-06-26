@@ -62,7 +62,7 @@ pub async fn create_audit_event(
     let event = state
         .services
         .admin
-        .admin_audit_service
+        .security.admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: body.actor_id,
             action: body.action,
@@ -102,7 +102,7 @@ pub async fn list_audit_events(
     let (events, total, next_batch) = state
         .services
         .admin
-        .admin_audit_service
+        .security.admin_audit_service
         .list_events(AuditEventFilters {
             actor_id: params.actor_id,
             action: params.action,
@@ -130,7 +130,7 @@ pub async fn get_audit_event(
     let event = state
         .services
         .admin
-        .admin_audit_service
+        .security.admin_audit_service
         .get_event(&event_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Audit event not found"))?;
@@ -154,7 +154,7 @@ pub(crate) async fn record_audit_event(
     let result = state
         .services
         .admin
-        .admin_audit_service
+        .security.admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: actor_id.to_string(),
             action: action.to_string(),
