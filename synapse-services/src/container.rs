@@ -259,7 +259,7 @@ pub struct RoomSyncServices {
     pub relations_service: Arc<crate::relations_service::RelationsService>,
     pub thread_storage: synapse_storage::thread::ThreadStorage,
     pub thread_service: Arc<crate::thread_service::ThreadService>,
-    pub room_tag_service: Arc<crate::room_tag_service::RoomTagService>,
+    pub room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -354,9 +354,7 @@ fn assemble_room_and_sync(
     let thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
     let thread_service = Arc::new(crate::thread_service::ThreadService::new(Arc::new(thread_storage.clone())));
 
-    let room_tag_service = Arc::new(crate::room_tag_service::RoomTagService::new(
-        synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
-    ));
+    let room_tag_storage = synapse_storage::room_tag::RoomTagStorage::new(pool.clone());
 
     RoomSyncServices {
         room_storage,
@@ -376,7 +374,7 @@ fn assemble_room_and_sync(
         relations_service,
         thread_storage,
         thread_service,
-        room_tag_service,
+        room_tag_storage,
     }
 }
 

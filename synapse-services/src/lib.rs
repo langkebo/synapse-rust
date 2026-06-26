@@ -56,7 +56,6 @@ pub mod registration_token_service;
 pub mod relations_service;
 pub mod retention_service;
 pub mod room;
-pub mod room_tag_service;
 pub mod search_service;
 pub mod sliding_sync_service;
 pub mod sms_provider;
