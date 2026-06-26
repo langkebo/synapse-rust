@@ -25,6 +25,7 @@ async fn test_invalid_jwt() {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
+        ..Default::default()
     };
     let auth_service = AuthService::new(&pool, cache, metrics, &security_config, "localhost");
 

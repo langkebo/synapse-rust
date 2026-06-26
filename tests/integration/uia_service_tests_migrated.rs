@@ -29,6 +29,7 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
         admin_mfa_allowed_drift_steps: 1,
         admin_rbac_enabled: true,
         ui_auth_session_timeout: 900,
+        ..Default::default()
     };
     AuthService::new(pool, cache, metrics, &security, "localhost")
 }

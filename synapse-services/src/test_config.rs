@@ -164,6 +164,7 @@ pub fn build_test_config() -> Config {
             admin_mfa_allowed_drift_steps: 1,
             admin_rbac_enabled: true,
             ui_auth_session_timeout: 900,
+            csrf_secret: String::new(),
         },
         search: SearchConfig {
             enabled: false,
