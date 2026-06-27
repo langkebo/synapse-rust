@@ -1,5 +1,9 @@
+use chrono::Utc;
+use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+
+use synapse_common::error::ApiError;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct EmailVerificationToken {
@@ -82,6 +86,52 @@ impl EmailVerificationStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Shared validation for submitToken: checks existence, usage, expiration,
+    /// token match, and client_secret match against session_data. Marks the
+    /// token as used on success.
+    pub async fn validate_and_consume_token(
+        &self,
+        token_id: i64,
+        submitted_token: &str,
+        client_secret: &str,
+    ) -> Result<EmailVerificationToken, ApiError> {
+        let verification_token = self
+            .get_verification_token_by_id(token_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
+
+        let verification_token = verification_token
+            .ok_or_else(|| ApiError::bad_request("Invalid session ID or session not found".to_string()))?;
+
+        if verification_token.is_used {
+            return Err(ApiError::bad_request("Verification token has already been used".to_string()));
+        }
+
+        let now = Utc::now().timestamp_millis();
+        if verification_token.expires_at.is_none_or(|expires_at| expires_at < now) {
+            return Err(ApiError::bad_request("Verification token has expired".to_string()));
+        }
+
+        if verification_token.token != submitted_token {
+            return Err(ApiError::bad_request("Invalid verification token".to_string()));
+        }
+
+        // Mirror the legacy session_data->client_secret check.
+        let stored_secret = match verification_token.session_data.as_ref() {
+            Some(Value::String(s)) => Some(s.as_str()),
+            Some(Value::Object(map)) => map.get("client_secret").and_then(|v| v.as_str()),
+            _ => None,
+        };
+        if stored_secret != Some(client_secret) {
+            return Err(ApiError::bad_request("Client secret mismatch".to_string()));
+        }
+
+        self.mark_token_used(token_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;
+        Ok(verification_token)
     }
 
     pub async fn get_verification_token_by_id(

@@ -66,7 +66,6 @@ pub mod thread_service;
 pub mod translation_service;
 
 pub mod directory_service;
-pub mod email_verification_service;
 pub mod typing_service;
 pub mod uia_service;
 pub mod user_lock_service;
@@ -103,7 +102,6 @@ pub use database_initializer::{
 }; // database initialization helpers
 pub use dehydrated_device_service::DehydratedDeviceService; // dehydrated device service types
 pub use directory_service::{DirectoryRoom, DirectoryService}; // room directory service types
-pub use email_verification_service::EmailVerificationService; // email verification service types
 pub use feature_flag_service::FeatureFlagService; // feature flag service types
 pub use federation_key_rotation_service::FederationKeyRotationService; // federation key rotation service types
 #[allow(deprecated)]

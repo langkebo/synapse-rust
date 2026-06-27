@@ -235,42 +235,13 @@ pub(crate) async fn submit_email_token(
 
     let sid_int: i64 = sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-    let verification_token = state
-        .services
-        .admin
-        .user.email_verification_storage
-        .get_verification_token_by_id(sid_int)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to get verification token", &e))?;
-
-    let verification_token = match verification_token {
-        Some(t) => t,
-        None => return Err(ApiError::bad_request("Invalid session ID or session not found".to_string())),
-    };
-
-    if verification_token.is_used {
-        return Err(ApiError::bad_request("Verification token has already been used".to_string()));
-    }
-
-    if verification_token.expires_at < Some(chrono::Utc::now().timestamp_millis()) {
-        return Err(ApiError::bad_request("Verification token has expired".to_string()));
-    }
-
-    if verification_token.token != token {
-        return Err(ApiError::bad_request("Invalid verification token".to_string()));
-    }
-
-    if session_client_secret(verification_token.session_data.as_ref()) != Some(client_secret) {
-        return Err(ApiError::bad_request("Client secret mismatch".to_string()));
-    }
-
     state
         .services
         .admin
-        .user.email_verification_storage
-        .mark_token_used(sid_int)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to mark token as used", &e))?;
+        .user
+        .email_verification_storage
+        .validate_and_consume_token(sid_int, token, client_secret)
+        .await?;
 
     Ok(Json(json!({
         "success": true

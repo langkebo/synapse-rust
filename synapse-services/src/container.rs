@@ -446,7 +446,6 @@ pub struct AdminUserServices {
     pub admin_registration_service: crate::admin_registration_service::AdminRegistrationService,
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub email_verification_storage: EmailVerificationStorage,
-    pub email_verification_service: Arc<crate::email_verification_service::EmailVerificationService>,
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
     pub refresh_token_storage: synapse_storage::refresh_token::RefreshTokenStorage,
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
@@ -533,9 +532,6 @@ fn assemble_admin_support(
     );
 
     let email_verification_storage = EmailVerificationStorage::new(pool);
-    let email_verification_service = Arc::new(crate::email_verification_service::EmailVerificationService::new(
-        Arc::new(email_verification_storage.clone()),
-    ));
     let audit_storage = synapse_storage::audit::AuditEventStorage::new(pool);
     let admin_audit_service =
         Arc::new(crate::admin_audit_service::AdminAuditService::new(Arc::new(audit_storage.clone())));
@@ -670,7 +666,6 @@ fn assemble_admin_support(
             admin_registration_service,
             admin_user_service,
             email_verification_storage,
-            email_verification_service,
             admin_token_service,
             refresh_token_storage,
             refresh_token_service,
