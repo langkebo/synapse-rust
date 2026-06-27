@@ -16,7 +16,7 @@ static TEST_SCHEMA_COUNTER: AtomicU64 = AtomicU64::new(1);
 static TEMPLATE_SCHEMA_NAME: OnceCell<String> = OnceCell::const_new();
 static SHARED_CLONE_SEMAPHORE: LazyLock<Semaphore> =
     LazyLock::new(|| Semaphore::new(configured_shared_clone_concurrency()));
-const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 64;
+const DEFAULT_TEST_DB_MAX_CONNECTIONS: u32 = 20;
 const DEFAULT_TEST_DB_MIN_CONNECTIONS: u32 = 0;
 const DEFAULT_TEST_DB_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_TEST_DB_ACQUIRE_TIMEOUT_SECS: u64 = 180;
