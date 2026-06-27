@@ -118,6 +118,11 @@ pub struct LockedUser {
 /// Two adapters justify the seam: Postgres (prod) and in-memory (test).
 #[async_trait]
 pub trait UserStore: Send + Sync {
+    /// Returns a reference to the database connection pool.
+    /// Enables consumers previously accessing the concrete
+    /// [`UserStorage::pool`] field to work through the trait object.
+    fn pool(&self) -> &Arc<Pool<Postgres>>;
+
     // ---- lock operations ----
 
     async fn lock_user(
@@ -235,6 +240,21 @@ pub trait UserStore: Send + Sync {
     async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
 
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error>;
+
+    // ---- account_data methods ----
+
+    async fn get_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
+
+    async fn upsert_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -1355,6 +1375,10 @@ impl UserStorage {
 
 #[async_trait]
 impl UserStore for UserStorage {
+    fn pool(&self) -> &Arc<Pool<Postgres>> {
+        &self.pool
+    }
+
     // ---- lock operations ----
 
     async fn lock_user(
@@ -1545,5 +1569,24 @@ impl UserStore for UserStorage {
 
     async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {
         self.get_users_map(user_ids).await
+    }
+
+    // ---- account_data methods ----
+
+    async fn get_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        self.get_account_data_content(user_id, data_type).await
+    }
+
+    async fn upsert_account_data_content(
+        &self,
+        user_id: &str,
+        data_type: &str,
+        content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_account_data_content(user_id, data_type, content).await
     }
 }

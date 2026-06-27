@@ -15,7 +15,7 @@ use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStorage;
+use synapse_rust::storage::user::UserStore;
 use synapse_rust::storage::CreateEventParams;
 use synapse_rust::storage::RoomSummaryStorage;
 
@@ -304,7 +304,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,
-        user_storage: UserStorage::new(pool, canonical_cache.clone()),
+        user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
             canonical_cache,

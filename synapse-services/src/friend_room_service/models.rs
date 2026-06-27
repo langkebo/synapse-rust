@@ -5,7 +5,7 @@ use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiResult;
 use synapse_storage::{
-    AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStorage,
+    AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, RoomEvent, UserStore,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,7 +201,7 @@ pub trait FriendFederationSender: Send + Sync {
 pub struct FriendRoomService {
     pub(crate) friend_storage: FriendRoomStorage,
     pub(crate) room_service: Arc<dyn FriendRoomRoomOps>,
-    pub(crate) user_storage: UserStorage,
+    pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) presence_storage: PresenceStorage,
     pub(crate) account_data_storage: AccountDataStorage,
     pub(crate) cache: Arc<CacheManager>,

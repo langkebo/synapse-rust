@@ -1,16 +1,16 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::server_notification::*;
-use synapse_storage::user::{User, UserStorage};
+use synapse_storage::user::{User, UserStore};
 use tracing::{info, instrument};
 
 pub struct ServerNotificationService {
     storage: Arc<ServerNotificationStorage>,
-    user_storage: Arc<UserStorage>,
+    user_storage: Arc<dyn UserStore>,
 }
 
 impl ServerNotificationService {
-    pub fn new(storage: Arc<ServerNotificationStorage>, user_storage: Arc<UserStorage>) -> Self {
+    pub fn new(storage: Arc<ServerNotificationStorage>, user_storage: Arc<dyn UserStore>) -> Self {
         Self { storage, user_storage }
     }
 

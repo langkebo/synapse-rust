@@ -705,7 +705,7 @@ impl SynapseServer {
             //   - presence records inactive beyond the presence prune timeout
             //   - one-time keys that are used or older than 7 days
             // Runs daily.
-            let pruning_pool = self.app_state.services.account.user_storage.pool.clone();
+            let pruning_pool = self.app_state.services.account.user_storage.pool().clone();
             tokio::spawn(async move {
                 let mut interval_timer = tokio::time::interval(Duration::from_secs(PRUNING_INTERVAL_SECS));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -858,7 +858,7 @@ impl SynapseServer {
     }
 
     async fn warmup(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let pool = &self.app_state.services.account.user_storage.pool;
+        let pool = self.app_state.services.account.user_storage.pool();
 
         ::tracing::info!("Performing system warmup...");
 

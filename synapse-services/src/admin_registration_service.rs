@@ -16,7 +16,7 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct AdminRegistrationService {
     auth_service: AuthService,
     config: AdminRegistrationConfig,
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
     cache: Arc<CacheManager>,
     metrics: Arc<MetricsCollector>,
 }
@@ -51,7 +51,7 @@ impl AdminRegistrationService {
     pub fn new(
         auth_service: AuthService,
         config: AdminRegistrationConfig,
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {

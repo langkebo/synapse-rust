@@ -23,6 +23,10 @@ impl FakeUserStore {
 
 #[async_trait]
 impl UserStore for FakeUserStore {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        unimplemented!("FakeUserStore does not provide a database pool")
+    }
+
     async fn lock_user(
         &self,
         user_id: &str,
@@ -250,6 +254,23 @@ impl UserStore for FakeUserStore {
 
     async fn get_users_map(&self, _user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {
         Ok(HashMap::new())
+    }
+
+    async fn get_account_data_content(
+        &self,
+        _user_id: &str,
+        _data_type: &str,
+    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn upsert_account_data_content(
+        &self,
+        _user_id: &str,
+        _data_type: &str,
+        _content: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
     }
 }
 
