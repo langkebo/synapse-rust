@@ -534,12 +534,23 @@ async fn oidc_token(
             let now_ts: i64 = current_unix_ts() as i64;
 
             // 检查 OIDC 绑定记录
-            let bound_user_id: Option<String> =
-                state.services.sso.oidc_mapping_service.get_bound_user_id(&issuer, &subject).await?;
+            let bound_user_id: Option<String> = state
+                .services
+                .sso
+                .oidc_mapping_storage
+                .get_bound_user_id(&issuer, &subject)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to query OIDC user mapping", &e))?;
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                state.services.sso.oidc_mapping_service.record_authentication(&issuer, &subject, now_ts).await?;
+                state
+                    .services
+                    .sso
+                    .oidc_mapping_storage
+                    .update_last_authenticated(&issuer, &subject, now_ts)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
@@ -577,9 +588,10 @@ async fn oidc_token(
                 state
                     .services
                     .sso
-                    .oidc_mapping_service
-                    .create_mapping(&issuer, &subject, &matrix_user_id, now_ts)
-                    .await?;
+                    .oidc_mapping_storage
+                    .insert_mapping(&issuer, &subject, &matrix_user_id, now_ts)
+                    .await
+                    .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;
                 matrix_user_id
             };
 

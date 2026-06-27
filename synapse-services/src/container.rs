@@ -99,7 +99,7 @@ pub struct SsoServices {
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::cas_service::CasService>,
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
-    pub oidc_mapping_service: Arc<crate::oidc_mapping_service::OidcMappingService>,
+    pub oidc_mapping_storage: synapse_storage::oidc_user_mapping::OidcUserMappingStorage,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -794,10 +794,9 @@ fn assemble_sso(pool: &Arc<sqlx::PgPool>, config: &Config) -> SsoServices {
         }
     }
 
-    // OIDC mapping service
-    let oidc_mapping_service = Arc::new(crate::oidc_mapping_service::OidcMappingService::new(
-        synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()),
-    ));
+    // OIDC mapping storage
+    let oidc_mapping_storage =
+        synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone());
 
     SsoServices {
         #[cfg(feature = "saml-sso")]
@@ -810,7 +809,7 @@ fn assemble_sso(pool: &Arc<sqlx::PgPool>, config: &Config) -> SsoServices {
         cas_service,
         oidc_service,
         builtin_oidc_provider,
-        oidc_mapping_service,
+        oidc_mapping_storage,
     }
 }
 
