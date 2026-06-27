@@ -7,12 +7,11 @@ use super::{
     worker, *,
 };
 use crate::web::middleware::{
-    cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware,
-    request_id_middleware, security_headers_middleware, shadow_ban_middleware,
+    cors_middleware, csrf_middleware, method_not_allowed_middleware, rate_limit_middleware, request_id_middleware,
+    security_headers_middleware, shadow_ban_middleware,
 };
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, Method},
+    http::Method,
     routing::{get, post, put},
     Json, Router,
 };
@@ -288,361 +287,12 @@ fn assembly_compat_manifest() -> Vec<RouteEntry> {
     out
 }
 
-async fn get_client_config(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let config = &state.services.core.config;
-    let base_url = config.server.get_public_baseurl();
-
-    Ok(Json(json!({
-        "homeserver": {
-            "base_url": base_url,
-            "server_name": config.server.name,
-        },
-        "identity_server": {
-            "base_url": base_url,
-        },
-        "push": {
-            "enabled": true,
-        },
-        "email": {
-            "enabled": false,
-        },
-        "features": {
-            "e2ee": true,
-            "voip": true,
-            "threads": true,
-            "spaces": true,
-        },
-        "defaults": {
-            "client_info": {
-                "name": "synapse-rust",
-                "version": env!("CARGO_PKG_VERSION"),
-            },
-        },
-    })))
-}
-
-/// Return `true` when the user has at least one well-known SSSS account_data
-/// event present: `m.secret_storage.default_key` (which names the default
-/// key) and any `m.secret_storage.key.<id>` entry. Element/Synapse clients
-/// consider SSSS "initialised" once either of those is set, regardless of
-/// what the homeserver's internal SSSS table happens to contain.
-async fn user_has_secret_storage_account_data(state: &AppState, user_id: &str) -> Result<bool, ApiError> {
-    let account_data = state.services.core.account_data_service.list_account_data(user_id).await?;
-
-    if account_data.contains_key("m.secret_storage.default_key") {
-        return Ok(true);
-    }
-
-    Ok(account_data.keys().any(|key| key.starts_with("m.secret_storage.key.")))
-}
-
-/// MSC3814 — dehydrated devices. Element probes this on startup. We now expose
-/// a minimal persisted implementation so clients can upload and resume the
-/// dehydrated device state instead of seeing a permanent 404.
-async fn get_dehydrated_device(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let device = state.services.e2ee.dehydrated_device_service.get_device(&auth_user.user_id).await?;
-
-    match device {
-        Some(device) => Ok(Json(device)),
-        None => Err(ApiError::not_found("No dehydrated device available")),
-    }
-}
-
-async fn put_dehydrated_device(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    // P0: Precondition checks (MSC3814)
-    // 1. Check if user has cross-signing keys
-    let cs_status = state.services.e2ee.cross_signing_service.get_user_verification_status(&auth_user.user_id).await?;
-    if !cs_status.has_master_key {
-        return Err(ApiError::forbidden(
-            "Cross-signing keys not found. Please initialize cross-signing before creating a dehydrated device."
-                .to_string(),
-        ));
-    }
-
-    // 2. Check if user has SSSS keys
-    //
-    // Element actually consults the *standard* account_data event names
-    // (`m.secret_storage.default_key` and the `m.secret_storage.key.<id>` keys)
-    // to decide whether SSSS is set up — not the homeserver's internal table.
-    // We mirror that, and also still accept the internal `ssss_service` rows so
-    // server-initiated bootstrap (e.g. tests / admin tools) keeps working.
-    let ssss_keys = state.services.e2ee.ssss_service.get_all_keys(&auth_user.user_id).await?;
-    if ssss_keys.is_empty() && !user_has_secret_storage_account_data(&state, &auth_user.user_id).await? {
-        return Err(ApiError::forbidden(
-            "Secret storage keys not found. Please initialize secret storage (SSSS) before creating a dehydrated device."
-                .to_string(),
-        ));
-    }
-
-    let device_id = state.services.e2ee.dehydrated_device_service.put_device(&auth_user.user_id, body).await?;
-
-    Ok(Json(json!({
-        "device_id": device_id
-    })))
-}
-
-async fn get_dehydrated_device_status(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let status = state.services.e2ee.dehydrated_device_service.get_status(&auth_user.user_id).await?;
-    Ok(Json(status))
-}
-
-async fn delete_dehydrated_device(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let device_id = state.services.e2ee.dehydrated_device_service.delete_device(&auth_user.user_id).await?;
-    match device_id {
-        Some(device_id) => Ok(Json(json!({ "device_id": device_id }))),
-        None => Err(ApiError::not_found("No dehydrated device available")),
-    }
-}
-
-/// MSC3814 — claim pending to-device events addressed to a dehydrated device.
-///
-/// Clients call this after restoring a session backed by a dehydrated device,
-/// to drain the queue of `m.room_key` (and other) to-device messages that were
-/// delivered while the user was offline. We page by `stream_id` of the
-/// underlying `to_device_messages` table, returning the cursor as a string in
-/// `next_batch`. When the cursor stops advancing the queue is empty and the
-/// client is expected to `DELETE` the dehydrated device.
-async fn post_dehydrated_device_events(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-    Path(device_id): Path<String>,
-    Query(query): Query<serde_json::Value>,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let next_batch = body.get("next_batch").and_then(|v| v.as_str());
-    let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(100);
-    let response = state
-        .services
-        .e2ee
-        .dehydrated_device_service
-        .claim_events(&auth_user.user_id, &device_id, next_batch, limit)
-        .await?;
-    Ok(Json(response))
-}
-
-/// MSC4143 — `org.matrix.msc4143/rtc/transports`. Element calls this when a
-/// VoIP focus call is started. We return standard ICE server transport (MSC4403)
-/// based on our VoIP/TURN/STUN configuration so clients can use them for
-/// MatrixRTC calls even without a dedicated SFU.
-async fn get_rtc_transports(
-    State(state): State<AppState>,
-    auth_user: AuthenticatedUser,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let voip_service = &state.services.extensions.rtc_domain_service.infra;
-
-    if !voip_service.is_enabled() {
-        return Ok(Json(json!({ "transports": [] })));
-    }
-
-    let mut ice_servers = Vec::new();
-
-    // Add STUN servers
-    let stun_uris = voip_service.get_stun_uris();
-    if !stun_uris.is_empty() {
-        ice_servers.push(json!({
-            "urls": stun_uris,
-        }));
-    }
-
-    // Add TURN servers with credentials
-    if let Ok(creds) = voip_service.generate_turn_credentials(&auth_user.user_id) {
-        ice_servers.push(json!({
-            "urls": creds.uris,
-            "username": creds.username,
-            "credential": creds.password,
-        }));
-    }
-
-    if ice_servers.is_empty() {
-        return Ok(Json(json!({ "transports": [] })));
-    }
-
-    Ok(Json(json!({
-        "transports": [
-            {
-                "type": "org.matrix.msc4403.ice-server-transport",
-                "ice_servers": ice_servers,
-            }
-        ]
-    })))
-}
-
-/// MSC4133 — extended profile properties.
-///
-/// We persist a user-scoped JSON object in `account_data` and expose per-field
-/// accessors on top of it. This keeps the implementation small while providing
-/// real interoperability for clients probing the unstable MSC4133 endpoints.
-const EXTENDED_PROFILE_DATA_TYPE: &str = "uk.tcpip.msc4133.profile";
-const EXTENDED_PROFILE_MAX_FIELD_NAME_LEN: usize = 128;
-const EXTENDED_PROFILE_MAX_JSON_LEN: usize = 65536;
-
-async fn ensure_extended_profile_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let exists = state.services.account.account_identity_service.user_exists(user_id).await?;
-
-    if exists {
-        Ok(())
-    } else {
-        Err(ApiError::not_found("User not found".to_string()))
-    }
-}
-
-async fn load_extended_profile_document(
-    state: &AppState,
-    user_id: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, ApiError> {
-    let Some(content) =
-        state.services.core.account_data_service.get_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE).await?
-    else {
-        return Ok(serde_json::Map::new());
-    };
-
-    match content {
-        serde_json::Value::Object(map) => Ok(map),
-        _ => Err(ApiError::internal("Stored extended profile content is not a JSON object".to_string())),
-    }
-}
-
-async fn save_extended_profile_document(
-    state: &AppState,
-    user_id: &str,
-    document: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(), ApiError> {
-    let content = serde_json::Value::Object(document.clone());
-    state.services.core.account_data_service.set_account_data(user_id, EXTENDED_PROFILE_DATA_TYPE, &content).await
-}
-
-async fn get_extended_profile(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(_user_id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let user_id = _user_id;
-    crate::web::routes::validators::validate_user_id(&user_id)?;
-    super::account_compat::enforce_profile_visibility(&state, &headers, &user_id).await?;
-    ensure_extended_profile_user_exists(&state, &user_id).await?;
-    Ok(Json(serde_json::Value::Object(load_extended_profile_document(&state, &user_id).await?)))
-}
-
-async fn get_extended_profile_field(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path((user_id, key_name)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    crate::web::routes::validators::validate_user_id(&user_id)?;
-    super::account_compat::enforce_profile_visibility(&state, &headers, &user_id).await?;
-    ensure_extended_profile_user_exists(&state, &user_id).await?;
-
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
-
-    let document = load_extended_profile_document(&state, &user_id).await?;
-    let value = document
-        .get(&key_name)
-        .cloned()
-        .ok_or_else(|| ApiError::not_found("Extended profile field not found".to_string()))?;
-
-    Ok(Json(value))
-}
-
-async fn put_extended_profile_field(
-    State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path((user_id, key_name)): Path<(String, String)>,
-    Json(body): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let auth_user = _auth_user;
-    crate::web::routes::validators::validate_user_id(&user_id)?;
-    ensure_extended_profile_user_exists(&state, &user_id).await?;
-
-    if auth_user.user_id != user_id {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
-
-    let body_str = serde_json::to_string(&body).map_err(|e| ApiError::bad_request(format!("Invalid JSON: {e}")))?;
-    if body_str.len() > EXTENDED_PROFILE_MAX_JSON_LEN {
-        return Err(ApiError::bad_request("Extended profile field too large (max 64KB)".to_string()));
-    }
-
-    let mut document = load_extended_profile_document(&state, &user_id).await?;
-    document.insert(key_name.clone(), body);
-    save_extended_profile_document(&state, &user_id, &document).await?;
-
-    Ok(Json(json!({
-        "key_name": key_name,
-        "updated": true
-    })))
-}
-
-async fn delete_extended_profile_field(
-    State(state): State<AppState>,
-    _auth_user: AuthenticatedUser,
-    Path((user_id, key_name)): Path<(String, String)>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    let auth_user = _auth_user;
-    crate::web::routes::validators::validate_user_id(&user_id)?;
-    ensure_extended_profile_user_exists(&state, &user_id).await?;
-
-    if auth_user.user_id != user_id {
-        return Err(ApiError::forbidden("Access denied".to_string()));
-    }
-    if key_name.is_empty() || key_name.len() > EXTENDED_PROFILE_MAX_FIELD_NAME_LEN {
-        return Err(ApiError::bad_request("Invalid extended profile field name".to_string()));
-    }
-
-    let mut document = load_extended_profile_document(&state, &user_id).await?;
-    let removed = document.remove(&key_name).is_some();
-    if removed {
-        save_extended_profile_document(&state, &user_id, &document).await?;
-    }
-
-    Ok(Json(json!({
-        "key_name": key_name,
-        "deleted": true
-    })))
-}
-
-/// MSC2965 — `auth_metadata`. Used by clients (e.g. Element) to discover whether
-/// the homeserver supports OAuth2/OIDC-based login. When OIDC is not configured
-/// we must return `M_UNRECOGNIZED` rather than 404, so clients fall back to the
-/// classic password login flow without surfacing a misleading error to users.
-async fn get_auth_metadata(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    if !oidc::oidc_enabled(&state) {
-        return Err(ApiError::unrecognized("Authentication metadata is not available because OIDC/SSO is not enabled"));
-    }
-
-    let discovery = oidc::openid_discovery(State(state)).await?;
-    Ok(Json(serde_json::to_value(discovery.0).map_err(|e| ApiError::internal(e.to_string()))?))
-}
-
-/// Legacy MSC2965 issuer discovery used by some Element code paths before
-/// fetching the full auth metadata document.
-async fn get_auth_issuer(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    if !oidc::oidc_enabled(&state) {
-        return Err(ApiError::unrecognized("Authentication issuer is not available because OIDC/SSO is not enabled"));
-    }
-
-    let discovery = oidc::openid_discovery(State(state)).await?;
-    Ok(Json(json!({
-        "issuer": discovery.0.issuer
-    })))
-}
+// Handlers extracted to dedicated modules:
+// - get_client_config       → handlers::client_config::get_client_config
+// - dehydrated_device       → handlers::dehydrated_device::*
+// - get_rtc_transports      → handlers::rtc_transports::get_rtc_transports
+// - extended_profile        → handlers::extended_profile::*
+// - auth_metadata/issuer    → handlers::auth_discovery::*
 
 fn create_client_capabilities_router() -> Router<AppState> {
     Router::new().route("/capabilities", get(get_capabilities))
@@ -717,7 +367,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/_matrix/client/v3/versions", get(handlers::get_client_versions))
         .route("/_matrix/client/r0/version", get(handlers::get_server_version))
         .route("/_matrix/server_version", get(handlers::get_server_version))
-        .route("/_matrix/client/v1/config/client", get(get_client_config))
+        .route("/_matrix/client/v1/config/client", get(handlers::client_config::get_client_config))
         .route("/_matrix/client/v3/pushrules/", get(get_push_rules_default))
         .route("/_matrix/client/v3/pushrules/global/", get(get_push_rules_global_default))
         .route("/_matrix/client/r0/pushrules/", get(get_push_rules_default))
@@ -725,25 +375,41 @@ pub fn create_router(state: AppState) -> Router {
         .route("/.well-known/matrix/server", get(handlers::get_well_known_server))
         .route("/.well-known/matrix/client", get(handlers::get_well_known_client))
         .route("/.well-known/matrix/support", get(handlers::get_well_known_support))
-        .route("/_matrix/client/unstable/org.matrix.msc2965/auth_metadata", get(get_auth_metadata))
-        .route("/_matrix/client/unstable/org.matrix.msc2965/auth_issuer", get(get_auth_issuer))
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc2965/auth_metadata",
+            get(handlers::auth_discovery::get_auth_metadata),
+        )
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc2965/auth_issuer",
+            get(handlers::auth_discovery::get_auth_issuer),
+        )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-            get(get_dehydrated_device).put(put_dehydrated_device).delete(delete_dehydrated_device),
+            get(handlers::dehydrated_device::get_dehydrated_device)
+                .put(handlers::dehydrated_device::put_dehydrated_device)
+                .delete(handlers::dehydrated_device::delete_dehydrated_device),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/status",
-            get(get_dehydrated_device_status),
+            get(handlers::dehydrated_device::get_dehydrated_device_status),
         )
         .route(
             "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device/{device_id}/events",
-            post(post_dehydrated_device_events),
+            post(handlers::dehydrated_device::post_dehydrated_device_events),
         )
-        .route("/_matrix/client/unstable/org.matrix.msc4143/rtc/transports", get(get_rtc_transports))
-        .route("/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}", get(get_extended_profile))
+        .route(
+            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
+            get(handlers::rtc_transports::get_rtc_transports),
+        )
+        .route(
+            "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}",
+            get(handlers::extended_profile::get_extended_profile),
+        )
         .route(
             "/_matrix/client/unstable/uk.tcpip.msc4133/profile/{user_id}/{key_name}",
-            get(get_extended_profile_field).put(put_extended_profile_field).delete(delete_extended_profile_field),
+            get(handlers::extended_profile::get_extended_profile_field)
+                .put(handlers::extended_profile::put_extended_profile_field)
+                .delete(handlers::extended_profile::delete_extended_profile_field),
         )
         .merge(create_auth_router())
         .merge(create_account_router())
@@ -801,8 +467,7 @@ pub fn create_router(state: AppState) -> Router {
     // Fallback handler: unmatched routes return M_UNRECOGNIZED per Matrix spec.
     // Without this, axum returns an empty-body 404 which breaks client error handling.
     // Uses pre-serialized Bytes to avoid per-request allocation from serde_json::json!().
-    const FALLBACK_BODY: &[u8] =
-        b"{\"errcode\":\"M_UNRECOGNIZED\",\"error\":\"Unrecognized request\"}";
+    const FALLBACK_BODY: &[u8] = b"{\"errcode\":\"M_UNRECOGNIZED\",\"error\":\"Unrecognized request\"}";
     router = router.fallback(|| async {
         (
             axum::http::StatusCode::NOT_FOUND,
