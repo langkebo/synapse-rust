@@ -7,14 +7,14 @@ use synapse_storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::user::UserStorage;
+use synapse_storage::user::UserStore;
 use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
     account_data_storage: AccountDataStorage,
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
     room_storage: RoomStorage,
     filter_storage: FilterStorage,
     openid_token_storage: OpenIdTokenStorage,
@@ -23,7 +23,7 @@ pub struct AccountDataService {
 impl AccountDataService {
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         room_storage: RoomStorage,
         filter_storage: FilterStorage,
         openid_token_storage: OpenIdTokenStorage,

@@ -4,16 +4,16 @@ use synapse_common::ApiError;
 pub use synapse_storage::{
     decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary, MediaCursor,
 };
-use synapse_storage::{AdminMediaStorage, UserStorage};
+use synapse_storage::{AdminMediaStorage, UserStore};
 use tracing::instrument;
 
 pub struct AdminMediaService {
     storage: AdminMediaStorage,
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
 }
 
 impl AdminMediaService {
-    pub fn new(pool: &Arc<PgPool>, user_storage: UserStorage) -> Self {
+    pub fn new(pool: &Arc<PgPool>, user_storage: Arc<dyn UserStore>) -> Self {
         Self { storage: AdminMediaStorage::new(pool), user_storage }
     }
 

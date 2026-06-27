@@ -20,7 +20,7 @@ use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use synapse_storage::{AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, UserStorage};
+use synapse_storage::{AccountDataStorage, CreateEventParams, FriendRoomStorage, PresenceStorage, UserStore};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
@@ -71,7 +71,7 @@ impl FriendRoomService {
     pub fn new(
         friend_storage: FriendRoomStorage,
         room_service: Arc<RoomService>,
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         presence_storage: PresenceStorage,
         account_data_storage: AccountDataStorage,
         cache: Arc<CacheManager>,
@@ -95,7 +95,7 @@ impl FriendRoomService {
     pub fn new_with_dependencies(
         friend_storage: FriendRoomStorage,
         room_service: Arc<dyn FriendRoomRoomOps>,
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         presence_storage: PresenceStorage,
         account_data_storage: AccountDataStorage,
         cache: Arc<CacheManager>,

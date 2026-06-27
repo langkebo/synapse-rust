@@ -13,7 +13,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
     super::setup_test_app_with_config(|_| {}).await.map(|(app, state)| {
-        let pool = state.services.account.user_storage.pool.clone();
+        let pool = state.services.account.user_storage.pool().clone();
         let cache = state.cache;
         (app, pool, cache)
     })

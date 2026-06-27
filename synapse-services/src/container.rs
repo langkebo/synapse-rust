@@ -74,7 +74,7 @@ pub struct CoreServices {
 pub struct AccountServices {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
-    pub user_storage: UserStorage,
+    pub user_storage: Arc<dyn UserStore>,
     pub threepid_storage: ThreepidStorage,
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
@@ -166,7 +166,7 @@ pub struct E2eeServices {
 fn assemble_e2ee(
     pool: &Arc<sqlx::PgPool>,
     cache: &Arc<CacheManager>,
-    user_storage: &UserStorage,
+    user_storage: &Arc<dyn UserStore>,
     megolm_encryption_key_path: Option<&str>,
 ) -> E2eeServices {
     let device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(pool);
@@ -293,7 +293,7 @@ fn assemble_room_and_sync(
         room_storage: room_storage.clone(),
         member_storage: member_storage.clone(),
         event_storage: event_storage.clone(),
-        user_storage: UserStorage::new(pool, cache.clone()),
+        user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
         auth_service: auth_service.clone(),
         room_summary_service: room_summary_service.clone(),
         validator: auth_service.validator.clone(),
@@ -521,7 +521,7 @@ fn assemble_admin_support(
     task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
-    user_storage: &UserStorage,
+    user_storage: &Arc<dyn UserStore>,
 ) -> AdminServices {
     let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
         auth_service.clone(),
@@ -820,7 +820,7 @@ async fn assemble_core(
     task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
     auth_service: &AuthService,
-    user_storage: &UserStorage,
+    user_storage: &Arc<dyn UserStore>,
     rooms: &RoomSyncServices,
     federation: &FederationServices,
     server_metrics: &Arc<ServerMetrics>,
@@ -925,7 +925,7 @@ async fn assemble_extensions(
     cache: &Arc<CacheManager>,
     config: &Config,
     rooms: &RoomSyncServices,
-    user_storage: &UserStorage,
+    user_storage: &Arc<dyn UserStore>,
     _threepid_storage: &ThreepidStorage,
     presence_storage: &PresenceStorage,
     federation: &FederationServices,
@@ -997,7 +997,7 @@ async fn assemble_extensions(
     #[cfg(feature = "server-notifications")]
     let server_notification_service = Arc::new(crate::server_notification_service::ServerNotificationService::new(
         Arc::new(server_notification_storage.clone()),
-        Arc::new(user_storage.clone()),
+        user_storage.clone(),
     ));
 
     // Privacy (feature-gated)
@@ -1045,7 +1045,7 @@ async fn assemble_extensions(
     let uia_service = Arc::new(crate::uia_service::UiaService::new(cache.clone(), ui_auth_session_timeout));
 
     // User lock service
-    let user_lock_service = Arc::new(crate::user_lock_service::UserLockService::new(Arc::new(user_storage.clone())));
+    let user_lock_service = Arc::new(crate::user_lock_service::UserLockService::new(user_storage.clone()));
 
     ExtensionServices {
         #[cfg(feature = "voice-extended")]
@@ -1087,7 +1087,7 @@ async fn assemble_extensions(
 impl ServiceContainer {
     /// Returns a cloned handle to the underlying PostgreSQL connection pool.
     pub fn database_pool(&self) -> Arc<sqlx::PgPool> {
-        self.account.user_storage.pool.clone()
+        self.account.user_storage.pool().clone()
     }
 
     pub async fn new(
@@ -1114,7 +1114,7 @@ impl ServiceContainer {
         );
 
         // Core storage
-        let user_storage = UserStorage::new(pool, cache.clone());
+        let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let threepid_storage = ThreepidStorage::new(pool);
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let qr_login_storage = QrLoginStorage::new(pool.clone());

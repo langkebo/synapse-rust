@@ -18,7 +18,7 @@ use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStorage;
+use synapse_rust::storage::user::UserStore;
 use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
 use synapse_rust::PresenceStorage;
@@ -325,7 +325,7 @@ fn create_room_service(
     room_storage: RoomStorage,
     member_storage: RoomMemberStorage,
     event_storage: EventStorage,
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
 ) -> RoomService {
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service = Arc::new(RoomSummaryService::new(
@@ -371,7 +371,7 @@ async fn test_sync_success() {
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service = create_room_service(
         &pool,
@@ -424,7 +424,7 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service = create_room_service(
         &pool,
@@ -542,7 +542,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
@@ -639,7 +639,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
@@ -752,7 +752,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
@@ -859,7 +859,7 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
@@ -939,7 +939,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service =
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
@@ -1104,7 +1104,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service = create_room_service(
         &pool,
@@ -1271,7 +1271,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
 
     let room_service = create_room_service(
         &pool,
@@ -1414,7 +1414,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
     let room_storage = RoomStorage::new(&pool);
-    let user_storage = UserStorage::new(&pool, canonical_cache);
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
     let filter_storage = FilterStorage::new(&pool);
 
     filter_storage

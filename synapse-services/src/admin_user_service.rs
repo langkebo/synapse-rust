@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::crypto::{hash_password, random_string};
 use synapse_common::error::ApiError;
-use synapse_storage::{DeviceStorage, RoomMemberStorage, RoomStorage, User, UserStorage};
+use synapse_storage::{DeviceStorage, RoomMemberStorage, RoomStorage, User, UserStore};
 use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +130,7 @@ pub struct BatchUsersResult {
 }
 
 pub struct AdminUserService {
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
     device_storage: DeviceStorage,
     room_storage: RoomStorage,
     member_storage: RoomMemberStorage,
@@ -140,7 +140,7 @@ pub struct AdminUserService {
 impl AdminUserService {
     pub fn new(
         _pool: Arc<PgPool>,
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         device_storage: DeviceStorage,
         room_storage: RoomStorage,
         member_storage: RoomMemberStorage,

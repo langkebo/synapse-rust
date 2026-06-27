@@ -3,11 +3,12 @@ use crate::uia_service::UiaService;
 use serde_json::Value;
 use std::collections::HashMap;
 use synapse_common::error::ApiError;
-use synapse_storage::{ThreepidStorage, User, UserSearchResult, UserStorage, UserThreepid};
+use std::sync::Arc;
+use synapse_storage::{ThreepidStorage, User, UserSearchResult, UserStore, UserThreepid};
 
 #[derive(Clone)]
 pub struct AccountIdentityService {
-    user_storage: UserStorage,
+    user_storage: Arc<dyn UserStore>,
     threepid_storage: ThreepidStorage,
     #[cfg(feature = "privacy-ext")]
     privacy_storage: synapse_storage::privacy::PrivacyStorage,
@@ -16,7 +17,7 @@ pub struct AccountIdentityService {
 impl AccountIdentityService {
     #[cfg(feature = "privacy-ext")]
     pub fn new(
-        user_storage: UserStorage,
+        user_storage: Arc<dyn UserStore>,
         threepid_storage: ThreepidStorage,
         privacy_storage: synapse_storage::privacy::PrivacyStorage,
     ) -> Self {
@@ -24,7 +25,7 @@ impl AccountIdentityService {
     }
 
     #[cfg(not(feature = "privacy-ext"))]
-    pub fn new(user_storage: UserStorage, threepid_storage: ThreepidStorage) -> Self {
+    pub fn new(user_storage: Arc<dyn UserStore>, threepid_storage: ThreepidStorage) -> Self {
         Self { user_storage, threepid_storage }
     }
 

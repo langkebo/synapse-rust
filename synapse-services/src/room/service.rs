@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
-use synapse_storage::UserStorage;
+use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Default, Clone)]
@@ -39,7 +39,7 @@ pub struct RoomServiceConfig {
     pub room_storage: RoomStorage,
     pub member_storage: RoomMemberStorage,
     pub event_storage: EventStorage,
-    pub user_storage: UserStorage,
+    pub user_storage: Arc<dyn UserStore>,
     pub auth_service: AuthService,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub validator: Arc<Validator>,
@@ -64,7 +64,7 @@ pub struct RoomService {
     pub(crate) room_storage: RoomStorage,
     pub(crate) member_storage: RoomMemberStorage,
     pub event_storage: EventStorage,
-    pub user_storage: UserStorage,
+    pub user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: AuthService,
     pub validator: Arc<Validator>,
     pub server_name: String,

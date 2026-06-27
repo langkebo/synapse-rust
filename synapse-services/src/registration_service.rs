@@ -6,7 +6,7 @@ use synapse_common::*;
 use std::sync::Arc;
 
 pub struct RegistrationService {
-    user_storage: synapse_storage::UserStorage,
+    user_storage: Arc<dyn synapse_storage::UserStore>,
     auth_service: crate::auth::AuthService,
     metrics: Arc<MetricsCollector>,
     // HP-2 FIX: Make base URL configurable instead of hardcoded
@@ -17,7 +17,7 @@ pub struct RegistrationService {
 
 impl RegistrationService {
     pub fn new(
-        user_storage: synapse_storage::UserStorage,
+        user_storage: Arc<dyn synapse_storage::UserStore>,
         auth_service: crate::auth::AuthService,
         metrics: Arc<MetricsCollector>,
         server_name: &str,

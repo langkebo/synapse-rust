@@ -1,14 +1,15 @@
 use super::storage::{ToDeviceMessage, ToDeviceStorage};
 use serde_json::Value;
+use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::UserStorage;
+use synapse_storage::UserStore;
 
 const TRANSACTION_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone)]
 pub struct ToDeviceService {
     storage: ToDeviceStorage,
-    user_storage: Option<UserStorage>,
+    user_storage: Option<Arc<dyn UserStore>>,
 }
 
 impl ToDeviceService {
@@ -16,7 +17,7 @@ impl ToDeviceService {
         Self { storage, user_storage: None }
     }
 
-    pub fn with_user_storage(mut self, user_storage: UserStorage) -> Self {
+    pub fn with_user_storage(mut self, user_storage: Arc<dyn UserStore>) -> Self {
         self.user_storage = Some(user_storage);
         self
     }
