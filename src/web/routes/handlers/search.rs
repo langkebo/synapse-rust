@@ -1,6 +1,5 @@
 use crate::common::ApiError;
 use crate::services::{RoomEventsSearchFilter, TimestampDirection};
-use crate::storage::StateEvent;
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
     AuthenticatedUser,
@@ -371,60 +370,6 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
     Ok(result)
 }
 
-async fn collect_child_rooms(state: &AppState, child_room_ids: &[String]) -> Result<Vec<Value>, ApiError> {
-    if child_room_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let rooms_batch = state
-        .services
-        .rooms
-        .room_storage
-        .get_rooms_batch(child_room_ids)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
-    let mut map = HashMap::new();
-    for room in rooms_batch {
-        map.insert(room.room_id.clone(), room);
-    }
-
-    let state_batch = state
-        .services
-        .rooms
-        .event_storage
-        .get_state_events_batch(child_room_ids)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load child state events", &e))?;
-
-    let mut child_rooms = Vec::new();
-    for rid in child_room_ids {
-        if let Some(child_room) = map.get(rid) {
-            let child_state_events: &[StateEvent] = state_batch.get(rid).map_or(&[], |v| v.as_slice());
-            let child_room_type = child_state_events
-                .iter()
-                .find(|e| e.event_type.as_deref() == Some("m.room.create"))
-                .and_then(|e| e.content.get("type"))
-                .and_then(|v: &Value| v.as_str())
-                .map_or(Value::Null, |s: &str| Value::String(s.to_string()));
-            child_rooms.push(json!({
-                "room_id": child_room.room_id,
-                "name": child_room.name,
-                "topic": child_room.topic,
-                "avatar_url": child_room.avatar_url,
-                "join_rule": child_room.join_rule,
-                "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
-                "guest_can_join": child_room.is_public,
-                "world_readable": child_room.history_visibility == "world_readable",
-                "num_joined_members": child_room.member_count,
-                "children": [],
-                "children_state": [],
-                "room_type": child_room_type,
-                "required_state_info": []
-            }));
-        }
-    }
-    Ok(child_rooms)
-}
 
 async fn build_room_hierarchy_response(
     state: &AppState,
@@ -499,7 +444,7 @@ async fn build_room_hierarchy_response(
                     }
                 }
 
-                let child_rooms_map = collect_child_rooms(state, &child_room_ids).await?;
+                let child_rooms_map = state.services.rooms.room_service.collect_child_rooms(&child_room_ids).await?;
 
                 if !child_rooms_map.is_empty() || !has_space_self {
                     let space_room_type = state_events
@@ -591,7 +536,7 @@ async fn build_room_hierarchy_response(
         }
     }
 
-    let child_rooms = collect_child_rooms(state, &child_room_ids).await?;
+    let child_rooms = state.services.rooms.room_service.collect_child_rooms(&child_room_ids).await?;
 
     let mut rooms = vec![json!({
         "room_id": room.room_id,

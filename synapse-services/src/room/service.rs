@@ -1,10 +1,12 @@
+use crate::common::error::{ApiError, ApiResult};
 use crate::*;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
+use synapse_storage::StateEvent;
 use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
@@ -285,6 +287,62 @@ impl RoomService {
             .collect();
 
         Ok(json!(rooms))
+    }
+
+    /// Collect child room summaries for space hierarchy.
+    ///
+    /// Given a list of child room IDs, loads room metadata and state events
+    /// in batches and returns JSON summaries suitable for inclusion in a
+    /// room hierarchy response.
+    pub async fn collect_child_rooms(&self, child_room_ids: &[String]) -> ApiResult<Vec<Value>> {
+        if child_room_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rooms_batch = self
+            .room_storage
+            .get_rooms_batch(child_room_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load child rooms", &e))?;
+        let mut map = HashMap::new();
+        for room in rooms_batch {
+            map.insert(room.room_id.clone(), room);
+        }
+
+        let state_batch = self
+            .event_storage
+            .get_state_events_batch(child_room_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load child state events", &e))?;
+
+        let mut child_rooms = Vec::new();
+        for rid in child_room_ids {
+            if let Some(child_room) = map.get(rid) {
+                let child_state_events: &[StateEvent] = state_batch.get(rid).map_or(&[], |v| v.as_slice());
+                let child_room_type = child_state_events
+                    .iter()
+                    .find(|e| e.event_type.as_deref() == Some("m.room.create"))
+                    .and_then(|e| e.content.get("type"))
+                    .and_then(|v: &Value| v.as_str())
+                    .map_or(Value::Null, |s: &str| Value::String(s.to_string()));
+                child_rooms.push(json!({
+                    "room_id": child_room.room_id,
+                    "name": child_room.name,
+                    "topic": child_room.topic,
+                    "avatar_url": child_room.avatar_url,
+                    "join_rule": child_room.join_rule,
+                    "guest_access": if child_room.is_public { "can_join" } else { "forbidden" },
+                    "guest_can_join": child_room.is_public,
+                    "world_readable": child_room.history_visibility == "world_readable",
+                    "num_joined_members": child_room.member_count,
+                    "children": [],
+                    "children_state": [],
+                    "room_type": child_room_type,
+                    "required_state_info": []
+                }));
+            }
+        }
+        Ok(child_rooms)
     }
 }
 

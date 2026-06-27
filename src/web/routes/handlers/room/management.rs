@@ -14,6 +14,42 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+// =============================================================================
+// Observed repeated patterns (Phase 4 extraction candidates)
+// =============================================================================
+//
+// 1. Null-cleaning after JSON construction (get_room_metadata, lines ~718-737)
+//    After building a JSON response from a Room record (which carries
+//    Option<String> fields), the code strips null-valued keys:
+//
+//        if let Some(obj) = response.as_object_mut() {
+//            if obj.get("name").is_some_and(|v| v.is_null()) { obj.remove("name"); }
+//            // ... repeats for topic, avatar_url, canonical_alias, creator, encryption
+//        }
+//
+//    This pattern is needed because Room struct fields like name, topic,
+//    avatar_url are Option<String> — they serialize as `null` rather than
+//    being absent. An extraction would be a helper that takes a list of keys
+//    and removes any whose value is JSON Null, applied across all response-
+//    building handlers that construct JSON from Room records.
+//
+// 2. Room-type extraction from m.room.create events (get_room_metadata
+//    and various hierarchy handlers)
+//
+//        let room_type = state_events
+//            .iter()
+//            .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("m.room.create"))
+//            .and_then(|e| e.get("content"))
+//            .and_then(|c| c.get("type"))
+//            .and_then(|v| v.as_str())
+//            .map_or(Value::Null, |s| Value::String(s.to_string()));
+//
+//    This walks the state events array, finds the create event, digs into
+//    content.type, and maps the result. Repeated verbatim in search.rs
+//    (build_room_hierarchy_response). Extraction: a method on RoomService
+//    that accepts the state_events slice and returns the room type string.
+// =============================================================================
+
 #[derive(Debug, Deserialize, Default)]
 pub(crate) struct RoomSyncQueryDto {
     #[serde(default, deserialize_with = "deserialize_optional_u64")]
@@ -1103,40 +1139,17 @@ pub(crate) async fn get_retention_policy(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let room_policy = state.services.admin.modules.retention_service.get_room_policy(&room_id).await?;
+    let policy = state.services.admin.modules.retention_service.resolve_effective_policy(&room_id).await?;
 
-    let server_policy = state.services.admin.modules.retention_service.get_server_policy_optional().await?;
-
-    match room_policy {
-        Some(policy) => Ok(Json(serde_json::json!({
-            "room_id": room_id,
-            "max_lifetime": policy.max_lifetime,
-            "min_lifetime": policy.min_lifetime,
-            "expire_on_clients": policy.is_expire_on_clients,
-            "is_server_default": policy.is_server_default,
-            "created_ts": policy.created_ts,
-            "updated_ts": policy.updated_ts
-        }))),
-        None => {
-            let default = server_policy.unwrap_or(crate::storage::retention::ServerRetentionPolicy {
-                id: 0,
-                max_lifetime: None,
-                min_lifetime: 0,
-                is_expire_on_clients: false,
-                created_ts: 0,
-                updated_ts: 0,
-            });
-            Ok(Json(serde_json::json!({
-                "room_id": room_id,
-                "max_lifetime": default.max_lifetime,
-                "min_lifetime": default.min_lifetime,
-                "expire_on_clients": default.is_expire_on_clients,
-                "is_server_default": true,
-                "created_ts": default.created_ts,
-                "updated_ts": default.updated_ts
-            })))
-        }
-    }
+    Ok(Json(serde_json::json!({
+        "room_id": room_id,
+        "max_lifetime": policy.max_lifetime,
+        "min_lifetime": policy.min_lifetime,
+        "expire_on_clients": policy.is_expire_on_clients,
+        "is_server_default": policy.is_server_default,
+        "created_ts": policy.created_ts,
+        "updated_ts": policy.updated_ts
+    })))
 }
 
 #[cfg(test)]
