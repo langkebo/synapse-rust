@@ -1,8 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
-use crate::user::{LockedUser, UserStore};
+use crate::user::{
+    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary,
+    UserStore,
+};
 
 /// In-memory adapter for UserStore — used in unit tests.
 /// Stores locked users in a Vec behind RwLock.
@@ -76,6 +80,176 @@ impl UserStore for FakeUserStore {
         let start = offset as usize;
         let end = (offset + limit).min(active.len() as i64) as usize;
         Ok(active[start..end.min(active.len())].to_vec())
+    }
+
+    // ---- query methods (stubs) ----
+
+    async fn get_user_by_id(&self, _user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn get_user_by_username(&self, _username: &str) -> Result<Option<User>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn get_user_by_email(&self, _email: &str) -> Result<Option<User>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn get_user_by_identifier(&self, _identifier: &str) -> Result<Option<User>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn get_users_paginated(
+        &self,
+        _limit: i64,
+        _since_ts: Option<i64>,
+        _since_user_id: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn list_users(
+        &self,
+        _limit: i64,
+        _from_ts: Option<i64>,
+        _from_user_id: Option<&str>,
+        _name_filter: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn user_exists(&self, _user_id: &str) -> Result<bool, sqlx::Error> {
+        Ok(false)
+    }
+
+    async fn filter_existing_users(&self, _user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
+        Ok(0)
+    }
+
+    async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
+        Ok(0)
+    }
+
+    async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error> {
+        Ok(0)
+    }
+
+    async fn get_r30_users(&self) -> Result<i64, sqlx::Error> {
+        Ok(0)
+    }
+
+    // ---- mutation methods (stubs) ----
+
+    async fn create_user(
+        &self,
+        _user_id: &str,
+        _username: &str,
+        _password_hash: Option<&str>,
+        _is_admin: bool,
+    ) -> Result<User, sqlx::Error> {
+        Err(sqlx::Error::WorkerCrashed)
+    }
+
+    async fn update_password(&self, _user_id: &str, _password_hash: &str) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn update_displayname(&self, _user_id: &str, _displayname: Option<&str>) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn update_avatar_url(&self, _user_id: &str, _avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn set_deactivation_status(&self, _user_id: &str, _is_deactivated: bool) -> Result<bool, sqlx::Error> {
+        Ok(true)
+    }
+
+    async fn set_admin_status(&self, _user_id: &str, _is_admin: bool) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn set_shadow_ban(&self, _user_id: &str, _is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
+        Ok(true)
+    }
+
+    async fn delete_user(&self, _user_id: &str) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn set_guest_status(&self, _user_id: &str, _is_guest: bool) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn set_user_type(&self, _user_id: &str, _user_type: Option<&str>) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    async fn upgrade_guest_account(
+        &self,
+        _user_id: &str,
+        _username: &str,
+        _password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
+    }
+
+    // ---- stats / search methods (stubs) ----
+
+    async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
+        Ok(UserStatsSummary {
+            total_users: 0,
+            active_users: 0,
+            admin_users: 0,
+            deactivated_users: 0,
+            guest_users: 0,
+        })
+    }
+
+    async fn count_sent_messages(&self, _user_id: &str) -> Result<i64, sqlx::Error> {
+        Ok(0)
+    }
+
+    async fn search_users(&self, _query: &str, _limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn search_directory_users(
+        &self,
+        _query: &str,
+        _limit: i64,
+        _exact_only: bool,
+    ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn get_user_profile(&self, _user_id: &str) -> Result<Option<UserProfile>, sqlx::Error> {
+        Ok(None)
+    }
+
+    async fn get_user_profiles_batch(&self, _user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn get_user_profiles_map(
+        &self,
+        _user_ids: &[String],
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+        Ok(HashMap::new())
+    }
+
+    async fn get_users_batch(&self, _user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+        Ok(vec![])
+    }
+
+    async fn get_users_map(&self, _user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {
+        Ok(HashMap::new())
     }
 }
 
