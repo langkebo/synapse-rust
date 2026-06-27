@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
+use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::constants::USER_PROFILE_CACHE_TTL;
@@ -113,10 +114,12 @@ pub struct LockedUser {
     pub is_active: bool,
 }
 
-/// Storage trait for user lock operations.
+/// Storage trait for user operations.
 /// Two adapters justify the seam: Postgres (prod) and in-memory (test).
 #[async_trait]
 pub trait UserStore: Send + Sync {
+    // ---- lock operations ----
+
     async fn lock_user(
         &self,
         user_id: &str,
@@ -132,6 +135,106 @@ pub trait UserStore: Send + Sync {
     async fn get_active_user_lock(&self, user_id: &str) -> Result<Option<LockedUser>, sqlx::Error>;
 
     async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error>;
+
+    // ---- query methods ----
+
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error>;
+
+    async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error>;
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error>;
+
+    async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error>;
+
+    async fn get_users_paginated(
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_user_id: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error>;
+
+    async fn list_users(
+        &self,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_user_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error>;
+
+    async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error>;
+
+    async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
+
+    async fn get_user_count(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_r30_users(&self) -> Result<i64, sqlx::Error>;
+
+    // ---- mutation methods ----
+
+    async fn create_user(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: Option<&str>,
+        is_admin: bool,
+    ) -> Result<User, sqlx::Error>;
+
+    async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error>;
+
+    async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error>;
+
+    async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error>;
+
+    async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error>;
+
+    async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error>;
+
+    async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error>;
+
+    async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error>;
+
+    async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error>;
+
+    async fn upgrade_guest_account(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<(), sqlx::Error>;
+
+    // ---- stats / search methods ----
+
+    async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error>;
+
+    async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error>;
+
+    async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error>;
+
+    async fn search_directory_users(
+        &self,
+        query: &str,
+        limit: i64,
+        exact_only: bool,
+    ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error>;
+
+    async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error>;
+
+    async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error>;
+
+    async fn get_user_profiles_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
+
+    async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
+
+    async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -1252,6 +1355,8 @@ impl UserStorage {
 
 #[async_trait]
 impl UserStore for UserStorage {
+    // ---- lock operations ----
+
     async fn lock_user(
         &self,
         user_id: &str,
@@ -1276,5 +1381,169 @@ impl UserStore for UserStorage {
 
     async fn get_locked_users(&self, limit: i64, offset: i64) -> Result<Vec<LockedUser>, sqlx::Error> {
         self.get_locked_users(limit, offset).await
+    }
+
+    // ---- query methods ----
+
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, sqlx::Error> {
+        self.get_user_by_id(user_id).await
+    }
+
+    async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, sqlx::Error> {
+        self.get_user_by_username(username).await
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
+        self.get_user_by_email(email).await
+    }
+
+    async fn get_user_by_identifier(&self, identifier: &str) -> Result<Option<User>, sqlx::Error> {
+        self.get_user_by_identifier(identifier).await
+    }
+
+    async fn get_users_paginated(
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_user_id: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        self.get_users_paginated(limit, since_ts, since_user_id).await
+    }
+
+    async fn list_users(
+        &self,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_user_id: Option<&str>,
+        name_filter: Option<&str>,
+    ) -> Result<Vec<User>, sqlx::Error> {
+        self.list_users(limit, from_ts, from_user_id, name_filter).await
+    }
+
+    async fn user_exists(&self, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.user_exists(user_id).await
+    }
+
+    async fn filter_existing_users(&self, user_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        self.filter_existing_users(user_ids).await
+    }
+
+    async fn get_user_count(&self) -> Result<i64, sqlx::Error> {
+        self.get_user_count().await
+    }
+
+    async fn get_daily_active_users(&self) -> Result<i64, sqlx::Error> {
+        self.get_daily_active_users().await
+    }
+
+    async fn get_monthly_active_users(&self) -> Result<i64, sqlx::Error> {
+        self.get_monthly_active_users().await
+    }
+
+    async fn get_r30_users(&self) -> Result<i64, sqlx::Error> {
+        self.get_r30_users().await
+    }
+
+    // ---- mutation methods ----
+
+    async fn create_user(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: Option<&str>,
+        is_admin: bool,
+    ) -> Result<User, sqlx::Error> {
+        self.create_user(user_id, username, password_hash, is_admin).await
+    }
+
+    async fn update_password(&self, user_id: &str, password_hash: &str) -> Result<(), sqlx::Error> {
+        self.update_password(user_id, password_hash).await
+    }
+
+    async fn update_displayname(&self, user_id: &str, displayname: Option<&str>) -> Result<(), sqlx::Error> {
+        self.update_displayname(user_id, displayname).await
+    }
+
+    async fn update_avatar_url(&self, user_id: &str, avatar_url: Option<&str>) -> Result<(), sqlx::Error> {
+        self.update_avatar_url(user_id, avatar_url).await
+    }
+
+    async fn set_deactivation_status(&self, user_id: &str, is_deactivated: bool) -> Result<bool, sqlx::Error> {
+        self.set_deactivation_status(user_id, is_deactivated).await
+    }
+
+    async fn set_admin_status(&self, user_id: &str, is_admin: bool) -> Result<(), sqlx::Error> {
+        self.set_admin_status(user_id, is_admin).await
+    }
+
+    async fn set_shadow_ban(&self, user_id: &str, is_shadow_banned: bool) -> Result<bool, sqlx::Error> {
+        self.set_shadow_ban(user_id, is_shadow_banned).await
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_user(user_id).await
+    }
+
+    async fn set_guest_status(&self, user_id: &str, is_guest: bool) -> Result<(), sqlx::Error> {
+        self.set_guest_status(user_id, is_guest).await
+    }
+
+    async fn set_user_type(&self, user_id: &str, user_type: Option<&str>) -> Result<(), sqlx::Error> {
+        self.set_user_type(user_id, user_type).await
+    }
+
+    async fn upgrade_guest_account(
+        &self,
+        user_id: &str,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.upgrade_guest_account(user_id, username, password_hash).await
+    }
+
+    // ---- stats / search methods ----
+
+    async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
+        self.get_user_stats_summary().await
+    }
+
+    async fn count_sent_messages(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        self.count_sent_messages(user_id).await
+    }
+
+    async fn search_users(&self, query: &str, limit: i64) -> Result<Vec<UserSearchResult>, sqlx::Error> {
+        self.search_users(query, limit).await
+    }
+
+    async fn search_directory_users(
+        &self,
+        query: &str,
+        limit: i64,
+        exact_only: bool,
+    ) -> Result<Vec<UserDirectorySearchResult>, sqlx::Error> {
+        self.search_directory_users(query, limit, exact_only).await
+    }
+
+    async fn get_user_profile(&self, user_id: &str) -> Result<Option<UserProfile>, sqlx::Error> {
+        self.get_user_profile(user_id).await
+    }
+
+    async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error> {
+        self.get_user_profiles_batch(user_ids).await
+    }
+
+    async fn get_user_profiles_map(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+        self.get_user_profiles_map(user_ids).await
+    }
+
+    async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error> {
+        self.get_users_batch(user_ids).await
+    }
+
+    async fn get_users_map(&self, user_ids: &[String]) -> Result<HashMap<String, User>, sqlx::Error> {
+        self.get_users_map(user_ids).await
     }
 }
