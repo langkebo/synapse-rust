@@ -3,6 +3,8 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row};
 
+use crate::trigram_ranking::TrigramRanking;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexEntry {
     pub id: i64,
@@ -103,41 +105,53 @@ impl SearchIndexStorage {
         Ok(count)
     }
 
-    /// 搜索事件（ILIKE + trigram 混合搜索，对齐 thread.rs 最佳实践）
+    /// 搜索事件（ILIKE + trigram 混合搜索，使用 TrigramRanking 辅助构建查询）
     pub async fn search_events(&self, query: &SearchQuery) -> Result<(Vec<SearchResult>, Option<String>), sqlx::Error> {
-        let search_pattern = format!("%{}%", query.search_term.to_lowercase());
+        let escaped = query.search_term.to_lowercase().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let exact_pattern = escaped.clone();
+        let prefix_pattern = format!("{escaped}%");
+        let contains_pattern = format!("%{escaped}%");
         let limit = query.limit.unwrap_or(20).min(100);
         let cursor = decode_search_index_cursor(query.from.as_deref());
 
+        let content_rank = TrigramRanking::new("content", "search_index");
+        let where_clause = content_rank.where_clause();
+
         let rows = if let Some(cursor) = cursor {
-            sqlx::query(
+            let sql = format!(
                 "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
                  FROM search_index
-                 WHERE (content ILIKE $1 OR content % $2)
-                   AND (created_ts < $3 OR (created_ts = $3 AND id < $4))
+                 WHERE ({where_clause})
+                   AND (created_ts < $5 OR (created_ts = $5 AND id < $6))
                  ORDER BY created_ts DESC, id DESC
-                 LIMIT $5",
-            )
-            .bind(&search_pattern)
-            .bind(&query.search_term)
-            .bind(cursor.created_ts)
-            .bind(cursor.id)
-            .bind(limit + 1)
-            .fetch_all(&self.pool)
-            .await?
+                 LIMIT $7"
+            );
+            sqlx::query(&sql)
+                .bind(&exact_pattern)
+                .bind(&prefix_pattern)
+                .bind(&contains_pattern)
+                .bind(&query.search_term)
+                .bind(cursor.created_ts)
+                .bind(cursor.id)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
         } else {
-            sqlx::query(
+            let sql = format!(
                 "SELECT id, event_id, room_id, user_id, event_type, content, created_ts
                  FROM search_index
-                 WHERE (content ILIKE $1 OR content % $2)
+                 WHERE ({where_clause})
                  ORDER BY created_ts DESC, id DESC
-                 LIMIT $3",
-            )
-            .bind(&search_pattern)
-            .bind(&query.search_term)
-            .bind(limit + 1)
-            .fetch_all(&self.pool)
-            .await?
+                 LIMIT $5"
+            );
+            sqlx::query(&sql)
+                .bind(&exact_pattern)
+                .bind(&prefix_pattern)
+                .bind(&contains_pattern)
+                .bind(&query.search_term)
+                .bind(limit + 1)
+                .fetch_all(&self.pool)
+                .await?
         };
 
         let has_more = rows.len() as i64 > limit;
