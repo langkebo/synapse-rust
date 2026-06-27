@@ -231,6 +231,45 @@ impl RetentionService {
         Ok(policy)
     }
 
+    /// Resolve the effective retention policy for a room.
+    ///
+    /// Returns the room-level policy if one exists; otherwise falls back
+    /// to the server-wide default policy, and finally to a hardcoded
+    /// default with no max_lifetime.
+    #[instrument(skip(self))]
+    pub async fn resolve_effective_policy(&self, room_id: &str) -> Result<RoomRetentionPolicy, ApiError> {
+        let room_policy = self.get_room_policy(room_id).await?;
+
+        if let Some(policy) = room_policy {
+            return Ok(policy);
+        }
+
+        let server_policy = self.get_server_policy_optional().await?;
+
+        match server_policy {
+            Some(sp) => Ok(RoomRetentionPolicy {
+                room_id: room_id.to_string(),
+                id: 0,
+                max_lifetime: sp.max_lifetime,
+                min_lifetime: sp.min_lifetime,
+                is_expire_on_clients: sp.is_expire_on_clients,
+                is_server_default: true,
+                created_ts: sp.created_ts,
+                updated_ts: sp.updated_ts,
+            }),
+            None => Ok(RoomRetentionPolicy {
+                room_id: room_id.to_string(),
+                id: 0,
+                max_lifetime: None,
+                min_lifetime: 0,
+                is_expire_on_clients: false,
+                is_server_default: true,
+                created_ts: 0,
+                updated_ts: 0,
+            }),
+        }
+    }
+
     #[instrument(skip(self))]
     pub async fn update_server_policy(
         &self,
