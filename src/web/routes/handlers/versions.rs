@@ -14,7 +14,7 @@ use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
 use crate::web::routes::friend_room;
 #[cfg(feature = "voice-extended")]
 use crate::web::routes::voice;
-#[cfg(all(test, feature = "widgets"))]
+#[cfg(feature = "widgets")]
 use crate::web::routes::widget;
 use crate::web::routes::{account_compat, room_summary, route_ledger::RouteEntry, sliding_sync};
 use crate::web::AppState;
