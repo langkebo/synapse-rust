@@ -4,7 +4,7 @@
 //!
 //! 使用方法:
 //! ```text
-//! use synapse_rust::storage::schema_health_check::run_schema_health_check;
+//! use synapse_storage::schema_health_check::run_schema_health_check;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

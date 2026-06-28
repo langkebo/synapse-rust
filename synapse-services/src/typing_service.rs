@@ -16,7 +16,7 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::TypingService;
+//! use synapse_services::TypingService;
 //!
 //! #[tokio::main]
 //! async fn main() {
