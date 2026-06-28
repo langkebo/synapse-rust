@@ -2,7 +2,7 @@ use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
 use crate::services::{decode_user_cursor, encode_user_cursor, AdminUserCursor};
-use crate::storage::User as AdminUserRecord;
+use synapse_storage::user::User as AdminUserRecord;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},

@@ -1,7 +1,7 @@
 #[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
-use crate::storage::{decode_server_notification_cursor, CreateNotificationRequest};
+use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 #[cfg(feature = "server-notifications")]
 use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
@@ -37,7 +37,7 @@ fn encode_notice_cursor(sent_ts: i64, id: i64) -> String {
 #[cfg(all(test, feature = "server-notifications"))]
 mod cursor_tests {
     use super::{decode_notice_cursor, encode_notice_cursor};
-    use crate::storage::{
+    use synapse_storage::server_notification::{
         decode_server_notification_cursor, encode_server_notification_cursor, ServerNotificationCursor,
     };
 

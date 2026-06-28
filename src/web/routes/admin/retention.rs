@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
+use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
