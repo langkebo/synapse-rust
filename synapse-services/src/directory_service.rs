@@ -12,7 +12,7 @@
 //! # 示例
 //!
 //! ```text
-//! use synapse_rust::services::{DirectoryService, DirectoryService};
+//! use synapse_services::DirectoryService;
 //!
 //! #[tokio::main]
 //! async fn main() {
