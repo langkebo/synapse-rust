@@ -15,6 +15,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - CI-equivalent Rust test entrypoint: `TEST_THREADS=4 TEST_RETRIES=2 bash scripts/run_ci_tests.sh`
 - If `cargo-nextest` is installed, `scripts/run_ci_tests.sh` uses it automatically; otherwise it falls back to `cargo test` with retries.
 
+- Enable local git hooks: `git config core.hooksPath .githooks` (pre-commit: cargo audit advisory, pre-push: cargo deny advisories blocking)
+
 ### Running specific tests
 - Unit test target: `cargo test --test unit`
 - Integration test target: `cargo test --test integration`

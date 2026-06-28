@@ -1,0 +1,7 @@
+#!/bin/bash
+# Advisory-only: warns about RustSec advisories but does not block commit
+if command -v cargo-audit >/dev/null 2>&1; then
+  cargo audit --quiet 2>/dev/null || true
+else
+  echo "tip: install cargo-audit for local security checks (cargo install cargo-audit)"
+fi
