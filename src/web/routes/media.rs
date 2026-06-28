@@ -406,7 +406,9 @@ async fn fetch_remote_media_via_federation(
 
     let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp.text().await.unwrap_or_else(|e| {
+            format!("Failed to read remote media response: {e}")
+        });
         return Err(ApiError::not_found(format!("Remote media fetch failed: {status} {body}")));
     }
 
@@ -440,7 +442,9 @@ async fn fetch_remote_thumbnail_via_federation(
 
     let status = resp.status();
     if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp.text().await.unwrap_or_else(|e| {
+            format!("Failed to read remote thumbnail response: {e}")
+        });
         return Err(ApiError::not_found(format!("Remote thumbnail fetch failed: {status} {body}")));
     }
 
