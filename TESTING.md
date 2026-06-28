@@ -96,6 +96,15 @@ bash scripts/test/run_e2ee_observability_gate.sh
 
 ### 3.2 本地集成测试数据库建议
 
+**快速启动（一键）:**
+
+```bash
+bash scripts/dev-test-setup.sh up
+export TEST_DB_TEMPLATE_SCHEMA=public
+SQLX_OFFLINE=true cargo test --features test-utils --test integration -- --test-threads=2
+# 完成后: bash scripts/dev-test-setup.sh down
+```
+
 对于本地回归，优先使用已经迁移完成的 `public` schema 作为测试模板，而不是让每次测试都重新执行 strict schema 初始化。
 
 推荐步骤：
