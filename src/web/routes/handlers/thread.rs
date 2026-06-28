@@ -81,8 +81,8 @@ struct ThreadResponse {
     created_ts: i64,
 }
 
-impl From<crate::storage::thread::ThreadRoot> for ThreadResponse {
-    fn from(root: crate::storage::thread::ThreadRoot) -> Self {
+impl From<synapse_storage::thread::ThreadRoot> for ThreadResponse {
+    fn from(root: synapse_storage::thread::ThreadRoot) -> Self {
         Self {
             thread_id: root.thread_id,
             root_event_id: root.root_event_id,
@@ -112,8 +112,8 @@ struct ReplyResponse {
     is_redacted: bool,
 }
 
-impl From<crate::storage::thread::ThreadReply> for ReplyResponse {
-    fn from(reply: crate::storage::thread::ThreadReply) -> Self {
+impl From<synapse_storage::thread::ThreadReply> for ReplyResponse {
+    fn from(reply: synapse_storage::thread::ThreadReply) -> Self {
         Self {
             event_id: reply.event_id,
             thread_id: reply.thread_id,

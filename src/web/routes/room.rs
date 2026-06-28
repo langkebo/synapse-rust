@@ -355,7 +355,7 @@ async fn set_anti_screenshot(
         .rooms
         .room_service
         .create_event(
-            crate::storage::event::CreateEventParams {
+            synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
                 room_id: room_id.clone(),
                 user_id: auth_user.user_id.clone(),

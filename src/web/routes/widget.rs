@@ -74,8 +74,8 @@ pub struct WidgetApiResponse {
     pub active: bool,
 }
 
-impl From<crate::storage::widget::Widget> for WidgetApiResponse {
-    fn from(widget: crate::storage::widget::Widget) -> Self {
+impl From<synapse_storage::widget::Widget> for WidgetApiResponse {
+    fn from(widget: synapse_storage::widget::Widget) -> Self {
         Self {
             widget_id: widget.widget_id,
             room_id: widget.room_id,
@@ -404,7 +404,7 @@ async fn get_widget_with_access(
     auth_user: &AuthenticatedUser,
     widget_id: &str,
     required_permission: &str,
-) -> Result<crate::storage::widget::Widget, ApiError> {
+) -> Result<synapse_storage::widget::Widget, ApiError> {
     let widget = state
         .services
         .extensions
@@ -445,7 +445,7 @@ async fn get_widget_with_access(
 async fn ensure_session_access(
     state: &AppState,
     auth_user: &AuthenticatedUser,
-    session: &crate::storage::widget::WidgetSession,
+    session: &synapse_storage::widget::WidgetSession,
 ) -> Result<(), ApiError> {
     if session.user_id == auth_user.user_id {
         return Ok(());

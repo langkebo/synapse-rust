@@ -29,8 +29,8 @@ pub(super) use types::*;
 pub(super) async fn resolve_space_by_room(
     state: &AppState,
     space_room_id: &str,
-) -> Result<crate::storage::space::Space, ApiError> {
-    let space: Option<crate::storage::space::Space> = state
+) -> Result<synapse_storage::space::Space, ApiError> {
+    let space: Option<synapse_storage::space::Space> = state
         .services
         .rooms
         .space_service
@@ -44,8 +44,8 @@ pub(super) async fn resolve_space_by_room(
 pub(super) async fn resolve_space(
     state: &AppState,
     space_identifier: &str,
-) -> Result<crate::storage::space::Space, ApiError> {
-    let space: Option<crate::storage::space::Space> = state
+) -> Result<synapse_storage::space::Space, ApiError> {
+    let space: Option<synapse_storage::space::Space> = state
         .services
         .rooms
         .space_service
@@ -66,7 +66,7 @@ pub(super) async fn with_resolved_space<T, F, Fut>(
     operation: F,
 ) -> Result<T, ApiError>
 where
-    F: FnOnce(AppState, crate::storage::space::Space) -> Fut,
+    F: FnOnce(AppState, synapse_storage::space::Space) -> Fut,
     Fut: Future<Output = Result<T, ApiError>>,
 {
     let space = resolve_space(&state, &space_room_id).await?;
@@ -75,7 +75,7 @@ where
 
 pub(super) async fn can_user_view_space(
     state: &AppState,
-    space: &crate::storage::space::Space,
+    space: &synapse_storage::space::Space,
     auth_user: &OptionalAuthenticatedUser,
 ) -> Result<bool, ApiError> {
     if space.is_public {
@@ -90,7 +90,7 @@ pub(super) async fn can_user_view_space(
 
 pub(super) async fn ensure_space_visible(
     state: &AppState,
-    space: &crate::storage::space::Space,
+    space: &synapse_storage::space::Space,
     auth_user: &OptionalAuthenticatedUser,
 ) -> Result<(), ApiError> {
     if can_user_view_space(state, space, auth_user).await? {
@@ -111,7 +111,7 @@ pub(super) async fn with_visible_space<T, F, Fut>(
     operation: F,
 ) -> Result<T, ApiError>
 where
-    F: FnOnce(AppState, crate::storage::space::Space, OptionalAuthenticatedUser) -> Fut,
+    F: FnOnce(AppState, synapse_storage::space::Space, OptionalAuthenticatedUser) -> Fut,
     Fut: Future<Output = Result<T, ApiError>>,
 {
     let space = resolve_space(&state, &space_room_id).await?;

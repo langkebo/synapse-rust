@@ -465,7 +465,7 @@ async fn search_friend_directory(
         return Err(ApiError::rate_limited("Too many friend search requests"));
     }
 
-    let mut results: Vec<crate::storage::user::UserDirectorySearchResult> = state
+    let mut results: Vec<synapse_storage::user::UserDirectorySearchResult> = state
         .services
         .account
         .account_identity_service

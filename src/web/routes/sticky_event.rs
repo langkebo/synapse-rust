@@ -46,7 +46,7 @@ pub async fn get_sticky_events(
 
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
-        let sticky_event: Option<crate::storage::sticky_event::StickyEvent> = state
+        let sticky_event: Option<synapse_storage::sticky_event::StickyEvent> = state
             .services
             .account
             .sticky_event_storage
@@ -69,7 +69,7 @@ pub async fn get_sticky_events(
         }
     } else {
         // Get all sticky events
-        let sticky_events: Vec<crate::storage::sticky_event::StickyEvent> = state
+        let sticky_events: Vec<synapse_storage::sticky_event::StickyEvent> = state
             .services
             .account
             .sticky_event_storage

@@ -48,8 +48,8 @@ pub struct ExternalServiceResponse {
     pub created_ts: i64,
 }
 
-impl From<crate::storage::application_service::ApplicationService> for ExternalServiceResponse {
-    fn from(svc: crate::storage::application_service::ApplicationService) -> Self {
+impl From<synapse_storage::application_service::ApplicationService> for ExternalServiceResponse {
+    fn from(svc: synapse_storage::application_service::ApplicationService) -> Self {
         let parts: Vec<&str> = svc.as_id.splitn(2, '_').collect();
         let (service_type, service_id) = if parts.len() == 2 {
             (parts[0].to_string(), parts[1].to_string())
@@ -213,7 +213,7 @@ pub async fn update_external_service(
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&state);
 
-    let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
+    let mut request = synapse_storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
         request = request.url(webhook_url);
     }
@@ -315,7 +315,7 @@ pub async fn client_update_external_service(
 ) -> Result<impl IntoResponse, ApiError> {
     let integration = external_service_integration(&state);
 
-    let mut request = crate::storage::application_service::UpdateApplicationServiceRequest::new();
+    let mut request = synapse_storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
         request = request.url(webhook_url);
     }

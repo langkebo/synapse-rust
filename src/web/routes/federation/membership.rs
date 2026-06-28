@@ -88,7 +88,7 @@ pub(super) async fn knock_room(
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
 
     let content = json!({"membership": "knock"});
-    let params = crate::storage::event::CreateEventParams {
+    let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: user_id.clone(),
@@ -161,7 +161,7 @@ pub(super) async fn thirdparty_invite(
             }
         }
     });
-    let params = crate::storage::event::CreateEventParams {
+    let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.to_string(),
         user_id: sender.to_string(),
@@ -315,7 +315,7 @@ pub(super) async fn invite_v2(
 
     let content_for_as = content.clone();
 
-    let params = crate::storage::event::CreateEventParams {
+    let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: sender.to_string(),
@@ -494,7 +494,7 @@ pub(super) async fn send_join(
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
-        let params = crate::storage::event::CreateEventParams {
+        let params = synapse_storage::event::CreateEventParams {
             event_id: event_id.clone(),
             room_id: room_id.clone(),
             user_id: user_id.to_string(),
@@ -561,7 +561,7 @@ pub(super) async fn send_leave(
     let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
     let _room_version = federatable_room_version(&state, &room_id).await?;
 
-    let params = crate::storage::event::CreateEventParams {
+    let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: user_id.to_string(),
@@ -667,7 +667,7 @@ pub(super) async fn send_join_v2(
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
-        let params = crate::storage::event::CreateEventParams {
+        let params = synapse_storage::event::CreateEventParams {
             event_id: event_id.clone(),
             room_id: room_id.clone(),
             user_id: sender.to_string(),
@@ -749,7 +749,7 @@ pub(super) async fn send_leave_v2(
 
     let membership_content_for_as = membership_content.clone();
 
-    let params = crate::storage::event::CreateEventParams {
+    let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
         room_id: room_id.clone(),
         user_id: sender.to_string(),

@@ -338,7 +338,7 @@ async fn list_connections(
     auth: AuthInfo,
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let connections: Vec<crate::storage::openclaw::OpenClawConnection> =
+    let connections: Vec<synapse_storage::openclaw::OpenClawConnection> =
         svc(&state).list_connections(&auth.user_id).await?;
     Ok(Json(connections.into_iter().map(ConnectionResponse::from).collect()))
 }
@@ -349,7 +349,7 @@ async fn create_connection(
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: crate::storage::openclaw::OpenClawConnection = svc(&state)
+    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&state)
         .create_connection(
             &auth.user_id,
             &req.name,
@@ -369,7 +369,7 @@ async fn get_connection(
     Path(id): Path<i64>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: crate::storage::openclaw::OpenClawConnection =
+    let conn: synapse_storage::openclaw::OpenClawConnection =
         svc(&state).get_connection_for_user(id, &auth.user_id).await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
@@ -381,7 +381,7 @@ async fn update_connection(
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: crate::storage::openclaw::OpenClawConnection = svc(&state)
+    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&state)
         .update_connection(
             id,
             &auth.user_id,
@@ -412,7 +412,7 @@ async fn test_connection(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (conn, is_healthy, latency_ms): (crate::storage::openclaw::OpenClawConnection, bool, i64) =
+    let (conn, is_healthy, latency_ms): (synapse_storage::openclaw::OpenClawConnection, bool, i64) =
         svc(&state).test_connection(id, &auth.user_id).await?;
     Ok(Json(serde_json::json!({
         "healthy": is_healthy,
@@ -428,7 +428,7 @@ async fn list_conversations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (conversations, next_batch): (Vec<crate::storage::openclaw::AiConversation>, Option<String>) =
+    let (conversations, next_batch): (Vec<synapse_storage::openclaw::AiConversation>, Option<String>) =
         svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: Some(conversations.len() as i64),
@@ -506,7 +506,7 @@ async fn list_messages(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (messages, next_batch): (Vec<crate::storage::openclaw::AiMessage>, Option<String>) =
+    let (messages, next_batch): (Vec<synapse_storage::openclaw::AiMessage>, Option<String>) =
         svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.from, query.before).await?;
     Ok(Json(PaginatedResponse {
         total: Some(messages.len() as i64),
@@ -552,7 +552,7 @@ async fn list_generations(
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let (generations, next_batch): (Vec<crate::storage::openclaw::AiGeneration>, Option<String>) =
+    let (generations, next_batch): (Vec<synapse_storage::openclaw::AiGeneration>, Option<String>) =
         svc(&state).list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: Some(generations.len() as i64),
@@ -598,7 +598,7 @@ async fn list_chat_roles(
     auth: AuthInfo,
 ) -> Result<Json<Vec<ChatRoleResponse>>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let roles: Vec<crate::storage::openclaw::AiChatRole> = svc(&state).list_chat_roles(&auth.user_id).await?;
+    let roles: Vec<synapse_storage::openclaw::AiChatRole> = svc(&state).list_chat_roles(&auth.user_id).await?;
     Ok(Json(roles.into_iter().map(ChatRoleResponse::from).collect()))
 }
 
@@ -608,7 +608,7 @@ async fn create_chat_role(
     Json(req): Json<CreateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: crate::storage::openclaw::AiChatRole = svc(&state)
+    let role: synapse_storage::openclaw::AiChatRole = svc(&state)
         .create_chat_role(
             &auth.user_id,
             &req.name,
@@ -631,7 +631,7 @@ async fn get_chat_role(
     Path(id): Path<i64>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: crate::storage::openclaw::AiChatRole = svc(&state).get_chat_role_for_user(id, &auth.user_id).await?;
+    let role: synapse_storage::openclaw::AiChatRole = svc(&state).get_chat_role_for_user(id, &auth.user_id).await?;
     Ok(Json(ChatRoleResponse::from(role)))
 }
 
@@ -642,7 +642,7 @@ async fn update_chat_role(
     Json(req): Json<UpdateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
     svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: crate::storage::openclaw::AiChatRole = svc(&state)
+    let role: synapse_storage::openclaw::AiChatRole = svc(&state)
         .update_chat_role(
             id,
             &auth.user_id,

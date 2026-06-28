@@ -62,7 +62,7 @@ impl AppState {
         let canonical_cache = cache.clone();
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
-            let openclaw_storage = Arc::new(crate::storage::openclaw::OpenClawStorage::new(pool.clone()));
+            let openclaw_storage = Arc::new(synapse_storage::openclaw::OpenClawStorage::new(pool.clone()));
             let encryption_key = crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
                 services.core.config.server.macaroon_secret_key.as_deref(),
                 &services.core.config.security.secret,

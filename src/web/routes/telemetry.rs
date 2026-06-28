@@ -246,7 +246,7 @@ pub async fn acknowledge_alert(
         .admin
         .security
         .admin_audit_service
-        .create_event(crate::storage::CreateAuditEventRequest {
+        .create_event(synapse_storage::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),
             resource_type: "telemetry_alert".to_string(),

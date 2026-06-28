@@ -101,7 +101,7 @@ pub async fn submit_token(
         return Err(ApiError::bad_request("sid, client_secret, and token are required"));
     }
 
-    let session: crate::storage::threepid::ThreepidValidationSession = state
+    let session: synapse_storage::threepid::ThreepidValidationSession = state
         .services
         .account
         .threepid_storage
