@@ -7,11 +7,11 @@ use synapse_rust::e2ee::verification::models::{
     QrState, SasState, VerificationMethod, VerificationRequest, VerificationState,
 };
 use synapse_rust::e2ee::verification::storage::VerificationStorage;
-use synapse_rust::storage::moderation::{
+use synapse_storage::moderation::{
     CreateModerationRuleParams, ModerationAction, ModerationLogStorage, ModerationRuleType, ModerationStorage,
 };
-use synapse_rust::storage::space::SpaceStorage;
-use synapse_rust::storage::RoomSummaryStorage;
+use synapse_storage::space::SpaceStorage;
+use synapse_storage::room_summary::RoomSummaryStorage;
 use synapse_rust::worker::storage::WorkerStorage;
 use synapse_rust::worker::types::{AssignTaskRequest, RegisterWorkerRequest, WorkerType};
 

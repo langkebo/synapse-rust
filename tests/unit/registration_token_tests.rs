@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use synapse_services::ServiceContainer;
-    use synapse_rust::storage::registration_token::*;
+    use synapse_storage::registration_token::*;
 
     #[test]
     fn test_create_registration_token_request() {

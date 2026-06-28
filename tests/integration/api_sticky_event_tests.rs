@@ -4,7 +4,7 @@ mod sticky_event_integration_suite {
     use sqlx::postgres::PgPoolOptions;
     use std::sync::Arc;
     use std::time::Duration;
-    use synapse_rust::storage::sticky_event::{StickyEvent, StickyEventStorage};
+    use synapse_storage::sticky_event::{StickyEvent, StickyEventStorage};
 
     #[tokio::test]
     async fn test_sticky_event_operations() {

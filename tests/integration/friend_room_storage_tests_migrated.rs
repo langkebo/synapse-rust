@@ -2,7 +2,7 @@
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::friend_room::FriendRoomStorage;
+use synapse_storage::friend_room::FriendRoomStorage;
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn unique_id() -> u64 {

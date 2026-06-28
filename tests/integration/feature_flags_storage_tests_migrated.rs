@@ -2,7 +2,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use synapse_rust::storage::feature_flags::{
+use synapse_storage::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
 use synapse_services::cache::{CacheConfig, CacheManager};

@@ -2,7 +2,7 @@
 mod tests {
     use std::sync::Arc;
     use synapse_services::ServiceContainer;
-    use synapse_rust::storage::application_service::{NamespaceRule, Namespaces, RegisterApplicationServiceRequest};
+    use synapse_storage::application_service::{NamespaceRule, Namespaces, RegisterApplicationServiceRequest};
 
     fn create_test_request() -> RegisterApplicationServiceRequest {
         RegisterApplicationServiceRequest {

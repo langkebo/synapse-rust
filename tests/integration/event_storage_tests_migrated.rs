@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
-use synapse_rust::storage::event::{CreateEventParams, EventStorage};
+use synapse_storage::event::{CreateEventParams, EventStorage};
 
 fn event_storage_test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();

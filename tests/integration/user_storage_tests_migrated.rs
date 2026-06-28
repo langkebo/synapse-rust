@@ -2,7 +2,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::storage::user::UserStorage;
+use synapse_storage::user::UserStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

@@ -10,15 +10,15 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_rust::storage::device::DeviceStorage;
-use synapse_rust::storage::event::{CreateEventParams, EventStorage};
-use synapse_rust::storage::membership::RoomMemberStorage;
-use synapse_rust::storage::relations::RelationsStorage;
-use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStorage;
-use synapse_rust::storage::RoomSummaryStorage;
-use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
-use synapse_rust::PresenceStorage;
+use synapse_storage::device::DeviceStorage;
+use synapse_storage::event::{CreateEventParams, EventStorage};
+use synapse_storage::membership::RoomMemberStorage;
+use synapse_storage::relations::RelationsStorage;
+use synapse_storage::room::RoomStorage;
+use synapse_storage::user::UserStorage;
+use synapse_storage::room_summary::RoomSummaryStorage;
+use synapse_storage::{CreateFilterRequest, FilterStorage};
+use synapse_storage::PresenceStorage;
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
@@ -339,7 +339,7 @@ fn create_room_service(
         room_storage,
         member_storage,
         event_storage,
-        room_tag_storage: synapse_rust::storage::room_tag::RoomTagStorage::new(pool.clone()),
+        room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
         user_storage,
         auth_service: synapse_rust::auth::AuthService::new(
             pool,

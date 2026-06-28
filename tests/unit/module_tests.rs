@@ -1,5 +1,5 @@
 use synapse_services::module_service::*;
-use synapse_rust::storage::module::*;
+use synapse_storage::module::*;
 
 #[cfg(test)]
 mod common {
