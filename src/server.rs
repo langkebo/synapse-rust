@@ -12,7 +12,7 @@ use tower_http::trace::TraceLayer;
 use crate::cache::*;
 use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
-use crate::services::ServiceContainer;
+use synapse_services::ServiceContainer;
 use synapse_services::database_initializer::DatabaseInitService;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
@@ -1091,7 +1091,7 @@ mod tests {
     #[tokio::test]
     async fn render_appservice_scheduler_prometheus_metrics_reflects_recovery_summary() {
         let pool = prepare_shared_test_pool().await.expect("shared test pool should be available");
-        let container = crate::services::ServiceContainer::new_test_with_pool(pool.clone()).await;
+        let container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
         let manager = container.admin.modules.app_service_manager.clone();
         let scheduler = container.admin.modules.app_service_scheduler.clone();
         let storage = ApplicationServiceStorage::new(&pool);

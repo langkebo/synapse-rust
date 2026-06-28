@@ -362,7 +362,7 @@ fn build_proxy_media_headers(
     content_type: String,
     content_length: usize,
     filename: Option<&str>,
-) -> crate::services::media::MediaResponseHeaders {
+) -> synapse_services::media::MediaResponseHeaders {
     let primary_type = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     let inline_safe = SAFE_INLINE_MEDIA_TYPES.iter().any(|safe| *safe == primary_type);
     let disposition_kind = if inline_safe { "inline" } else { "attachment" };
@@ -378,7 +378,7 @@ fn build_proxy_media_headers(
         }
         _ => disposition_kind.to_string(),
     };
-    crate::services::media::MediaResponseHeaders {
+    synapse_services::media::MediaResponseHeaders {
         content_type,
         content_length,
         content_disposition,
@@ -400,7 +400,7 @@ async fn fetch_remote_media_via_federation(
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
-) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     let federation_client = state.services.federation.federation_client.clone();
     let resp = federation_client.media_download(server_name, server_name, media_id).await.map_err(ApiError::from)?;
 
@@ -420,7 +420,7 @@ async fn fetch_remote_media_via_federation(
         resp.bytes().await.map_err(|e| ApiError::internal(format!("Failed to read remote media body: {e}")))?.to_vec();
 
     let headers = build_proxy_media_headers(content_type, content.len(), response_filename);
-    Ok(crate::services::media::MediaResponsePayload { content, headers })
+    Ok(synapse_services::media::MediaResponsePayload { content, headers })
 }
 
 /// Fetch remote thumbnail via federation.
@@ -431,7 +431,7 @@ async fn fetch_remote_thumbnail_via_federation(
     width: u32,
     height: u32,
     method: &str,
-) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     let federation_client = state.services.federation.federation_client.clone();
     let resp = federation_client
         .media_thumbnail(server_name, server_name, media_id, width, height, method)
@@ -457,7 +457,7 @@ async fn fetch_remote_thumbnail_via_federation(
         .to_vec();
 
     let headers = build_proxy_media_headers(content_type, content.len(), None);
-    Ok(crate::services::media::MediaResponsePayload { content, headers })
+    Ok(synapse_services::media::MediaResponsePayload { content, headers })
 }
 
 async fn download_media_common(
@@ -465,7 +465,7 @@ async fn download_media_common(
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
-) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     // Local media: serve directly from storage.
     if server_name == state.services.core.server_name {
         return state
@@ -481,7 +481,7 @@ async fn download_media_common(
     fetch_remote_media_via_federation(state, server_name, media_id, response_filename).await
 }
 
-fn media_response_headers(headers: &crate::services::media::MediaResponseHeaders) -> HeaderMap {
+fn media_response_headers(headers: &synapse_services::media::MediaResponseHeaders) -> HeaderMap {
     use axum::http::HeaderValue;
 
     let mut out = HeaderMap::new();
@@ -533,7 +533,7 @@ async fn thumbnail_response_common(
     server_name: &str,
     media_id: &str,
     params: &Value,
-) -> Result<crate::services::media::MediaResponsePayload, ApiError> {
+) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     let (width, height, method) = thumbnail_request_params(params);
 
     // Local media: serve thumbnail from storage.
@@ -901,7 +901,7 @@ async fn chunked_upload_chunk(
     let content_type = headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string());
     let total_size = params.get("total_size").and_then(|v| v.as_i64());
 
-    let request = crate::services::media::chunked_upload::ChunkUploadRequest {
+    let request = synapse_services::media::chunked_upload::ChunkUploadRequest {
         upload_id: upload_id.map(|s| s.to_string()),
         chunk_index,
         total_chunks,

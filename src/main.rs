@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // 2. Initialize telemetry (OpenTelemetry)
-    let telemetry_service = Arc::new(synapse_rust::services::telemetry_service::TelemetryService::new(
+    let telemetry_service = Arc::new(synapse_services::telemetry_service::TelemetryService::new(
         Arc::new(config.telemetry.clone()),
         Arc::new(config.prometheus.clone()),
     ));

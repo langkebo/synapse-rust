@@ -114,7 +114,7 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::cache::{CacheConfig, CacheManager};
     #[cfg(feature = "test-utils")]
-    use crate::services::ServiceContainer;
+    use synapse_services::ServiceContainer;
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     #[cfg(feature = "test-utils")]

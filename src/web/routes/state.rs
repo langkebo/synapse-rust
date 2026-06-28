@@ -1,7 +1,7 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
 use crate::common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
-use crate::services::ServiceContainer;
+use synapse_services::ServiceContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -26,11 +26,11 @@ pub struct AppState {
     #[cfg(feature = "openclaw-routes")]
     pub ai_connection_storage: Arc<synapse_storage::ai_connection::AiConnectionStorage>,
     #[cfg(feature = "openclaw-routes")]
-    pub matrix_ai_connection_service: Arc<crate::services::matrix_ai_connection_service::MatrixAiConnectionService>,
+    pub matrix_ai_connection_service: Arc<synapse_services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "openclaw-routes")]
-    pub mcp_proxy_service: Arc<crate::services::mcp_proxy::McpProxyService>,
+    pub mcp_proxy_service: Arc<synapse_services::mcp_proxy::McpProxyService>,
     #[cfg(feature = "openclaw-routes")]
-    pub openclaw_service: Arc<crate::services::openclaw_service::OpenClawService>,
+    pub openclaw_service: Arc<synapse_services::openclaw_service::OpenClawService>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,11 +63,11 @@ impl AppState {
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
             let openclaw_storage = Arc::new(synapse_storage::openclaw::OpenClawStorage::new(pool.clone()));
-            let encryption_key = crate::services::openclaw_service::OpenClawService::resolve_encryption_key(
+            let encryption_key = synapse_services::openclaw_service::OpenClawService::resolve_encryption_key(
                 services.core.config.server.macaroon_secret_key.as_deref(),
                 &services.core.config.security.secret,
             );
-            Arc::new(crate::services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
+            Arc::new(synapse_services::openclaw_service::OpenClawService::new(openclaw_storage, encryption_key))
         };
         let key_fetch_max_concurrency = services.core.config.federation.key_fetch_max_concurrency.max(1);
         let key_fetch_general_max_concurrency =
@@ -92,13 +92,13 @@ impl AppState {
             ai_connection_storage: Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool.clone())),
             #[cfg(feature = "openclaw-routes")]
             matrix_ai_connection_service: Arc::new(
-                crate::services::matrix_ai_connection_service::MatrixAiConnectionService::new(
+                synapse_services::matrix_ai_connection_service::MatrixAiConnectionService::new(
                     Arc::new(synapse_storage::ai_connection::AiConnectionStorage::new(pool)),
-                    Arc::new(crate::services::mcp_proxy::McpProxyService::new(canonical_cache.clone())),
+                    Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache.clone())),
                 ),
             ),
             #[cfg(feature = "openclaw-routes")]
-            mcp_proxy_service: Arc::new(crate::services::mcp_proxy::McpProxyService::new(canonical_cache)),
+            mcp_proxy_service: Arc::new(synapse_services::mcp_proxy::McpProxyService::new(canonical_cache)),
             #[cfg(feature = "openclaw-routes")]
             openclaw_service,
         }

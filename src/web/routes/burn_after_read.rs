@@ -134,7 +134,7 @@ pub async fn get_burn_settings(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
+    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = state
         .services
         .extensions
         .burn_after_read
@@ -173,7 +173,7 @@ pub async fn mark_burn_read(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings: Option<crate::services::burn_after_read_service::BurnSettings> = state
+    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = state
         .services
         .extensions
         .burn_after_read
@@ -225,7 +225,7 @@ pub async fn get_pending_burns(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let pending: Vec<crate::services::burn_after_read_service::BurnEvent> = state
+    let pending: Vec<synapse_services::burn_after_read_service::BurnEvent> = state
         .services
         .extensions
         .burn_after_read
@@ -309,7 +309,7 @@ pub async fn get_burn_stats(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let stats: crate::services::burn_after_read_service::BurnStats = state
+    let stats: synapse_services::burn_after_read_service::BurnStats = state
         .services
         .extensions
         .burn_after_read
