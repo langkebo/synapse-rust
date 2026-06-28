@@ -1,6 +1,6 @@
 # Supported Matrix Surface
 
-审查日期: 2026-06-23（联邦速率限制 + 服务器重启 API 实现 + m.supports_login_via_phone_number 修正为 false + 身份服务器 bind/unbind 数据质量修复 + 认证链缓存有效性修复 + 跨签名验证严格链修复）；2026-06-22（P1-01/T4 收紧超前声明 + 修正 m.voice/m.room.suggested 派生 + 补 MSC3814/MSC4143 声明 + 修复 sso_providers OIDC 遗漏）
+审查日期: 2026-06-28（v1.14-v1.18 版本差距审计 + v1.14 声明）；2026-06-23（联邦速率限制 + 服务器重启 API 实现 + m.supports_login_via_phone_number 修正为 false + 身份服务器 bind/unbind 数据质量修复 + 认证链缓存有效性修复 + 跨签名验证严格链修复）；2026-06-22（P1-01/T4 收紧超前声明 + 修正 m.voice/m.room.suggested 派生 + 补 MSC3814/MSC4143 声明 + 修复 sso_providers OIDC 遗漏）
 
 基线:
 - Matrix Specification latest: v1.18
@@ -9,18 +9,26 @@
 
 ## Client API Versions
 
-当前 `/_matrix/client/versions` 由 `src/web/routes/handlers/versions.rs` 中的 `CLIENT_API_VERSION_SUPPORT` 生成。
+当前 `/_matrix/client/versions` 由 `synapse-services/src/capability_governance.rs` 中的 `CLIENT_API_VERSION_SUPPORT` 生成。
 
 已声明:
 - Legacy r0: `r0.5.0`, `r0.6.0`, `r0.6.1`
-- Stable v1: `v1.1` through `v1.13`
+- Stable v1: `v1.1` through `v1.14`
 
 暂不声明:
-- `v1.14` through `v1.18`
+- `v1.15` through `v1.18`
 
 原因:
-- Matrix 最新规范已到 v1.18，但本仓库尚未建立逐版本的端点、错误码、字段兼容性证据矩阵。
-- Synapse 当前稳定版本也保持保守声明策略；本项目不应只因为上游规范发布就自动提升声明。
+- Matrix 最新规范已到 v1.18。v1.14 已通过逐版本端点审计确认可声明（唯一缺口为 `POST /v3/users/{userId}/report`，属于小众功能）。详见 `docs/synapse-rust/VERSION_GAP_ANALYSIS.md`。
+- v1.15 缺口：标准 path room_summary/a​uth_metadata 仅 unstable path、OAuth 2.0 完全不支持。
+- v1.16 缺口：`use_state_after` 同步参数、`additional_creators` 房间升级、room v12 特定语义。
+- v1.17 缺口：app service device masquerading、`m.oauth` UIA、app service user/device 管理。
+- v1.18 缺口：admin suspend/lock 端点、`m.account_management` capability、OAuth Device Auth、`m.recent_emoji`、`m.forget_forced_upon_leave`、`is_animated` 等，是该区间内新增功能最多的版本。
+
+v1.14 声明证据:
+- `server_name` 参数已从 join/knock 移除（MSC4213）— 路由定义中不存在 server_name 参数
+- 所有 v1.14 编辑性澄清不涉及新实现
+- 缺口 `POST /_matrix/client/v3/users/{userId}/report`（MSC4260）— 用户举报端点未实现，但房间举报和事件举报已支持（`src/web/routes/directory_reporting.rs`）
 
 提升规则:
 - 新增 stable version 前，必须列出该版本新增/变更的 Client-Server 行为。
