@@ -1,7 +1,7 @@
 use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
-use crate::storage::CreateEventParams;
+use synapse_storage::event::CreateEventParams;
 use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
