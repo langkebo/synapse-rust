@@ -1,29 +1,26 @@
+use crate::common::config::Config;
+use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
+use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
+use crate::web::middleware::{
+    check_cors_security, log_cors_security_report, set_bind_address, set_config_allowed_origins,
+    set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
+};
+use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
+use crate::web::AppState;
+use crate::worker::topology_validator::{
+    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
+};
 use axum::{response::IntoResponse, routing::get, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 use tokio::signal;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
-
-use crate::common::config::Config;
-use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
-use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
-use crate::web::middleware::{
-    check_cors_security, log_cors_security_report, request_debug_middleware, request_timeout_middleware,
-    set_bind_address, set_config_allowed_origins, set_trust_forwarded_headers, validate_bind_address_for_dev_mode,
-};
-use crate::web::routes::create_router;
-use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
-use crate::web::AppState;
-use crate::worker::topology_validator::{
-    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
-};
 
 use synapse_storage::*;
 
 mod database;
+mod router;
 mod services;
 
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
@@ -236,11 +233,7 @@ impl SynapseServer {
             format!("{}:{}", config.server.host, config.federation.federation_port).parse::<SocketAddr>()?;
         let media_path = std::path::PathBuf::from(&config.server.media_path);
 
-        let router = create_router((*app_state).clone())
-            .layer(RequestBodyLimitLayer::new(config.server.max_upload_size as usize))
-            .layer(axum::middleware::from_fn(request_debug_middleware))
-            .layer(axum::middleware::from_fn(request_timeout_middleware))
-            .layer(TraceLayer::new_for_http());
+        let router = router::build_router((*app_state).clone(), &config);
 
         Ok(Self {
             app_state,
