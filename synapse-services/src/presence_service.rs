@@ -1,5 +1,10 @@
 use crate::common::error::{ApiError, ApiResult};
 
+/// Presence status tuple: (presence_state, status_msg, last_active_ts)
+pub type PresenceRecord = (String, Option<String>, Option<i64>);
+/// Batch presence tuple: (user_id, presence_state, status_msg, last_active_ts)
+pub type PresenceBatchRecord = (String, String, Option<String>, Option<i64>);
+
 pub struct PresenceService {
     storage: synapse_storage::PresenceStorage,
 }
@@ -10,11 +15,10 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
-    #[allow(clippy::type_complexity)]
     pub async fn get_presence_with_meta(
         &self,
         user_id: &str,
-    ) -> ApiResult<Option<(String, Option<String>, Option<i64>)>> {
+    ) -> ApiResult<Option<PresenceRecord>> {
         self.storage
             .get_presence_with_meta(user_id)
             .await
@@ -59,11 +63,10 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
-    #[allow(clippy::type_complexity)]
     pub async fn get_presence_batch_with_meta(
         &self,
         user_ids: &[String],
-    ) -> ApiResult<Vec<(String, String, Option<String>, Option<i64>)>> {
+    ) -> ApiResult<Vec<PresenceBatchRecord>> {
         self.storage
             .get_presence_batch_with_meta(user_ids)
             .await
