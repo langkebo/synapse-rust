@@ -4,17 +4,17 @@
 //! This module was extracted from `admin/register.rs` as part of QA optimization
 //! (I4 — deduplicate localhost IP validation).
 
+use axum::extract::FromRequestParts;
+use axum::http::header;
+use axum::http::request::Parts;
 use axum::{
     body::Body,
     extract::ConnectInfo,
     http::{HeaderMap, StatusCode},
     response::Response,
 };
-use axum::extract::FromRequestParts;
-use axum::http::request::Parts;
-use axum::http::header;
-use std::net::{IpAddr, SocketAddr};
 use std::future::Future;
+use std::net::{IpAddr, SocketAddr};
 use url::Url;
 
 use crate::web::utils::ip::extract_client_ip;
@@ -29,10 +29,7 @@ where
 {
     type Rejection = Response<Body>;
 
-    fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+    fn from_request_parts(parts: &mut Parts, _state: &S) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         // Read ConnectInfo without removing it so downstream handlers can also extract it.
         let connect_info = parts.extensions.get::<ConnectInfo<SocketAddr>>().cloned();
         let headers = parts.headers.clone();
@@ -41,17 +38,12 @@ where
             let remote_ip = match connect_info {
                 Some(ConnectInfo(addr)) => addr.ip(),
                 None => {
-                    return Err(register_error_response(
-                        500,
-                        "M_UNKNOWN",
-                        "Missing connect info",
-                    ));
+                    return Err(register_error_response(500, "M_UNKNOWN", "Missing connect info"));
                 }
             };
 
             let is_loopback = remote_ip.is_loopback();
-            let is_proxied_localhost =
-                is_local_proxy_ip(remote_ip) && request_targets_localhost(&headers);
+            let is_proxied_localhost = is_local_proxy_ip(remote_ip) && request_targets_localhost(&headers);
 
             if !is_loopback && !is_proxied_localhost {
                 return Err(register_error_response(
@@ -76,9 +68,7 @@ where
 
             // C2: Enforce origin header — reject non-local origins arriving over
             // loopback or trusted proxy connections.
-            if let Some(origin) =
-                headers.get("origin").and_then(|value| value.to_str().ok())
-            {
+            if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
                 if !is_local_registration_origin(origin) {
                     return Err(register_error_response(
                         403,
@@ -89,9 +79,7 @@ where
             }
 
             // C3: Enforce referer header — apply same local-only policy as origin.
-            if let Some(referer) =
-                headers.get("referer").and_then(|value| value.to_str().ok())
-            {
+            if let Some(referer) = headers.get("referer").and_then(|value| value.to_str().ok()) {
                 if !is_local_registration_origin(referer) {
                     return Err(register_error_response(
                         403,
@@ -114,14 +102,9 @@ where
 /// Shared between this module and admin/register.rs (for admin-specific policy checks).
 pub(crate) fn register_error_response(status: u16, errcode: &str, error: &str) -> Response<Body> {
     let body = serde_json::json!({ "errcode": errcode, "error": error });
-    let mut response = Response::new(Body::from(
-        serde_json::to_string(&body).unwrap_or_default(),
-    ));
+    let mut response = Response::new(Body::from(serde_json::to_string(&body).unwrap_or_default()));
     *response.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        axum::http::HeaderValue::from_static("application/json"),
-    );
+    response.headers_mut().insert(header::CONTENT_TYPE, axum::http::HeaderValue::from_static("application/json"));
     response
 }
 
@@ -129,11 +112,7 @@ pub(crate) fn register_error_response(status: u16, errcode: &str, error: &str) -
 /// x-forwarded-for / x-real-ip / forwarded priority order.
 /// Mirrors `extract_registration_client_ip` from the original admin/register.rs.
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
-    let priority = vec![
-        "x-forwarded-for".to_string(),
-        "x-real-ip".to_string(),
-        "forwarded".to_string(),
-    ];
+    let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
     extract_client_ip(headers, &priority)
 }
 
@@ -143,9 +122,7 @@ fn is_local_client_ip(ip: &str) -> bool {
     if ip.eq_ignore_ascii_case("localhost") {
         return true;
     }
-    ip.parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    ip.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_registration_origin(value: &str) -> bool {
@@ -162,28 +139,17 @@ fn is_local_registration_origin(value: &str) -> bool {
         return true;
     }
     let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
-    normalized_host
-        .parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_registration_host(value: &str) -> bool {
-    let candidate = value
-        .split(',')
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
+    let candidate = value.split(',').next().map(str::trim).filter(|value| !value.is_empty());
 
     let Some(candidate) = candidate else {
         return false;
     };
 
-    let candidate = if candidate.contains("://") {
-        candidate.to_string()
-    } else {
-        format!("http://{candidate}")
-    };
+    let candidate = if candidate.contains("://") { candidate.to_string() } else { format!("http://{candidate}") };
 
     let Ok(url) = Url::parse(&candidate) else {
         return false;
@@ -197,10 +163,7 @@ fn is_local_registration_host(value: &str) -> bool {
     }
 
     let normalized_host = host.trim_matches(|c| c == '[' || c == ']');
-    normalized_host
-        .parse::<IpAddr>()
-        .map(|ip| ip.is_loopback())
-        .unwrap_or(false)
+    normalized_host.parse::<IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
 }
 
 fn is_local_proxy_ip(ip: IpAddr) -> bool {
@@ -220,18 +183,11 @@ fn request_targets_localhost(headers: &HeaderMap) -> bool {
         return true;
     }
 
-    if headers
-        .get("origin")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(is_local_registration_origin)
-    {
+    if headers.get("origin").and_then(|value| value.to_str().ok()).is_some_and(is_local_registration_origin) {
         return true;
     }
 
-    headers
-        .get("referer")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(is_local_registration_origin)
+    headers.get("referer").and_then(|value| value.to_str().ok()).is_some_and(is_local_registration_origin)
 }
 
 #[cfg(test)]
@@ -280,15 +236,11 @@ mod tests {
     fn test_localhost_guard_rejects_non_local_origin() {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "https://evil.example.com".parse().unwrap());
-        let uri = "/_synapse/admin/v1/register"
-            .parse::<axum::http::Uri>()
-            .unwrap();
-        let mut parts = Parts::default();
+        let uri = "/_synapse/admin/v1/register".parse::<axum::http::Uri>().unwrap();
+        let (mut parts, _) = axum::http::Request::new(()).into_parts();
         parts.uri = uri;
         parts.headers = headers;
-        parts.extensions.insert(ConnectInfo(
-            "127.0.0.1:8008".parse::<SocketAddr>().unwrap(),
-        ));
+        parts.extensions.insert(ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap()));
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
@@ -303,15 +255,11 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "http://localhost:3000".parse().unwrap());
         headers.insert("referer", "http://127.0.0.1:3000/setup".parse().unwrap());
-        let uri = "/_synapse/admin/v1/register"
-            .parse::<axum::http::Uri>()
-            .unwrap();
-        let mut parts = Parts::default();
+        let uri = "/_synapse/admin/v1/register".parse::<axum::http::Uri>().unwrap();
+        let (mut parts, _) = axum::http::Request::new(()).into_parts();
         parts.uri = uri;
         parts.headers = headers;
-        parts.extensions.insert(ConnectInfo(
-            "127.0.0.1:8008".parse::<SocketAddr>().unwrap(),
-        ));
+        parts.extensions.insert(ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap()));
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
