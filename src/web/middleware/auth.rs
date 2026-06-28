@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_storage::audit::CreateAuditEventRequest;
 use crate::web::routes::admin::audit::resolve_request_id;
 use crate::web::routes::extract_token_from_headers;
 use crate::web::routes::AppState;
@@ -10,6 +9,7 @@ use axum::http::{HeaderMap, Method, Request};
 use axum::response::IntoResponse;
 use axum::{body::Body, response::Response, Json};
 use serde_json::json;
+use synapse_storage::audit::CreateAuditEventRequest;
 
 pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
     if let Some(token) = crate::web::utils::auth::bearer_token_opt(headers) {

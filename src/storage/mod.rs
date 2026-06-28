@@ -50,7 +50,7 @@ pub use synapse_storage::token;
 pub use synapse_storage::user;
 pub use synapse_storage::widget;
 
-pub use synapse_storage::{Database, initialize_database};
+pub use synapse_storage::{initialize_database, Database};
 
 // Re-export common storage traits and types that test files access via the
 // flat `synapse_rust::storage::TypeName` path.

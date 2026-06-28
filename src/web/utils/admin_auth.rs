@@ -1,7 +1,5 @@
 use crate::common::config::SecurityConfig;
 use crate::common::ApiError;
-use synapse_storage::audit::CreateAuditEventRequest;
-use synapse_storage::user::User;
 use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
@@ -10,6 +8,8 @@ use serde_json::json;
 use sha1::Sha1;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
+use synapse_storage::audit::CreateAuditEventRequest;
+use synapse_storage::user::User;
 
 type HmacSha1 = Hmac<Sha1>;
 

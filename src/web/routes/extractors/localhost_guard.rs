@@ -37,7 +37,10 @@ pub struct LocalhostGuard;
 impl FromRequestParts<AppState> for LocalhostGuard {
     type Rejection = Response<Body>;
 
-    fn from_request_parts(parts: &mut Parts, state: &AppState) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         // When the operator has opted into external access, skip all localhost
         // enforcement — the deployment is expected to handle access control
         // externally (e.g. via a reverse-proxy with authentication).

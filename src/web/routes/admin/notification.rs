@@ -1,8 +1,6 @@
 #[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
-use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
-#[cfg(feature = "server-notifications")]
 use crate::web::routes::AdminUser;
 use crate::web::routes::AppState;
 #[cfg(feature = "server-notifications")]
@@ -19,6 +17,8 @@ use axum::{
 use serde::Deserialize;
 #[cfg(feature = "server-notifications")]
 use serde_json::{json, Value};
+#[cfg(feature = "server-notifications")]
+use synapse_storage::server_notification::{decode_server_notification_cursor, CreateNotificationRequest};
 
 #[cfg(feature = "server-notifications")]
 fn decode_notice_cursor(cursor: Option<&str>) -> Option<(i64, i64)> {

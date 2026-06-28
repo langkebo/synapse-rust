@@ -57,7 +57,8 @@ async fn get_global_tags(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    let tags: Vec<synapse_storage::room_tag::RoomTag> = state.services.rooms.room_service.get_all_tags(&user_id).await?;
+    let tags: Vec<synapse_storage::room_tag::RoomTag> =
+        state.services.rooms.room_service.get_all_tags(&user_id).await?;
 
     let mut rooms_map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     for tag in tags {

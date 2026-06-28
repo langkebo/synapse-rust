@@ -1,6 +1,5 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use synapse_storage::event_report::EventReport;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -8,6 +7,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_storage::event_report::EventReport;
 
 pub fn create_report_router(_state: AppState) -> Router<AppState> {
     Router::new()
