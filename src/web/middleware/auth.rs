@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::CreateAuditEventRequest;
+use synapse_storage::audit::CreateAuditEventRequest;
 use crate::web::routes::admin::audit::resolve_request_id;
 use crate::web::routes::extract_token_from_headers;
 use crate::web::routes::AppState;
