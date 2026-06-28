@@ -238,7 +238,7 @@ pub(crate) async fn report_room(
     let reason = body.get("reason").and_then(|v| v.as_str()).map(str::to_string);
     let description = body.get("description").and_then(|v| v.as_str()).map(str::to_string);
 
-    let request = crate::storage::event_report::CreateEventReportRequest {
+    let request = synapse_storage::event_report::CreateEventReportRequest {
         event_id: format!("room_report:{room_id}"),
         room_id: room_id.clone(),
         reporter_user_id: auth_user.user_id.clone(),

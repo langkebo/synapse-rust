@@ -280,7 +280,7 @@ pub(crate) async fn create_room(
     let result = state.services.rooms.room_service.create_room(&user_id, config.clone()).await?;
 
     if config.room_type.as_deref() == Some("m.space") {
-        let space_request = crate::storage::space::CreateSpaceRequest {
+        let space_request = synapse_storage::space::CreateSpaceRequest {
             room_id: result.get("room_id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             name: config.name.clone(),
             topic: config.topic.clone(),

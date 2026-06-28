@@ -577,7 +577,7 @@ pub(super) async fn backfill(
     })))
 }
 
-fn build_federation_event_response(server_name: &str, event: &crate::storage::event::RoomEvent) -> Value {
+fn build_federation_event_response(server_name: &str, event: &synapse_storage::event::RoomEvent) -> Value {
     let event_origin = match event.origin.trim() {
         "" | "self" | "undefined" => server_name.to_string(),
         value => value.to_string(),
@@ -606,7 +606,7 @@ fn normalized_event_origin(server_name: &str, origin: Option<&str>) -> String {
     }
 }
 
-fn serialize_state_event_minimal(server_name: &str, event: &crate::storage::event::StateEvent) -> Value {
+fn serialize_state_event_minimal(server_name: &str, event: &synapse_storage::event::StateEvent) -> Value {
     json!({
         "event_id": event.event_id,
         "type": event.event_type,
@@ -619,7 +619,7 @@ fn serialize_state_event_minimal(server_name: &str, event: &crate::storage::even
     })
 }
 
-fn serialize_room_event_minimal(server_name: &str, event: &crate::storage::event::RoomEvent) -> Value {
+fn serialize_room_event_minimal(server_name: &str, event: &synapse_storage::event::RoomEvent) -> Value {
     json!({
         "event_id": event.event_id,
         "type": event.event_type,
@@ -632,13 +632,13 @@ fn serialize_room_event_minimal(server_name: &str, event: &crate::storage::event
     })
 }
 
-fn sort_state_events_stably(events: &mut [crate::storage::event::StateEvent]) {
+fn sort_state_events_stably(events: &mut [synapse_storage::event::StateEvent]) {
     events.sort_by(|left, right| {
         right.origin_server_ts.cmp(&left.origin_server_ts).then_with(|| left.event_id.cmp(&right.event_id))
     });
 }
 
-fn sort_room_events_stably(events: &mut [crate::storage::event::RoomEvent]) {
+fn sort_room_events_stably(events: &mut [synapse_storage::event::RoomEvent]) {
     events.sort_by(|left, right| {
         right
             .depth
@@ -650,7 +650,7 @@ fn sort_room_events_stably(events: &mut [crate::storage::event::RoomEvent]) {
 
 fn build_federation_state_payload(
     server_name: &str,
-    events: &mut [crate::storage::event::StateEvent],
+    events: &mut [synapse_storage::event::StateEvent],
 ) -> (Vec<Value>, Vec<Value>) {
     sort_state_events_stably(events);
 
@@ -675,7 +675,7 @@ async fn get_room_event_in_room(
     state: &AppState,
     room_id: &str,
     event_id: &str,
-) -> Result<crate::storage::event::RoomEvent, ApiError> {
+) -> Result<synapse_storage::event::RoomEvent, ApiError> {
     let event = state.services.rooms.room_service.get_event_record_in_room(room_id, event_id).await?;
 
     Ok(event)
@@ -685,7 +685,7 @@ async fn load_federation_state_events(
     state: &AppState,
     room_id: &str,
     event_id: Option<&str>,
-) -> Result<Vec<crate::storage::event::StateEvent>, ApiError> {
+) -> Result<Vec<synapse_storage::event::StateEvent>, ApiError> {
     match event_id {
         Some(event_id) => {
             let event = get_room_event_in_room(state, room_id, event_id).await?;

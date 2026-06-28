@@ -20,8 +20,8 @@ pub struct CreateSpaceBody {
 }
 
 impl CreateSpaceBody {
-    pub fn into_request(self, creator: String) -> crate::storage::space::CreateSpaceRequest {
-        crate::storage::space::CreateSpaceRequest {
+    pub fn into_request(self, creator: String) -> synapse_storage::space::CreateSpaceRequest {
+        synapse_storage::space::CreateSpaceRequest {
             room_id: self.room_id,
             name: self.name,
             topic: self.topic,
@@ -45,8 +45,8 @@ pub struct AddChildBody {
 }
 
 impl AddChildBody {
-    pub fn into_request(self, space_id: String, sender: String) -> crate::storage::space::AddChildRequest {
-        crate::storage::space::AddChildRequest {
+    pub fn into_request(self, space_id: String, sender: String) -> synapse_storage::space::AddChildRequest {
+        synapse_storage::space::AddChildRequest {
             space_id,
             room_id: self.room_id,
             sender,
@@ -72,8 +72,8 @@ pub struct UpdateSpaceBody {
 }
 
 impl UpdateSpaceBody {
-    pub fn into_request(self) -> crate::storage::space::UpdateSpaceRequest {
-        let mut request = crate::storage::space::UpdateSpaceRequest::new();
+    pub fn into_request(self) -> synapse_storage::space::UpdateSpaceRequest {
+        let mut request = synapse_storage::space::UpdateSpaceRequest::new();
 
         if let Some(name) = self.name {
             request = request.name(name);
@@ -148,8 +148,8 @@ pub struct SpaceResponse {
     pub parent_space_id: Option<String>,
 }
 
-impl From<crate::storage::space::Space> for SpaceResponse {
-    fn from(space: crate::storage::space::Space) -> Self {
+impl From<synapse_storage::space::Space> for SpaceResponse {
+    fn from(space: synapse_storage::space::Space) -> Self {
         Self {
             space_id: space.space_id,
             room_id: space.room_id,
@@ -177,8 +177,8 @@ pub struct SpaceChildResponse {
     pub added_ts: i64,
 }
 
-impl From<crate::storage::space::SpaceChild> for SpaceChildResponse {
-    fn from(child: crate::storage::space::SpaceChild) -> Self {
+impl From<synapse_storage::space::SpaceChild> for SpaceChildResponse {
+    fn from(child: synapse_storage::space::SpaceChild) -> Self {
         Self {
             space_id: child.space_id,
             room_id: child.room_id,
@@ -199,8 +199,8 @@ pub struct SpaceMemberResponse {
     pub inviter: Option<String>,
 }
 
-impl From<crate::storage::space::SpaceMember> for SpaceMemberResponse {
-    fn from(member: crate::storage::space::SpaceMember) -> Self {
+impl From<synapse_storage::space::SpaceMember> for SpaceMemberResponse {
+    fn from(member: synapse_storage::space::SpaceMember) -> Self {
         Self {
             space_id: member.space_id,
             user_id: member.user_id,
@@ -216,7 +216,7 @@ pub struct SpaceHierarchyResponse {
     pub space: SpaceResponse,
     pub children: Vec<SpaceChildResponse>,
     pub members: Vec<SpaceMemberResponse>,
-    pub rooms: Vec<crate::storage::space::SpaceHierarchyRoom>,
+    pub rooms: Vec<synapse_storage::space::SpaceHierarchyRoom>,
 }
 
 #[cfg(test)]

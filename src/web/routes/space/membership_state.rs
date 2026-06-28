@@ -10,7 +10,7 @@ pub(super) async fn get_space_members(
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_member_cursor);
 
-        let members: Vec<crate::storage::space::SpaceMember> = state
+        let members: Vec<synapse_storage::space::SpaceMember> = state
             .services
             .rooms
             .space_service
@@ -48,7 +48,7 @@ pub(super) async fn get_space_rooms(
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_child_cursor);
 
-        let children: Vec<crate::storage::space::SpaceChild> = state
+        let children: Vec<synapse_storage::space::SpaceChild> = state
             .services
             .rooms
             .space_service
@@ -96,7 +96,7 @@ pub(super) async fn invite_user(
     validate_request(&body)?;
 
     with_resolved_space(state, space_id, |state, space| async move {
-        let member: crate::storage::space::SpaceMember =
+        let member: synapse_storage::space::SpaceMember =
             state.services.rooms.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
 
         Ok(created_json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
@@ -110,7 +110,7 @@ pub(super) async fn join_space(
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     with_resolved_space(state, space_id, |state, space| async move {
-        let member: crate::storage::space::SpaceMember =
+        let member: synapse_storage::space::SpaceMember =
             state.services.rooms.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
