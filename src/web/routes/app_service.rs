@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
-use crate::storage::application_service::{
+use synapse_storage::application_service::{
     ApplicationService, ApplicationServiceState, ApplicationServiceUser, RegisterApplicationServiceRequest,
     UpdateApplicationServiceRequest,
 };

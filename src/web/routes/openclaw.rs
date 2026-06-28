@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crate::common::ApiError;
 use crate::services::openclaw_service::OpenClawService;
-use crate::storage::openclaw::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
+use synapse_storage::openclaw::{AiChatRole, AiConversation, AiGeneration, AiMessage, OpenClawConnection};
 use crate::web::routes::extractors::auth::AuthenticatedUser as AuthInfo;
 use crate::web::routes::{AppState, PaginatedResponse};
 

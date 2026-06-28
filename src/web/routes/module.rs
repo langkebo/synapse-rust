@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 use crate::services::module_service::*;
-use crate::storage::module::*;
+use synapse_storage::module::*;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},

@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
+use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{extract::State, routing::post, Json, Router};
 
