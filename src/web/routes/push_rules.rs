@@ -161,6 +161,16 @@ pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
                     "actions": []
                 },
                 {
+                    "rule_id": ".org.matrix.msc3786.rule.room.server_acl",
+                    "default": true,
+                    "enabled": true,
+                    "conditions": [
+                        {"kind": "event_match", "key": "type", "pattern": "m.room.server_acl"},
+                        {"kind": "event_match", "key": "state_key", "pattern": ""}
+                    ],
+                    "actions": []
+                },
+                {
                     "rule_id": ".m.rule.suppress_edits",
                     "default": true,
                     "enabled": true,
@@ -174,7 +184,7 @@ pub fn default_push_rules_for_user(user_id: &str, username: &str) -> Value {
             "sender": [],
             "underride": [
                 {
-                    "rule_id": ".m.rule.call",
+                    "rule_id": ".org.matrix.msc3914.rule.room.call",
                     "default": true,
                     "enabled": true,
                     "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
@@ -256,10 +266,16 @@ pub fn merge_default_push_rules(content: &mut Value, user_id: &str, username: &s
         let stored =
             global.entry(kind.to_string()).or_insert_with(|| json!([])).as_array().cloned().unwrap_or_default();
 
-        let stored_by_id: std::collections::HashMap<String, Value> = stored
+        let mut stored_by_id: std::collections::HashMap<String, Value> = stored
             .iter()
             .filter_map(|r| r.get("rule_id").and_then(|v| v.as_str()).map(|id| (id.to_string(), r.clone())))
             .collect();
+
+        // Backward compat: map old rule IDs to their MSC-prefixed replacements
+        // so user customisations on the old ID survive the rename.
+        if let Some(old_call) = stored_by_id.get(".m.rule.call").cloned() {
+            stored_by_id.entry(".org.matrix.msc3914.rule.room.call".to_string()).or_insert(old_call);
+        }
 
         let mut merged: Vec<Value> = Vec::with_capacity(canonical.len() + stored.len());
         for rule in canonical {
@@ -312,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn default_rules_include_v1_11_required_ids() {
+    fn default_rules_include_required_override_ids() {
         let rules = default_push_rules_for_user("@alice:example.com", "alice");
         let override_rules = rules["global"]["override"].as_array().unwrap();
         let ids: Vec<&str> = override_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
@@ -326,10 +342,43 @@ mod tests {
             ".m.rule.tombstone",
             ".m.rule.reaction",
             ".m.rule.room.server_acl",
+            ".org.matrix.msc3786.rule.room.server_acl",
             ".m.rule.suppress_edits",
         ] {
             assert!(ids.contains(&required), "missing override {required}");
         }
+    }
+
+    #[test]
+    fn default_rules_include_msc_prefixed_underride_ids() {
+        let rules = default_push_rules_for_user("@alice:example.com", "alice");
+        let underride_rules = rules["global"]["underride"].as_array().unwrap();
+        let ids: Vec<&str> = underride_rules.iter().filter_map(|r| r["rule_id"].as_str()).collect();
+        assert!(ids.contains(&".org.matrix.msc3914.rule.room.call"), "missing MSC3914 call rule in underride");
+        // Old rule ID must not be emitted.
+        assert!(!ids.contains(&".m.rule.call"), "old .m.rule.call should be replaced by MSC3914 ID");
+    }
+
+    #[test]
+    fn merge_preserves_old_call_rule_customisations() {
+        let mut content = json!({
+            "global": {
+                "underride": [
+                    {
+                        "rule_id": ".m.rule.call",
+                        "default": true,
+                        "enabled": false,
+                        "conditions": [{"kind": "event_match", "key": "type", "pattern": "m.call.invite"}],
+                        "actions": []
+                    }
+                ]
+            }
+        });
+        merge_default_push_rules(&mut content, "@alice:example.com", "alice");
+        let underrides = content["global"]["underride"].as_array().unwrap();
+        let call_rule = underrides.iter().find(|r| r["rule_id"] == ".org.matrix.msc3914.rule.room.call").unwrap();
+        // User's enabled=false should survive the ID migration.
+        assert_eq!(call_rule["enabled"], false);
     }
 
     #[test]
