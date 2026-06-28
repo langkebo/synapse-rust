@@ -5,8 +5,9 @@ use tokio::sync::RwLock;
 use tokio::time;
 use tracing::{error, info, warn};
 
-use crate::storage::maintenance::{DatabaseMaintenance, MaintenanceReport};
-use crate::storage::{DataIntegrityReport, Database, DatabaseHealthStatus, PerformanceMetrics};
+use synapse_storage::maintenance::{DatabaseMaintenance, MaintenanceReport};
+use synapse_storage::monitoring::{DataIntegrityReport, DatabaseHealthStatus, PerformanceMetrics};
+use synapse_storage::Database;
 
 /// Grace period after startup before the first run of expensive periodic
 /// tasks (performance metrics, integrity check, maintenance/VACUUM).

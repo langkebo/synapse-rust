@@ -4,8 +4,8 @@ use super::{
 use crate::common::ApiError;
 use crate::map_internal;
 #[cfg(feature = "beacons")]
-use crate::storage::CreateBeaconInfoParams;
-use crate::storage::CreateEventParams;
+use synapse_storage::beacon::CreateBeaconInfoParams;
+use synapse_storage::event::CreateEventParams;
 use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
