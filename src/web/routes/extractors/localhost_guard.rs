@@ -3,6 +3,10 @@
 //!
 //! This module was extracted from `admin/register.rs` as part of QA optimization
 //! (I4 — deduplicate localhost IP validation).
+//!
+//! When `admin_registration.allow_external_access` is true, all localhost
+//! enforcement is skipped so deployments that rely on external access
+//! (e.g. behind a reverse proxy with its own auth) do not receive 403 errors.
 
 use axum::extract::FromRequestParts;
 use axum::http::header;
@@ -14,27 +18,40 @@ use axum::{
     response::Response,
 };
 use std::future::Future;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+use std::net::SocketAddr;
 use url::Url;
 
+use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 
 /// Axum extractor that only allows requests from localhost.
 /// Non-local requests receive 403 with a descriptive error.
+///
+/// Respects the `admin_registration.allow_external_access` config:
+/// when enabled, all localhost enforcement is skipped so that
+/// deployments behind reverse proxies with their own authentication
+/// are not blocked.
 pub struct LocalhostGuard;
 
-impl<S> FromRequestParts<S> for LocalhostGuard
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<AppState> for LocalhostGuard {
     type Rejection = Response<Body>;
 
-    fn from_request_parts(parts: &mut Parts, _state: &S) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+    fn from_request_parts(parts: &mut Parts, state: &AppState) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        // When the operator has opted into external access, skip all localhost
+        // enforcement — the deployment is expected to handle access control
+        // externally (e.g. via a reverse-proxy with authentication).
+        let allow_external = state.services.core.config.admin_registration.allow_external_access;
+
         // Read ConnectInfo without removing it so downstream handlers can also extract it.
         let connect_info = parts.extensions.get::<ConnectInfo<SocketAddr>>().cloned();
         let headers = parts.headers.clone();
 
         async move {
+            if allow_external {
+                return Ok(LocalhostGuard);
+            }
+
             let remote_ip = match connect_info {
                 Some(ConnectInfo(addr)) => addr.ip(),
                 None => {
@@ -42,56 +59,63 @@ where
                 }
             };
 
-            let is_loopback = remote_ip.is_loopback();
-            let is_proxied_localhost = is_local_proxy_ip(remote_ip) && request_targets_localhost(&headers);
-
-            if !is_loopback && !is_proxied_localhost {
-                return Err(register_error_response(
-                    403,
-                    "M_FORBIDDEN",
-                    "Admin registration is only available from localhost",
-                ));
-            }
-
-            // C1: Check forwarded client IP — even when the direct connection appears
-            // to be loopback or a trusted proxy, a forwarded-for header may reveal the
-            // true client. Reject any non-local client IP.
-            if let Some(client_ip) = extract_registration_client_ip(&headers) {
-                if !is_local_client_ip(&client_ip) {
-                    return Err(register_error_response(
-                        403,
-                        "M_FORBIDDEN",
-                        "Admin registration is only available from localhost",
-                    ));
-                }
-            }
-
-            // C2: Enforce origin header — reject non-local origins arriving over
-            // loopback or trusted proxy connections.
-            if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
-                if !is_local_registration_origin(origin) {
-                    return Err(register_error_response(
-                        403,
-                        "M_FORBIDDEN",
-                        "Admin registration origin is not allowed",
-                    ));
-                }
-            }
-
-            // C3: Enforce referer header — apply same local-only policy as origin.
-            if let Some(referer) = headers.get("referer").and_then(|value| value.to_str().ok()) {
-                if !is_local_registration_origin(referer) {
-                    return Err(register_error_response(
-                        403,
-                        "M_FORBIDDEN",
-                        "Admin registration origin is not allowed",
-                    ));
-                }
-            }
-
+            validate_local_only(remote_ip, &headers).map_err(|e| *e)?;
             Ok(LocalhostGuard)
         }
     }
+}
+
+/// Core localhost-only validation logic, separated from the extractor so it can
+/// be tested independently without constructing an [`AppState`].
+pub(crate) fn validate_local_only(remote_ip: IpAddr, headers: &HeaderMap) -> Result<(), Box<Response<Body>>> {
+    let is_loopback = remote_ip.is_loopback();
+    let is_proxied_localhost = is_local_proxy_ip(remote_ip) && request_targets_localhost(headers);
+
+    if !is_loopback && !is_proxied_localhost {
+        return Err(Box::new(register_error_response(
+            403,
+            "M_FORBIDDEN",
+            "Admin registration is only available from localhost",
+        )));
+    }
+
+    // C1: Check forwarded client IP — even when the direct connection appears
+    // to be loopback or a trusted proxy, a forwarded-for header may reveal the
+    // true client. Reject any non-local client IP.
+    if let Some(client_ip) = extract_registration_client_ip(headers) {
+        if !is_local_client_ip(&client_ip) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration is only available from localhost",
+            )));
+        }
+    }
+
+    // C2: Enforce origin header — reject non-local origins arriving over
+    // loopback or trusted proxy connections.
+    if let Some(origin) = headers.get("origin").and_then(|value| value.to_str().ok()) {
+        if !is_local_registration_origin(origin) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration origin is not allowed",
+            )));
+        }
+    }
+
+    // C3: Enforce referer header — apply same local-only policy as origin.
+    if let Some(referer) = headers.get("referer").and_then(|value| value.to_str().ok()) {
+        if !is_local_registration_origin(referer) {
+            return Err(Box::new(register_error_response(
+                403,
+                "M_FORBIDDEN",
+                "Admin registration origin is not allowed",
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -236,14 +260,7 @@ mod tests {
     fn test_localhost_guard_rejects_non_local_origin() {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "https://evil.example.com".parse().unwrap());
-        let uri = "/_synapse/admin/v1/register".parse::<axum::http::Uri>().unwrap();
-        let (mut parts, _) = axum::http::Request::new(()).into_parts();
-        parts.uri = uri;
-        parts.headers = headers;
-        parts.extensions.insert(ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap()));
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
+        let result = validate_local_only("127.0.0.1".parse::<IpAddr>().unwrap(), &headers);
         assert!(result.is_err());
     }
 
@@ -255,15 +272,43 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("origin", "http://localhost:3000".parse().unwrap());
         headers.insert("referer", "http://127.0.0.1:3000/setup".parse().unwrap());
-        let uri = "/_synapse/admin/v1/register".parse::<axum::http::Uri>().unwrap();
-        let (mut parts, _) = axum::http::Request::new(()).into_parts();
-        parts.uri = uri;
-        parts.headers = headers;
-        parts.extensions.insert(ConnectInfo("127.0.0.1:8008".parse::<SocketAddr>().unwrap()));
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
+        let result = validate_local_only("127.0.0.1".parse::<IpAddr>().unwrap(), &headers);
         assert!(result.is_ok());
+    }
+
+    /// Verifies that a non-loopback IP address is rejected.
+    #[test]
+    fn test_validate_local_only_rejects_non_local_ip() {
+        let headers = HeaderMap::new();
+        let result = validate_local_only("203.0.113.5".parse::<IpAddr>().unwrap(), &headers);
+        assert!(result.is_err());
+    }
+
+    /// Verifies that a loopback IPv6 address is accepted.
+    #[test]
+    fn test_validate_local_only_accepts_ipv6_loopback() {
+        let headers = HeaderMap::new();
+        let result = validate_local_only("::1".parse::<IpAddr>().unwrap(), &headers);
+        assert!(result.is_ok());
+    }
+
+    /// Verifies that a proxied private-V4 connection targeting localhost is accepted.
+    #[test]
+    fn test_validate_local_only_accepts_proxied_private_v4_with_localhost_target() {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "localhost:8008".parse().unwrap());
+        let result = validate_local_only("10.0.0.10".parse::<IpAddr>().unwrap(), &headers);
+        assert!(result.is_ok());
+    }
+
+    /// Verifies that the forwarded-client-IP check catches a non-local forwarded client
+    /// even when the direct connection is loopback.
+    #[test]
+    fn test_validate_local_only_rejects_non_local_forwarded_client_ip() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        let result = validate_local_only("127.0.0.1".parse::<IpAddr>().unwrap(), &headers);
+        assert!(result.is_err());
     }
 
     #[test]
