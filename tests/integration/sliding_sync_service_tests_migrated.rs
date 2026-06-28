@@ -7,8 +7,6 @@ use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::config::PerformanceConfig;
 use synapse_rust::metrics::MetricsCollector;
-use synapse_services::sliding_sync_service::SlidingSyncService;
-use synapse_services::typing_service::TypingService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -16,6 +14,8 @@ use synapse_rust::storage::sliding_sync::{
     SlidingSyncFilters, SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage,
 };
 use synapse_rust::PresenceStorage;
+use synapse_services::sliding_sync_service::SlidingSyncService;
+use synapse_services::typing_service::TypingService;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

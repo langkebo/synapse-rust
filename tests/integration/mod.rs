@@ -278,8 +278,8 @@ where
     F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_services::ServiceContainer;
     use synapse_rust::web::routes::state::AppState;
+    use synapse_services::ServiceContainer;
 
     let pool = get_test_pool().await?;
     let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));

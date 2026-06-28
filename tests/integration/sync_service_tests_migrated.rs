@@ -10,9 +10,6 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_services::room_service::{CreateRoomConfig, RoomService};
-use synapse_services::room_summary_service::RoomSummaryService;
-use synapse_services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -22,6 +19,9 @@ use synapse_rust::storage::user::UserStorage;
 use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
 use synapse_rust::PresenceStorage;
+use synapse_services::room_service::{CreateRoomConfig, RoomService};
+use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::sync_service::SyncService;
 use synapse_storage::user::UserStore;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {

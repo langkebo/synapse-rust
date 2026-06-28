@@ -6,8 +6,8 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
+use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 
 static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
