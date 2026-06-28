@@ -191,10 +191,7 @@ impl CapabilityGovernance {
             .map(|support| {
                 match support.family() {
                     ClientApiVersionFamily::LegacyR0 => {
-                        debug_assert!(
-                            !seen_stable,
-                            "legacy r0 versions must stay before stable v1 versions"
-                        );
+                        debug_assert!(!seen_stable, "legacy r0 versions must stay before stable v1 versions");
                     }
                     ClientApiVersionFamily::StableV1 => {
                         seen_stable = true;
@@ -216,30 +213,13 @@ impl CapabilityGovernance {
         // Route-surface driven unstable feature declarations. These are kept
         // consistent with the `/capabilities.unstable_features` surface so that
         // clients observe the same availability on both endpoints.
-        unstable_features.insert(
-            "org.matrix.msc3886.sliding_sync".to_string(),
-            json!(self.sliding_sync_capability().enabled()),
-        );
-        unstable_features.insert(
-            "org.matrix.msc3266".to_string(),
-            json!(self.msc3266_capability().enabled()),
-        );
-        unstable_features.insert(
-            "org.matrix.msc3245".to_string(),
-            json!(self.msc3245_capability().enabled()),
-        );
-        unstable_features.insert(
-            "org.matrix.msc3983".to_string(),
-            json!(self.msc3983_capability().enabled()),
-        );
-        unstable_features.insert(
-            "org.matrix.msc3814".to_string(),
-            json!(self.msc3814_capability().enabled()),
-        );
-        unstable_features.insert(
-            "org.matrix.msc4143".to_string(),
-            json!(self.msc4143_capability().enabled()),
-        );
+        unstable_features
+            .insert("org.matrix.msc3886.sliding_sync".to_string(), json!(self.sliding_sync_capability().enabled()));
+        unstable_features.insert("org.matrix.msc3266".to_string(), json!(self.msc3266_capability().enabled()));
+        unstable_features.insert("org.matrix.msc3245".to_string(), json!(self.msc3245_capability().enabled()));
+        unstable_features.insert("org.matrix.msc3983".to_string(), json!(self.msc3983_capability().enabled()));
+        unstable_features.insert("org.matrix.msc3814".to_string(), json!(self.msc3814_capability().enabled()));
+        unstable_features.insert("org.matrix.msc4143".to_string(), json!(self.msc4143_capability().enabled()));
         // Private `io.hula.*` extensions are intentionally NOT declared in
         // `/versions.unstable_features` — that surface is unauthenticated and
         // consumed by stock Matrix clients which do not understand the
@@ -257,40 +237,32 @@ impl CapabilityGovernance {
     // -----------------------------------------------------------------------
 
     fn room_summary_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v3/rooms/{room_id}/summary",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/rooms/{room_id}/summary"))
     }
 
     /// MSC3266 (Room summary batch) capability is driven by the route surface:
     /// the `org.matrix.msc3266` unstable feature is declared only when the
     /// `POST /_synapse/room_summary/v1/summaries/batch` endpoint is registered.
     fn msc3266_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "POST",
-            "/_synapse/room_summary/v1/summaries/batch",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_synapse/room_summary/v1/summaries/batch"))
     }
 
     /// MSC3814 (Dehydrated device) capability is driven by the route surface:
     /// declared only when the `GET /_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device`
     /// endpoint is registered.
     fn msc3814_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device",
-        ))
+        CapabilityFlag::route_surface(
+            self.manifest_has_route("GET", "/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device"),
+        )
     }
 
     /// MSC4143 (MatrixRTC transports) capability is driven by the route surface:
     /// declared only when the `GET /_matrix/client/unstable/org.matrix.msc4143/rtc/transports`
     /// endpoint is registered.
     fn msc4143_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports",
-        ))
+        CapabilityFlag::route_surface(
+            self.manifest_has_route("GET", "/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"),
+        )
     }
 
     /// MSC3245 (Room summary) unstable feature is driven by the route surface:
@@ -311,10 +283,7 @@ impl CapabilityGovernance {
         // `/_matrix/client/v1/rooms/{room_id}/hierarchy` route registration instead
         // of aliasing `room_summary_capability()`, which tracks a different
         // endpoint (`/_matrix/client/v3/rooms/{room_id}/summary`).
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v1/rooms/{room_id}/hierarchy",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/rooms/{room_id}/hierarchy"))
     }
 
     fn voice_capability(&self) -> CapabilityFlag {
@@ -322,31 +291,19 @@ impl CapabilityGovernance {
         // Derive from the `/voip/turnServer` route registration instead of aliasing
         // `room_summary_capability()`, which tracks the room summary endpoint and
         // has nothing to do with VoIP availability.
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v3/voip/turnServer",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v3/voip/turnServer"))
     }
 
     fn thread_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v1/threads",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/threads"))
     }
 
     fn sliding_sync_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "POST",
-            "/_matrix/client/v1/sync",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v1/sync"))
     }
 
     fn change_password_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "POST",
-            "/_matrix/client/v3/account/password",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v3/account/password"))
     }
 
     /// Public entry-point for external callers that need the boolean value
@@ -356,24 +313,17 @@ impl CapabilityGovernance {
     }
 
     fn set_displayname_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "PUT",
-            "/_matrix/client/v3/profile/{user_id}/displayname",
-        ))
+        CapabilityFlag::route_surface(
+            self.manifest_has_route("PUT", "/_matrix/client/v3/profile/{user_id}/displayname"),
+        )
     }
 
     fn set_avatar_url_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "PUT",
-            "/_matrix/client/v3/profile/{user_id}/avatar_url",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("PUT", "/_matrix/client/v3/profile/{user_id}/avatar_url"))
     }
 
     fn threepid_changes_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "POST",
-            "/_matrix/client/v3/account/3pid",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v3/account/3pid"))
     }
 
     // -----------------------------------------------------------------------
@@ -404,38 +354,26 @@ impl CapabilityGovernance {
     }
 
     fn external_services_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v1/external_services/health",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/external_services/health"))
     }
 
     fn voice_extended_capability(&self) -> CapabilityFlag {
         if !self.config.experimental.declare_private_extensions {
             return CapabilityFlag::config_controlled(false);
         }
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "GET",
-            "/_matrix/client/v1/voice/config",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("GET", "/_matrix/client/v1/voice/config"))
     }
 
     #[cfg(test)]
     fn widget_capability(&self) -> CapabilityFlag {
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "POST",
-            "/_matrix/client/v1/widgets",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("POST", "/_matrix/client/v1/widgets"))
     }
 
     fn burn_after_read_capability(&self) -> CapabilityFlag {
         if !self.config.experimental.declare_private_extensions {
             return CapabilityFlag::config_controlled(false);
         }
-        CapabilityFlag::route_surface(self.manifest_has_route(
-            "PUT",
-            "/_matrix/client/v1/rooms/{room_id}/burn",
-        ))
+        CapabilityFlag::route_surface(self.manifest_has_route("PUT", "/_matrix/client/v1/rooms/{room_id}/burn"))
     }
 
     // -----------------------------------------------------------------------
@@ -507,11 +445,7 @@ impl CapabilityGovernance {
             "m.3pid_changes",
             self.threepid_changes_capability().enabled(),
         );
-        self.insert_enabled_capability(
-            &mut capabilities,
-            "m.room.summary",
-            self.room_summary_capability().enabled(),
-        );
+        self.insert_enabled_capability(&mut capabilities, "m.room.summary", self.room_summary_capability().enabled());
         self.insert_enabled_capability(
             &mut capabilities,
             "m.room.suggested",
@@ -535,10 +469,7 @@ impl CapabilityGovernance {
         if authenticated {
             let openclaw_enabled = self.openclaw_capability().enabled();
 
-            capabilities.insert(
-                "io.hula.friends".to_string(),
-                json!(self.friends_capability().enabled()),
-            );
+            capabilities.insert("io.hula.friends".to_string(), json!(self.friends_capability().enabled()));
             capabilities.insert(
                 "m.sso".to_string(),
                 json!({
@@ -698,10 +629,7 @@ mod tests {
             !unstable.contains_key("io.hula.burn_after_read"),
             "private io.hula.burn_after_read must not leak to /versions"
         );
-        assert!(
-            !unstable.contains_key("io.hula.friends"),
-            "private io.hula.friends must not leak to /versions"
-        );
+        assert!(!unstable.contains_key("io.hula.friends"), "private io.hula.friends must not leak to /versions");
     }
 
     // -----------------------------------------------------------------------
@@ -808,27 +736,15 @@ mod tests {
         assert_eq!(capabilities["openclaw"]["enabled"], g.openclaw_capability().enabled());
         assert_eq!(capabilities["io.hula.friends"], g.friends_capability().enabled());
         assert_eq!(capabilities["external_services"]["enabled"], g.external_services_capability().enabled());
-        assert_eq!(
-            capabilities["io.hula.voice_extended"]["enabled"],
-            g.voice_extended_capability().enabled()
-        );
-        assert_eq!(
-            capabilities["io.hula.burn_after_read"]["enabled"],
-            g.burn_after_read_capability().enabled()
-        );
+        assert_eq!(capabilities["io.hula.voice_extended"]["enabled"], g.voice_extended_capability().enabled());
+        assert_eq!(capabilities["io.hula.burn_after_read"]["enabled"], g.burn_after_read_capability().enabled());
         assert_eq!(body["unstable_features"]["org.matrix.msc3245.voice"], g.voice_capability().enabled());
         assert_eq!(body["unstable_features"]["org.matrix.msc3983.thread"], g.thread_capability().enabled());
-        assert_eq!(
-            body["unstable_features"]["org.matrix.msc3886.sliding_sync"],
-            g.sliding_sync_capability().enabled()
-        );
+        assert_eq!(body["unstable_features"]["org.matrix.msc3886.sliding_sync"], g.sliding_sync_capability().enabled());
         // Private io.hula.* extensions remain on the authenticated
         // `/capabilities.unstable_features` surface for opt-in clients.
         assert_eq!(body["unstable_features"]["io.hula.friends"], g.friends_capability().enabled());
-        assert_eq!(
-            body["unstable_features"]["io.hula.burn_after_read"],
-            g.burn_after_read_capability().enabled()
-        );
+        assert_eq!(body["unstable_features"]["io.hula.burn_after_read"], g.burn_after_read_capability().enabled());
     }
 
     #[test]
@@ -901,10 +817,7 @@ mod tests {
         let private_only: &[&str] =
             &["m.sso", "io.hula.friends", "io.hula.widget", "io.hula.burn_after_read", "io.hula.sliding_sync"];
         for key in private_only {
-            assert!(
-                !capabilities.contains_key(*key),
-                "private capability leaked to unauthenticated user: {key}"
-            );
+            assert!(!capabilities.contains_key(*key), "private capability leaked to unauthenticated user: {key}");
         }
     }
 

@@ -198,7 +198,8 @@ pub async fn get_destination_rooms(
     State(state): State<AppState>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_list = state.services.admin.federation.admin_federation_service.get_destination_rooms(&destination).await?;
+    let room_list =
+        state.services.admin.federation.admin_federation_service.get_destination_rooms(&destination).await?;
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -214,7 +215,8 @@ pub async fn rewrite_federation(
     let rooms_count = state
         .services
         .admin
-        .federation.admin_federation_service
+        .federation
+        .admin_federation_service
         .rewrite_federation(from_server, to_server, &admin.user_id)
         .await?;
 
@@ -261,7 +263,8 @@ pub async fn confirm_federation(
     let result = state
         .services
         .admin
-        .federation.admin_federation_service
+        .federation
+        .admin_federation_service
         .confirm_federation(&body.server_name, body.accept, &admin.user_id)
         .await?;
 
@@ -314,7 +317,8 @@ pub async fn get_blacklist(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (blacklist, next_batch) = state.services.admin.federation.federation_blacklist_service.get_blacklist(limit, from).await?;
+    let (blacklist, next_batch) =
+        state.services.admin.federation.federation_blacklist_service.get_blacklist(limit, from).await?;
 
     let list: Vec<Value> = blacklist
         .iter()
@@ -350,7 +354,13 @@ pub async fn remove_from_blacklist(
     State(state): State<AppState>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.federation.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
+    state
+        .services
+        .admin
+        .federation
+        .admin_federation_service
+        .remove_from_blacklist(&server_name, &admin.user_id)
+        .await?;
     Ok(Json(json!({})))
 }
 

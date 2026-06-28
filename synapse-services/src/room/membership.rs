@@ -87,11 +87,7 @@ impl RoomService {
             .map_err(|e| ApiError::internal_with_log("Failed to check shared room membership", &e))
     }
 
-    pub async fn share_common_rooms_batch(
-        &self,
-        user_id: &str,
-        other_user_ids: &[String],
-    ) -> ApiResult<Vec<String>> {
+    pub async fn share_common_rooms_batch(&self, user_id: &str, other_user_ids: &[String]) -> ApiResult<Vec<String>> {
         self.member_storage
             .share_common_rooms_batch(user_id, other_user_ids)
             .await

@@ -74,7 +74,8 @@ pub async fn cleanup_all(
     let email_tokens = state
         .services
         .admin
-        .user.email_verification_storage
+        .user
+        .email_verification_storage
         .cleanup_expired_tokens()
         .await
         .map_err(|e| ApiError::internal_with_log("Email token cleanup failed", &e))?;

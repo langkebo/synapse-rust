@@ -13,11 +13,7 @@ async fn setup_test_app() -> Option<axum::Router> {
 async fn test_security_header_x_content_type_options_nosniff() {
     let app = setup_test_app().await.expect("test app should start");
 
-    let request = Request::builder()
-        .method("GET")
-        .uri("/health")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().method("GET").uri("/health").body(Body::empty()).unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -35,11 +31,7 @@ async fn test_security_header_x_content_type_options_nosniff() {
 async fn test_security_header_referrer_policy() {
     let app = setup_test_app().await.expect("test app should start");
 
-    let request = Request::builder()
-        .method("GET")
-        .uri("/health")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().method("GET").uri("/health").body(Body::empty()).unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -57,11 +49,7 @@ async fn test_security_header_referrer_policy() {
 async fn test_security_header_full_set() {
     let app = setup_test_app().await.expect("test app should start");
 
-    let request = Request::builder()
-        .method("GET")
-        .uri("/health")
-        .body(Body::empty())
-        .unwrap();
+    let request = Request::builder().method("GET").uri("/health").body(Body::empty()).unwrap();
 
     let response = ServiceExt::<Request<Body>>::oneshot(app, request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -92,10 +80,8 @@ async fn test_security_header_full_set() {
     assert_eq!(nosniff, "nosniff");
 
     // Referrer-Policy
-    let referrer = headers
-        .get("referrer-policy")
-        .and_then(|v| v.to_str().ok())
-        .expect("Referrer-Policy header must be present");
+    let referrer =
+        headers.get("referrer-policy").and_then(|v| v.to_str().ok()).expect("Referrer-Policy header must be present");
     assert_eq!(referrer, "strict-origin-when-cross-origin");
 
     // HSTS (enabled by default with max-age=31536000)

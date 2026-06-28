@@ -431,7 +431,8 @@ pub async fn claim_next_task(
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task: WorkerTaskAssignment = state.services.admin.modules.worker_manager.claim_next_pending_task(&worker_id).await?;
+    let task: WorkerTaskAssignment =
+        state.services.admin.modules.worker_manager.claim_next_pending_task(&worker_id).await?;
 
     Ok(Json(WorkerTaskResponse::from(task)))
 }
@@ -506,7 +507,13 @@ pub async fn update_replication_position(
     Path((worker_id, stream_name)): Path<(String, String)>,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
+    state
+        .services
+        .admin
+        .modules
+        .worker_manager
+        .update_replication_position(&worker_id, &stream_name, body.position)
+        .await?;
 
     Ok(status_json("updated"))
 }
@@ -558,7 +565,8 @@ pub async fn select_worker(
     Path(task_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_id_opt: Option<String> = state.services.admin.modules.worker_manager.select_worker_for_task(&task_type).await?;
+    let worker_id_opt: Option<String> =
+        state.services.admin.modules.worker_manager.select_worker_for_task(&task_type).await?;
     let worker_id = worker_id_opt.ok_or_else(|| ApiError::not_found("No worker found for task type"))?;
 
     Ok(Json(serde_json::json!({

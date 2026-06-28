@@ -45,10 +45,7 @@ pub struct EmptyQuery {}
 // ---------------------------------------------------------------------------
 
 fn to_route_checks(entries: &[RouteEntry]) -> Vec<RouteCheck> {
-    entries
-        .iter()
-        .map(|e| RouteCheck::new(e.method.as_str().to_string(), e.path))
-        .collect()
+    entries.iter().map(|e| RouteCheck::new(e.method.as_str().to_string(), e.path)).collect()
 }
 
 /// Collect all registered route entries from every manifest that capability
@@ -63,12 +60,8 @@ pub(crate) fn collect_route_surface() -> Vec<RouteCheck> {
     routes.extend(to_route_checks(&sliding_sync::sliding_sync_route_manifest()));
     routes.extend(to_route_checks(&account_compat::account_compat_route_manifest()));
     routes.extend(to_route_checks(&crate::web::routes::voip::voip_route_manifest()));
-    routes.extend(to_route_checks(
-        &crate::web::routes::handlers::search::search_route_manifest(),
-    ));
-    routes.extend(to_route_checks(
-        &crate::web::routes::handlers::thread::thread_route_manifest(),
-    ));
+    routes.extend(to_route_checks(&crate::web::routes::handlers::search::search_route_manifest()));
+    routes.extend(to_route_checks(&crate::web::routes::handlers::thread::thread_route_manifest()));
 
     // Feature-gated manifests — when the feature is disabled, the manifest
     // function may not exist at compile time. CapabilityGovernance will
@@ -91,9 +84,7 @@ pub(crate) fn collect_route_surface() -> Vec<RouteCheck> {
     }
     #[cfg(feature = "external-services")]
     {
-        routes.extend(to_route_checks(
-            &crate::web::routes::external_service::external_service_route_manifest(),
-        ));
+        routes.extend(to_route_checks(&crate::web::routes::external_service::external_service_route_manifest()));
     }
 
     routes

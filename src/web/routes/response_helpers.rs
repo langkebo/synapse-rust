@@ -51,23 +51,14 @@ pub(crate) async fn filter_users_with_shared_rooms(
     let mut allowed = HashSet::new();
     allowed.insert(current_user_id.to_string());
 
-    let others: Vec<String> = requested_users
-        .iter()
-        .filter(|uid| uid.as_str() != current_user_id)
-        .cloned()
-        .collect();
+    let others: Vec<String> = requested_users.iter().filter(|uid| uid.as_str() != current_user_id).cloned().collect();
 
     if others.is_empty() {
         return allowed;
     }
 
-    let shared = state
-        .services
-        .rooms
-        .room_service
-        .share_common_rooms_batch(current_user_id, &others)
-        .await
-        .unwrap_or_default();
+    let shared =
+        state.services.rooms.room_service.share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
 
     for uid in shared {
         allowed.insert(uid);

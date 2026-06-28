@@ -134,7 +134,8 @@ pub async fn set_user_rate_limit(
     let limit = state
         .services
         .admin
-        .security.admin_security_service
+        .security
+        .admin_security_service
         .set_user_rate_limit(&user_id, messages_per_second, burst_count)
         .await?;
 

@@ -74,7 +74,8 @@ pub async fn set_retention_policy(
     let policy = state
         .services
         .admin
-        .modules.retention_service
+        .modules
+        .retention_service
         .upsert_server_policy(UpdateServerRetentionPolicyRequest {
             max_lifetime: body.max_lifetime,
             min_lifetime: body.min_lifetime,
@@ -133,7 +134,8 @@ pub async fn set_room_retention_policy(
     let policy = state
         .services
         .admin
-        .modules.retention_service
+        .modules
+        .retention_service
         .set_room_policy(CreateRoomRetentionPolicyRequest {
             room_id: room_id.clone(),
             max_lifetime: body.max_lifetime,

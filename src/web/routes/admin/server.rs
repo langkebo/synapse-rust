@@ -165,8 +165,10 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_rooms = state.services.rooms.room_service.get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
-    let daily_active_users = state.services.account.account_identity_service.get_daily_active_users().await.unwrap_or(0);
-    let monthly_active_users = state.services.account.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
+    let daily_active_users =
+        state.services.account.account_identity_service.get_daily_active_users().await.unwrap_or(0);
+    let monthly_active_users =
+        state.services.account.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
     let r30_users = state.services.account.account_identity_service.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.

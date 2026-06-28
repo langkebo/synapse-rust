@@ -301,7 +301,8 @@ pub async fn register_virtual_user(
     let user = state
         .services
         .admin
-        .modules.app_service_manager
+        .modules
+        .app_service_manager
         .register_virtual_user(&as_id, &body.user_id, body.displayname.as_deref(), body.avatar_url.as_deref())
         .await?;
 
@@ -349,7 +350,8 @@ pub async fn push_event(
     let event = state
         .services
         .admin
-        .modules.app_service_manager
+        .modules
+        .app_service_manager
         .push_event(&as_id, &body.room_id, &body.event_type, &body.sender, body.content, body.state_key.as_deref())
         .await?;
 

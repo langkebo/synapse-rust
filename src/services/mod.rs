@@ -14,9 +14,9 @@ pub use synapse_services::{
     application_service, background_update_service, captcha_service, client_push_service, content_scanner,
     database_initializer, dehydrated_device_service, e2ee_audit, event_notifier, event_report_service,
     feature_flag_service, federation_blacklist_service, identity, media, media_quota_service, media_service,
-    module_service, oidc_service, push, push_notification_service, refresh_token_service,
-    registration_service, registration_token_service, relations_service, retention_service, room,
-    search_service, sliding_sync_service, sync_service, telemetry_service, thread_service, translation_service,
+    module_service, oidc_service, push, push_notification_service, refresh_token_service, registration_service,
+    registration_token_service, relations_service, retention_service, room, search_service, sliding_sync_service,
+    sync_service, telemetry_service, thread_service, translation_service,
 };
 
 pub use synapse_services::{directory_service, typing_service, uia_service};
@@ -32,9 +32,8 @@ pub use synapse_services::{
     admin_audit_service::*, admin_federation_service::*, admin_media_service::*, admin_registration_service::*,
     admin_security_service::*, admin_server_service::*, admin_token_service::*, admin_user_service::*,
     application_service::*, dehydrated_device_service::*, directory_service::*, feature_flag_service::*,
-    media_service::*, push::service::*, registration_service::*, room::service::*,
-    room::space::*, room::summary::*, search_service::*, sliding_sync_service::*, sync_service::*,
-    typing_service::*,
+    media_service::*, push::service::*, registration_service::*, room::service::*, room::space::*, room::summary::*,
+    search_service::*, sliding_sync_service::*, sync_service::*, typing_service::*,
 };
 
 pub use synapse_services::oidc_service::OidcService;

@@ -24,11 +24,7 @@ async fn test_fallback_unknown_path_returns_404_json() {
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
     assert!(content_type.contains("application/json"), "expected application/json, got: {content_type}");
 
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
@@ -53,16 +49,14 @@ async fn test_method_not_allowed_returns_405_json() {
 
     assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let content_type = response.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
     assert!(content_type.contains("application/json"), "expected application/json, got: {content_type}");
 
     let body = axum::body::to_bytes(response.into_body(), 1024).await.unwrap();
     let json: Value = serde_json::from_slice(&body).expect("body should be valid JSON");
     assert_eq!(json["errcode"], "M_UNRECOGNIZED");
-    assert!(json["error"].as_str().unwrap_or("").contains("Method not allowed"),
-        "error message should mention method not allowed");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("Method not allowed"),
+        "error message should mention method not allowed"
+    );
 }

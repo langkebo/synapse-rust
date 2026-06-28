@@ -171,7 +171,8 @@ pub(crate) async fn request_email_verification_with_submit_path(
     let token_id = state
         .services
         .admin
-        .user.email_verification_storage
+        .user
+        .email_verification_storage
         .create_verification_token(email, &token, 3600, user_id, Some(session_data))
         .await
         .map_err(|e| {

@@ -120,7 +120,8 @@ pub async fn create_registration_token(
     let registration_token = state
         .services
         .admin
-        .user.admin_token_service
+        .user
+        .admin_token_service
         .create_registration_token(Some(token), max_uses, body.expiry_time, &admin.user_id)
         .await?;
 
@@ -176,7 +177,8 @@ pub async fn update_registration_token(
     let row = state
         .services
         .admin
-        .user.admin_token_service
+        .user
+        .admin_token_service
         .update_registration_token(&token, body.uses_allowed, body.expiry_time)
         .await?;
 

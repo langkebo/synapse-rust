@@ -70,7 +70,8 @@ pub async fn detailed_health_check(
     let missing_tables = state
         .services
         .admin
-        .security.admin_server_service
+        .security
+        .admin_server_service
         .validate_required_tables(&required_tables)
         .await
         .unwrap_or_else(|_| required_tables.iter().map(|table| (*table).to_string()).collect());

@@ -169,7 +169,8 @@ pub async fn get_update(
     let update = state
         .services
         .admin
-        .modules.background_update_service
+        .modules
+        .background_update_service
         .get_update(&job_name)
         .await?
         .ok_or_else(|| ApiError::not_found("Update not found"))?;
@@ -236,7 +237,8 @@ pub async fn update_progress(
     let update = state
         .services
         .admin
-        .modules.background_update_service
+        .modules
+        .background_update_service
         .update_progress(&job_name, body.items_processed, body.total_items)
         .await?;
 
@@ -259,7 +261,8 @@ pub async fn fail_update(
     Path(job_name): Path<String>,
     Json(body): Json<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state.services.admin.modules.background_update_service.fail_update(&job_name, &body.error_message).await?;
+    let update =
+        state.services.admin.modules.background_update_service.fail_update(&job_name, &body.error_message).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }

@@ -369,7 +369,6 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
     Ok(result)
 }
 
-
 async fn build_room_hierarchy_response(
     state: &AppState,
     room_id: &str,

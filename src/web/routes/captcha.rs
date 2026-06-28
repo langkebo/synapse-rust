@@ -75,7 +75,8 @@ pub async fn get_captcha_status(
     let captcha = state
         .services
         .admin
-        .security.captcha_service
+        .security
+        .captcha_service
         .get_captcha(&query.captcha_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Captcha not found"))?;

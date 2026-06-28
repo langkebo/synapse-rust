@@ -252,8 +252,7 @@ mod tests {
     }
 
     fn build_request_with_token(token: Option<&str>) -> Request<Body> {
-        let mut req =
-            Request::builder().uri("https://test.local/_matrix/client/v3/sync");
+        let mut req = Request::builder().uri("https://test.local/_matrix/client/v3/sync");
         if let Some(t) = token {
             req = req.header(header::AUTHORIZATION, format!("Bearer {t}"));
         }
@@ -303,10 +302,7 @@ mod tests {
         let req = build_request_with_token(Some("non-admin-token"));
 
         // The token is structurally present (but not an admin token):
-        assert_eq!(
-            extract_token_from_headers(req.headers()).unwrap(),
-            "non-admin-token"
-        );
+        assert_eq!(extract_token_from_headers(req.headers()).unwrap(), "non-admin-token");
         // Full privilege checking requires a running server with token
         // storage -- covered by integration tests.
 

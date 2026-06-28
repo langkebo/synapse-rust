@@ -2,8 +2,8 @@ use crate::auth::AuthService;
 use crate::uia_service::UiaService;
 use serde_json::Value;
 use std::collections::HashMap;
-use synapse_common::error::ApiError;
 use std::sync::Arc;
+use synapse_common::error::ApiError;
 use synapse_storage::{ThreepidStorage, User, UserDirectorySearchResult, UserSearchResult, UserStore, UserThreepid};
 
 #[derive(Clone)]
@@ -115,7 +115,12 @@ impl AccountIdentityService {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn search_directory_users(&self, search_term: &str, limit: i64, exact_only: bool) -> Result<Vec<UserDirectorySearchResult>, ApiError> {
+    pub async fn search_directory_users(
+        &self,
+        search_term: &str,
+        limit: i64,
+        exact_only: bool,
+    ) -> Result<Vec<UserDirectorySearchResult>, ApiError> {
         self.user_storage
             .search_directory_users(search_term, limit, exact_only)
             .await
@@ -140,10 +145,7 @@ impl AccountIdentityService {
 
     #[tracing::instrument(skip(self))]
     pub async fn get_r30_users(&self) -> Result<i64, ApiError> {
-        self.user_storage
-            .get_r30_users()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
+        self.user_storage.get_r30_users().await.map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
     }
 
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {

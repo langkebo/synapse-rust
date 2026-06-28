@@ -355,7 +355,8 @@ pub async fn get_module(
     let module = state
         .services
         .admin
-        .modules.module_service
+        .modules
+        .module_service
         .get_module(&module_name)
         .await?
         .ok_or_else(|| ApiError::not_found("Module not found"))?;
@@ -469,7 +470,8 @@ pub async fn get_spam_check_result(
     let result = state
         .services
         .admin
-        .modules.module_service
+        .modules
+        .module_service
         .get_spam_check_result(&event_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Spam check result not found"))?;
@@ -544,7 +546,8 @@ pub async fn get_account_validity(
     let validity = state
         .services
         .admin
-        .modules.account_validity_service
+        .modules
+        .account_validity_service
         .get_validity(&user_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Account validity not found"))?;
@@ -567,7 +570,8 @@ pub async fn renew_account(
     let validity = state
         .services
         .admin
-        .modules.account_validity_service
+        .modules
+        .account_validity_service
         .renew_account(&user_id, &body.renewal_token, body.new_expiration_ts)
         .await?;
 
@@ -590,7 +594,8 @@ pub async fn create_password_auth_provider(
     let provider = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .create_password_auth_provider(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create password auth provider", &e))?;
@@ -605,7 +610,8 @@ pub async fn get_password_auth_providers(
     let providers = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .get_password_auth_providers()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get password auth providers", &e))?;
@@ -635,7 +641,8 @@ pub async fn create_media_callback(
     let callback = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .create_media_callback(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create media callback", &e))?;
@@ -651,7 +658,8 @@ pub async fn get_media_callbacks(
     let callbacks = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .get_media_callbacks(Some(&callback_type))
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
@@ -668,7 +676,8 @@ pub async fn get_all_media_callbacks(
     let callbacks = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .get_media_callbacks(None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get media callbacks", &e))?;
@@ -694,7 +703,8 @@ pub async fn create_account_data_callback(
     let callback = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .create_account_data_callback(request)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create account data callback", &e))?;
@@ -709,7 +719,8 @@ pub async fn get_account_data_callbacks(
     let callbacks = state
         .services
         .admin
-        .modules.module_storage
+        .modules
+        .module_storage
         .get_account_data_callbacks()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get account data callbacks", &e))?;

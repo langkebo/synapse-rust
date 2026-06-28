@@ -185,7 +185,8 @@ async fn verify_additional_registration_controls(
         let verified = state
             .services
             .admin
-            .security.captcha_service
+            .security
+            .captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
             .map_err(|e| register_error_response(400, "M_FORBIDDEN", &e.to_string()))?;
@@ -229,17 +230,14 @@ async fn get_nonce(
     }
 
     ensure_admin_registration_environment(config.admin_registration.production_only).map_err(|response| *response)?;
-    ensure_admin_registration_ip_policy(
-        &headers,
-        &connect_info,
-        &config.admin_registration.ip_whitelist,
-    )
-    .map_err(|response| *response)?;
+    ensure_admin_registration_ip_policy(&headers, &connect_info, &config.admin_registration.ip_whitelist)
+        .map_err(|response| *response)?;
 
     let response = state
         .services
         .admin
-        .user.admin_registration_service
+        .user
+        .admin_registration_service
         .generate_nonce()
         .await
         .map_err(map_admin_register_service_error)?;
@@ -268,19 +266,16 @@ async fn register(
     }
 
     ensure_admin_registration_environment(config.admin_registration.production_only).map_err(|response| *response)?;
-    ensure_admin_registration_ip_policy(
-        &headers,
-        &connect_info,
-        &config.admin_registration.ip_whitelist,
-    )
-    .map_err(|response| *response)?;
+    ensure_admin_registration_ip_policy(&headers, &connect_info, &config.admin_registration.ip_whitelist)
+        .map_err(|response| *response)?;
     verify_additional_registration_controls(&state, &payload).await?;
 
     let display_name = payload.displayname.clone().unwrap_or_else(|| payload.username.clone());
     let response = state
         .services
         .admin
-        .user.admin_registration_service
+        .user
+        .admin_registration_service
         .register_admin_user(AdminRegisterRequest {
             nonce: payload.nonce.clone(),
             username: payload.username.clone(),

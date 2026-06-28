@@ -678,11 +678,7 @@ fn assemble_admin_support(
             federation_blacklist_storage,
             federation_blacklist_service,
         },
-        media: AdminMediaServices {
-            admin_media_service,
-            media_quota_storage,
-            media_quota_service,
-        },
+        media: AdminMediaServices { admin_media_service, media_quota_storage, media_quota_service },
         security: AdminSecurityServices {
             admin_security_service,
             captcha_storage,
@@ -791,8 +787,7 @@ fn assemble_sso(pool: &Arc<sqlx::PgPool>, config: &Config) -> SsoServices {
     }
 
     // OIDC mapping storage
-    let oidc_mapping_storage =
-        synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone());
+    let oidc_mapping_storage = synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone());
 
     SsoServices {
         #[cfg(feature = "saml-sso")]
