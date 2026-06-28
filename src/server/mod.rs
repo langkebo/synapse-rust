@@ -22,6 +22,7 @@ use synapse_storage::*;
 mod database;
 mod router;
 mod services;
+pub mod telemetry;
 
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
 
