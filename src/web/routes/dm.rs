@@ -1,7 +1,7 @@
 // Direct Message Routes - 直接消息路由
 // DM room creation and management
 
-use crate::services::friend_room_service::FriendRoomCreateRoomConfig;
+use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},

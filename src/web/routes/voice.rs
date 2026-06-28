@@ -1,7 +1,7 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::ApiError;
-use crate::services::voice_service::VoiceMessageUploadParams;
+use synapse_services::voice_service::VoiceMessageUploadParams;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post},

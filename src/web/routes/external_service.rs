@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::common::ApiError;
-use crate::services::external_service_integration::*;
+use synapse_services::external_service_integration::*;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 

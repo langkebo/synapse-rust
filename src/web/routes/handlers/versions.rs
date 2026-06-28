@@ -30,7 +30,7 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
-use crate::services::CapabilityGovernance;
+use synapse_services::capability_governance::CapabilityGovernance;
 use synapse_services::capability_governance::RouteCheck;
 
 /// Empty query params marker used as the last handler parameter so that

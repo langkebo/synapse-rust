@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::{RoomEventsSearchFilter, TimestampDirection};
+use synapse_services::search_service::{RoomEventsSearchFilter, TimestampDirection};
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
     AuthenticatedUser,

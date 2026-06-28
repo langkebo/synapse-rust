@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use crate::services::thread_service::{
+use synapse_services::thread_service::{
     CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
     SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
 };
