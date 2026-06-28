@@ -17,6 +17,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::future::Future;
 use url::Url;
 
+use crate::web::utils::ip::extract_client_ip;
+
 /// Axum extractor that only allows requests from localhost.
 /// Non-local requests receive 403 with a descriptive error.
 pub struct LocalhostGuard;
@@ -47,20 +49,59 @@ where
                 }
             };
 
-            if remote_ip.is_loopback() {
-                return Ok(LocalhostGuard);
+            let is_loopback = remote_ip.is_loopback();
+            let is_proxied_localhost =
+                is_local_proxy_ip(remote_ip) && request_targets_localhost(&headers);
+
+            if !is_loopback && !is_proxied_localhost {
+                return Err(register_error_response(
+                    403,
+                    "M_FORBIDDEN",
+                    "Admin registration is only available from localhost",
+                ));
             }
 
-            // Allow proxied local requests from private IPs
-            if is_local_proxy_ip(remote_ip) && request_targets_localhost(&headers) {
-                return Ok(LocalhostGuard);
+            // C1: Check forwarded client IP — even when the direct connection appears
+            // to be loopback or a trusted proxy, a forwarded-for header may reveal the
+            // true client. Reject any non-local client IP.
+            if let Some(client_ip) = extract_registration_client_ip(&headers) {
+                if !is_local_client_ip(&client_ip) {
+                    return Err(register_error_response(
+                        403,
+                        "M_FORBIDDEN",
+                        "Admin registration is only available from localhost",
+                    ));
+                }
             }
 
-            Err(register_error_response(
-                403,
-                "M_FORBIDDEN",
-                "Admin registration is only available from localhost",
-            ))
+            // C2: Enforce origin header — reject non-local origins arriving over
+            // loopback or trusted proxy connections.
+            if let Some(origin) =
+                headers.get("origin").and_then(|value| value.to_str().ok())
+            {
+                if !is_local_registration_origin(origin) {
+                    return Err(register_error_response(
+                        403,
+                        "M_FORBIDDEN",
+                        "Admin registration origin is not allowed",
+                    ));
+                }
+            }
+
+            // C3: Enforce referer header — apply same local-only policy as origin.
+            if let Some(referer) =
+                headers.get("referer").and_then(|value| value.to_str().ok())
+            {
+                if !is_local_registration_origin(referer) {
+                    return Err(register_error_response(
+                        403,
+                        "M_FORBIDDEN",
+                        "Admin registration origin is not allowed",
+                    ));
+                }
+            }
+
+            Ok(LocalhostGuard)
         }
     }
 }
@@ -82,6 +123,29 @@ pub(crate) fn register_error_response(status: u16, errcode: &str, error: &str) -
         axum::http::HeaderValue::from_static("application/json"),
     );
     response
+}
+
+/// Extract the forwarded client IP from request headers using the standard
+/// x-forwarded-for / x-real-ip / forwarded priority order.
+/// Mirrors `extract_registration_client_ip` from the original admin/register.rs.
+fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
+    let priority = vec![
+        "x-forwarded-for".to_string(),
+        "x-real-ip".to_string(),
+        "forwarded".to_string(),
+    ];
+    extract_client_ip(headers, &priority)
+}
+
+/// Returns true when the supplied string is either the literal "localhost" or
+/// a parseable loopback address.
+fn is_local_client_ip(ip: &str) -> bool {
+    if ip.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    ip.parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 fn is_local_registration_origin(value: &str) -> bool {
@@ -198,5 +262,59 @@ mod tests {
     #[test]
     fn test_local_registration_host_remote() {
         assert!(!is_local_registration_host("evil.example.com"));
+    }
+
+    #[test]
+    fn test_is_local_client_ip() {
+        assert!(is_local_client_ip("127.0.0.1"));
+        assert!(is_local_client_ip("::1"));
+        assert!(is_local_client_ip("localhost"));
+        assert!(!is_local_client_ip("203.0.113.9"));
+        assert!(!is_local_client_ip("evil.example.com"));
+    }
+
+    /// Ported from `test_ensure_local_admin_registration_request_rejects_non_local_origin`
+    /// in the original admin/register.rs. Verifies that a connection from loopback with a
+    /// non-local origin header is rejected.
+    #[test]
+    fn test_localhost_guard_rejects_non_local_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "https://evil.example.com".parse().unwrap());
+        let uri = "/_synapse/admin/v1/register"
+            .parse::<axum::http::Uri>()
+            .unwrap();
+        let mut parts = Parts::default();
+        parts.uri = uri;
+        parts.headers = headers;
+        parts.extensions.insert(ConnectInfo(
+            "127.0.0.1:8008".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
+        assert!(result.is_err());
+    }
+
+    /// Ported from `test_ensure_local_admin_registration_request_accepts_local_origin`
+    /// in the original admin/register.rs. Verifies that a connection from loopback with
+    /// local origin and referer headers is accepted.
+    #[test]
+    fn test_localhost_guard_accepts_local_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", "http://localhost:3000".parse().unwrap());
+        headers.insert("referer", "http://127.0.0.1:3000/setup".parse().unwrap());
+        let uri = "/_synapse/admin/v1/register"
+            .parse::<axum::http::Uri>()
+            .unwrap();
+        let mut parts = Parts::default();
+        parts.uri = uri;
+        parts.headers = headers;
+        parts.extensions.insert(ConnectInfo(
+            "127.0.0.1:8008".parse::<SocketAddr>().unwrap(),
+        ));
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
+        assert!(result.is_ok());
     }
 }
