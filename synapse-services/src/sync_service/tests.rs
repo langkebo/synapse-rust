@@ -1067,11 +1067,7 @@ fn test_build_room_sync_value_with_events() {
 
 #[test]
 fn test_build_room_sync_value_applies_timeline_limit() {
-    let events = vec![
-        sample_room_event("_1"),
-        sample_room_event("_2"),
-        sample_room_event("_3"),
-    ];
+    let events = vec![sample_room_event("_1"), sample_room_event("_2"), sample_room_event("_3")];
 
     let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
         events,

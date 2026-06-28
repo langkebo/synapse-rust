@@ -205,7 +205,8 @@ pub async fn get_users(
     let page = state
         .services
         .admin
-        .user.admin_user_service
+        .user
+        .admin_user_service
         .list_users_legacy(
             limit,
             cursor.as_ref().map(|cursor| cursor.created_ts),
@@ -489,7 +490,8 @@ pub async fn get_user_rooms_admin(
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
     let from = params.get("from").map(|s| s.as_str());
 
-    let room_ids = state.services.admin.user.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
+    let room_ids =
+        state.services.admin.user.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
 
     let next_batch = if room_ids.len() as i64 == limit { room_ids.last().cloned() } else { None };
 
@@ -645,7 +647,8 @@ pub async fn get_users_v2(
     let page = state
         .services
         .admin
-        .user.admin_user_service
+        .user
+        .admin_user_service
         .list_users_v2(limit, cursor, params.get("name").map(String::as_str))
         .await?;
 
@@ -729,7 +732,8 @@ pub async fn create_or_update_user_v2(
     state
         .services
         .admin
-        .user.admin_user_service
+        .user
+        .admin_user_service
         .create_or_update_user_v2(
             &user_id,
             body.displayname.as_deref(),
@@ -894,7 +898,8 @@ pub async fn invalidate_user_sessions(
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&state, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed = state.services.admin.user.admin_user_service.get_user_device_count(&canonical_user_id).await?;
+    let sessions_removed =
+        state.services.admin.user.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
     state.services.core.auth_service.logout_all(&canonical_user_id).await?;
 
@@ -955,7 +960,8 @@ pub async fn update_account(
     state
         .services
         .admin
-        .user.admin_user_service
+        .user
+        .admin_user_service
         .update_account(canonical_user_id, body.displayname.as_deref(), body.avatar_url.as_deref(), body.admin)
         .await?;
 

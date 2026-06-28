@@ -44,8 +44,7 @@ async fn ensure_presence_access_or_shared_room(
 }
 
 async fn filter_visible_presence_targets(state: &AppState, current_user_id: &str, targets: &[String]) -> Vec<String> {
-    let allowed =
-        filter_users_with_shared_rooms(state, current_user_id, targets).await;
+    let allowed = filter_users_with_shared_rooms(state, current_user_id, targets).await;
 
     targets.iter().filter(|target_id| allowed.contains(*target_id)).cloned().collect()
 }
@@ -189,10 +188,8 @@ pub(crate) async fn presence_list(
         }));
     }
 
-    let present_user_ids: HashSet<String> = presences
-        .iter()
-        .filter_map(|p| p["user_id"].as_str().map(String::from))
-        .collect();
+    let present_user_ids: HashSet<String> =
+        presences.iter().filter_map(|p| p["user_id"].as_str().map(String::from)).collect();
 
     for target_id in &subscriptions {
         if !present_user_ids.contains(target_id.as_str()) {
@@ -236,10 +233,8 @@ pub(crate) async fn get_presence_list_no_path(
         }));
     }
 
-    let present_user_ids: HashSet<String> = presences
-        .iter()
-        .filter_map(|p| p["user_id"].as_str().map(String::from))
-        .collect();
+    let present_user_ids: HashSet<String> =
+        presences.iter().filter_map(|p| p["user_id"].as_str().map(String::from)).collect();
 
     for target_id in &subscriptions {
         if !present_user_ids.contains(target_id.as_str()) {
@@ -286,10 +281,8 @@ pub(crate) async fn get_presence_list(
         }));
     }
 
-    let present_user_ids: HashSet<String> = presences
-        .iter()
-        .filter_map(|p| p["user_id"].as_str().map(String::from))
-        .collect();
+    let present_user_ids: HashSet<String> =
+        presences.iter().filter_map(|p| p["user_id"].as_str().map(String::from)).collect();
 
     for target_id in &subscriptions {
         if !present_user_ids.contains(target_id.as_str()) {

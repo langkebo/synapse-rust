@@ -59,15 +59,9 @@ pub async fn security_headers_middleware(request: Request<Body>, next: axum::mid
         ),
     );
 
-    response.headers_mut().insert(
-        "X-Content-Type-Options",
-        HeaderValue::from_static("nosniff"),
-    );
+    response.headers_mut().insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
 
-    response.headers_mut().insert(
-        "Referrer-Policy",
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
+    response.headers_mut().insert("Referrer-Policy", HeaderValue::from_static("strict-origin-when-cross-origin"));
 
     response.headers_mut().insert(
         "Permissions-Policy",
@@ -367,20 +361,11 @@ mod tests {
                 .unwrap()
         }
 
-        let app = Router::new()
-            .route("/test", any(custom_405))
-            .layer(middleware::from_fn(method_not_allowed_middleware));
+        let app =
+            Router::new().route("/test", any(custom_405)).layer(middleware::from_fn(method_not_allowed_middleware));
 
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let response =
+            app.oneshot(Request::builder().method("POST").uri("/test").body(Body::empty()).unwrap()).await.unwrap();
 
         assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 

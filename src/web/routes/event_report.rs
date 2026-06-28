@@ -180,7 +180,8 @@ pub async fn get_report(
     let report = state
         .services
         .admin
-        .modules.event_report_service
+        .modules
+        .event_report_service
         .get_report(id)
         .await?
         .ok_or_else(|| ApiError::not_found("Report not found"))?;
@@ -211,7 +212,8 @@ pub async fn get_reports_by_room(
     let reports = state
         .services
         .admin
-        .modules.event_report_service
+        .modules
+        .event_report_service
         .get_reports_by_room(&room_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -231,7 +233,8 @@ pub async fn get_reports_by_reporter(
     let reports = state
         .services
         .admin
-        .modules.event_report_service
+        .modules
+        .event_report_service
         .get_reports_by_reporter(&reporter_user_id, limit, query.since_ts, query.since_id)
         .await?;
 
@@ -251,7 +254,8 @@ pub async fn get_reports_by_status(
     let reports = state
         .services
         .admin
-        .modules.event_report_service
+        .modules
+        .event_report_service
         .get_reports_by_status(&status, limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -270,7 +274,8 @@ pub async fn get_all_reports(
     let reports = state
         .services
         .admin
-        .modules.event_report_service
+        .modules
+        .event_report_service
         .get_all_reports(limit, query.since_score, query.since_ts, query.since_id)
         .await?;
 
@@ -288,7 +293,8 @@ pub async fn update_report(
     let request =
         UpdateEventReportRequest { status: body.status, score: body.score, resolved_by: None, resolution_reason: None };
 
-    let report = state.services.admin.modules.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
+    let report =
+        state.services.admin.modules.event_report_service.update_report(id, request, &_auth_user.user_id).await?;
 
     Ok(Json(ReportResponse::from(report)))
 }
@@ -369,7 +375,13 @@ pub async fn block_user(
     Path(user_id): Path<String>,
     Json(body): Json<BlockUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.event_report_service.block_user_reports(&user_id, body.blocked_until, &body.reason).await?;
+    state
+        .services
+        .admin
+        .modules
+        .event_report_service
+        .block_user_reports(&user_id, body.blocked_until, &body.reason)
+        .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

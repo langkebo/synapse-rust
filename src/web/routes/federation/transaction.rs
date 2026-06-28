@@ -359,9 +359,7 @@ pub(super) async fn send_transaction(
         // persistence — the event graph will have a gap, but the PDU itself is
         // still stored.
         if !prev_events.is_empty() {
-            if let Ok(missing) =
-                state.services.rooms.room_service.find_missing_event_ids(&prev_events).await
-            {
+            if let Ok(missing) = state.services.rooms.room_service.find_missing_event_ids(&prev_events).await {
                 if !missing.is_empty() {
                     ::tracing::debug!(
                         request_id = %request_id,

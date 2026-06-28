@@ -26,7 +26,8 @@ pub(crate) async fn device_list_update(
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
 
-    let users: Vec<String> = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
+    let users: Vec<String> =
+        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
 
     let since = body.get("since").or_else(|| body.get("from")).and_then(|v| v.as_str()).and_then(parse_stream_id);
 

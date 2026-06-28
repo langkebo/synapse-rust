@@ -160,7 +160,8 @@ pub async fn admin_auth_middleware(
             if let Err(error) = state
                 .services
                 .admin
-                .security.admin_audit_service
+                .security
+                .admin_audit_service
                 .create_event(CreateAuditEventRequest {
                     actor_id,
                     action: format!("{method} {path}"),
@@ -196,7 +197,8 @@ pub async fn admin_auth_middleware(
     if let Err(error) = state
         .services
         .admin
-        .security.admin_audit_service
+        .security
+        .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: admin.user_id.clone(),
             action: format!("{method} {path}"),

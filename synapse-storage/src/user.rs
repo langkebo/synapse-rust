@@ -232,10 +232,7 @@ pub trait UserStore: Send + Sync {
 
     async fn get_user_profiles_batch(&self, user_ids: &[String]) -> Result<Vec<UserProfile>, sqlx::Error>;
 
-    async fn get_user_profiles_map(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
+    async fn get_user_profiles_map(&self, user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error>;
 
     async fn get_users_batch(&self, user_ids: &[String]) -> Result<Vec<User>, sqlx::Error>;
 
@@ -1556,10 +1553,7 @@ impl UserStore for UserStorage {
         self.get_user_profiles_batch(user_ids).await
     }
 
-    async fn get_user_profiles_map(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+    async fn get_user_profiles_map(&self, user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
         self.get_user_profiles_map(user_ids).await
     }
 

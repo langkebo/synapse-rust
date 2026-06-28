@@ -19,10 +19,10 @@ use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
 use synapse_rust::storage::user::UserStorage;
-use synapse_storage::user::UserStore;
 use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
 use synapse_rust::PresenceStorage;
+use synapse_storage::user::UserStore;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(

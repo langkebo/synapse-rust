@@ -225,7 +225,8 @@ pub async fn list_alerts(
     let alerts = state
         .services
         .admin
-        .security.telemetry_alert_service
+        .security
+        .telemetry_alert_service
         .list_alerts(&TelemetryAlertFilters { status: query.status, severity: query.severity })?;
 
     Ok(Json(TelemetryAlertsResponse { alerts }))
@@ -237,12 +238,14 @@ pub async fn acknowledge_alert(
     Path(alert_id): Path<String>,
     admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let alert = state.services.admin.security.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
+    let alert =
+        state.services.admin.security.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
     state
         .services
         .admin
-        .security.admin_audit_service
+        .security
+        .admin_audit_service
         .create_event(crate::storage::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),

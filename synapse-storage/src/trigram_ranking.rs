@@ -7,10 +7,7 @@ pub struct TrigramRanking {
 
 impl TrigramRanking {
     pub fn new(column: &str, table: &str) -> Self {
-        Self {
-            column: column.to_string(),
-            table: table.to_string(),
-        }
+        Self { column: column.to_string(), table: table.to_string() }
     }
 
     /// Returns the CASE expression for match priority:
@@ -53,19 +50,10 @@ impl TrigramRanking {
     ///           WHERE (<where_clause>)
     ///           [AND <column> IS NOT NULL]
     ///           [AND <extra_where>]
-    pub fn column_match_subquery(
-        &self,
-        select_fields: &str,
-        extra_where: Option<&str>,
-        null_check: bool,
-    ) -> String {
+    pub fn column_match_subquery(&self, select_fields: &str, extra_where: Option<&str>, null_check: bool) -> String {
         let col = &self.column;
         let table = &self.table;
-        let null_guard = if null_check {
-            format!("AND {col} IS NOT NULL")
-        } else {
-            String::new()
-        };
+        let null_guard = if null_check { format!("AND {col} IS NOT NULL") } else { String::new() };
         let extra = extra_where.map(|w| format!("AND {w}")).unwrap_or_default();
         format!(
             "SELECT {select_fields},
@@ -116,11 +104,7 @@ mod tests {
     #[test]
     fn test_column_match_subquery_with_null_check() {
         let ranking = TrigramRanking::new("displayname", "users");
-        let subquery = ranking.column_match_subquery(
-            "user_id",
-            Some("COALESCE(is_deactivated, FALSE) = FALSE"),
-            true,
-        );
+        let subquery = ranking.column_match_subquery("user_id", Some("COALESCE(is_deactivated, FALSE) = FALSE"), true);
         assert!(subquery.contains("SELECT user_id"));
         assert!(subquery.contains("COALESCE(similarity(displayname, $4), 0.0) AS match_similarity"));
         assert!(subquery.contains("AND displayname IS NOT NULL"));
@@ -130,11 +114,7 @@ mod tests {
     #[test]
     fn test_column_match_subquery_without_null_check() {
         let ranking = TrigramRanking::new("username", "users");
-        let subquery = ranking.column_match_subquery(
-            "user_id",
-            Some("COALESCE(is_deactivated, FALSE) = FALSE"),
-            false,
-        );
+        let subquery = ranking.column_match_subquery("user_id", Some("COALESCE(is_deactivated, FALSE) = FALSE"), false);
         assert!(subquery.contains("SELECT user_id"));
         assert!(subquery.contains("COALESCE(similarity(username, $4), 0.0) AS match_similarity"));
         assert!(!subquery.contains("IS NOT NULL"));

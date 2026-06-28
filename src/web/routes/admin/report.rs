@@ -73,8 +73,13 @@ pub async fn get_all_reports(
         ));
     }
 
-    let reports =
-        state.services.admin.modules.event_report_service.get_all_reports(limit, since_score, since_ts, since_id).await?;
+    let reports = state
+        .services
+        .admin
+        .modules
+        .event_report_service
+        .get_all_reports(limit, since_score, since_ts, since_id)
+        .await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -132,8 +137,13 @@ pub async fn get_room_reports(
         ));
     }
 
-    let reports =
-        state.services.admin.modules.event_report_service.get_reports_by_room(&room_id, limit, since_ts, since_id).await?;
+    let reports = state
+        .services
+        .admin
+        .modules
+        .event_report_service
+        .get_reports_by_room(&room_id, limit, since_ts, since_id)
+        .await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))

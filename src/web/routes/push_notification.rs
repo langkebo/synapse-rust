@@ -223,7 +223,8 @@ pub async fn delete_rule(
     state
         .services
         .admin
-        .modules.push_notification_service
+        .modules
+        .push_notification_service
         .delete_push_rule(&auth_user.user_id, &path.scope, &path.kind, &path.rule_id)
         .await?;
 

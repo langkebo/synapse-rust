@@ -1,11 +1,10 @@
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
-use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use crate::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary,
-    UserStore,
+    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserStatsSummary, UserStore,
 };
 
 /// In-memory adapter for UserStore — used in unit tests.
@@ -207,13 +206,7 @@ impl UserStore for FakeUserStore {
     // ---- stats / search methods (stubs) ----
 
     async fn get_user_stats_summary(&self) -> Result<UserStatsSummary, sqlx::Error> {
-        Ok(UserStatsSummary {
-            total_users: 0,
-            active_users: 0,
-            admin_users: 0,
-            deactivated_users: 0,
-            guest_users: 0,
-        })
+        Ok(UserStatsSummary { total_users: 0, active_users: 0, admin_users: 0, deactivated_users: 0, guest_users: 0 })
     }
 
     async fn count_sent_messages(&self, _user_id: &str) -> Result<i64, sqlx::Error> {
@@ -241,10 +234,7 @@ impl UserStore for FakeUserStore {
         Ok(vec![])
     }
 
-    async fn get_user_profiles_map(
-        &self,
-        _user_ids: &[String],
-    ) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
+    async fn get_user_profiles_map(&self, _user_ids: &[String]) -> Result<HashMap<String, UserProfile>, sqlx::Error> {
         Ok(HashMap::new())
     }
 

@@ -314,7 +314,8 @@ impl SynapseServer {
         if !config.server.app_service_config_files.is_empty() {
             let imported_services = services
                 .admin
-                .modules.app_service_manager
+                .modules
+                .app_service_manager
                 .load_from_config_files(&config.server.app_service_config_files)
                 .await?;
             ::tracing::info!(
@@ -446,7 +447,8 @@ impl SynapseServer {
 
         #[cfg(feature = "beacons")]
         let beacon_service = self.app_state.services.rooms.beacon_service.clone();
-        let background_tasks_interval = self.app_state.services.core.config.server.background_tasks_interval.max(MIN_BACKGROUND_INTERVAL_SECS);
+        let background_tasks_interval =
+            self.app_state.services.core.config.server.background_tasks_interval.max(MIN_BACKGROUND_INTERVAL_SECS);
         if run_global_maintenance {
             let retention_service = self.app_state.services.admin.modules.retention_service.clone();
             let retention_config = self.app_state.services.core.config.retention.clone();
@@ -561,7 +563,8 @@ impl SynapseServer {
             let mut media_cleanup_counter: u64 = 0;
             let mut federation_retry_counter: u64 = 0;
             tokio::spawn(async move {
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(BACKGROUND_TASK_INTERVAL_SECS));
+                let mut interval =
+                    tokio::time::interval(tokio::time::Duration::from_secs(BACKGROUND_TASK_INTERVAL_SECS));
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
@@ -664,7 +667,8 @@ impl SynapseServer {
             // automatically. Runs every 6 hours by default.
             let key_rotation_storage = self.app_state.services.core.key_rotation_storage.clone();
             tokio::spawn(async move {
-                let mut interval_timer = tokio::time::interval(tokio::time::Duration::from_secs(MEGOLM_CLEANUP_INTERVAL_SECS));
+                let mut interval_timer =
+                    tokio::time::interval(tokio::time::Duration::from_secs(MEGOLM_CLEANUP_INTERVAL_SECS));
                 interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 interval_timer.tick().await; // skip immediate tick after startup
 
