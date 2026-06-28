@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::services::{
+use synapse_services::admin_federation_service::{
     decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
     encode_pending_federation_cursor,
 };

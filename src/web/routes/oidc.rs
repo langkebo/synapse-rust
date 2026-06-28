@@ -3,8 +3,8 @@
 
 use crate::common::error::ApiError;
 #[cfg(feature = "builtin-oidc")]
-use crate::services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
-use crate::services::oidc_service::OidcService;
+use synapse_services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
+use synapse_services::oidc_service::OidcService;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Query, State},

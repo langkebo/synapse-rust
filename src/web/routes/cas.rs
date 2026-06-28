@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::cas_service::{CasRegisteredService, CasValidationResponse, RegisterServiceRequest};
+use synapse_services::cas_service::{CasRegisteredService, CasValidationResponse, RegisterServiceRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},

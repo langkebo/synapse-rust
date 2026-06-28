@@ -1,6 +1,6 @@
 use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
 use crate::common::ApiError;
-use crate::services::uia_service::UiaService;
+use synapse_services::uia_service::UiaService;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 use crate::web::routes::{extract_token_from_headers, validate_user_id, AppState};
 use crate::web::utils::auth::resolve_request_id;

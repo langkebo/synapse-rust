@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::auth::GuestAuthExt;
+use synapse_services::auth::GuestAuthExt;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;

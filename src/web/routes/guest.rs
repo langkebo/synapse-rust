@@ -1,4 +1,4 @@
-use crate::services::auth::GuestAuthExt;
+use synapse_services::auth::GuestAuthExt;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::State,

@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use crate::services::widget_service::{
+use synapse_services::widget_service::{
     CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
     UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
 };

@@ -1,5 +1,5 @@
 use crate::common::error::ApiError;
-use crate::services::push_notification_service::SendNotificationRequest;
+use synapse_services::push_notification_service::SendNotificationRequest;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},

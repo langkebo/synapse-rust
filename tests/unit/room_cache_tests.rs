@@ -1,4 +1,4 @@
-use crate::services::cache::room_cache::{CachedPresence, CachedRoomMember, CachedRoomSummary, RoomSummaryCache};
+use synapse_cache::room_cache::{CachedPresence, CachedRoomMember, CachedRoomSummary, RoomSummaryCache};
 
 fn create_test_cache() -> RoomSummaryCache {
     RoomSummaryCache::new(300)

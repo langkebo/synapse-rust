@@ -161,7 +161,7 @@ mod tests {
 // ============================================================================
 
 #[cfg(feature = "voip-tracking")]
-use crate::services::rtc::call::{CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent};
+use synapse_services::rtc::call::{CallAnswerEvent, CallCandidatesEvent, CallHangupEvent, CallInviteEvent};
 
 #[cfg(feature = "voip-tracking")]
 async fn ensure_call_room_member(

@@ -12,8 +12,8 @@ use tower_http::trace::TraceLayer;
 use crate::cache::*;
 use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
-use crate::services::database_initializer::DatabaseInitService; // explicit: removed from glob due to ambiguous re-export warning
-use crate::services::*;
+use crate::services::ServiceContainer;
+use synapse_services::database_initializer::DatabaseInitService;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, request_debug_middleware, request_timeout_middleware,
@@ -101,7 +101,7 @@ fn global_maintenance_tasks_enabled() -> bool {
 #[derive(Clone)]
 struct PrometheusMetricsState {
     metrics: Arc<crate::common::metrics::MetricsCollector>,
-    app_service_manager: Arc<crate::services::application_service::ApplicationServiceManager>,
+    app_service_manager: Arc<synapse_services::application_service::ApplicationServiceManager>,
 }
 
 fn dehydrated_device_cleanup_interval(configured_interval_secs: u64) -> Duration {

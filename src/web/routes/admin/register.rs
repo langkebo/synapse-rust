@@ -7,8 +7,8 @@
 
 use crate::common::error::MatrixErrorCode;
 use crate::common::ApiError;
-use crate::services::captcha_service::VerifyCaptchaRequest;
-use crate::services::AdminRegisterRequest;
+use synapse_services::captcha_service::VerifyCaptchaRequest;
+use synapse_services::admin_registration_service::AdminRegisterRequest;
 use crate::web::routes::extractors::localhost_guard::{register_error_response, LocalhostGuard};
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;

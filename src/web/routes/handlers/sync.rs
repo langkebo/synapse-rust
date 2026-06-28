@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::services::sync_service::SyncServiceRequest;
+use synapse_services::sync_service::SyncServiceRequest;
 use crate::web::routes::{extract_token_from_headers, AppState};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
