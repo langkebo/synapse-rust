@@ -182,6 +182,18 @@ impl RouteLedger {
     /// with overlapping methods, so we would rather fail cleanly at manifest
     /// validation than leave the panic to Axum's internals.
     pub fn validate(&self) -> Result<LedgerReport, DuplicateRouteError> {
+        // Emit a deprecation warning when any r0 routes remain registered.
+        // r0 is a legacy Matrix API version — clients should migrate to /v3/.
+        let r0_count = self.entries.iter().filter(|e| e.path.contains("/r0/")).count();
+        if r0_count > 0 {
+            ::tracing::warn!(
+                r0_routes = r0_count,
+                "{} r0 route(s) are deprecated and scheduled for removal. \
+                 Clients should migrate to /v3/ paths.",
+                r0_count,
+            );
+        }
+
         // `Method` doesn't implement `Ord`, so a `BTreeMap` is out — but its
         // `Hash + Eq` impls let us key a `HashMap` directly. We then sort the
         // duplicate report by `(method, path)` for stable diagnostics.
