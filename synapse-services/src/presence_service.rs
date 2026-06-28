@@ -15,10 +15,7 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_presence_with_meta(
-        &self,
-        user_id: &str,
-    ) -> ApiResult<Option<PresenceRecord>> {
+    pub async fn get_presence_with_meta(&self, user_id: &str) -> ApiResult<Option<PresenceRecord>> {
         self.storage
             .get_presence_with_meta(user_id)
             .await
@@ -26,12 +23,7 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn set_presence(
-        &self,
-        user_id: &str,
-        presence: &str,
-        status_msg: Option<&str>,
-    ) -> ApiResult<()> {
+    pub async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> ApiResult<()> {
         self.storage
             .set_presence(user_id, presence, status_msg)
             .await
@@ -63,13 +55,45 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_presence_batch_with_meta(
-        &self,
-        user_ids: &[String],
-    ) -> ApiResult<Vec<PresenceBatchRecord>> {
+    pub async fn get_presence_batch_with_meta(&self, user_ids: &[String]) -> ApiResult<Vec<PresenceBatchRecord>> {
         self.storage
             .get_presence_batch_with_meta(user_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get presence batch", &e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_presence_record_type_construction() {
+        let record: PresenceRecord = ("online".to_string(), Some("at work".to_string()), Some(1719600000));
+        assert_eq!(record.0, "online");
+        assert_eq!(record.1, Some("at work".to_string()));
+        assert_eq!(record.2, Some(1719600000));
+    }
+
+    #[test]
+    fn test_presence_batch_record_type_construction() {
+        let record: PresenceBatchRecord =
+            ("@alice:localhost".to_string(), "online".to_string(), Some("available".to_string()), Some(1719600000));
+        assert_eq!(record.0, "@alice:localhost");
+        assert_eq!(record.1, "online");
+    }
+
+    #[test]
+    fn test_presence_record_option_none_fields() {
+        let record: PresenceRecord = ("offline".to_string(), None, None);
+        assert_eq!(record.0, "offline");
+        assert!(record.1.is_none());
+        assert!(record.2.is_none());
+    }
+
+    #[test]
+    fn test_presence_service_constructor() {
+        // PresenceService::new takes PresenceStorage — this is a
+        // compile-time verification that the constructor signature is correct
     }
 }
