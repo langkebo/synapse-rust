@@ -85,6 +85,11 @@ pub(crate) const CLIENT_API_VERSION_SUPPORT: &[ClientApiVersionSupport] = &[
     ClientApiVersionSupport::stable("v1.11"),
     ClientApiVersionSupport::stable("v1.12"),
     ClientApiVersionSupport::stable("v1.13"),
+    // v1.14 added per VERSION_GAP_ANALYSIS.md audit (2026-06-28).
+    // Only 1 niche gap: POST /v3/users/{userId}/report (MSC4260).
+    // All other v1.14 changes (server_name removal from join/knock,
+    // editorial clarifications) are already supported.
+    ClientApiVersionSupport::stable("v1.14"),
 ];
 
 const BASE_UNSTABLE_FEATURES: &[(&str, bool)] = &[
