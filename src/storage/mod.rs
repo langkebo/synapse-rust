@@ -6,46 +6,6 @@ pub mod event;
 pub mod media;
 pub mod room;
 
-// =============================================================================
-// L3 — Feature-gated extension storage modules (off by default in core builds)
-// =============================================================================
-#[cfg(feature = "openclaw-routes")]
-pub mod ai_connection;
-#[cfg(feature = "openclaw-routes")]
-pub mod openclaw;
-
-#[cfg(feature = "friends")]
-pub mod friend_room;
-
-#[cfg(feature = "voice-extended")]
-pub mod voice;
-
-#[cfg(feature = "saml-sso")]
-pub mod saml;
-
-#[cfg(feature = "cas-sso")]
-pub mod cas;
-
-#[cfg(feature = "beacons")]
-pub mod beacon;
-
-#[cfg(feature = "voip-tracking")]
-pub mod call_session;
-#[cfg(feature = "voip-tracking")]
-pub mod matrixrtc;
-
-#[cfg(feature = "widgets")]
-pub mod widget;
-
-#[cfg(feature = "server-notifications")]
-pub mod server_notification;
-
-#[cfg(feature = "privacy-ext")]
-pub mod privacy;
-
-#[cfg(feature = "burn-after-read")]
-pub mod burn_after_read;
-
 pub use synapse_storage::user::{
     LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
     UserStatsSummary, UserStorage, UserStore,
@@ -180,55 +140,55 @@ pub use synapse_storage::room_summary::{
     RoomSummaryUpdateQueueItem, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 
-// Feature-gated explicit re-exports.
+// Feature-gated explicit re-exports (L3 — from synapse_storage).
 #[cfg(feature = "openclaw-routes")]
-pub use self::ai_connection::{AiConnection, AiConnectionStorage};
+pub use synapse_storage::ai_connection::{AiConnection, AiConnectionStorage};
 #[cfg(feature = "openclaw-routes")]
-pub use self::openclaw::{
+pub use synapse_storage::openclaw::{
     AiChatRole, AiConversation, AiGeneration, AiMessage, ConversationCursor, CreateChatRoleParams,
     CreateConnectionParams, CreateConversationParams, GenerationCursor, MessageCursor, OpenClawConnection,
     OpenClawStorage, UpdateChatRoleParams, UpdateConnectionParams,
 };
 
 #[cfg(feature = "friends")]
-pub use self::friend_room::{
+pub use synapse_storage::friend_room::{
     AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
     FriendRequestRecord, FriendRoomStorage, RemoveFriendFromGroupParams, RenameFriendGroupParams,
 };
 
 #[cfg(feature = "saml-sso")]
-pub use self::saml::{
+pub use synapse_storage::saml::{
     CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
     CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
     SamlSession, SamlStorage, SamlUserMapping,
 };
 
 #[cfg(feature = "cas-sso")]
-pub use self::cas::{
+pub use synapse_storage::cas::{
     CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasTicket,
     CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
     ValidateTicketRequest,
 };
 
 #[cfg(feature = "beacons")]
-pub use self::beacon::{
+pub use synapse_storage::beacon::{
     BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
     CreateBeaconLocationParams,
 };
 
 #[cfg(feature = "voip-tracking")]
-pub use self::call_session::{CallCandidate, CallSession, CallSessionStorage, CreateCallSessionParams};
+pub use synapse_storage::call_session::{CallCandidate, CallSession, CallSessionStorage, CreateCallSessionParams};
 #[cfg(feature = "voip-tracking")]
-pub use self::matrixrtc::{
+pub use synapse_storage::matrixrtc::{
     CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
     SessionWithMemberships,
 };
 
 #[cfg(feature = "widgets")]
-pub use self::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage};
+pub use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage};
 
 #[cfg(feature = "server-notifications")]
-pub use self::server_notification::{
+pub use synapse_storage::server_notification::{
     decode_server_notification_cursor, encode_server_notification_cursor, CreateNotificationRequest,
     CreateTemplateRequest, NotificationDeliveryLog, NotificationTemplate, NotificationWithStatus,
     ScheduledNotification, ServerNotification, ServerNotificationCursor, ServerNotificationStorage,
@@ -236,7 +196,16 @@ pub use self::server_notification::{
 };
 
 #[cfg(feature = "privacy-ext")]
-pub use self::privacy::{CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, UserPrivacySettings};
+pub use synapse_storage::privacy::{CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, UserPrivacySettings};
+
+// Feature-gated module-level re-exports — needed by consumers that access types via
+// `crate::storage::<module>::TypeName`.
+#[cfg(feature = "openclaw-routes")]
+pub use synapse_storage::openclaw;
+#[cfg(feature = "saml-sso")]
+pub use synapse_storage::saml;
+#[cfg(feature = "widgets")]
+pub use synapse_storage::widget;
 
 // =============================================================================
 // Database facade — re-export from canonical synapse-storage crate
