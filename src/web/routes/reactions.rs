@@ -81,7 +81,7 @@ async fn add_reaction(
         .services
         .rooms
         .relations_service
-        .send_annotation(crate::services::relations_service::SendAnnotationRequest {
+        .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.event_id.clone(),
             sender: auth_user.user_id.clone(),

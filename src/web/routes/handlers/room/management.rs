@@ -605,7 +605,7 @@ pub(crate) async fn get_room_thread_by_id(
 
     ensure_room_view_access(&state, &auth_user, &room_id).await?;
 
-    let request = crate::services::thread_service::GetThreadRequest {
+    let request = synapse_services::thread_service::GetThreadRequest {
         room_id: room_id.clone(),
         thread_id: thread_id.clone(),
         include_replies: true,

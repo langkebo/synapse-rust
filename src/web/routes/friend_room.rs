@@ -395,7 +395,7 @@ async fn get_friends(
     auth_user: AuthenticatedUser,
     Query(params): Query<FriendListQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    let cursor = crate::services::friend_room_service::decode_friend_list_cursor(params.from.as_deref());
+    let cursor = synapse_services::friend_room_service::decode_friend_list_cursor(params.from.as_deref());
     let legacy_offset = match (params.from.as_deref(), cursor.as_ref(), params.offset) {
         (_, Some(_), offset) => offset,
         (Some(from), None, offset) => from.parse::<usize>().ok().or(offset),
@@ -413,7 +413,7 @@ async fn get_friends(
         .friend_room_service
         .get_friends_page(
             &auth_user.user_id,
-            crate::services::friend_room_service::FriendListRequest {
+            synapse_services::friend_room_service::FriendListRequest {
                 limit: params.limit.unwrap_or(50).clamp(1, 200),
                 offset: legacy_offset.map(|offset| offset.clamp(0, 10000)),
                 from: cursor,
@@ -970,7 +970,7 @@ async fn create_friend_dm(
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
 
-    let config = crate::services::friend_room_service::FriendRoomCreateRoomConfig {
+    let config = synapse_services::friend_room_service::FriendRoomCreateRoomConfig {
         visibility: Some("private".to_string()),
         room_alias_name: None,
         name: None,
@@ -987,7 +987,7 @@ async fn create_friend_dm(
         power_level_content_override: None,
     };
 
-    let result: crate::services::friend_room_service::EnsureDirectRoomResult = state
+    let result: synapse_services::friend_room_service::EnsureDirectRoomResult = state
         .services
         .extensions
         .friend_room_service

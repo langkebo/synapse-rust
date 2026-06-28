@@ -2,7 +2,7 @@
 //!
 //! HTTP handler functions for `/versions`, `/capabilities`, `.well-known`,
 //! and server-version endpoints. Domain logic lives in
-//! [`CapabilityGovernance`](crate::services::CapabilityGovernance); this
+//! [`CapabilityGovernance`](synapse_services::CapabilityGovernance); this
 //! module is a thin adapter that collects route-surface manifests and
 //! delegates.
 

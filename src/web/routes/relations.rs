@@ -230,7 +230,7 @@ async fn send_relation(
                 .services
                 .rooms
                 .relations_service
-                .send_annotation(crate::services::relations_service::SendAnnotationRequest {
+                .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
                     sender,
@@ -247,7 +247,7 @@ async fn send_relation(
                 .services
                 .rooms
                 .relations_service
-                .send_reference(crate::services::relations_service::SendReferenceRequest {
+                .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
                     sender,
@@ -265,7 +265,7 @@ async fn send_relation(
                 .services
                 .rooms
                 .relations_service
-                .send_reference(crate::services::relations_service::SendReferenceRequest {
+                .send_reference(synapse_services::relations_service::SendReferenceRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
                     sender: sender.clone(),
@@ -287,7 +287,7 @@ async fn send_relation(
                 .services
                 .rooms
                 .relations_service
-                .send_replacement(crate::services::relations_service::SendReplacementRequest {
+                .send_replacement(synapse_services::relations_service::SendReplacementRequest {
                     room_id: room_id.clone(),
                     relates_to_event_id: target_event_id.clone(),
                     sender,
@@ -313,7 +313,7 @@ async fn get_aggregations(
     State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, rel_type)): Path<(String, String, String)>,
-) -> Result<Json<crate::services::relations_service::AggregationResponse>, ApiError> {
+) -> Result<Json<synapse_services::relations_service::AggregationResponse>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 

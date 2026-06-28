@@ -153,7 +153,7 @@ async fn set_pusher(
             .services
             .core
             .client_push_service
-            .upsert_pusher(crate::services::client_push_service::UpsertPusherRequest {
+            .upsert_pusher(synapse_services::client_push_service::UpsertPusherRequest {
                 user_id: auth_user.user_id,
                 device_id,
                 pushkey: body.pushkey.clone(),
@@ -279,7 +279,7 @@ async fn set_push_rule(
         .services
         .core
         .client_push_service
-        .upsert_push_rule(crate::services::client_push_service::UpsertPushRuleRequest {
+        .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
             scope: scope.clone(),
             kind: kind.clone(),
@@ -312,7 +312,7 @@ async fn create_push_rule(
         .services
         .core
         .client_push_service
-        .upsert_push_rule(crate::services::client_push_service::UpsertPushRuleRequest {
+        .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
             scope: scope.clone(),
             kind: kind.clone(),

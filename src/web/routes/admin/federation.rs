@@ -96,13 +96,13 @@ mod cursor_tests {
 
     #[test]
     fn test_pending_federation_cursor_round_trip() {
-        let cursor = encode_pending_federation_cursor(&crate::services::PendingFederationCursor {
+        let cursor = encode_pending_federation_cursor(&synapse_services::PendingFederationCursor {
             updated_ts: 1_700_000_000_000,
             server_name: "matrix.example.com".to_string(),
         });
         assert_eq!(
             decode_pending_federation_cursor(Some(&cursor)),
-            Some(crate::services::PendingFederationCursor {
+            Some(synapse_services::PendingFederationCursor {
                 updated_ts: 1_700_000_000_000,
                 server_name: "matrix.example.com".to_string(),
             })
@@ -125,7 +125,7 @@ pub struct DestinationsQuery {
 
 fn validate_destinations_query(
     query: &DestinationsQuery,
-) -> Result<(i32, Option<crate::services::DestinationCursor>), ApiError> {
+) -> Result<(i32, Option<synapse_services::DestinationCursor>), ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
     let cursor = decode_destination_cursor(query.from.as_deref());
 

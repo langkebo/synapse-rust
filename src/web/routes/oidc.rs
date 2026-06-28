@@ -196,7 +196,7 @@ async fn sso_redirect(
 
     #[cfg(feature = "saml-sso")]
     if state.services.sso.saml_service.is_enabled() {
-        let auth_request: crate::services::saml_service::SamlAuthRequest =
+        let auth_request: synapse_services::saml_service::SamlAuthRequest =
             state.services.sso.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
@@ -494,7 +494,7 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService = state
+    let oidc_service: &synapse_services::oidc_service::OidcService = state
         .services
         .sso
         .oidc_service
@@ -510,19 +510,19 @@ async fn oidc_token(
             let redirect_uri: String = redirect_uri.unwrap_or_default();
 
             // 使用 OIDC 服务兑换令牌
-            let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
+            let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
                 .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
             // 获取用户信息
-            let user_info: crate::services::oidc_service::OidcUserInfo = oidc_service
+            let user_info: synapse_services::oidc_service::OidcUserInfo = oidc_service
                 .get_user_info(&token_response.access_token)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get user info", &e))?;
 
             // 映射到 Matrix 用户
-            let oidc_user: crate::services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
+            let oidc_user: synapse_services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
 
             let localpart: String = oidc_user.localpart.clone();
             let issuer: String = oidc_service.get_config().issuer.clone();
@@ -640,7 +640,7 @@ async fn oidc_token(
                 refresh_token.ok_or_else(|| ApiError::bad_request("Missing 'refresh_token' parameter".to_string()))?;
 
             // 使用 OIDC 服务刷新令牌
-            let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
+            let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
                 .refresh_token(&refresh_token)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token refresh failed", &e))?;
@@ -694,7 +694,7 @@ async fn oidc_authorize(
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService = state
+    let oidc_service: &synapse_services::oidc_service::OidcService = state
         .services
         .sso
         .oidc_service
@@ -852,7 +852,7 @@ async fn oidc_callback(
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &crate::services::oidc_service::OidcService = state
+    let oidc_service: &synapse_services::oidc_service::OidcService = state
         .services
         .sso
         .oidc_service
@@ -889,19 +889,19 @@ async fn oidc_callback(
         };
 
     // 兑换令牌
-    let token_response: crate::services::oidc_service::OidcTokenResponse = oidc_service
+    let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
         .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()))
         .await
         .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
     // 获取用户信息
-    let user_info: crate::services::oidc_service::OidcUserInfo = oidc_service
+    let user_info: synapse_services::oidc_service::OidcUserInfo = oidc_service
         .get_user_info(&token_response.access_token)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get user info", &e))?;
 
     // 映射到 Matrix 用户
-    let oidc_user: crate::services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
+    let oidc_user: synapse_services::oidc_service::OidcUser = oidc_service.map_user(&user_info);
 
     tracing::info!(
         "OIDC callback successful for sub: {}, localpart: {}, email_present: {}, nonce_len: {}",

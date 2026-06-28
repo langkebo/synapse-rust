@@ -270,7 +270,7 @@ async fn load_direct_room_snapshot(
 ) -> Result<(Map<String, Value>, Vec<String>, bool), ApiError> {
     #[cfg(feature = "friends")]
     {
-        let snapshot: crate::services::friend_room_service::DirectRoomSnapshot =
+        let snapshot: synapse_services::friend_room_service::DirectRoomSnapshot =
             state.services.extensions.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
@@ -292,19 +292,19 @@ async fn update_direct_room_snapshot(
 ) -> Result<(Map<String, Value>, Vec<String>, bool), ApiError> {
     #[cfg(feature = "friends")]
     {
-        let action: crate::services::friend_room_service::DirectMapUpdateAction = match action {
+        let action: synapse_services::friend_room_service::DirectMapUpdateAction = match action {
             DirectMapUpdateAction::ReplaceRoomTargets(target_user_ids) => {
-                crate::services::friend_room_service::DirectMapUpdateAction::ReplaceRoomTargets {
+                synapse_services::friend_room_service::DirectMapUpdateAction::ReplaceRoomTargets {
                     room_id: room_id.to_string(),
                     target_user_ids,
                 }
             }
             DirectMapUpdateAction::OverwriteMap(direct_map) => {
-                crate::services::friend_room_service::DirectMapUpdateAction::OverwriteMap(direct_map)
+                synapse_services::friend_room_service::DirectMapUpdateAction::OverwriteMap(direct_map)
             }
         };
 
-        let snapshot: crate::services::friend_room_service::DirectRoomSnapshot =
+        let snapshot: synapse_services::friend_room_service::DirectRoomSnapshot =
             state.services.extensions.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
