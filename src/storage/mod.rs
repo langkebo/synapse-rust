@@ -10,6 +10,7 @@
 pub use synapse_storage::application_service;
 pub use synapse_storage::audit;
 pub use synapse_storage::background_update;
+#[cfg(feature = "beacons")]
 pub use synapse_storage::beacon;
 pub use synapse_storage::device;
 pub use synapse_storage::event;
@@ -17,17 +18,21 @@ pub use synapse_storage::event_report;
 pub use synapse_storage::feature_flags;
 pub use synapse_storage::federation_blacklist;
 pub use synapse_storage::filter;
+#[cfg(feature = "friends")]
 pub use synapse_storage::friend_room;
 pub use synapse_storage::invite_blocklist;
 pub use synapse_storage::maintenance;
+#[cfg(feature = "voip-tracking")]
 pub use synapse_storage::matrixrtc;
 pub use synapse_storage::membership;
 pub use synapse_storage::moderation;
 pub use synapse_storage::module;
 pub use synapse_storage::monitoring;
+#[cfg(feature = "openclaw-routes")]
 pub use synapse_storage::openclaw;
 pub use synapse_storage::openid_token;
 pub use synapse_storage::presence;
+#[cfg(feature = "privacy-ext")]
 pub use synapse_storage::privacy;
 pub use synapse_storage::qr_login;
 pub use synapse_storage::refresh_token;
@@ -39,6 +44,7 @@ pub use synapse_storage::room_summary;
 pub use synapse_storage::room_tag;
 pub use synapse_storage::schema_health_check;
 pub use synapse_storage::schema_validator;
+#[cfg(feature = "server-notifications")]
 pub use synapse_storage::server_notification;
 pub use synapse_storage::sliding_sync;
 pub use synapse_storage::space;
@@ -48,6 +54,7 @@ pub use synapse_storage::thread;
 pub use synapse_storage::threepid;
 pub use synapse_storage::token;
 pub use synapse_storage::user;
+#[cfg(feature = "widgets")]
 pub use synapse_storage::widget;
 
 pub use synapse_storage::{initialize_database, Database};
