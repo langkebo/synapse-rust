@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod json;
+pub mod localhost_guard;
 mod pagination;
 
 use crate::common::ApiError;
