@@ -5,11 +5,11 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_services::telemetry_service::TelemetryAlertSeverity;
-use synapse_services::ServiceContainer;
 use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
+use synapse_services::telemetry_service::TelemetryAlertSeverity;
+use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 

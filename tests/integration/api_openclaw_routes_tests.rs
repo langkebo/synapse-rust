@@ -3,8 +3,8 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use synapse_services::ServiceContainer;
 use synapse_rust::web::{routes::create_router, AppState};
+use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 
 const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rust.openclaw";

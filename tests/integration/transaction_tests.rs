@@ -9,9 +9,9 @@ use synapse_rust::common::config::{
     AdminRegistrationConfig, Config, CorsConfig, DatabaseConfig, ExperimentalConfig, FederationConfig, LivekitConfig,
     RateLimitConfig, RedisConfig, SearchConfig, SecurityConfig, ServerConfig, SmtpConfig, VoipConfig, WorkerConfig,
 };
-use synapse_services::ServiceContainer;
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
+use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 
 fn create_test_config() -> Config {

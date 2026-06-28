@@ -4,9 +4,9 @@ use serde_json::json;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_services::ServiceContainer;
 use synapse_rust::storage::{CreateEventParams, EventStorage, RoomStorage};
 use synapse_rust::PresenceStorage;
+use synapse_services::ServiceContainer;
 use tokio::runtime::Runtime;
 
 async fn setup_test_database() -> Option<Pool<Postgres>> {

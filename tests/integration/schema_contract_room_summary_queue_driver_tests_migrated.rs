@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use sqlx::Row;
 use std::sync::{Arc, Mutex};
-use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::{CreateRoomSummaryRequest, RoomSummaryStorage};
+use synapse_services::room_summary_service::RoomSummaryService;
 use uuid::Uuid;
 
 // Serialise room-summary queue-driver tests because

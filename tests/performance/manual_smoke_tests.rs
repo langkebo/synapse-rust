@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
+use synapse_services::ServiceContainer;
 use tower::ServiceExt;
 
 fn panic_on_err<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) -> T {
