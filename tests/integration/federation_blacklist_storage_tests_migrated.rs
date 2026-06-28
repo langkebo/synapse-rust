@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::federation_blacklist::{
+use synapse_storage::federation_blacklist::{
     decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
     CreateRuleRequest, FederationBlacklistCursor, FederationBlacklistStorage, UpdateStatsRequest,
 };

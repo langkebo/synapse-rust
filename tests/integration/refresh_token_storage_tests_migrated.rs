@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::refresh_token::{CreateRefreshTokenRequest, RefreshTokenStorage};
+use synapse_storage::refresh_token::{CreateRefreshTokenRequest, RefreshTokenStorage};
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn unique_id() -> u64 {
@@ -867,7 +867,7 @@ async fn test_record_usage() {
     let token = storage.create_token(request).await.unwrap();
 
     let usage_req =
-        synapse_rust::storage::refresh_token::RecordUsageRequest::new(token.id, &user_id, "new_atid_123", true)
+        synapse_storage::refresh_token::RecordUsageRequest::new(token.id, &user_id, "new_atid_123", true)
             .old_access_token_id("old_atid_abc");
 
     storage.record_usage(&usage_req).await.unwrap();

@@ -3,8 +3,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use synapse_rust::storage::audit::AuditEventStorage;
-use synapse_rust::storage::feature_flags::{
+use synapse_storage::audit::AuditEventStorage;
+use synapse_storage::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
 use synapse_services::admin_audit_service::AdminAuditService;
@@ -982,7 +982,7 @@ async fn test_create_flag_audit_event_created() {
     service.create_flag("@admin:test", "req-audit-1", request).await.unwrap();
 
     let audit_storage = AuditEventStorage::new(&pool);
-    let filters = synapse_rust::storage::audit::AuditEventFilters {
+    let filters = synapse_storage::audit::AuditEventFilters {
         actor_id: Some("@admin:test".to_string()),
         action: Some("admin.feature_flag.create".to_string()),
         resource_type: Some("feature_flag".to_string()),
@@ -1009,7 +1009,7 @@ async fn test_update_flag_audit_event_created() {
     service.update_flag("@admin:test", "req-audit-update", &flag_key, request).await.unwrap();
 
     let audit_storage = AuditEventStorage::new(&pool);
-    let filters = synapse_rust::storage::audit::AuditEventFilters {
+    let filters = synapse_storage::audit::AuditEventFilters {
         actor_id: Some("@admin:test".to_string()),
         action: Some("admin.feature_flag.update".to_string()),
         resource_type: Some("feature_flag".to_string()),

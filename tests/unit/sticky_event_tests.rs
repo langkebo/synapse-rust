@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 mod sticky_event_suite {
-    use synapse_rust::storage::sticky_event::StickyEvent;
+    use synapse_storage::sticky_event::StickyEvent;
 
     #[test]
     fn test_sticky_event_struct() {

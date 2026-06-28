@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::device::DeviceStorage;
+use synapse_storage::device::DeviceStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

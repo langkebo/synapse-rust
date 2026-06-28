@@ -448,7 +448,7 @@ async fn test_change_password_uia_rejects_dummy_auth() {
 
 #[tokio::test]
 async fn test_password_reset_email_flow_consumes_sid_after_success() {
-    use synapse_rust::storage::CreateThreepidRequest;
+    use synapse_storage::CreateThreepidRequest;
 
     let Some((app, services)) = setup_test_app_with_services().await else {
         return;

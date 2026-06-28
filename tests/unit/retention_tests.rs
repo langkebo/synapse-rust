@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use synapse_services::ServiceContainer;
-    use synapse_rust::storage::retention::*;
+    use synapse_storage::retention::*;
 
     #[test]
     fn test_create_room_retention_policy_request() {

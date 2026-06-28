@@ -2,7 +2,7 @@
 use sqlx::{Pool, Postgres};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::beacon::{BeaconStorage, CreateBeaconInfoParams, CreateBeaconLocationParams};
+use synapse_storage::beacon::{BeaconStorage, CreateBeaconInfoParams, CreateBeaconLocationParams};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -974,7 +974,7 @@ async fn test_get_room_beacons_empty() {
 
 #[test]
 fn test_beacon_info_serialization() {
-    let beacon = synapse_rust::storage::beacon::BeaconInfo {
+    let beacon = synapse_storage::beacon::BeaconInfo {
         id: 1,
         room_id: "!room:example.com".to_string(),
         event_id: "$event1".to_string(),
@@ -990,7 +990,7 @@ fn test_beacon_info_serialization() {
     };
 
     let json = serde_json::to_string(&beacon).unwrap();
-    let deserialized: synapse_rust::storage::beacon::BeaconInfo = serde_json::from_str(&json).unwrap();
+    let deserialized: synapse_storage::beacon::BeaconInfo = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.room_id, beacon.room_id);
     assert_eq!(deserialized.timeout, beacon.timeout);
     assert_eq!(deserialized.is_live, beacon.is_live);
@@ -999,7 +999,7 @@ fn test_beacon_info_serialization() {
 
 #[test]
 fn test_beacon_location_serialization() {
-    let location = synapse_rust::storage::beacon::BeaconLocation {
+    let location = synapse_storage::beacon::BeaconLocation {
         id: 1,
         room_id: "!room:example.com".to_string(),
         event_id: "$loc1".to_string(),
@@ -1013,7 +1013,7 @@ fn test_beacon_location_serialization() {
     };
 
     let json = serde_json::to_string(&location).unwrap();
-    let deserialized: synapse_rust::storage::beacon::BeaconLocation = serde_json::from_str(&json).unwrap();
+    let deserialized: synapse_storage::beacon::BeaconLocation = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.uri, location.uri);
     assert_eq!(deserialized.accuracy, location.accuracy);
     assert_eq!(deserialized.beacon_info_id, location.beacon_info_id);
@@ -1061,7 +1061,7 @@ fn test_create_beacon_location_params_serialization() {
 
 #[test]
 fn test_beacon_info_with_locations_structure() {
-    let beacon_info = synapse_rust::storage::beacon::BeaconInfo {
+    let beacon_info = synapse_storage::beacon::BeaconInfo {
         id: 1,
         room_id: "!room:example.com".to_string(),
         event_id: "$event1".to_string(),
@@ -1075,7 +1075,7 @@ fn test_beacon_info_with_locations_structure() {
         updated_ts: Some(1234567890000),
         expires_at: None,
     };
-    let locations = vec![synapse_rust::storage::beacon::BeaconLocation {
+    let locations = vec![synapse_storage::beacon::BeaconLocation {
         id: 1,
         room_id: "!room:example.com".to_string(),
         event_id: "$loc1".to_string(),
@@ -1088,7 +1088,7 @@ fn test_beacon_info_with_locations_structure() {
         created_ts: 1234567890000,
     }];
 
-    let with_locs = synapse_rust::storage::beacon::BeaconInfoWithLocations {
+    let with_locs = synapse_storage::beacon::BeaconInfoWithLocations {
         beacon_info: beacon_info.clone(),
         locations: locations.clone(),
     };

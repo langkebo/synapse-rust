@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::room_tag::RoomTagStorage;
+use synapse_storage::room_tag::RoomTagStorage;
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn unique_id() -> u64 {

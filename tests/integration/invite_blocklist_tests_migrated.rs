@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
-use synapse_rust::storage::invite_blocklist::InviteBlocklistStorage;
+use synapse_storage::invite_blocklist::InviteBlocklistStorage;
 
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(1);
 

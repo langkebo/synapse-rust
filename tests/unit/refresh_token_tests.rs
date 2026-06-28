@@ -2,7 +2,7 @@
 mod tests {
     use synapse_services::refresh_token_service::RefreshTokenService;
     use synapse_services::ServiceContainer;
-    use synapse_rust::storage::refresh_token::*;
+    use synapse_storage::refresh_token::*;
 
     #[test]
     fn test_create_refresh_token_request() {

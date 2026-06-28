@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use synapse_rust::storage::retention::{
+use synapse_storage::retention::{
     CreateRoomRetentionPolicyRequest, RetentionStorage, UpdateRoomRetentionPolicyRequest,
     UpdateServerRetentionPolicyRequest,
 };

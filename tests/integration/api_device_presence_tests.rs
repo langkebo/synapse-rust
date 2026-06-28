@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::PresenceState;
-use synapse_rust::PresenceStorage;
+use synapse_storage::PresenceStorage;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {

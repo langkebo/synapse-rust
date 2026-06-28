@@ -7,14 +7,14 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
-use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
-use synapse_rust::storage::event::EventStorage;
-use synapse_rust::storage::membership::RoomMemberStorage;
-use synapse_rust::storage::relations::RelationsStorage;
-use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStorage;
-use synapse_rust::storage::CreateEventParams;
-use synapse_rust::storage::RoomSummaryStorage;
+use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
+use synapse_storage::event::EventStorage;
+use synapse_storage::membership::RoomMemberStorage;
+use synapse_storage::relations::RelationsStorage;
+use synapse_storage::room::RoomStorage;
+use synapse_storage::user::UserStorage;
+use synapse_storage::CreateEventParams;
+use synapse_storage::room_summary::RoomSummaryStorage;
 use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
@@ -304,7 +304,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,
-        room_tag_storage: synapse_rust::storage::room_tag::RoomTagStorage::new(pool.clone()),
+        room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
         auth_service: synapse_rust::auth::AuthService::new(
             pool,

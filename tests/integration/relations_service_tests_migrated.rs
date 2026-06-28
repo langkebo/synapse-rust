@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::storage::relations::RelationsStorage;
+use synapse_storage::relations::RelationsStorage;
 use synapse_services::relations_service::{
     AggregationItem, AggregationResponse, RelationsResponse, RelationsService, SendAnnotationRequest,
     SendReferenceRequest, SendReplacementRequest,
@@ -631,7 +631,7 @@ async fn test_redacted_annotation_excluded_from_exists() {
 
     let storage = RelationsStorage::new(&pool);
     let relations = storage
-        .get_relations(synapse_rust::storage::relations::RelationQueryParams {
+        .get_relations(synapse_storage::relations::RelationQueryParams {
             room_id: room_id.clone(),
             relates_to_event_id: relates_to.clone(),
             relation_type: Some("m.annotation".to_string()),
