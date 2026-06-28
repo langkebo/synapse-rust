@@ -468,10 +468,9 @@ async fn search_friend_directory(
     let mut results: Vec<crate::storage::user::UserDirectorySearchResult> = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .search_directory_users(&search_term, search_limit as i64, exact_only)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to search users", &e))?;
+        .await?;
 
     let target_user_ids: Vec<String> =
         results.iter().filter(|r| r.user_id != auth_user.user_id).map(|r| r.user_id.clone()).collect();

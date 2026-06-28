@@ -14,7 +14,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE federation_blacklist (
+        CREATE TABLE IF NOT EXISTS federation_blacklist (
             id BIGSERIAL PRIMARY KEY,
             server_name TEXT NOT NULL UNIQUE,
             block_type TEXT NOT NULL DEFAULT 'blacklist',
@@ -36,7 +36,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE federation_blacklist_log (
+        CREATE TABLE IF NOT EXISTS federation_blacklist_log (
             id BIGSERIAL PRIMARY KEY,
             server_name TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -57,7 +57,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE federation_access_stats (
+        CREATE TABLE IF NOT EXISTS federation_access_stats (
             id BIGSERIAL PRIMARY KEY,
             server_name TEXT NOT NULL UNIQUE,
             total_requests BIGINT NOT NULL DEFAULT 0,
@@ -79,7 +79,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE federation_blacklist_rule (
+        CREATE TABLE IF NOT EXISTS federation_blacklist_rule (
             id BIGSERIAL PRIMARY KEY,
             rule_name TEXT NOT NULL,
             rule_type TEXT NOT NULL,

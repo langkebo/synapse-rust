@@ -141,13 +141,12 @@ impl FederationBlacklistStorage {
         let now = Utc::now().timestamp_millis();
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
 
-        let row = sqlx::query_as!(
-            FederationBlacklist,
+        let row = sqlx::query_as::<_, FederationBlacklist>(
             r#"
             INSERT INTO federation_blacklist (
-                server_name, block_type, reason, blocked_by, created_ts, updated_ts, expires_at, is_enabled, metadata
+                server_name, block_type, reason, blocked_by, added_by, added_ts, created_ts, updated_ts, expires_at, is_enabled, metadata
             )
-            VALUES ($1, $2, $3, $4, $5, $5, $6, true, $7)
+            VALUES ($1, $2, $3, $4, $4, $5, $5, $5, $6, true, $7)
             ON CONFLICT (server_name) DO UPDATE SET
                 block_type = $2,
                 reason = $3,
@@ -156,20 +155,20 @@ impl FederationBlacklistStorage {
                 expires_at = $6,
                 is_enabled = true,
                 metadata = $7
-            RETURNING id AS "id!", server_name AS "server_name!", block_type AS "block_type!",
-                      reason AS "reason?", COALESCE(blocked_by, 'system') AS "blocked_by!",
-                      COALESCE(created_ts, added_ts) AS "created_ts!",
-                      COALESCE(updated_ts, added_ts) AS "updated_ts!",
-                      expires_at AS "expires_at?", is_enabled AS "is_enabled!", metadata AS "metadata!"
+            RETURNING id, server_name, block_type,
+                      reason, COALESCE(blocked_by, 'system') AS blocked_by,
+                      COALESCE(created_ts, added_ts) AS created_ts,
+                      COALESCE(updated_ts, added_ts) AS updated_ts,
+                      expires_at, is_enabled, metadata
             "#,
-            &request.server_name,
-            &request.block_type,
-            request.reason.as_deref(),
-            &request.blocked_by,
-            now,
-            request.expires_at,
-            &metadata
         )
+        .bind(&request.server_name)
+        .bind(&request.block_type)
+        .bind(request.reason.as_deref())
+        .bind(&request.blocked_by)
+        .bind(now)
+        .bind(request.expires_at)
+        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to add to blacklist", &e))?;
@@ -349,26 +348,27 @@ impl FederationBlacklistStorage {
 
     pub async fn create_log(&self, request: CreateLogRequest) -> Result<FederationBlacklistLog, ApiError> {
         let metadata = request.metadata.unwrap_or(serde_json::json!({}));
+        let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as!(
-            FederationBlacklistLog,
+        let row = sqlx::query_as::<_, FederationBlacklistLog>(
             r#"
             INSERT INTO federation_blacklist_log (
-                server_name, action, old_status, new_status, reason, performed_by, ip_address, user_agent, metadata
+                server_name, action, old_status, new_status, reason, performed_by, performed_ts, ip_address, user_agent, metadata
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id, server_name, action, old_status, new_status, reason, performed_by, performed_ts, ip_address, user_agent, metadata
             "#,
-            &request.server_name,
-            &request.action,
-            request.old_status.as_deref(),
-            request.new_status.as_deref(),
-            request.reason.as_deref(),
-            &request.performed_by,
-            request.ip_address.as_deref(),
-            request.user_agent.as_deref(),
-            &metadata
         )
+        .bind(&request.server_name)
+        .bind(&request.action)
+        .bind(request.old_status.as_deref())
+        .bind(request.new_status.as_deref())
+        .bind(request.reason.as_deref())
+        .bind(&request.performed_by)
+        .bind(now)
+        .bind(request.ip_address.as_deref())
+        .bind(request.user_agent.as_deref())
+        .bind(&metadata)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create log", &e))?;
@@ -379,12 +379,11 @@ impl FederationBlacklistStorage {
     pub async fn update_access_stats(&self, request: UpdateStatsRequest) -> Result<FederationAccessStats, ApiError> {
         let now = Utc::now().timestamp_millis();
 
-        let row = sqlx::query_as!(
-            FederationAccessStats,
+        let row = sqlx::query_as::<_, FederationAccessStats>(
             r#"
             INSERT INTO federation_access_stats (server_name, total_requests, successful_requests, failed_requests,
                 last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts)
-            VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $4, $4)
+            VALUES ($1, 1, $2, $3, $4, $5, $6, COALESCE($7, 0), $8, $4, $4)
             ON CONFLICT (server_name) DO UPDATE SET
                 total_requests = federation_access_stats.total_requests + 1,
                 successful_requests = federation_access_stats.successful_requests + $2,
@@ -400,15 +399,15 @@ impl FederationBlacklistStorage {
                 updated_ts = $4
             RETURNING id, server_name, total_requests, successful_requests, failed_requests, last_request_ts, last_success_ts, last_failure_ts, average_response_time_ms, error_rate, created_ts, updated_ts
             "#,
-            &request.server_name,
-            if request.is_success { 1_i64 } else { 0_i64 },
-            if request.is_success { 0_i64 } else { 1_i64 },
-            now,
-            if request.is_success { Some(now) } else { None },
-            if request.is_success { None } else { Some(now) },
-            request.response_time_ms,
-            if request.is_success { 0.0_f64 } else { 1.0_f64 }
         )
+        .bind(&request.server_name)
+        .bind(if request.is_success { 1_i64 } else { 0_i64 })
+        .bind(if request.is_success { 0_i64 } else { 1_i64 })
+        .bind(now)
+        .bind(if request.is_success { Some(now) } else { None::<i64> })
+        .bind(if request.is_success { None::<i64> } else { Some(now) })
+        .bind(request.response_time_ms)
+        .bind(if request.is_success { 0.0_f64 } else { 1.0_f64 })
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update access stats", &e))?;

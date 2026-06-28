@@ -88,7 +88,7 @@ pub mod captcha;
 
 pub use self::user::{
     LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
-    UserStatsSummary, UserStorage,
+    UserStatsSummary, UserStorage, UserStore,
 };
 pub use synapse_storage::threepid::UserThreepid; // user storage types
 

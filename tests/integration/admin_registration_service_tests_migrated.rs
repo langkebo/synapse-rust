@@ -9,6 +9,7 @@ use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
 use synapse_rust::storage::user::UserStorage;
+use synapse_storage::user::UserStore;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -84,7 +85,8 @@ fn create_service(pool: &Arc<sqlx::PgPool>, shared_secret: &str, enabled: bool) 
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(pool, cache.clone(), metrics.clone(), &make_security_config(), "localhost");
     let config = make_admin_config(shared_secret, enabled);
-    AdminRegistrationService::new(auth_service, config, UserStorage::new(pool, cache.clone()), cache, metrics)
+    let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
+    AdminRegistrationService::new(auth_service, config, user_store, cache, metrics)
 }
 
 #[tokio::test]

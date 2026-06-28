@@ -22,7 +22,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
 
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -41,7 +41,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
 
     sqlx::query(
         r#"
-        CREATE TABLE presence (
+        CREATE TABLE IF NOT EXISTS presence (
             user_id TEXT NOT NULL,
             status_msg TEXT,
             presence TEXT NOT NULL DEFAULT 'offline',
@@ -60,7 +60,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
 
     sqlx::query(
         r#"
-        CREATE TABLE presence_subscriptions (
+        CREATE TABLE IF NOT EXISTS presence_subscriptions (
             subscriber_id TEXT NOT NULL,
             target_id TEXT NOT NULL,
             created_ts BIGINT NOT NULL,
@@ -76,7 +76,7 @@ async fn setup_test_database() -> Option<(Arc<sqlx::PgPool>, PresenceStorage)> {
 
     sqlx::query(
         r#"
-        CREATE TABLE typing (
+        CREATE TABLE IF NOT EXISTS typing (
             user_id TEXT NOT NULL,
             room_id TEXT NOT NULL,
             is_typing BOOLEAN DEFAULT FALSE,

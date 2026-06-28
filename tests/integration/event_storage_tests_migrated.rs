@@ -9,11 +9,12 @@ fn event_storage_test_guard() -> &'static Mutex<()> {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE").execute(pool.as_ref()).await.ok();
+    // Clean data without dropping table to avoid blocking concurrent shared-schema tests
+    sqlx::query("DELETE FROM events").execute(pool.as_ref()).await.ok();
 
     sqlx::query(
         r#"
-        CREATE TABLE events (
+        CREATE TABLE IF NOT EXISTS events (
             event_id VARCHAR(255) PRIMARY KEY,
             room_id VARCHAR(255) NOT NULL,
             user_id VARCHAR(255) NOT NULL,
@@ -40,7 +41,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 async fn teardown_test_database(pool: &sqlx::PgPool) {
-    sqlx::query("DROP TABLE IF EXISTS events CASCADE").execute(pool).await.ok();
+    sqlx::query("DELETE FROM events").execute(pool).await.ok();
 }
 
 #[allow(clippy::await_holding_lock)]

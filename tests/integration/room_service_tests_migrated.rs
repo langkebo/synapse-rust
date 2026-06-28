@@ -15,7 +15,7 @@ use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStore;
+use synapse_rust::storage::user::UserStorage;
 use synapse_rust::storage::CreateEventParams;
 use synapse_rust::storage::RoomSummaryStorage;
 
@@ -304,6 +304,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,
+        room_tag_storage: synapse_rust::storage::room_tag::RoomTagStorage::new(pool.clone()),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
         auth_service: synapse_rust::auth::AuthService::new(
             pool,
@@ -629,7 +630,6 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
-            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id: format!("$timeline_{id}_{ts}"),
@@ -680,7 +680,6 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
-            .event_storage
             .create_event(
                 CreateEventParams {
                     event_id: format!("$forward_timeline_{id}_{ts}"),

@@ -11,7 +11,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -30,7 +30,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE refresh_tokens (
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
             id BIGSERIAL PRIMARY KEY,
             token_hash TEXT NOT NULL UNIQUE,
             user_id TEXT NOT NULL,
@@ -55,7 +55,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE refresh_token_usage (
+        CREATE TABLE IF NOT EXISTS refresh_token_usage (
             id BIGSERIAL PRIMARY KEY,
             refresh_token_id BIGINT NOT NULL,
             user_id TEXT NOT NULL,
@@ -75,7 +75,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE refresh_token_families (
+        CREATE TABLE IF NOT EXISTS refresh_token_families (
             id BIGSERIAL PRIMARY KEY,
             family_id TEXT NOT NULL UNIQUE,
             user_id TEXT NOT NULL,
@@ -94,7 +94,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE refresh_token_rotations (
+        CREATE TABLE IF NOT EXISTS refresh_token_rotations (
             id BIGSERIAL PRIMARY KEY,
             family_id TEXT NOT NULL,
             old_token_hash TEXT,
@@ -110,7 +110,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE token_blacklist (
+        CREATE TABLE IF NOT EXISTS token_blacklist (
             id BIGSERIAL PRIMARY KEY,
             token_hash TEXT NOT NULL UNIQUE,
             token TEXT,

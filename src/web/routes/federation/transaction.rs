@@ -360,7 +360,7 @@ pub(super) async fn send_transaction(
         // still stored.
         if !prev_events.is_empty() {
             if let Ok(missing) =
-                state.services.rooms.room_service.event_storage.find_missing_event_ids(&prev_events).await
+                state.services.rooms.room_service.find_missing_event_ids(&prev_events).await
             {
                 if !missing.is_empty() {
                     ::tracing::debug!(
@@ -400,8 +400,7 @@ pub(super) async fn send_transaction(
                                             .services
                                             .rooms
                                             .room_service
-                                            .event_storage
-                                            .get_event(missing_event_id)
+                                            .get_event_record(missing_event_id)
                                             .await
                                             .ok()
                                             .flatten()

@@ -13,7 +13,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -48,7 +48,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE user_directory (
+        CREATE TABLE IF NOT EXISTS user_directory (
             user_id TEXT NOT NULL,
             room_id TEXT NOT NULL,
             visibility TEXT NOT NULL DEFAULT 'private',

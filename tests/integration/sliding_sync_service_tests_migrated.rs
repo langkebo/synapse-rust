@@ -31,7 +31,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE sliding_sync_tokens (
+        CREATE TABLE IF NOT EXISTS sliding_sync_tokens (
             id BIGSERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
             device_id TEXT NOT NULL,
@@ -49,7 +49,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE UNIQUE INDEX idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_tokens_unique ON sliding_sync_tokens(user_id, device_id, COALESCE(conn_id, ''))
         "#,
     )
     .execute(pool.as_ref())
@@ -58,7 +58,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE sliding_sync_lists (
+        CREATE TABLE IF NOT EXISTS sliding_sync_lists (
             id BIGSERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
             device_id TEXT NOT NULL,
@@ -79,7 +79,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE UNIQUE INDEX idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_lists_unique ON sliding_sync_lists(user_id, device_id, COALESCE(conn_id, ''), list_key)
         "#,
     )
     .execute(pool.as_ref())
@@ -88,7 +88,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE sliding_sync_rooms (
+        CREATE TABLE IF NOT EXISTS sliding_sync_rooms (
             id BIGSERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
             device_id TEXT NOT NULL,
@@ -116,7 +116,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE UNIQUE INDEX idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sliding_sync_rooms_unique ON sliding_sync_rooms(user_id, device_id, room_id, COALESCE(conn_id, ''))
         "#,
     )
     .execute(pool.as_ref())
@@ -125,7 +125,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE INDEX idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
+        CREATE INDEX IF NOT EXISTS idx_sliding_sync_rooms_room_id ON sliding_sync_rooms(room_id, updated_ts DESC)
         "#,
     )
     .execute(pool.as_ref())

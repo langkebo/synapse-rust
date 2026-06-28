@@ -13,7 +13,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -48,7 +48,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE user_threepids (
+        CREATE TABLE IF NOT EXISTS user_threepids (
             id BIGSERIAL PRIMARY KEY,
             user_id TEXT NOT NULL,
             medium TEXT NOT NULL,
@@ -69,7 +69,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE threepid_validation_session (
+        CREATE TABLE IF NOT EXISTS threepid_validation_session (
             id BIGSERIAL PRIMARY KEY,
             session_id TEXT NOT NULL UNIQUE,
             medium TEXT NOT NULL,

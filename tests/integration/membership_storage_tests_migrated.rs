@@ -12,7 +12,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -47,7 +47,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE rooms (
+        CREATE TABLE IF NOT EXISTS rooms (
             room_id TEXT NOT NULL PRIMARY KEY,
             creator TEXT,
             is_public BOOLEAN DEFAULT FALSE,
@@ -72,7 +72,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE room_memberships (
+        CREATE TABLE IF NOT EXISTS room_memberships (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             user_id TEXT NOT NULL,

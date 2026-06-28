@@ -75,10 +75,8 @@ pub(super) async fn get_missing_events(
         .services
         .rooms
         .room_service
-        .event_storage
         .get_missing_events_between(&room_id, &earliest_events, &latest_events, limit)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to walk event DAG for get_missing_events", &e))?;
+        .await?;
 
     Ok(Json(json!({
         "events": events

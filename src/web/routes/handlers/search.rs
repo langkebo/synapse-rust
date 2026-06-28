@@ -328,10 +328,9 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
     let rows = state
         .services
         .account
-        .user_storage
+        .account_identity_service
         .search_directory_users(&search.search_term, limit, false)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
+        .await?;
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = rows.iter().map(|r| r.user_id.clone()).collect();

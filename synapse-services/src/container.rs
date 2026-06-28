@@ -79,6 +79,7 @@ pub struct AccountServices {
     pub device_storage: DeviceStorage,
     pub token_storage: AccessTokenStorage,
     pub presence_storage: PresenceStorage,
+    pub presence_service: Arc<crate::presence_service::PresenceService>,
     pub qr_login_storage: QrLoginStorage,
     pub invite_blocklist_storage: InviteBlocklistStorage,
     pub sticky_event_storage: StickyEventStorage,
@@ -279,6 +280,7 @@ fn assemble_room_and_sync(
     let event_storage = EventStorage::new(pool, server_name_for_storage);
     let relations_storage = synapse_storage::relations::RelationsStorage::new(pool);
     let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
+    let room_tag_storage = synapse_storage::room_tag::RoomTagStorage::new(pool.clone());
 
     let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
         Arc::new(room_summary_storage.clone()),
@@ -293,6 +295,7 @@ fn assemble_room_and_sync(
         room_storage: room_storage.clone(),
         member_storage: member_storage.clone(),
         event_storage: event_storage.clone(),
+        room_tag_storage: room_tag_storage.clone(),
         user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
         auth_service: auth_service.clone(),
         room_summary_service: room_summary_service.clone(),
@@ -353,8 +356,6 @@ fn assemble_room_and_sync(
 
     let thread_storage = synapse_storage::thread::ThreadStorage::new(pool);
     let thread_service = Arc::new(crate::thread_service::ThreadService::new(Arc::new(thread_storage.clone())));
-
-    let room_tag_storage = synapse_storage::room_tag::RoomTagStorage::new(pool.clone());
 
     RoomSyncServices {
         room_storage,
@@ -1117,6 +1118,7 @@ impl ServiceContainer {
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let threepid_storage = ThreepidStorage::new(pool);
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+        let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());
         let sticky_event_storage = StickyEventStorage::new(pool.clone());
@@ -1221,6 +1223,7 @@ impl ServiceContainer {
                 device_storage: DeviceStorage::new(pool),
                 token_storage: AccessTokenStorage::new(pool),
                 presence_storage,
+                presence_service: presence_service.clone(),
                 qr_login_storage,
                 invite_blocklist_storage,
                 sticky_event_storage,

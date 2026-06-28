@@ -2,6 +2,10 @@
 # 移除 jobs = 1 以允许并行编译，显著提升构建速度
 incremental = true
 
+[env]
+# 使用 .sqlx/ 离线缓存验证 SQL，避免 rust-analyzer 和 CI 环境连接数据库
+SQLX_OFFLINE = "true"
+
 [profile.release]
 # 优化编译速度和内存使用
 opt-level = 2

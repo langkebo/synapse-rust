@@ -18,7 +18,8 @@ use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
 use synapse_rust::storage::relations::RelationsStorage;
 use synapse_rust::storage::room::RoomStorage;
-use synapse_rust::storage::user::UserStore;
+use synapse_rust::storage::user::UserStorage;
+use synapse_storage::user::UserStore;
 use synapse_rust::storage::RoomSummaryStorage;
 use synapse_rust::storage::{CreateFilterRequest, FilterStorage};
 use synapse_rust::PresenceStorage;
@@ -26,7 +27,7 @@ use synapse_rust::PresenceStorage;
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-            CREATE TABLE users (
+            CREATE TABLE IF NOT EXISTS users (
                 user_id VARCHAR(255) PRIMARY KEY,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT,
@@ -48,7 +49,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-            CREATE TABLE presence (
+            CREATE TABLE IF NOT EXISTS presence (
                 user_id VARCHAR(255) PRIMARY KEY,
                 presence TEXT,
                 status_msg TEXT,
@@ -64,7 +65,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-            CREATE TABLE rooms (
+            CREATE TABLE IF NOT EXISTS rooms (
                 room_id VARCHAR(255) PRIMARY KEY,
                 is_public BOOLEAN DEFAULT FALSE,
                 room_version TEXT DEFAULT '6',
@@ -89,7 +90,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-            CREATE TABLE room_memberships (
+            CREATE TABLE IF NOT EXISTS room_memberships (
                 room_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
                 sender TEXT,
@@ -118,7 +119,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-            CREATE TABLE events (
+            CREATE TABLE IF NOT EXISTS events (
                 event_id VARCHAR(255) PRIMARY KEY,
                 room_id VARCHAR(255) NOT NULL,
                 user_id VARCHAR(255) NOT NULL,
@@ -338,6 +339,7 @@ fn create_room_service(
         room_storage,
         member_storage,
         event_storage,
+        room_tag_storage: synapse_rust::storage::room_tag::RoomTagStorage::new(pool.clone()),
         user_storage,
         auth_service: synapse_rust::auth::AuthService::new(
             pool,

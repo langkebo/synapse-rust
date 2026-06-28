@@ -13,7 +13,7 @@ fn unique_suffix() -> u128 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -32,7 +32,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE rooms (
+        CREATE TABLE IF NOT EXISTS rooms (
             room_id TEXT NOT NULL PRIMARY KEY,
             creator TEXT,
             is_public BOOLEAN DEFAULT FALSE,
@@ -57,7 +57,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE room_retention_policies (
+        CREATE TABLE IF NOT EXISTS room_retention_policies (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL UNIQUE,
             max_lifetime BIGINT,
@@ -74,7 +74,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE server_retention_policy (
+        CREATE TABLE IF NOT EXISTS server_retention_policy (
             id BIGSERIAL PRIMARY KEY,
             max_lifetime BIGINT,
             min_lifetime BIGINT NOT NULL DEFAULT 0,
