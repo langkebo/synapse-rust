@@ -128,6 +128,7 @@ impl CapabilityFlag {
         self.enabled
     }
 
+    #[allow(dead_code)]
     pub const fn governance(self) -> GovernanceClass {
         self.governance
     }

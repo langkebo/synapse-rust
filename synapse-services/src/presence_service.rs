@@ -10,6 +10,7 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
+    #[allow(clippy::type_complexity)]
     pub async fn get_presence_with_meta(
         &self,
         user_id: &str,
@@ -58,6 +59,7 @@ impl PresenceService {
     }
 
     #[tracing::instrument(skip(self))]
+    #[allow(clippy::type_complexity)]
     pub async fn get_presence_batch_with_meta(
         &self,
         user_ids: &[String],
