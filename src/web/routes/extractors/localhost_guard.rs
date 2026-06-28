@@ -265,4 +265,24 @@ mod tests {
         let result = rt.block_on(LocalhostGuard::from_request_parts(&mut parts, &()));
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_local_proxy_ip_private_v4() {
+        use std::net::Ipv4Addr;
+        assert!(is_local_proxy_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(is_local_proxy_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+        assert!(is_local_proxy_ip(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
+    }
+
+    #[test]
+    fn test_local_proxy_ip_public_v4() {
+        use std::net::Ipv4Addr;
+        assert!(!is_local_proxy_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+    }
+
+    #[test]
+    fn test_register_error_response_contains_correct_status() {
+        let resp = register_error_response(403, "M_FORBIDDEN", "Admin registration is only available from localhost");
+        assert_eq!(resp.status().as_u16(), 403);
+    }
 }
