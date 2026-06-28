@@ -11,7 +11,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -30,7 +30,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE openid_tokens (
+        CREATE TABLE IF NOT EXISTS openid_tokens (
             id BIGSERIAL PRIMARY KEY,
             token TEXT NOT NULL UNIQUE,
             user_id TEXT NOT NULL,

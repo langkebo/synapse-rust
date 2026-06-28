@@ -7,6 +7,7 @@ use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::services::registration_service::RegistrationService;
 use synapse_rust::storage::user::UserStorage;
+use synapse_storage::user::UserStore;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -15,14 +16,9 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database(pool: &sqlx::PgPool) {
-    sqlx::query("DROP TABLE IF EXISTS refresh_tokens CASCADE").execute(pool).await.ok();
-    sqlx::query("DROP TABLE IF EXISTS access_tokens CASCADE").execute(pool).await.ok();
-    sqlx::query("DROP TABLE IF EXISTS devices CASCADE").execute(pool).await.ok();
-    sqlx::query("DROP TABLE IF EXISTS users CASCADE").execute(pool).await.ok();
-
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id VARCHAR(255) PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -49,7 +45,7 @@ async fn setup_test_database(pool: &sqlx::PgPool) {
 
     sqlx::query(
         r#"
-        CREATE TABLE devices (
+        CREATE TABLE IF NOT EXISTS devices (
             device_id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
             display_name TEXT,
@@ -69,7 +65,7 @@ async fn setup_test_database(pool: &sqlx::PgPool) {
 
     sqlx::query(
         r#"
-        CREATE TABLE access_tokens (
+        CREATE TABLE IF NOT EXISTS access_tokens (
             id BIGSERIAL PRIMARY KEY,
             token VARCHAR(255) UNIQUE NOT NULL,
             user_id VARCHAR(255) NOT NULL,
@@ -86,7 +82,7 @@ async fn setup_test_database(pool: &sqlx::PgPool) {
 
     sqlx::query(
         r#"
-        CREATE TABLE refresh_tokens (
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
             id BIGSERIAL PRIMARY KEY,
             token VARCHAR(255) UNIQUE NOT NULL,
             user_id VARCHAR(255) NOT NULL,
@@ -128,8 +124,9 @@ async fn test_register_user_success() {
     let canonical_cache = cache.clone();
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");
+    let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
     let registration_service = RegistrationService::new(
-        UserStorage::new(&pool, canonical_cache),
+        user_store,
         auth_service,
         metrics,
         "localhost",
@@ -172,8 +169,9 @@ async fn test_login_success() {
     let canonical_cache = cache.clone();
     let metrics = Arc::new(MetricsCollector::new());
     let auth_service = AuthService::new(&pool, canonical_cache.clone(), metrics.clone(), &security, "localhost");
+    let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache));
     let registration_service = RegistrationService::new(
-        UserStorage::new(&pool, canonical_cache),
+        user_store,
         auth_service,
         metrics,
         "localhost",
@@ -202,7 +200,7 @@ async fn test_get_profile_success() {
     let user_id = format!("@alice_{}:localhost", id);
     let username = format!("alice_{}", id);
 
-    let user_storage = UserStorage::new(&pool, canonical_cache.clone());
+    let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(&pool, canonical_cache.clone()));
     user_storage.create_user(&user_id, &username, None, false).await.unwrap();
     user_storage.update_displayname(&user_id, Some("Alice")).await.unwrap();
 

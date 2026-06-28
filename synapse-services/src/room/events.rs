@@ -467,4 +467,34 @@ impl RoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get signatures", &e))
     }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_daily_message_count(&self) -> ApiResult<i64> {
+        self.event_storage
+            .get_daily_message_count()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get daily message count", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn find_missing_event_ids(&self, event_ids: &[String]) -> ApiResult<Vec<String>> {
+        self.event_storage
+            .find_missing_event_ids(event_ids)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to find missing event ids", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_missing_events_between(
+        &self,
+        room_id: &str,
+        earliest_events: &[String],
+        latest_events: &[String],
+        limit: i64,
+    ) -> ApiResult<Vec<serde_json::Value>> {
+        self.event_storage
+            .get_missing_events_between(room_id, earliest_events, latest_events, limit)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to walk event DAG for missing events", &e))
+    }
 }

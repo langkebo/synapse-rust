@@ -14,7 +14,7 @@ fn unique_suffix() -> u128 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             user_id TEXT NOT NULL PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT,
@@ -33,7 +33,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE rooms (
+        CREATE TABLE IF NOT EXISTS rooms (
             room_id TEXT NOT NULL PRIMARY KEY,
             creator TEXT,
             is_public BOOLEAN DEFAULT FALSE,
@@ -58,7 +58,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE thread_roots (
+        CREATE TABLE IF NOT EXISTS thread_roots (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             root_event_id TEXT NOT NULL UNIQUE,
@@ -80,7 +80,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE thread_replies (
+        CREATE TABLE IF NOT EXISTS thread_replies (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             thread_id TEXT NOT NULL,
@@ -101,7 +101,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE thread_relations (
+        CREATE TABLE IF NOT EXISTS thread_relations (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             event_id TEXT NOT NULL,
@@ -120,7 +120,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE thread_read_receipts (
+        CREATE TABLE IF NOT EXISTS thread_read_receipts (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             thread_id TEXT NOT NULL,

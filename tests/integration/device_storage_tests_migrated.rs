@@ -10,11 +10,9 @@ fn unique_id() -> u64 {
 }
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
-    sqlx::query("DROP TABLE IF EXISTS devices CASCADE").execute(pool.as_ref()).await.ok();
-
     sqlx::query(
         r#"
-        CREATE TABLE devices (
+        CREATE TABLE IF NOT EXISTS devices (
             device_id VARCHAR(255) PRIMARY KEY,
             user_id VARCHAR(255) NOT NULL,
             display_name TEXT,

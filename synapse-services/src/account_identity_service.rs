@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use synapse_common::error::ApiError;
 use std::sync::Arc;
-use synapse_storage::{ThreepidStorage, User, UserSearchResult, UserStore, UserThreepid};
+use synapse_storage::{ThreepidStorage, User, UserDirectorySearchResult, UserSearchResult, UserStore, UserThreepid};
 
 #[derive(Clone)]
 pub struct AccountIdentityService {
@@ -112,6 +112,38 @@ impl AccountIdentityService {
 
     pub async fn get_user_count(&self) -> Result<i64, ApiError> {
         self.user_storage.get_user_count().await.map_err(|e| ApiError::internal_with_log("Failed to count users", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn search_directory_users(&self, search_term: &str, limit: i64, exact_only: bool) -> Result<Vec<UserDirectorySearchResult>, ApiError> {
+        self.user_storage
+            .search_directory_users(search_term, limit, exact_only)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to search directory users", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_daily_active_users(&self) -> Result<i64, ApiError> {
+        self.user_storage
+            .get_daily_active_users()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get daily active users", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_monthly_active_users(&self) -> Result<i64, ApiError> {
+        self.user_storage
+            .get_monthly_active_users()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get monthly active users", &e))
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_r30_users(&self) -> Result<i64, ApiError> {
+        self.user_storage
+            .get_r30_users()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get r30 users", &e))
     }
 
     pub async fn resolve_password_reset_user_id_by_email(&self, email: &str, request_id: &str) -> Option<String> {

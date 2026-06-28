@@ -16,7 +16,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE event_relations (
+        CREATE TABLE IF NOT EXISTS event_relations (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             event_id TEXT NOT NULL,
@@ -36,7 +36,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE UNIQUE INDEX idx_event_relations_unique
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_event_relations_unique
         ON event_relations(event_id, relation_type, sender)
         "#,
     )
@@ -46,7 +46,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE INDEX idx_event_relations_room_relates
+        CREATE INDEX IF NOT EXISTS idx_event_relations_room_relates
         ON event_relations(room_id, relates_to_event_id, relation_type)
         "#,
     )
@@ -56,7 +56,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE INDEX idx_event_relations_room_event
+        CREATE INDEX IF NOT EXISTS idx_event_relations_room_event
         ON event_relations(room_id, event_id)
         "#,
     )

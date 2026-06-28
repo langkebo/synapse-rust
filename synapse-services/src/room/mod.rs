@@ -31,5 +31,6 @@ pub mod space;
 pub mod summary;
 pub mod summary_state;
 pub mod summary_stats;
+pub mod tags;
 pub mod upgrade;
 pub mod utils;

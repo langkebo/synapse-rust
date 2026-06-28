@@ -324,6 +324,7 @@ mod tests {
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
+                csrf_secret: String::new(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -358,6 +359,7 @@ mod tests {
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
+            sso_redirect_allowlist: vec![],
         };
 
         let url = config.database_url();
@@ -482,6 +484,7 @@ mod tests {
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
+                csrf_secret: String::new(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -755,6 +758,7 @@ mod tests {
                 admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
                 admin_rbac_enabled: default_admin_rbac_enabled(),
                 ui_auth_session_timeout: default_ui_auth_session_timeout(),
+                csrf_secret: String::new(),
             },
             search: SearchConfig {
                 elasticsearch_url: "http://localhost:9200".to_string(),
@@ -789,6 +793,7 @@ mod tests {
             experimental: ExperimentalConfig::default(),
             identity: IdentityConfig::default(),
             translate: TranslateConfig::default(),
+            sso_redirect_allowlist: vec![],
         };
 
         config.resolve_env_variables()?;
@@ -885,6 +890,7 @@ mod tests {
             admin_mfa_allowed_drift_steps: default_admin_mfa_allowed_drift_steps(),
             admin_rbac_enabled: default_admin_rbac_enabled(),
             ui_auth_session_timeout: default_ui_auth_session_timeout(),
+            csrf_secret: String::new(),
         };
 
         assert!(config.secret.len() > 16);

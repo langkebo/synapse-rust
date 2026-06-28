@@ -8,6 +8,10 @@ use super::*;
 use reqwest::StatusCode;
 
 fn test_manager() -> ApplicationServiceManager {
+    // sqlx 0.8 connect_lazy_with requires a Tokio runtime context to spawn
+    // background tasks even though no actual connection is made.
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
     let pool =
         Arc::new(sqlx::postgres::PgPoolOptions::new().connect_lazy_with(sqlx::postgres::PgConnectOptions::new()));
 

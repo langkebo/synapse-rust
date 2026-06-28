@@ -11,7 +11,7 @@ fn unique_id() -> u64 {
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
         r#"
-        CREATE TABLE rooms (
+        CREATE TABLE IF NOT EXISTS rooms (
             room_id TEXT NOT NULL PRIMARY KEY,
             creator TEXT,
             is_public BOOLEAN DEFAULT FALSE,
@@ -36,7 +36,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE events (
+        CREATE TABLE IF NOT EXISTS events (
             event_id TEXT NOT NULL PRIMARY KEY,
             room_id TEXT NOT NULL,
             sender TEXT NOT NULL,
@@ -71,7 +71,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE state_groups (
+        CREATE TABLE IF NOT EXISTS state_groups (
             id BIGSERIAL PRIMARY KEY,
             room_id TEXT NOT NULL,
             event_id TEXT NOT NULL,
@@ -88,7 +88,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE state_group_edges (
+        CREATE TABLE IF NOT EXISTS state_group_edges (
             state_group_id BIGINT NOT NULL,
             prev_state_group_id BIGINT NOT NULL,
             PRIMARY KEY (state_group_id, prev_state_group_id),
@@ -103,7 +103,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE event_to_state_groups (
+        CREATE TABLE IF NOT EXISTS event_to_state_groups (
             event_id TEXT NOT NULL PRIMARY KEY,
             state_group_id BIGINT NOT NULL,
             FOREIGN KEY (event_id) REFERENCES events(event_id) ON DELETE CASCADE,
@@ -117,7 +117,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
     sqlx::query(
         r#"
-        CREATE TABLE state_group_state (
+        CREATE TABLE IF NOT EXISTS state_group_state (
             state_group_id BIGINT NOT NULL,
             event_type TEXT NOT NULL,
             state_key TEXT NOT NULL,

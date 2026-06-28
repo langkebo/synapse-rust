@@ -165,12 +165,12 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_rooms = state.services.rooms.room_service.get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
-    let daily_active_users = state.services.account.user_storage.get_daily_active_users().await.unwrap_or(0);
-    let monthly_active_users = state.services.account.user_storage.get_monthly_active_users().await.unwrap_or(0);
-    let r30_users = state.services.account.user_storage.get_r30_users().await.unwrap_or(0);
+    let daily_active_users = state.services.account.account_identity_service.get_daily_active_users().await.unwrap_or(0);
+    let monthly_active_users = state.services.account.account_identity_service.get_monthly_active_users().await.unwrap_or(0);
+    let r30_users = state.services.account.account_identity_service.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.
-    let room_stats = state.services.rooms.room_storage.get_room_stats_overview().await.unwrap_or_else(|e| {
+    let room_stats = state.services.rooms.room_service.get_room_stats_overview().await.unwrap_or_else(|e| {
         ::tracing::warn!(error = %e, "Failed to fetch room stats overview for /statistics");
         json!({})
     });
@@ -179,7 +179,7 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
     let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let daily_messages = state.services.rooms.event_storage.get_daily_message_count().await.unwrap_or(0);
+    let daily_messages = state.services.rooms.room_service.get_daily_message_count().await.unwrap_or(0);
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {

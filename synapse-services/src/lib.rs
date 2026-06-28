@@ -49,6 +49,7 @@ pub mod media_quota_service;
 pub mod media_service;
 pub mod module_service;
 pub mod oidc_service;
+pub mod presence_service;
 pub mod push;
 pub use push::service as push_notification_service;
 pub mod refresh_token_service;

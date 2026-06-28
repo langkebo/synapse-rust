@@ -876,3 +876,437 @@ fn sample_room_event(event_id_suffix: &str) -> RoomEvent {
         redacts: None,
     }
 }
+
+fn sample_state_event() -> StateEvent {
+    StateEvent {
+        event_id: "$state_event:example.com".to_string(),
+        room_id: "!room:example.com".to_string(),
+        sender: "@sender:example.com".to_string(),
+        event_type: Some("m.room.name".to_string()),
+        content: json!({ "name": "Test Room" }),
+        state_key: Some("".to_string()),
+        unsigned: None,
+        is_redacted: None,
+        origin_server_ts: 1_777_000_000_000,
+        depth: Some(5),
+        processed_ts: None,
+        not_before: None,
+        status: None,
+        reference_image: None,
+        origin: Some("example.com".to_string()),
+        user_id: Some("@sender:example.com".to_string()),
+        stream_ordering: Some(10),
+    }
+}
+
+// ===========================================================================
+// response.rs — event_to_json
+// ===========================================================================
+
+#[test]
+fn test_event_to_json_client_format() {
+    let event = sample_room_event("_client");
+    let value = SyncService::event_to_json(&event, SyncEventFormat::Client);
+
+    assert_eq!(value["type"], "m.room.message");
+    assert_eq!(value["sender"], "@user:example.com");
+    assert_eq!(value["event_id"], "$event_client");
+    assert_eq!(value["room_id"], "!room:example.com");
+    assert_eq!(value["origin_server_ts"], 1_777_000_000_000_i64);
+    assert!(value["unsigned"]["age"].is_i64());
+    // Client format must not include depth/origin
+    assert!(value.get("depth").is_none());
+    assert!(value.get("origin").is_none());
+}
+
+#[test]
+fn test_event_to_json_federation_format() {
+    let event = sample_room_event("_fed");
+    let value = SyncService::event_to_json(&event, SyncEventFormat::Federation);
+
+    assert_eq!(value["type"], "m.room.message");
+    assert_eq!(value["depth"], 1);
+    assert_eq!(value["origin"], "example.com");
+}
+
+#[test]
+fn test_event_to_json_with_state_key() {
+    let mut event = sample_room_event("_state");
+    event.state_key = Some("".to_string());
+    let value = SyncService::event_to_json(&event, SyncEventFormat::Client);
+    assert_eq!(value["state_key"], "");
+}
+
+#[test]
+fn test_event_to_json_without_state_key() {
+    let event = sample_room_event("_nosk");
+    let value = SyncService::event_to_json(&event, SyncEventFormat::Client);
+    assert!(value.get("state_key").is_none());
+}
+
+// ===========================================================================
+// response.rs — state_event_to_json
+// ===========================================================================
+
+#[test]
+fn test_state_event_to_json_client_format() {
+    let event = sample_state_event();
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+
+    assert_eq!(value["type"], "m.room.name");
+    assert_eq!(value["sender"], "@sender:example.com");
+    assert_eq!(value["event_id"], "$state_event:example.com");
+    assert_eq!(value["room_id"], "!room:example.com");
+    assert_eq!(value["origin_server_ts"], 1_777_000_000_000_i64);
+    assert_eq!(value["state_key"], "");
+    assert!(value["unsigned"]["age"].is_i64());
+    assert!(value.get("depth").is_none());
+    assert!(value.get("origin").is_none());
+}
+
+#[test]
+fn test_state_event_to_json_federation_format() {
+    let event = sample_state_event();
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Federation);
+
+    assert_eq!(value["depth"], 5);
+    assert_eq!(value["origin"], "example.com");
+}
+
+#[test]
+fn test_state_event_to_json_falls_back_to_sender_when_user_id_none() {
+    let mut event = sample_state_event();
+    event.user_id = None;
+    event.sender = "@fallback:example.com".to_string();
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+    assert_eq!(value["sender"], "@fallback:example.com");
+}
+
+#[test]
+fn test_state_event_to_json_uses_user_id_when_present() {
+    let mut event = sample_state_event();
+    event.sender = "@legacy:example.com".to_string();
+    event.user_id = Some("@actual:example.com".to_string());
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+    assert_eq!(value["sender"], "@actual:example.com");
+}
+
+#[test]
+fn test_state_event_to_json_defaults_event_type_when_none() {
+    let mut event = sample_state_event();
+    event.event_type = None;
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+    assert_eq!(value["type"], "m.room.message");
+}
+
+#[test]
+fn test_state_event_to_json_without_state_key() {
+    let mut event = sample_state_event();
+    event.state_key = None;
+    let value = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+    assert!(value.get("state_key").is_none());
+}
+
+// ===========================================================================
+// response.rs — build_room_sync_value
+// ===========================================================================
+
+#[test]
+fn test_build_room_sync_value_empty_events() {
+    let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
+        events: Vec::new(),
+        state_list: Vec::new(),
+        ephemeral_events: Vec::new(),
+        account_data_events: Vec::new(),
+        timeline_limit: 10,
+        counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+        event_fields: None,
+        event_format: SyncEventFormat::Client,
+    });
+
+    assert!(value["timeline"]["events"].is_array());
+    assert_eq!(value["timeline"]["events"].as_array().unwrap().len(), 0);
+    assert_eq!(value["timeline"]["limited"], false);
+    assert!(value["timeline"]["prev_batch"].is_string());
+    assert_eq!(value["state"]["events"].as_array().unwrap().len(), 0);
+    assert_eq!(value["ephemeral"]["events"].as_array().unwrap().len(), 0);
+    assert_eq!(value["account_data"]["events"].as_array().unwrap().len(), 0);
+    assert_eq!(value["unread_notifications"]["highlight_count"], 0);
+    assert_eq!(value["unread_notifications"]["notification_count"], 0);
+}
+
+#[test]
+fn test_build_room_sync_value_with_events() {
+    let mut e1 = sample_room_event("_a");
+    e1.origin_server_ts = 1_000;
+    let mut e2 = sample_room_event("_b");
+    e2.origin_server_ts = 2_000;
+
+    let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
+        events: vec![e1, e2],
+        state_list: Vec::new(),
+        ephemeral_events: Vec::new(),
+        account_data_events: Vec::new(),
+        timeline_limit: 10,
+        counts: RoomSyncCounts { highlight_count: 1, notification_count: 5 },
+        event_fields: None,
+        event_format: SyncEventFormat::Client,
+    });
+
+    let timeline_events = value["timeline"]["events"].as_array().unwrap();
+    assert_eq!(timeline_events.len(), 2);
+    // apply_timeline_limit reverses: newest first
+    assert_eq!(timeline_events[0]["event_id"], "$event_b");
+    assert_eq!(timeline_events[1]["event_id"], "$event_a");
+    assert_eq!(value["timeline"]["limited"], false);
+    // prev_batch uses first event of the reversed list (e2, ts=2000)
+    assert_eq!(value["timeline"]["prev_batch"], "t2000");
+    assert_eq!(value["unread_notifications"]["highlight_count"], 1);
+    assert_eq!(value["unread_notifications"]["notification_count"], 5);
+}
+
+#[test]
+fn test_build_room_sync_value_applies_timeline_limit() {
+    let events = vec![
+        sample_room_event("_1"),
+        sample_room_event("_2"),
+        sample_room_event("_3"),
+    ];
+
+    let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
+        events,
+        state_list: Vec::new(),
+        ephemeral_events: Vec::new(),
+        account_data_events: Vec::new(),
+        timeline_limit: 2,
+        counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+        event_fields: None,
+        event_format: SyncEventFormat::Client,
+    });
+
+    let timeline_events = value["timeline"]["events"].as_array().unwrap();
+    assert_eq!(timeline_events.len(), 2);
+    assert_eq!(value["timeline"]["limited"], true);
+}
+
+#[test]
+fn test_build_room_sync_value_prev_batch_from_first_event() {
+    let mut event = sample_room_event("_pb");
+    event.origin_server_ts = 1_500;
+
+    let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
+        events: vec![event],
+        state_list: Vec::new(),
+        ephemeral_events: Vec::new(),
+        account_data_events: Vec::new(),
+        timeline_limit: 10,
+        counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+        event_fields: None,
+        event_format: SyncEventFormat::Client,
+    });
+
+    assert_eq!(value["timeline"]["prev_batch"], "t1500");
+}
+
+#[test]
+fn test_build_room_sync_value_applies_event_fields_filter() {
+    let event = sample_room_event("_filter");
+
+    let value = SyncService::build_room_sync_value(BuildRoomSyncValueRequest {
+        events: vec![event],
+        state_list: Vec::new(),
+        ephemeral_events: Vec::new(),
+        account_data_events: Vec::new(),
+        timeline_limit: 10,
+        counts: RoomSyncCounts { highlight_count: 0, notification_count: 0 },
+        event_fields: Some(&["type".to_string(), "event_id".to_string(), "unsigned.age".to_string()]),
+        event_format: SyncEventFormat::Client,
+    });
+
+    let timeline_event = &value["timeline"]["events"][0];
+    assert_eq!(timeline_event["type"], "m.room.message");
+    assert_eq!(timeline_event["event_id"], "$event_filter");
+    assert!(timeline_event["unsigned"]["age"].is_i64());
+    // Filtered-out fields should not be present
+    assert!(timeline_event.get("sender").is_none());
+    assert!(timeline_event.get("content").is_none());
+    assert!(timeline_event.get("room_id").is_none());
+}
+
+// ===========================================================================
+// data_fetch.rs — aggregate_ephemeral_events
+// ===========================================================================
+
+#[test]
+fn test_aggregate_ephemeral_events_empty() {
+    let result = SyncService::aggregate_ephemeral_events(Vec::new());
+    assert!(result.is_empty());
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_typing_only() {
+    let typing = json!({
+        "type": "m.typing",
+        "content": { "user_ids": ["@alice:example.com"] }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![typing.clone()]);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["type"], "m.typing");
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_receipt_only() {
+    let receipt = json!({
+        "type": "m.receipt",
+        "content": {
+            "$event1:example.com": { "m.read": { "@alice:example.com": { "ts": 1000 } } }
+        }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![receipt]);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["type"], "m.receipt");
+    assert!(result[0]["content"]["$event1:example.com"]["m.read"].is_object());
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_merges_receipts_for_different_events() {
+    let r1 = json!({
+        "type": "m.receipt",
+        "content": {
+            "$event1:example.com": { "m.read": { "@alice:example.com": { "ts": 1000 } } }
+        }
+    });
+    let r2 = json!({
+        "type": "m.receipt",
+        "content": {
+            "$event2:example.com": { "m.read": { "@bob:example.com": { "ts": 2000 } } }
+        }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![r1, r2]);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["type"], "m.receipt");
+    let content = &result[0]["content"];
+    assert!(content["$event1:example.com"]["m.read"]["@alice:example.com"].is_object());
+    assert!(content["$event2:example.com"]["m.read"]["@bob:example.com"].is_object());
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_same_event_same_receipt_type_overwrites() {
+    // When two receipts target the same event_id with the same receipt_type,
+    // the second overwrites the first (last-write-wins per receipt_type).
+    let r1 = json!({
+        "type": "m.receipt",
+        "content": {
+            "$event1:example.com": { "m.read": { "@alice:example.com": { "ts": 1000 } } }
+        }
+    });
+    let r2 = json!({
+        "type": "m.receipt",
+        "content": {
+            "$event1:example.com": { "m.read": { "@bob:example.com": { "ts": 2000 } } }
+        }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![r1, r2]);
+    assert_eq!(result.len(), 1);
+    let merged = &result[0]["content"]["$event1:example.com"]["m.read"];
+    // @bob overwrites @alice
+    assert!(merged.get("@alice:example.com").is_none());
+    assert!(merged["@bob:example.com"].is_object());
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_mixed_receipts_and_typing() {
+    let receipt = json!({
+        "type": "m.receipt",
+        "content": { "$e:example.com": { "m.read": { "@a:example.com": { "ts": 1 } } } }
+    });
+    let typing = json!({
+        "type": "m.typing",
+        "content": { "user_ids": ["@a:example.com"] }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![receipt, typing.clone()]);
+    // Receipt aggregated first, then typing appended
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0]["type"], "m.receipt");
+    assert_eq!(result[1]["type"], "m.typing");
+}
+
+#[test]
+fn test_aggregate_ephemeral_events_unknown_type_passed_through() {
+    let custom = json!({
+        "type": "org.example.custom",
+        "content": { "foo": "bar" }
+    });
+    let result = SyncService::aggregate_ephemeral_events(vec![custom.clone()]);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["type"], "org.example.custom");
+    assert_eq!(result[0]["content"]["foo"], "bar");
+}
+
+// ===========================================================================
+// data_fetch.rs — to_device_since_stream_id
+// ===========================================================================
+
+#[test]
+fn test_to_device_since_stream_id_none() {
+    let since: Option<SyncToken> = None;
+    assert_eq!(SyncService::to_device_since_stream_id(&since), 0);
+}
+
+#[test]
+fn test_to_device_since_stream_id_without_to_device_id() {
+    let since = Some(SyncToken {
+        stream_id: 100,
+        room_id: None,
+        event_type: None,
+        to_device_stream_id: None,
+        device_list_stream_id: None,
+    });
+    assert_eq!(SyncService::to_device_since_stream_id(&since), 0);
+}
+
+#[test]
+fn test_to_device_since_stream_id_with_to_device_id() {
+    let since = Some(SyncToken {
+        stream_id: 100,
+        room_id: None,
+        event_type: None,
+        to_device_stream_id: Some(42),
+        device_list_stream_id: None,
+    });
+    assert_eq!(SyncService::to_device_since_stream_id(&since), 42);
+}
+
+// ===========================================================================
+// data_fetch.rs — device_list_since_stream_id
+// ===========================================================================
+
+#[test]
+fn test_device_list_since_stream_id_none() {
+    let since: Option<SyncToken> = None;
+    assert_eq!(SyncService::device_list_since_stream_id(&since), 0);
+}
+
+#[test]
+fn test_device_list_since_stream_id_without_device_list_id() {
+    let since = Some(SyncToken {
+        stream_id: 100,
+        room_id: None,
+        event_type: None,
+        to_device_stream_id: None,
+        device_list_stream_id: None,
+    });
+    assert_eq!(SyncService::device_list_since_stream_id(&since), 0);
+}
+
+#[test]
+fn test_device_list_since_stream_id_with_device_list_id() {
+    let since = Some(SyncToken {
+        stream_id: 100,
+        room_id: None,
+        event_type: None,
+        to_device_stream_id: None,
+        device_list_stream_id: Some(99),
+    });
+    assert_eq!(SyncService::device_list_since_stream_id(&since), 99);
+}
