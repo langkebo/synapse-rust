@@ -2,10 +2,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use synapse_services::cache::{CacheConfig, CacheManager};
 use synapse_storage::feature_flags::{
     CreateFeatureFlagRequest, FeatureFlagFilters, FeatureFlagStorage, FeatureFlagTargetInput, UpdateFeatureFlagRequest,
 };
-use synapse_services::cache::{CacheConfig, CacheManager};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

@@ -7,13 +7,13 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
+use synapse_services::sync_service::SyncService;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::FilterStorage;
 use synapse_storage::PresenceStorage;
-use synapse_services::sync_service::SyncService;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(

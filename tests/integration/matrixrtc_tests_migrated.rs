@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+use synapse_services::rtc::{to_matrix_event, MatrixRTCService};
 use synapse_storage::matrixrtc::{
     CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
     SessionWithMemberships,
 };
-use synapse_services::rtc::{to_matrix_event, MatrixRTCService};
 
 #[allow(dead_code)]
 fn create_test_storage(pool: sqlx::PgPool) -> MatrixRTCStorage {

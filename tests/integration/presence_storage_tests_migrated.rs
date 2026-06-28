@@ -2,8 +2,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_storage::presence::PresenceStorage;
 use synapse_rust::PresenceState;
+use synapse_storage::presence::PresenceStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

@@ -866,9 +866,8 @@ async fn test_record_usage() {
     let request = make_request(suffix, &user_id, future_ts);
     let token = storage.create_token(request).await.unwrap();
 
-    let usage_req =
-        synapse_storage::refresh_token::RecordUsageRequest::new(token.id, &user_id, "new_atid_123", true)
-            .old_access_token_id("old_atid_abc");
+    let usage_req = synapse_storage::refresh_token::RecordUsageRequest::new(token.id, &user_id, "new_atid_123", true)
+        .old_access_token_id("old_atid_abc");
 
     storage.record_usage(&usage_req).await.unwrap();
 
