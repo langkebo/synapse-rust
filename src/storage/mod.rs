@@ -1,21 +1,10 @@
 // =============================================================================
-// L0 — Core Matrix storage re-exports (always compiled, required for core-private-chat)
-// =============================================================================
-// All re-exports now resolve directly to synapse_storage. The local facade files
-// and directory modules have been removed.
-
-pub use synapse_storage::user::{
-    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
-    UserStatsSummary, UserStorage, UserStore,
-};
-pub use synapse_storage::threepid::UserThreepid; // user storage types
-
-// =============================================================================
-// Explicit re-exports of storage types (L0 — from synapse_storage).
+// L0 — Core Matrix storage re-exports (always compiled).
+// All re-exports resolve directly to synapse_storage. Local facade files and
+// directory modules have been removed.
 //
-// Each `pub use synapse_storage::<module>::{...}` below re-exports the public
-// storage structs/traits so that callers can write `crate::storage::TypeName`
-// instead of the fully-qualified path.
+// Flat re-exports below let callers write `crate::storage::TypeName` instead
+// of the fully-qualified `synapse_storage::module::TypeName` path.
 // =============================================================================
 pub use synapse_storage::admin_media::{
     decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary,
@@ -94,12 +83,17 @@ pub use synapse_storage::thread::{
 };
 pub use synapse_storage::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidValidationSession};
 pub use synapse_storage::token::{AccessToken, AccessTokenStorage};
+pub use synapse_storage::user::{
+    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
+    UserStatsSummary, UserStorage, UserStore,
+};
+pub use synapse_storage::threepid::UserThreepid;
 
 // Module-level re-exports — needed by consumers that access types via
 // `crate::storage::<module>::TypeName` rather than the flat re-export path.
 pub use synapse_storage::application_service;
-pub use synapse_storage::event;
 pub use synapse_storage::audit;
+pub use synapse_storage::event;
 pub use synapse_storage::event_report;
 pub use synapse_storage::federation_blacklist;
 pub use synapse_storage::maintenance;
