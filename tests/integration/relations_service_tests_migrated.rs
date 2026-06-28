@@ -1,11 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_storage::relations::RelationsStorage;
 use synapse_services::relations_service::{
     AggregationItem, AggregationResponse, RelationsResponse, RelationsService, SendAnnotationRequest,
     SendReferenceRequest, SendReplacementRequest,
 };
+use synapse_storage::relations::RelationsStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

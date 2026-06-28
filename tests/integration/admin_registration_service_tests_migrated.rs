@@ -7,8 +7,8 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_storage::user::UserStorage;
 use synapse_services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
+use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 
 type HmacSha256 = Hmac<Sha256>;

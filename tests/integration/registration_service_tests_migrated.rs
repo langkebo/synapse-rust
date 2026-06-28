@@ -5,8 +5,8 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_storage::user::UserStorage;
 use synapse_services::registration_service::RegistrationService;
+use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);

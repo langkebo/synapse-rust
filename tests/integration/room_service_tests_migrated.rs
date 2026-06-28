@@ -7,17 +7,17 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
+use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
+use synapse_services::room_service::{CreateRoomConfig, RoomService};
+use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
 use synapse_storage::room::RoomStorage;
+use synapse_storage::room_summary::RoomSummaryStorage;
 use synapse_storage::user::UserStorage;
 use synapse_storage::CreateEventParams;
-use synapse_storage::room_summary::RoomSummaryStorage;
-use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
-use synapse_services::room_service::{CreateRoomConfig, RoomService};
-use synapse_services::room_summary_service::RoomSummaryService;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
