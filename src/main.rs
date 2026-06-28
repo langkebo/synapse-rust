@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use synapse_rust::common::config::Config;
 
 #[tokio::main]
@@ -27,25 +26,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 2. Initialize telemetry (OpenTelemetry)
-    let telemetry_service = Arc::new(synapse_services::telemetry_service::TelemetryService::new(
-        Arc::new(config.telemetry.clone()),
-        Arc::new(config.prometheus.clone()),
-    ));
-
-    let tracer_provider = match telemetry_service.initialize() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to initialize telemetry: {e}");
-            None
-        }
-    };
-
-    // 3. Initialize global logging and tracing
-    if let Err(e) = synapse_rust::common::logging::init_logging(&config.logging, tracer_provider) {
-        eprintln!("Failed to initialize logging: {e}");
-        std::process::exit(1);
-    }
+    // 2. Initialize telemetry and global tracing/logging.
+    //    The returned guard flushes telemetry on drop.
+    let _telemetry_guard = synapse_rust::server::telemetry::init_telemetry(&config);
 
     tracing::info!("Starting Synapse Rust Matrix Server...");
     tracing::info!("Server name: {}", config.server.name);
@@ -55,8 +38,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     server.run().await?;
 
-    // 4. Graceful shutdown
-    telemetry_service.shutdown();
-
+    // Graceful shutdown — telemetry is flushed when _telemetry_guard is dropped.
     Ok(())
 }
