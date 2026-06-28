@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::{
+use synapse_storage::rendezvous::{
     CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
     StoredRendezvousMessage,
 };
