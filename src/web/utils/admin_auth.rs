@@ -1,6 +1,7 @@
 use crate::common::config::SecurityConfig;
 use crate::common::ApiError;
-use crate::storage::{CreateAuditEventRequest, User};
+use synapse_storage::audit::CreateAuditEventRequest;
+use synapse_storage::user::User;
 use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
 use axum::http::{HeaderMap, Method};
