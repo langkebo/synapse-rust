@@ -1,6 +1,4 @@
 use axum::{response::IntoResponse, routing::get, Router};
-use deadpool_redis::Pool as RedisPool;
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,7 +7,6 @@ use tokio::signal;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
-use crate::cache::*;
 use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
@@ -24,11 +21,10 @@ use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
 
-use synapse_services::ServiceContainer;
-
 use synapse_storage::*;
 
 mod database;
+mod services;
 
 const MIN_DEHYDRATED_DEVICE_CLEANUP_INTERVAL_SECS: u64 = 300;
 
@@ -117,8 +113,6 @@ pub struct SynapseServer {
     _config_watcher_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
-use synapse_common::task_queue::RedisTaskQueue;
-
 impl SynapseServer {
     pub async fn new(config: Config) -> Result<Self, Box<dyn std::error::Error>> {
         // Make CORS origins from homeserver.yaml visible to the security check
@@ -161,56 +155,7 @@ impl SynapseServer {
             return Err(format!("FATAL: {e}").into());
         }
 
-        let mut task_queue: Option<Arc<RedisTaskQueue>> = None;
-        let mut redis_pool_option: Option<RedisPool> = None;
-
-        let cache = if config.redis.enabled {
-            ::tracing::info!("Redis enabled. Connecting to: {}:{}", config.redis.host, config.redis.port);
-
-            let conn_str = config.redis.connection_url();
-            let redis_cfg = deadpool_redis::Config::from_url(&conn_str);
-            let redis_pool = redis_cfg.create_pool(Some(deadpool_redis::Runtime::Tokio1))?;
-            redis_pool_option = Some(redis_pool.clone());
-
-            ::tracing::info!("Redis pool created.");
-
-            // Startup health check: verify Redis connectivity with a ping
-            match redis_pool.get().await {
-                Ok(mut conn) => {
-                    let ping: redis::RedisResult<String> = redis::cmd("PING").query_async(&mut *conn).await;
-                    match ping {
-                        Ok(_) => ::tracing::info!("Redis connectivity verified (PING OK)."),
-                        Err(e) => ::tracing::warn!("Redis PING failed: {}. Service may be degraded.", e),
-                    }
-                }
-                Err(e) => {
-                    ::tracing::warn!("Failed to acquire Redis connection from pool: {}. Service may be degraded.", e);
-                }
-            }
-
-            let tq = RedisTaskQueue::from_pool(redis_pool.clone());
-            task_queue = Some(Arc::new(tq));
-
-            let cache = Arc::new(CacheManager::with_redis_pool_and_url(redis_pool, &CacheConfig::default(), &conn_str));
-
-            if let Err(e) = cache.start_invalidation_subscriber() {
-                ::tracing::warn!("Failed to start cache invalidation subscriber: {}", e);
-            } else {
-                ::tracing::info!("Cache invalidation subscriber started successfully");
-            }
-
-            cache
-        } else {
-            ::tracing::warn!(
-                "Redis disabled. Using local in-memory cache. \
-                 Rate limiting will use per-process in-memory token buckets, \
-                 which are NOT shared across workers. For multi-worker deployments, \
-                 enable Redis to ensure consistent rate limiting."
-            );
-            Arc::new(CacheManager::new(&CacheConfig::default()))
-        };
-
-        let services = ServiceContainer::new(&pool, cache.clone(), config.clone(), task_queue).await;
+        let (services, cache, redis_pool_option) = services::build_service_container(&pool, &config).await?;
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
