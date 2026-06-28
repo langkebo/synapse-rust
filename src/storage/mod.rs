@@ -1,10 +1,8 @@
 // =============================================================================
-// L0 — Core Matrix storage modules (always compiled, required for core-private-chat)
+// L0 — Core Matrix storage re-exports (always compiled, required for core-private-chat)
 // =============================================================================
-// Directory-based modules (migrated separately in a later step).
-pub mod event;
-pub mod media;
-pub mod room;
+// All re-exports now resolve directly to synapse_storage. The local facade files
+// and directory modules have been removed.
 
 pub use synapse_storage::user::{
     LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
@@ -100,6 +98,7 @@ pub use synapse_storage::token::{AccessToken, AccessTokenStorage};
 // Module-level re-exports — needed by consumers that access types via
 // `crate::storage::<module>::TypeName` rather than the flat re-export path.
 pub use synapse_storage::application_service;
+pub use synapse_storage::event;
 pub use synapse_storage::audit;
 pub use synapse_storage::event_report;
 pub use synapse_storage::federation_blacklist;
