@@ -1,6 +1,6 @@
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use crate::storage::registration_token::decode_registration_token_cursor;
+use synapse_storage::registration_token::decode_registration_token_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},

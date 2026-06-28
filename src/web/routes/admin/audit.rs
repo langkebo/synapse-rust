@@ -1,6 +1,5 @@
 use crate::common::ApiError;
-use crate::storage::audit::decode_audit_event_cursor;
-use crate::storage::{AuditEventFilters, CreateAuditEventRequest};
+use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 use crate::web::routes::{AdminUser, AppState};
 use crate::web::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
