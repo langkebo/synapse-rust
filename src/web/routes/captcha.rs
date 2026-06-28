@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Query, State},
@@ -7,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_services::captcha_service::{SendCaptchaRequest, VerifyCaptchaRequest};
 
 #[derive(Debug, Deserialize)]
 pub struct SendCaptchaQuery {

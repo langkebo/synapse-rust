@@ -24,7 +24,7 @@ async fn setup_federation_test_app_with_pool(
     signing_key_b64: &str,
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
     let pool = super::get_test_pool().await?;
-    let mut container = synapse_rust::services::ServiceContainer::new_test_with_pool(pool.clone()).await;
+    let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
     container.core.config.server.name = "localhost".to_string();
     container.core.server_name = "localhost".to_string();
     container.core.config.federation.enabled = true;

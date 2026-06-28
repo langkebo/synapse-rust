@@ -14,7 +14,7 @@ use std::sync::{
 };
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
-use synapse_rust::services::ServiceContainer;
+use synapse_services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 

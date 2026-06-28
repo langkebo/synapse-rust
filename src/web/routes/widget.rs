@@ -1,8 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::widget_service::{
-    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
-    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
-};
 use crate::web::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -11,6 +7,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use synapse_services::widget_service::{
+    CreateSessionRequest, CreateWidgetRequest, SessionListResponse, SessionResponse, SetPermissionRequest,
+    UpdateWidgetRequest, WidgetListResponse, WidgetResponse,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateWidgetBody {

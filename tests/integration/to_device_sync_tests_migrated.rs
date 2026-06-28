@@ -7,7 +7,7 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_rust::services::sync_service::SyncService;
+use synapse_services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;

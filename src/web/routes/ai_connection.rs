@@ -7,9 +7,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::common::error::{ApiError, ApiResult};
-use synapse_services::matrix_ai_connection_service::{CreateConnectionRequest, McpToolCallRequest};
 use crate::web::routes::AuthenticatedUser;
 use crate::web::AppState;
+use synapse_services::matrix_ai_connection_service::{CreateConnectionRequest, McpToolCallRequest};
 use synapse_storage::ai_connection::AiConnection;
 
 #[derive(Debug, Deserialize)]

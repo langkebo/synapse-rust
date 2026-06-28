@@ -2,9 +2,6 @@
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
 use crate::common::error::ApiError;
-#[cfg(feature = "builtin-oidc")]
-use synapse_services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
-use synapse_services::oidc_service::OidcService;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Query, State},
@@ -16,6 +13,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(feature = "builtin-oidc")]
+use synapse_services::builtin_oidc_provider::{AuthorizeRequest, OidcTokenRequest as BuiltinOidcTokenRequest};
+use synapse_services::oidc_service::OidcService;
 use validator::Validate;
 
 const OIDC_AUTH_SESSION_TTL_SECONDS: u64 = 600;

@@ -3,7 +3,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use synapse_rust::services::ServiceContainer;
+use synapse_services::ServiceContainer;
 use synapse_rust::web::{routes::create_router, AppState};
 use tower::ServiceExt;
 

@@ -1,7 +1,6 @@
 use super::{ensure_room_state_write_access, ensure_room_view_access, UpgradeRoomRequest, UpgradeRoomResponse};
 use crate::common::ApiError;
 use crate::map_internal;
-use synapse_services::room::service::CreateRoomConfig;
 use crate::web::routes::{
     ensure_room_member, extract_token_from_headers, validate_room_id, AppState, AuthenticatedUser,
     OptionalAuthenticatedUser,
@@ -13,6 +12,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use synapse_services::room::service::CreateRoomConfig;
 
 // =============================================================================
 // Observed repeated patterns (Phase 4 extraction candidates)

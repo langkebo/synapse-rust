@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::module_service::*;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -9,6 +8,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use synapse_services::module_service::*;
 use synapse_storage::module::*;
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,7 +1,7 @@
 #![cfg(test)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use synapse_rust::services::search_service::SearchService;
+use synapse_services::search_service::SearchService;
 use tokio::runtime::Runtime;
 
 #[test]

@@ -11,7 +11,7 @@ use std::sync::{
     Arc,
 };
 use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::services::ServiceContainer;
+use synapse_services::ServiceContainer;
 use synapse_rust::web::routes::state::AppState;
 use tower::ServiceExt;
 

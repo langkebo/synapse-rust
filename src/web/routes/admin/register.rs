@@ -7,8 +7,6 @@
 
 use crate::common::error::MatrixErrorCode;
 use crate::common::ApiError;
-use synapse_services::captcha_service::VerifyCaptchaRequest;
-use synapse_services::admin_registration_service::AdminRegisterRequest;
 use crate::web::routes::extractors::localhost_guard::{register_error_response, LocalhostGuard};
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
@@ -25,6 +23,8 @@ use ipnetwork::IpNetwork;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::net::SocketAddr;
+use synapse_services::admin_registration_service::AdminRegisterRequest;
+use synapse_services::captcha_service::VerifyCaptchaRequest;
 use validator::Validate;
 
 pub fn create_register_router(state: AppState) -> Router<AppState> {

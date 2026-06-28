@@ -10,9 +10,9 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
-use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
-use synapse_rust::services::room_summary_service::RoomSummaryService;
-use synapse_rust::services::sync_service::SyncService;
+use synapse_services::room_service::{CreateRoomConfig, RoomService};
+use synapse_services::room_summary_service::RoomSummaryService;
+use synapse_services::sync_service::SyncService;
 use synapse_rust::storage::device::DeviceStorage;
 use synapse_rust::storage::event::{CreateEventParams, EventStorage};
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -335,7 +335,7 @@ fn create_room_service(
         Some(Arc::new(member_storage.clone())),
     ));
 
-    RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
+    RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage,
         member_storage,
         event_storage,

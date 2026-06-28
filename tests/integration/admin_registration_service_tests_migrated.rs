@@ -7,7 +7,7 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_rust::services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
+use synapse_services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
 use synapse_rust::storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 
@@ -415,7 +415,7 @@ async fn test_hmac_invalid_hex_mac() {
 
 #[test]
 fn test_nonce_response_serialization() {
-    use synapse_rust::services::admin_registration_service::NonceResponse;
+    use synapse_services::admin_registration_service::NonceResponse;
     let response = NonceResponse { nonce: "test_nonce_value".to_string() };
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains("test_nonce_value"));
@@ -464,7 +464,7 @@ fn test_admin_register_request_deserialization_minimal() {
 
 #[test]
 fn test_admin_register_response_serialization() {
-    use synapse_rust::services::admin_registration_service::AdminRegisterResponse;
+    use synapse_services::admin_registration_service::AdminRegisterResponse;
     let response = AdminRegisterResponse {
         access_token: "at_123".to_string(),
         refresh_token: "rt_456".to_string(),

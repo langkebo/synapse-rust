@@ -8,13 +8,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
+use crate::web::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
+use crate::web::routes::AppState;
+use crate::web::routes::{ensure_room_member_strict, AdminUser, AuthenticatedUser};
 use synapse_services::room::summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
-use crate::web::routes::response_helpers::{created_json, created_json_from, json_from, json_vec_from, require_found};
-use crate::web::routes::AppState;
-use crate::web::routes::{ensure_room_member_strict, AdminUser, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryLimit {

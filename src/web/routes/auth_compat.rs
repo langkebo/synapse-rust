@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_services::auth::GuestAuthExt;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::enforce_admin_login_mfa;
@@ -11,6 +10,7 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
+use synapse_services::auth::GuestAuthExt;
 
 pub(crate) async fn register(
     State(state): State<AppState>,

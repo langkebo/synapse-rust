@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_services::admin_media_service::decode_media_cursor;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, State},
@@ -7,6 +6,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_services::admin_media_service::decode_media_cursor;
 
 pub fn create_media_router(_state: AppState) -> Router<AppState> {
     Router::new()

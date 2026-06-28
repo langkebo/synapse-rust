@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::push_notification_service::SendNotificationRequest;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -7,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_services::push_notification_service::SendNotificationRequest;
 use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 
 #[derive(Debug, Deserialize)]

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::services::ServiceContainer;
+    use synapse_services::ServiceContainer;
     use synapse_rust::storage::event_report::*;
 
     #[test]

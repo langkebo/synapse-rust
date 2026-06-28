@@ -256,7 +256,7 @@ pub async fn setup_test_app_with_config<F>(
     configure: F,
 ) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
 where
-    F: FnOnce(&mut synapse_rust::services::ServiceContainer),
+    F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     build_test_app(configure).await
 }
@@ -275,10 +275,10 @@ pub async fn setup_test_app_with_state() -> Option<(axum::Router, synapse_rust::
 
 async fn build_test_app<F>(configure: F) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
 where
-    F: FnOnce(&mut synapse_rust::services::ServiceContainer),
+    F: FnOnce(&mut synapse_services::ServiceContainer),
 {
     use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::services::ServiceContainer;
+    use synapse_services::ServiceContainer;
     use synapse_rust::web::routes::state::AppState;
 
     let pool = get_test_pool().await?;
