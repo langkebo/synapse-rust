@@ -7,7 +7,7 @@ mod tests {
 
     use serde_json::json;
     use sqlx::PgPool;
-    use synapse_rust::services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
+    use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
     use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
     use synapse_rust::storage::EventStorage;
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};

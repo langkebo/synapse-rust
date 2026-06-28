@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_services::cas_service::{CasRegisteredService, CasValidationResponse, RegisterServiceRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, Request, State},
@@ -10,6 +9,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use synapse_services::cas_service::{CasRegisteredService, CasValidationResponse, RegisterServiceRequest};
 use url::form_urlencoded;
 
 /// CAS 配置检查中间件

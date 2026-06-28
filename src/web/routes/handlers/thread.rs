@@ -1,8 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::thread_service::{
-    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
-    SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
-};
 use crate::web::routes::{ensure_room_member_strict, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -12,6 +8,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_services::thread_service::{
+    CreateReplyRequest, CreateThreadRequest, GetThreadRequest, ListThreadsRequest, MarkReadRequest, SubscribeRequest,
+    SubscribedThreadsResponse, ThreadDetailResponse, ThreadListResponse, UnreadThreadsResponse,
+};
 
 #[derive(Debug, Deserialize)]
 struct CreateThreadBody {

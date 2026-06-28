@@ -1,4 +1,3 @@
-use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::collections::VecDeque;
@@ -7,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use synapse_services::database_initializer::{DatabaseInitMode, DatabaseInitService};
 use tokio::sync::OnceCell;
 use tokio::sync::{Mutex as TokioMutex, Semaphore};
 

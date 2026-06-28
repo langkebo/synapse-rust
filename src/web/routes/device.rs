@@ -20,7 +20,10 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 .services
                 .extensions
                 .uia_service
-                .create_session(&auth_user.user_id, synapse_services::uia_service::UiaService::get_delete_device_flows())
+                .create_session(
+                    &auth_user.user_id,
+                    synapse_services::uia_service::UiaService::get_delete_device_flows(),
+                )
                 .await;
             return Err((
                 StatusCode::UNAUTHORIZED,

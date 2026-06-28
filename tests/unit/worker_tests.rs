@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
-    use synapse_rust::services::ServiceContainer;
+    use synapse_services::ServiceContainer;
     use synapse_rust::worker::protocol::{ReplicationCommand, ReplicationProtocol};
     use synapse_rust::worker::types::*;
 

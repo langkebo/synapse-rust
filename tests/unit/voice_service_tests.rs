@@ -1,4 +1,4 @@
-use synapse_rust::services::voice_service::VoiceMessageUploadParams;
+use synapse_services::voice_service::VoiceMessageUploadParams;
 
 #[test]
 fn test_voice_upload_params_creation() {

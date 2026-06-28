@@ -131,8 +131,6 @@ mod tests {
     use crate::cache::{CacheConfig, CacheManager};
     use crate::common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
     #[cfg(feature = "test-utils")]
-    use synapse_services::ServiceContainer;
-    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     use crate::web::utils::ip::extract_client_ip;
     #[cfg(feature = "test-utils")]
@@ -141,6 +139,8 @@ mod tests {
     use axum::{middleware, routing::get, Router};
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
+    #[cfg(feature = "test-utils")]
+    use synapse_services::ServiceContainer;
     #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
 

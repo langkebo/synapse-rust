@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::TypingService;
+    use synapse_services::TypingService;
 
     #[tokio::test]
     async fn test_set_typing() {

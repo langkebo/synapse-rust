@@ -71,9 +71,9 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
     assert_eq!(response.status(), StatusCode::OK);
 }
 
-async fn setup_test_app_with_services() -> Option<(axum::Router, synapse_rust::services::ServiceContainer)> {
+async fn setup_test_app_with_services() -> Option<(axum::Router, synapse_services::ServiceContainer)> {
     use synapse_rust::cache::{CacheConfig, CacheManager};
-    use synapse_rust::services::ServiceContainer;
+    use synapse_services::ServiceContainer;
     use synapse_rust::web::routes::state::AppState;
 
     let pool = super::get_test_pool().await?;

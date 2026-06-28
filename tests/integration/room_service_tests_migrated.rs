@@ -7,9 +7,9 @@ use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
-use synapse_rust::services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
-use synapse_rust::services::room_service::{CreateRoomConfig, RoomService};
-use synapse_rust::services::room_summary_service::RoomSummaryService;
+use synapse_services::application_service::{ApplicationServiceManager, ApplicationServiceScheduler};
+use synapse_services::room_service::{CreateRoomConfig, RoomService};
+use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_rust::storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use synapse_rust::storage::event::EventStorage;
 use synapse_rust::storage::membership::RoomMemberStorage;
@@ -300,7 +300,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         Some(Arc::new(member_storage.clone())),
     ));
 
-    RoomService::new(synapse_rust::services::room_service::RoomServiceConfig {
+    RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage: RoomStorage::new(pool),
         member_storage,
         event_storage,

@@ -1,9 +1,9 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
 use crate::common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
-use synapse_services::ServiceContainer;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_services::ServiceContainer;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
 #[derive(Clone)]

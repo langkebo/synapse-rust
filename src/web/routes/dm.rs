@@ -1,7 +1,6 @@
 // Direct Message Routes - 直接消息路由
 // DM room creation and management
 
-use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -10,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use synapse_services::friend_room_service::FriendRoomCreateRoomConfig;
 use validator::Validate;
 
 #[derive(Debug, Deserialize, Validate)]

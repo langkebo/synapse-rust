@@ -4,7 +4,7 @@ use std::fs;
 use tempfile::tempdir;
 use tokio::runtime::Runtime;
 
-use synapse_rust::services::media_service::MediaService;
+use synapse_services::media_service::MediaService;
 
 fn create_test_media_service() -> (MediaService, tempfile::TempDir) {
     let temp_dir = tempdir().expect("Failed to create temp directory");

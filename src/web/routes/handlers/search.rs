@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_services::search_service::{RoomEventsSearchFilter, TimestampDirection};
 use crate::web::routes::{
     account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
     AuthenticatedUser,
@@ -11,6 +10,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use synapse_services::search_service::{RoomEventsSearchFilter, TimestampDirection};
 
 use std::collections::HashMap;
 use std::time::Duration;

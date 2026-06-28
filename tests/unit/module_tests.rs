@@ -1,9 +1,9 @@
-use synapse_rust::services::module_service::*;
+use synapse_services::module_service::*;
 use synapse_rust::storage::module::*;
 
 #[cfg(test)]
 mod common {
-    pub use synapse_rust::services::ServiceContainer;
+    pub use synapse_services::ServiceContainer;
 }
 
 #[tokio::test]

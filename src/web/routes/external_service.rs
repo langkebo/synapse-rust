@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::common::ApiError;
-use synapse_services::external_service_integration::*;
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
+use synapse_services::external_service_integration::*;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterExternalServiceBody {

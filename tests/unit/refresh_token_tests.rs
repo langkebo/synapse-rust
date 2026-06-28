@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use synapse_rust::services::refresh_token_service::RefreshTokenService;
-    use synapse_rust::services::ServiceContainer;
+    use synapse_services::refresh_token_service::RefreshTokenService;
+    use synapse_services::ServiceContainer;
     use synapse_rust::storage::refresh_token::*;
 
     #[test]

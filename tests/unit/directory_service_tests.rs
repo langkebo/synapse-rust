@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod tests {
-    use synapse_rust::DirectoryService;
+    use synapse_services::DirectoryService;
 
     #[tokio::test]
     async fn test_set_and_get_room_alias() {

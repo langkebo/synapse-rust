@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 #[cfg(test)]
 mod tests {
-    use synapse_rust::services::identity::models::*;
+    use synapse_services::identity::models::*;
 
     #[test]
     fn test_third_party_id_new() {

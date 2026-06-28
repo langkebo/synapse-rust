@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use synapse_rust::services::rtc::{to_matrix_event, MatrixRTCService};
+use synapse_services::rtc::{to_matrix_event, MatrixRTCService};
 use synapse_rust::storage::matrixrtc::{
     CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, RTCEncryptionKey, RTCMembership, RTCSession,
     SessionWithMemberships,

@@ -2,7 +2,7 @@
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use synapse_rust::services::database_initializer::initialize_database;
+use synapse_services::database_initializer::initialize_database;
 use synapse_rust::test_utils::{env_lock_async, EnvGuard};
 
 static TEST_DB_INIT_MUTEX: OnceLock<tokio::sync::Mutex<bool>> = OnceLock::new();

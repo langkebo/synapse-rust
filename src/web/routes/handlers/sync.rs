@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_services::sync_service::SyncServiceRequest;
 use crate::web::routes::{extract_token_from_headers, AppState};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -7,6 +6,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::Value;
+use synapse_services::sync_service::SyncServiceRequest;
 
 struct SyncParams<'a> {
     state: AppState,

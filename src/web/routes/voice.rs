@@ -1,7 +1,6 @@
 #![allow(clippy::unused_async)]
 use super::{ensure_room_member, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::ApiError;
-use synapse_services::voice_service::VoiceMessageUploadParams;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post},
@@ -10,6 +9,7 @@ use axum::{
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::Value;
+use synapse_services::voice_service::VoiceMessageUploadParams;
 
 #[derive(Debug, Deserialize)]
 pub struct VoiceListQuery {

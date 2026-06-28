@@ -12,8 +12,6 @@ use tower_http::trace::TraceLayer;
 use crate::cache::*;
 use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
-use synapse_services::ServiceContainer;
-use synapse_services::database_initializer::DatabaseInitService;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, request_debug_middleware, request_timeout_middleware,
@@ -25,6 +23,8 @@ use crate::web::AppState;
 use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
+use synapse_services::database_initializer::DatabaseInitService;
+use synapse_services::ServiceContainer;
 use synapse_storage::schema_health_check::run_schema_health_check;
 use synapse_storage::*;
 

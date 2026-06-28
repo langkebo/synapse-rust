@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-use synapse_services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -9,6 +8,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use synapse_services::telemetry_service::{ExportConfig, TelemetryAlert, TelemetryAlertFilters, TelemetryService};
 
 #[derive(Debug, Serialize)]
 pub struct TelemetryStatusResponse {

@@ -590,13 +590,13 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::cache::{CacheConfig, CacheManager};
     #[cfg(feature = "test-utils")]
-    use synapse_services::ServiceContainer;
-    #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     #[cfg(feature = "test-utils")]
     use ed25519_dalek::Signer;
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
+    #[cfg(feature = "test-utils")]
+    use synapse_services::ServiceContainer;
 
     #[test]
     fn test_extract_verify_key_from_server_key_response() {

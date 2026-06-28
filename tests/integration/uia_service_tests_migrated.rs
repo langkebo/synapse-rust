@@ -4,7 +4,7 @@ use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
-use synapse_rust::services::uia_service::{UiaFlow, UiaService, UiaSession};
+use synapse_services::uia_service::{UiaFlow, UiaService, UiaSession};
 
 fn create_service() -> UiaService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
