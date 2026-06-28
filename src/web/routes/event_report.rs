@@ -8,10 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::common::ApiError;
+use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use synapse_storage::event_report::{
     CreateEventReportRequest, EventReport, EventReportHistory, EventReportStats, UpdateEventReportRequest,
 };
-use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {

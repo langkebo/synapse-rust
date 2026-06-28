@@ -4,10 +4,6 @@ pub mod types;
 
 use crate::common::constants::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
 use crate::common::ApiError;
-use synapse_storage::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
-use synapse_storage::sliding_sync::{
-    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
-};
 use crate::web::routes::admin::room::types::{
     RoomTokenSyncQueryParams, SearchAllRoomsRequest, SearchRoomMessagesRequest,
 };
@@ -18,6 +14,10 @@ use axum::{
     Json, Router,
 };
 use serde_json::{json, Value};
+use synapse_storage::room::{decode_room_search_cursor, RoomSearchCursor, RoomSearchOrder};
+use synapse_storage::sliding_sync::{
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, RoomTokenSyncCursor,
+};
 
 #[cfg(test)]
 mod cursor_tests {

@@ -1,8 +1,4 @@
 use crate::common::ApiError;
-use synapse_storage::rendezvous::{
-    CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
-    StoredRendezvousMessage,
-};
 use crate::web::routes::{AppState, OptionalAuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -12,6 +8,10 @@ use axum::{
     Router,
 };
 use serde_json::{json, Value};
+use synapse_storage::rendezvous::{
+    CreateRendezvousSessionParams, RendezvousIntent, RendezvousMessage, RendezvousSession, RendezvousTransport,
+    StoredRendezvousMessage,
+};
 
 const RENDEZVOUS_KEY_HEADER: &str = "x-matrix-rendezvous-key";
 

@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_storage::audit::CreateAuditEventRequest;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::auth::resolve_request_id;
@@ -8,6 +7,7 @@ use axum::{
     http::{request::Parts, HeaderMap, Method},
 };
 use serde_json::json;
+use synapse_storage::audit::CreateAuditEventRequest;
 
 #[derive(Clone)]
 pub struct AuthenticatedUser {

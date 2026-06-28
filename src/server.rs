@@ -14,8 +14,6 @@ use crate::common::config::Config;
 use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::services::database_initializer::DatabaseInitService; // explicit: removed from glob due to ambiguous re-export warning
 use crate::services::*;
-use synapse_storage::schema_health_check::run_schema_health_check;
-use synapse_storage::*;
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, request_debug_middleware, request_timeout_middleware,
@@ -27,6 +25,8 @@ use crate::web::AppState;
 use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
+use synapse_storage::schema_health_check::run_schema_health_check;
+use synapse_storage::*;
 
 const DEFAULT_MAX_LIFETIME: Duration = Duration::from_secs(1800);
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -994,10 +994,10 @@ fn append_prometheus_gauge(output: &mut String, name: &str, help: &str, value: f
 mod tests {
     use super::*;
     #[cfg(feature = "test-utils")]
-    use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
-    #[cfg(feature = "test-utils")]
     use crate::test_utils::prepare_shared_test_pool;
     use crate::worker::types::WorkerType;
+    #[cfg(feature = "test-utils")]
+    use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
     #[cfg(feature = "test-utils")]
     use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 

@@ -1,6 +1,5 @@
 use crate::common::error::ApiError;
 use crate::services::push_notification_service::SendNotificationRequest;
-use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 use crate::web::routes::{AdminUser, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
@@ -8,6 +7,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_storage::push_notification::{CreatePushRuleRequest, PushDevice, PushRule, RegisterDeviceRequest};
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterDeviceBody {

@@ -1,5 +1,4 @@
 use crate::common::ApiError;
-use synapse_storage::feature_flags::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -8,6 +7,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use synapse_storage::feature_flags::{CreateFeatureFlagRequest, FeatureFlagFilters, UpdateFeatureFlagRequest};
 
 fn decode_feature_flag_cursor(cursor: Option<&str>) -> Option<(i64, &str)> {
     let cursor = cursor?;
