@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+if command -v cargo-deny >/dev/null 2>&1; then
+  cargo deny check advisories
+else
+  echo "tip: install cargo-deny for push-time security checks (cargo install cargo-deny)"
+fi
