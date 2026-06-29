@@ -980,9 +980,15 @@ impl DeviceRepository for DeviceStorage {
     async fn update_device_last_seen(
         &self,
         device_id: &str,
-        _last_seen_ip: Option<&str>,
-        _user_agent: Option<&str>,
+        last_seen_ip: Option<&str>,
+        user_agent: Option<&str>,
     ) -> Result<(), sqlx::Error> {
+        if last_seen_ip.is_some() {
+            tracing::warn!("last_seen_ip parameter not yet supported by DeviceStorage; value discarded");
+        }
+        if user_agent.is_some() {
+            tracing::warn!("user_agent parameter not yet supported by DeviceStorage; value discarded");
+        }
         // CONCERN: DeviceStorage::update_device_last_seen only accepts
         // device_id; last_seen_ip and user_agent are not yet persisted by the
         // underlying storage.  When DeviceStorage is extended, these params

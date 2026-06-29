@@ -1,6 +1,6 @@
 pub mod batch;
 pub(crate) mod models;
-pub mod repository;
+mod repository;
 pub mod state;
 
 pub use models::*;
