@@ -504,4 +504,408 @@ mod tests {
         assert_eq!(response["chunk"].as_array().unwrap().len(), 2);
         assert_eq!(response["total_room_count_estimate"], 2);
     }
+
+    // ------------------------------------------------------------------
+    // Manual mock RoomRepository for unit testing
+    // ------------------------------------------------------------------
+
+    struct MockRoomRepo {
+        room: Option<synapse_storage::Room>,
+    }
+
+    #[async_trait::async_trait]
+    impl synapse_storage::RoomRepository for MockRoomRepo {
+        fn pool(&self) -> &Arc<sqlx::PgPool> {
+            unimplemented!("pool not used in test")
+        }
+
+        async fn get_room(&self, _room_id: &str) -> Result<Option<synapse_storage::Room>, sqlx::Error> {
+            Ok(self.room.clone())
+        }
+
+        async fn get_rooms_batch(&self, _room_ids: &[String]) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
+            unimplemented!("get_rooms_batch not used in test")
+        }
+
+        async fn create_room(
+            &self,
+            _room_id: &str,
+            _creator: &str,
+            _join_rule: &str,
+            _room_version: &str,
+            _is_public: bool,
+        ) -> Result<synapse_storage::Room, sqlx::Error> {
+            unimplemented!("create_room not used in test")
+        }
+
+        async fn create_room_in_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _room_id: &str,
+            _creator: &str,
+            _join_rule: &str,
+            _version: &str,
+            _is_public: bool,
+        ) -> Result<synapse_storage::Room, sqlx::Error> {
+            unimplemented!("create_room_in_tx not used in test")
+        }
+
+        async fn update_room_name(&self, _room_id: &str, _name: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("update_room_name not used in test")
+        }
+
+        async fn update_room_name_in_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _room_id: &str,
+            _name: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("update_room_name_in_tx not used in test")
+        }
+
+        async fn update_room_topic(&self, _room_id: &str, _topic: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("update_room_topic not used in test")
+        }
+
+        async fn update_room_topic_in_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _room_id: &str,
+            _topic: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("update_room_topic_in_tx not used in test")
+        }
+
+        async fn update_join_rule_in_tx(
+            &self,
+            _tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            _room_id: &str,
+            _join_rule: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("update_join_rule_in_tx not used in test")
+        }
+
+        async fn set_room_public(&self, _room_id: &str, _is_public: bool) -> Result<(), sqlx::Error> {
+            unimplemented!("set_room_public not used in test")
+        }
+
+        async fn delete_room(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("delete_room not used in test")
+        }
+
+        async fn get_public_rooms(&self, _limit: i64) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
+            unimplemented!("get_public_rooms not used in test")
+        }
+
+        async fn get_public_rooms_paginated(
+            &self,
+            _limit: i64,
+            _since_ts: Option<i64>,
+            _since_room_id: Option<&str>,
+        ) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
+            unimplemented!("get_public_rooms_paginated not used in test")
+        }
+
+        async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
+            unimplemented!("count_public_rooms not used in test")
+        }
+
+        async fn get_user_rooms(&self, _user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+            unimplemented!("get_user_rooms not used in test")
+        }
+
+        async fn search_room_directory(&self, _search_term: &str, _limit: i64) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
+            unimplemented!("search_room_directory not used in test")
+        }
+
+        async fn get_room_aliases(&self, _room_id: &str) -> Result<Vec<String>, sqlx::Error> {
+            unimplemented!("get_room_aliases not used in test")
+        }
+
+        async fn set_room_alias(
+            &self,
+            _room_id: &str,
+            _alias: &str,
+            _created_by: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("set_room_alias not used in test")
+        }
+
+        async fn get_room_by_alias(&self, _alias: &str) -> Result<Option<String>, sqlx::Error> {
+            unimplemented!("get_room_by_alias not used in test")
+        }
+
+        async fn remove_room_alias(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("remove_room_alias not used in test")
+        }
+
+        async fn remove_room_alias_by_name(&self, _alias: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("remove_room_alias_by_name not used in test")
+        }
+
+        async fn set_room_directory(&self, _room_id: &str, _is_public: bool) -> Result<(), sqlx::Error> {
+            unimplemented!("set_room_directory not used in test")
+        }
+
+        async fn is_room_in_directory(&self, _room_id: &str) -> Result<bool, sqlx::Error> {
+            unimplemented!("is_room_in_directory not used in test")
+        }
+
+        async fn remove_room_directory(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("remove_room_directory not used in test")
+        }
+
+        async fn set_canonical_alias(&self, _room_id: &str, _alias: Option<&str>) -> Result<(), sqlx::Error> {
+            unimplemented!("set_canonical_alias not used in test")
+        }
+
+        async fn increment_member_count(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("increment_member_count not used in test")
+        }
+
+        async fn decrement_member_count(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("decrement_member_count not used in test")
+        }
+
+        async fn add_receipt(
+            &self,
+            _user_id: &str,
+            _receipt_user_id: &str,
+            _room_id: &str,
+            _event_id: &str,
+            _receipt_type: &str,
+            _data: &serde_json::Value,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("add_receipt not used in test")
+        }
+
+        async fn get_receipts(
+            &self,
+            _room_id: &str,
+            _receipt_type: &str,
+            _event_id: &str,
+        ) -> Result<Vec<synapse_storage::Receipt>, sqlx::Error> {
+            unimplemented!("get_receipts not used in test")
+        }
+
+        async fn update_read_marker_with_type(
+            &self,
+            _room_id: &str,
+            _user_id: &str,
+            _event_id: &str,
+            _marker_type: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("update_read_marker_with_type not used in test")
+        }
+
+        async fn copy_room_state(
+            &self,
+            _source_room_id: &str,
+            _target_room_id: &str,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("copy_room_state not used in test")
+        }
+
+        async fn room_exists(&self, _room_id: &str) -> Result<bool, sqlx::Error> {
+            unimplemented!("room_exists not used in test")
+        }
+
+        async fn get_room_count(&self) -> Result<i64, sqlx::Error> {
+            unimplemented!("get_room_count not used in test")
+        }
+
+        async fn get_room_version_only(&self, _room_id: &str) -> Result<Option<String>, sqlx::Error> {
+            unimplemented!("get_room_version_only not used in test")
+        }
+
+        async fn block_room(
+            &self,
+            _room_id: &str,
+            _blocked_at: i64,
+            _blocked_by: &str,
+            _reason: Option<&str>,
+        ) -> Result<(), sqlx::Error> {
+            unimplemented!("block_room not used in test")
+        }
+
+        async fn unblock_room(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("unblock_room not used in test")
+        }
+
+        async fn get_room_block_status(&self, _room_id: &str) -> Result<Option<i64>, sqlx::Error> {
+            unimplemented!("get_room_block_status not used in test")
+        }
+
+        async fn shutdown_room(&self, _room_id: &str) -> Result<(), sqlx::Error> {
+            unimplemented!("shutdown_room not used in test")
+        }
+
+        async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
+            unimplemented!("get_room_stats_overview not used in test")
+        }
+
+        async fn get_single_room_stats(
+            &self,
+            _room_id: &str,
+        ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+            unimplemented!("get_single_room_stats not used in test")
+        }
+
+        async fn get_room_listings_status(
+            &self,
+            _room_id: &str,
+        ) -> Result<Option<(bool, bool)>, sqlx::Error> {
+            unimplemented!("get_room_listings_status not used in test")
+        }
+
+        async fn set_room_public_with_directory(&self, _room_id: &str) -> Result<bool, sqlx::Error> {
+            unimplemented!("set_room_public_with_directory not used in test")
+        }
+
+        async fn set_room_private_with_directory(&self, _room_id: &str) -> Result<bool, sqlx::Error> {
+            unimplemented!("set_room_private_with_directory not used in test")
+        }
+
+        async fn get_user_room_list_summary(
+            &self,
+            _user_id: &str,
+        ) -> Result<Vec<(String, String, String, String)>, sqlx::Error> {
+            unimplemented!("get_user_room_list_summary not used in test")
+        }
+
+        async fn get_all_rooms_with_members(
+            &self,
+            _limit: i64,
+            _from: Option<synapse_storage::RoomSearchCursor>,
+            _order_by: synapse_storage::RoomSearchOrder,
+        ) -> Result<(Vec<(synapse_storage::Room, i64)>, Option<String>), sqlx::Error> {
+            unimplemented!("get_all_rooms_with_members not used in test")
+        }
+
+        async fn search_all_rooms_admin(
+            &self,
+            _search_term: Option<&str>,
+            _limit: i64,
+            _order_by: synapse_storage::RoomSearchOrder,
+            _cursor: Option<synapse_storage::RoomSearchCursor>,
+            _is_public: Option<bool>,
+            _is_encrypted: Option<bool>,
+        ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), sqlx::Error> {
+            unimplemented!("search_all_rooms_admin not used in test")
+        }
+
+        async fn get_unread_counts(
+            &self,
+            _room_id: &str,
+            _user_id: &str,
+        ) -> Result<synapse_storage::RoomUnreadCounts, sqlx::Error> {
+            unimplemented!("get_unread_counts not used in test")
+        }
+
+        async fn get_unread_counts_batch(
+            &self,
+            _room_ids: &[String],
+            _user_id: &str,
+        ) -> Result<Vec<synapse_storage::RoomUnreadCounts>, sqlx::Error> {
+            unimplemented!("get_unread_counts_batch not used in test")
+        }
+
+        async fn cleanup_abnormal_data(
+            &self,
+            _min_age_ms: Option<i64>,
+        ) -> Result<serde_json::Value, sqlx::Error> {
+            unimplemented!("cleanup_abnormal_data not used in test")
+        }
+    }
+
+    /// Create a lazy Postgres pool for tests (never actually connects).
+    fn test_pool() -> Arc<sqlx::PgPool> {
+        Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgres://localhost:5432/synapse_test")
+                .expect("lazy pool creation should succeed even without a running DB"),
+        )
+    }
+
+    /// Build a RoomService for testing. Only `room_storage` is exercised;
+    /// all other fields are real (but unused) instances backed by a lazy pool.
+    fn make_service(room_storage: Arc<dyn synapse_storage::RoomRepository>) -> RoomService {
+        let pool = test_pool();
+        let event_storage: Arc<dyn synapse_storage::EventRepository> =
+            Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string()));
+        let cache = Arc::new(synapse_cache::CacheManager::new(
+            &synapse_cache::CacheConfig::default(),
+        ));
+        let metrics = Arc::new(synapse_common::metrics::MetricsCollector::new());
+        let security = synapse_common::config::SecurityConfig::default();
+
+        RoomService {
+            room_storage,
+            member_storage: synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost"),
+            room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+            user_storage: Arc::new(synapse_storage::FakeUserStore::new()),
+            auth_service: crate::auth::AuthService::new(&pool, cache, metrics, &security, "localhost"),
+            validator: Arc::new(synapse_common::validation::Validator::default()),
+            server_name: "example.com".to_string(),
+            task_queue: None,
+            active_tasks: Arc::new(RwLock::new(HashMap::new())),
+            room_summary_service: Arc::new(crate::room::summary::RoomSummaryService::new(
+                Arc::new(synapse_storage::room_summary::RoomSummaryStorage::new(&pool)),
+                event_storage.clone(),
+                None,
+            )),
+            event_storage,
+            relations_storage: synapse_storage::relations::RelationsStorage::new(&pool),
+            event_broadcaster: Arc::new(RwLock::new(None)),
+            app_service_manager: Arc::new(RwLock::new(None)),
+            key_rotation_manager: Arc::new(RwLock::new(None)),
+            federation_client: Arc::new(RwLock::new(None)),
+            beacon_service: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_room_with_mock_found() {
+        let mock = MockRoomRepo {
+            room: Some(synapse_storage::Room {
+                room_id: "!testroom:example.com".to_string(),
+                name: Some("Test Room".to_string()),
+                topic: Some("A test room".to_string()),
+                canonical_alias: Some("#test:example.com".to_string()),
+                join_rule: "invite".to_string(),
+                creator_user_id: Some("@alice:example.com".to_string()),
+                room_version: "10".to_string(),
+                encryption: None,
+                is_public: false,
+                member_count: 1,
+                history_visibility: "shared".to_string(),
+                created_ts: 1234567890,
+                avatar_url: None,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
+            }),
+        };
+
+        let service = make_service(Arc::new(mock));
+        let result = service.get_room("!testroom:example.com").await;
+        assert!(result.is_ok());
+        let json = result.unwrap();
+        assert_eq!(json["room_id"], "!testroom:example.com");
+        assert_eq!(json["name"], "Test Room");
+        assert_eq!(json["topic"], "A test room");
+        assert_eq!(json["canonical_alias"], "#test:example.com");
+        assert_eq!(json["is_public"], false);
+        assert_eq!(json["creator"], "@alice:example.com");
+        assert_eq!(json["join_rule"], "invite");
+    }
+
+    #[tokio::test]
+    async fn test_get_room_with_mock_not_found() {
+        let mock = MockRoomRepo { room: None };
+        let service = make_service(Arc::new(mock));
+        let result = service.get_room("!nonexistent:example.com").await;
+        assert!(result.is_err());
+    }
 }

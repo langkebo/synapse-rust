@@ -1,4 +1,6 @@
 use super::*;
+use synapse_storage::device::DeviceStorage;
+use synapse_storage::event::EventStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncRoom};
 
 #[tokio::test]
@@ -80,14 +82,14 @@ fn create_test_service() -> SlidingSyncService {
     SlidingSyncService {
         storage: SlidingSyncStorage::new(pool.clone()),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-        event_storage: EventStorage::new(&pool, "localhost".to_string()),
+        event_storage: Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
         presence_storage: PresenceStorage::new(
             pool.clone(),
             Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         ),
         member_storage: RoomMemberStorage::new(&pool, "localhost"),
-        device_storage: DeviceStorage::new(&pool),
+        device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),
         connection_tracker: Arc::new(
             moka::sync::Cache::builder()
