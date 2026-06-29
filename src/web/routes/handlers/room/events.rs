@@ -1,7 +1,8 @@
 use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_token};
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
-use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -12,22 +13,22 @@ use std::collections::{HashMap, HashSet};
 use synapse_storage::event::CreateEventParams;
 
 pub(crate) async fn get_single_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
+    let event = ctx.room_service.get_event(&room_id, &event_id).await?;
 
     Ok(Json(event))
 }
 
 pub(crate) async fn get_event_keys(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -37,9 +38,9 @@ pub(crate) async fn get_event_keys(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
+    let event = ctx.room_service.get_event(&room_id, &event_id).await?;
 
     Ok(Json(json!({
         "event_id": event.get("event_id"),
@@ -49,7 +50,7 @@ pub(crate) async fn get_event_keys(
 }
 
 pub(crate) async fn get_room_thread(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -59,17 +60,15 @@ pub(crate) async fn get_room_thread(
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let root_event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
+    let root_event = ctx.room_service.get_event(&room_id, &event_id).await?;
 
     let mut replies_json = Vec::new();
     let mut reply_count = 0;
     let mut participants_json = Vec::new();
 
-    if let Some(thread_root) = state
-        .services
-        .rooms
+    if let Some(thread_root) = ctx
         .thread_service
         .get_thread_root_by_event(&room_id, &event_id)
         .await
@@ -77,9 +76,7 @@ pub(crate) async fn get_room_thread(
     {
         let thread_id = thread_root.thread_id.clone().unwrap_or_default();
         if !thread_id.is_empty() {
-            let replies = state
-                .services
-                .rooms
+            let replies = ctx
                 .thread_service
                 .get_thread_replies(&room_id, &thread_id, Some(100), None)
                 .await
@@ -87,9 +84,7 @@ pub(crate) async fn get_room_thread(
             reply_count = replies.len();
 
             if reply_count > 0 {
-                participants_json = state
-                    .services
-                    .rooms
+                participants_json = ctx
                     .thread_service
                     .get_thread_participants(&room_id, &thread_id)
                     .await
@@ -132,7 +127,7 @@ pub(crate) async fn get_room_thread(
 }
 
 pub(crate) async fn get_room_notifications(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -143,10 +138,7 @@ pub(crate) async fn get_room_notifications(
 
     let _from = params.get("from").cloned();
 
-    let notifications = state
-        .services
-        .admin
-        .modules
+    let notifications = ctx
         .push_notification_service
         .get_room_notifications(&auth_user.user_id, &room_id, limit)
         .await
@@ -176,18 +168,18 @@ pub(crate) async fn get_room_notifications(
 }
 
 pub(crate) async fn get_messages(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(&params);
     let limit = params
@@ -197,9 +189,7 @@ pub(crate) async fn get_messages(
         .min(1000) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
-    let response = state
-        .services
-        .rooms
+    let response = ctx
         .room_service
         .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
         .await?;
@@ -221,8 +211,8 @@ pub(crate) async fn get_messages(
         let chunk_count = response.get("chunk").and_then(|c| c.as_array()).map_or(0, |a| a.len());
         if (chunk_count as i64) < limit {
             let room_id_clone = room_id.clone();
-            let federation_client = state.services.federation.federation_client.clone();
-            let room_service = state.services.rooms.room_service.clone();
+            let federation_client = ctx.federation_client.clone();
+            let room_service = ctx.room_service.clone();
             tokio::spawn(async move {
                 // Rate-limit: skip if this room was backfilled recently.
                 if !synapse_services::room::backfill::check_backfill_cooldown(&room_id_clone).await {
@@ -249,7 +239,7 @@ pub(crate) async fn get_messages(
 }
 
 pub(crate) async fn send_message(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, txn_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
@@ -263,17 +253,17 @@ pub(crate) async fn send_message(
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        if let Ok(Some(cached)) = state.services.core.cache.get::<String>(&cache_key).await {
+        if let Ok(Some(cached)) = ctx.cache.get::<String>(&cache_key).await {
             if let Ok(event_id) = serde_json::from_str::<serde_json::Value>(&cached) {
                 return Ok(Json(event_id));
             }
         }
     }
 
-    state.services.core.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
+    ctx.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
 
     if event_type == "m.room.encrypted" {
-        let is_encrypted = state.services.rooms.room_service.check_room_has_encryption(&room_id).await?;
+        let is_encrypted = ctx.room_service.check_room_has_encryption(&room_id).await?;
 
         if !is_encrypted {
             return Err(ApiError::bad_request(
@@ -283,7 +273,7 @@ pub(crate) async fn send_message(
     }
 
     if event_type == "m.room.power_levels" {
-        state.services.core.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
+        ctx.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
     }
 
     let mut body = body;
@@ -299,11 +289,11 @@ pub(crate) async fn send_message(
     }
 
     let result =
-        state.services.rooms.room_service.send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
+        ctx.room_service.send_message(&room_id, &auth_user.user_id, &event_type, &body).await?;
 
     if !txn_id.is_empty() {
         let cache_key = format!("txn:{}:{}:{}", auth_user.user_id, room_id, txn_id);
-        if let Err(e) = state.services.core.cache.set(&cache_key, &result.to_string(), 3600).await {
+        if let Err(e) = ctx.cache.set(&cache_key, &result.to_string(), 3600).await {
             ::tracing::warn!("Failed to cache transaction ID dedup marker: {e}");
         }
     }
@@ -312,18 +302,18 @@ pub(crate) async fn send_message(
 }
 
 pub(crate) async fn get_room_message_queue(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let pending_events = state.services.rooms.room_service.get_pending_events(&room_id, 100).await?;
+    let pending_events = ctx.room_service.get_pending_events(&room_id, 100).await?;
 
     let pending_events_json: Vec<serde_json::Value> = pending_events
         .into_iter()
@@ -339,9 +329,9 @@ pub(crate) async fn get_room_message_queue(
         })
         .collect();
 
-    let processing_count = state.services.rooms.room_service.count_events_by_status(&room_id, "processing").await;
+    let processing_count = ctx.room_service.count_events_by_status(&room_id, "processing").await;
 
-    let failed_count = state.services.rooms.room_service.count_events_by_status(&room_id, "failed").await;
+    let failed_count = ctx.room_service.count_events_by_status(&room_id, "failed").await;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -359,27 +349,25 @@ pub(crate) async fn get_room_message_queue(
 }
 
 pub(crate) async fn get_room_timeline(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let from = parse_room_messages_from_token(&params);
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as i64;
     let direction = params.get("dir").and_then(|v| v.as_str()).unwrap_or("b");
 
     Ok(Json(
-        state
-            .services
-            .rooms
+        ctx
             .room_service
             .get_room_messages(&room_id, &auth_user.user_id, from, limit, direction)
             .await?,
@@ -387,15 +375,13 @@ pub(crate) async fn get_room_timeline(
 }
 
 pub(crate) async fn get_room_unread_count(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -404,10 +390,10 @@ pub(crate) async fn get_room_unread_count(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let (notification_count, highlight_count) =
-        state.services.rooms.sync_service.room_unread_counts(&room_id, &auth_user.user_id).await?;
+        ctx.sync_service.room_unread_counts(&room_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "notification_count": notification_count,
@@ -416,14 +402,12 @@ pub(crate) async fn get_room_unread_count(
 }
 
 pub(crate) async fn get_room_encrypted_events(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -432,11 +416,9 @@ pub(crate) async fn get_room_encrypted_events(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let encrypted_events = state
-        .services
-        .rooms
+    let encrypted_events = ctx
         .room_service
         .get_room_events_by_type(&room_id, "m.room.encrypted", 100)
         .await
@@ -464,14 +446,12 @@ pub(crate) async fn get_room_encrypted_events(
 }
 
 pub(crate) async fn get_room_event_perspective(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -480,11 +460,9 @@ pub(crate) async fn get_room_event_perspective(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = state
-        .services
-        .rooms
+    let events = ctx
         .room_service
         .get_room_events(&room_id, 100)
         .await
@@ -509,15 +487,13 @@ pub(crate) async fn get_room_event_perspective(
 }
 
 pub(crate) async fn get_room_user_fragments(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     crate::web::routes::validate_user_id(&user_id)?;
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -526,11 +502,9 @@ pub(crate) async fn get_room_user_fragments(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = state
-        .services
-        .rooms
+    let events = ctx
         .room_service
         .get_room_events(&room_id, 200)
         .await
@@ -558,14 +532,12 @@ pub(crate) async fn get_room_user_fragments(
 }
 
 pub(crate) async fn get_room_reduced_events(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -574,11 +546,9 @@ pub(crate) async fn get_room_reduced_events(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = state
-        .services
-        .rooms
+    let events = ctx
         .room_service
         .get_room_events(&room_id, 100)
         .await
@@ -608,15 +578,13 @@ pub(crate) async fn get_room_reduced_events(
 }
 
 pub(crate) async fn get_room_event_url(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    if !state
-        .services
-        .rooms
+    if !ctx
         .room_service
         .room_exists(&room_id)
         .await
@@ -625,11 +593,9 @@ pub(crate) async fn get_room_event_url(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = state
-        .services
-        .rooms
+    let event = ctx
         .room_service
         .get_event_record(&event_id)
         .await
@@ -670,20 +636,20 @@ pub(crate) async fn get_room_event_url(
 }
 
 pub(crate) async fn sign_room_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let _event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
+    let _event = ctx.room_service.get_event(&room_id, &event_id).await?;
 
     let device_id = body.get("device_id").and_then(|v| v.as_str()).unwrap_or("default");
 
@@ -702,9 +668,7 @@ pub(crate) async fn sign_room_event(
 
     let created_ts = chrono::Utc::now().timestamp_millis();
 
-    state
-        .services
-        .rooms
+    ctx
         .room_service
         .save_event_signature(&event_id, &auth_user.user_id, device_id, signature, key_id, &algorithm, created_ts)
         .await?;
@@ -722,22 +686,22 @@ pub(crate) async fn sign_room_event(
 }
 
 pub(crate) async fn verify_room_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let _event = state.services.rooms.room_service.get_event(&room_id, &event_id).await?;
+    let _event = ctx.room_service.get_event(&room_id, &event_id).await?;
 
-    let signatures = state.services.rooms.room_service.get_event_signatures(&event_id).await?;
+    let signatures = ctx.room_service.get_event_signatures(&event_id).await?;
 
     let verify_user_id = body.get("user_id").and_then(|v| v.as_str());
     let verify_device_id = body.get("device_id").and_then(|v| v.as_str());
@@ -770,7 +734,7 @@ pub(crate) async fn verify_room_event(
 }
 
 pub(crate) async fn translate_room_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
@@ -779,16 +743,16 @@ pub(crate) async fn translate_room_event(
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = get_room_event(&state, &room_id, &event_id).await?;
+    let event = get_room_event(&ctx, &room_id, &event_id).await?;
     let source_text = event.get("content").and_then(|c| c.get("body")).and_then(|value| value.as_str()).unwrap_or("");
 
     // Extract target language from request body, falling back to config default
     let target_lang = body
         .get("target_lang")
         .and_then(|v| v.as_str())
-        .unwrap_or(&state.services.core.config.translate.default_target_lang);
+        .unwrap_or(&ctx.config.translate.default_target_lang);
 
     // Extract optional source language from request body
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
@@ -797,9 +761,7 @@ pub(crate) async fn translate_room_event(
     let text_to_translate = body.get("text").and_then(|v| v.as_str()).unwrap_or(source_text);
 
     // Call the translation service
-    let translation_result = state
-        .services
-        .extensions
+    let translation_result = ctx
         .translation_service
         .translate(text_to_translate, target_lang, source_lang)
         .await
@@ -826,7 +788,7 @@ pub(crate) async fn translate_room_event(
 }
 
 pub(crate) async fn translate_text(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     _auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
@@ -844,7 +806,7 @@ pub(crate) async fn translate_text(
     }
 
     // Validate text length
-    let max_len = state.services.core.config.translate.max_text_length;
+    let max_len = ctx.config.translate.max_text_length;
     if text.len() > max_len {
         return Err(ApiError::bad_request(format!("Text too long: {} bytes (max: {})", text.len(), max_len)));
     }
@@ -852,12 +814,12 @@ pub(crate) async fn translate_text(
     let target_lang = body
         .get("target_lang")
         .and_then(|v| v.as_str())
-        .unwrap_or(&state.services.core.config.translate.default_target_lang);
+        .unwrap_or(&ctx.config.translate.default_target_lang);
 
     let source_lang = body.get("source_lang").and_then(|v| v.as_str());
 
     let translation_result =
-        state.services.extensions.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
+        ctx.translation_service.translate(text, target_lang, source_lang).await.map_err(|e| {
             ::tracing::warn!(
                 request_id = %request_id,
                 target_lang = %target_lang,
@@ -876,15 +838,15 @@ pub(crate) async fn translate_text(
 }
 
 pub(crate) async fn convert_room_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_event_id(&event_id)?;
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let event = get_room_event(&state, &room_id, &event_id).await?;
+    let event = get_room_event(&ctx, &room_id, &event_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -899,7 +861,7 @@ pub(crate) async fn convert_room_event(
 }
 
 pub(crate) async fn redact_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id, _txn_id)): Path<(String, String, String)>,
@@ -914,9 +876,7 @@ pub(crate) async fn redact_event(
     }
     validate_event_id(&event_id)?;
 
-    let original_event = state
-        .services
-        .rooms
+    let original_event = ctx
         .room_service
         .get_event_record(&event_id)
         .await
@@ -927,11 +887,11 @@ pub(crate) async fn redact_event(
         return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
-    state.services.core.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
+    ctx.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     // P0-05: redaction events must carry the target event_id in the `redacts`
@@ -946,9 +906,7 @@ pub(crate) async fn redact_event(
     let content_for_as = content.clone();
     let redactor_user_id = auth_user.user_id.clone();
 
-    state
-        .services
-        .rooms
+    ctx
         .room_service
         .create_event(
             CreateEventParams {
@@ -965,14 +923,12 @@ pub(crate) async fn redact_event(
         )
         .await
         .map_err(map_internal!("Failed to redact event"))?;
-    state
-        .services
-        .rooms
+    ctx
         .room_service
         .dispatch_appservice_event(&new_event_id, &room_id, "m.room.redaction", &user_id_for_as, &content_for_as, None)
         .await;
 
-    state.services.rooms.room_service.redact_event_content(&event_id, Some(&redactor_user_id)).await.map_err(|e| {
+    ctx.room_service.redact_event_content(&event_id, Some(&redactor_user_id)).await.map_err(|e| {
         ::tracing::warn!(
             target: "security_audit",
             request_id = %request_id,
