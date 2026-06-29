@@ -1,5 +1,8 @@
+use async_trait::async_trait;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+
+use super::repository::EventRepository;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RoomEvent {
@@ -115,4 +118,91 @@ pub struct EventReport {
     #[sqlx(rename = "resolved_at")]
     pub resolved_ts: Option<i64>,
     pub resolved_by: Option<String>,
+}
+
+#[async_trait]
+impl EventRepository for EventStorage {
+    async fn get_event(&self, event_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
+        self.get_event(event_id).await
+    }
+
+    async fn create_event(&self, params: &CreateEventParams) -> Result<RoomEvent, sqlx::Error> {
+        EventStorage::create_event(self, params.clone(), None).await
+    }
+
+    async fn get_room_events_paginated(
+        &self,
+        room_id: &str,
+        limit: i64,
+        from: Option<i64>,
+        to: Option<i64>,
+        dir: Option<&str>,
+        filter: Option<&EventQueryFilter>,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let _ = to;
+        let _ = filter;
+        let direction = dir.unwrap_or("b");
+        EventStorage::get_room_events_paginated(self, room_id, from, limit, direction).await
+    }
+
+    async fn get_events_batch(
+        &self,
+        event_ids: &[String],
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        self.get_events_batch(event_ids).await
+    }
+
+    async fn get_state_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<StateEvent>, sqlx::Error> {
+        self.get_state_event(room_id, event_type, state_key).await
+    }
+
+    async fn get_state_events(
+        &self,
+        room_id: &str,
+    ) -> Result<Vec<StateEvent>, sqlx::Error> {
+        self.get_state_events(room_id).await
+    }
+
+    async fn get_state_events_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<StateEvent>>, sqlx::Error> {
+        self.get_state_events_batch(room_ids).await
+    }
+
+    async fn get_room_events_paginated_with_filter(
+        &self,
+        room_id: &str,
+        from: Option<&str>,
+        to: Option<&str>,
+        limit: i64,
+        filter: Option<&EventQueryFilter>,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        self.get_room_events_paginated_with_filter(room_id, from, to, limit, filter).await
+    }
+
+    async fn get_room_create_event(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+        self.get_room_create_event(room_id).await
+    }
+
+    async fn count_room_events(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        self.count_room_events(room_id).await
+    }
+
+    async fn search_postgres_messages(
+        &self,
+        room_id: &str,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        self.search_room_postgres_messages(room_id, search_term, limit).await
+    }
 }

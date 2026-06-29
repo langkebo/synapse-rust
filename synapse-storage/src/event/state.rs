@@ -1,6 +1,35 @@
 use super::models::*;
 
 impl EventStorage {
+    pub async fn get_state_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<StateEvent>, sqlx::Error> {
+        sqlx::query_as::<_, StateEvent>(
+            r"
+            SELECT event_id, room_id, COALESCE(sender, user_id) as sender, event_type, content, state_key,
+                   COALESCE(unsigned, '{}'::jsonb) as unsigned,
+                   COALESCE(is_redacted, false) as is_redacted,
+                   COALESCE(origin_server_ts, 0) as origin_server_ts,
+                   depth, NULL::BIGINT as processed_at, not_before, status, reference_image, origin, user_id, stream_ordering
+            FROM events
+            WHERE room_id = $1
+              AND event_type = $2
+              AND state_key = $3
+              AND state_key IS NOT NULL
+            ORDER BY origin_server_ts DESC
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .bind(event_type)
+        .bind(state_key)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
     pub async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         sqlx::query_as::<_, StateEvent>(
             r"
