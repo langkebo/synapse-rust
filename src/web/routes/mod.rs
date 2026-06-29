@@ -46,6 +46,7 @@ pub mod route_ledger;
 pub mod route_module;
 pub mod sliding_sync;
 pub mod space;
+pub mod context;
 pub mod state;
 pub mod sticky_event;
 pub mod sync;
