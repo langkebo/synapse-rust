@@ -1306,10 +1306,16 @@ impl EventStorage {
         &self,
         room_id: &str,
         from: Option<&str>,
-        _to: Option<&str>,
+        to: Option<&str>,
         limit: i64,
-        _filter: Option<&EventQueryFilter>,
+        filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        if to.is_some() {
+            tracing::warn!("EventStorage::get_room_events_paginated_with_filter: 'to' parameter not yet supported");
+        }
+        if filter.is_some() {
+            tracing::warn!("EventStorage::get_room_events_paginated_with_filter: 'filter' parameter not yet supported");
+        }
         let from_ts = from.and_then(|f| f.parse::<i64>().ok());
         self.get_room_events_paginated(room_id, from_ts, limit, "b").await
     }

@@ -139,8 +139,12 @@ impl EventRepository for EventStorage {
         dir: Option<&str>,
         filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let _ = to;
-        let _ = filter;
+        if to.is_some() {
+            tracing::warn!("EventRepository::get_room_events_paginated: 'to' parameter not yet supported");
+        }
+        if filter.is_some() {
+            tracing::warn!("EventRepository::get_room_events_paginated: 'filter' parameter not yet supported");
+        }
         let direction = dir.unwrap_or("b");
         EventStorage::get_room_events_paginated(self, room_id, from, limit, direction).await
     }
@@ -183,6 +187,12 @@ impl EventRepository for EventStorage {
         limit: i64,
         filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        if to.is_some() {
+            tracing::warn!("EventRepository::get_room_events_paginated_with_filter: 'to' parameter not yet supported");
+        }
+        if filter.is_some() {
+            tracing::warn!("EventRepository::get_room_events_paginated_with_filter: 'filter' parameter not yet supported");
+        }
         self.get_room_events_paginated_with_filter(room_id, from, to, limit, filter).await
     }
 
