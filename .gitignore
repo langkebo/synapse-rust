@@ -82,6 +82,9 @@ analyze_results.py
 prepare_test_accounts.py
 register_test_accounts.py
 
+# gstack 计划文件（自动化工作流生成）
+docs/superpowers/plans/
+
 # 代码覆盖率和变异测试产物
 coverage/
 mutants.out/

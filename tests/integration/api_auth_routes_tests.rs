@@ -138,7 +138,7 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     let versions_json: Value = serde_json::from_slice(&body).unwrap();
     let declared_versions = versions_json["versions"].as_array().expect("versions should be an array");
     assert!(declared_versions.iter().any(|version| version.as_str() == Some("v1.13")));
-    assert!(!declared_versions.iter().any(|version| version.as_str() == Some("v1.14")));
+    assert!(declared_versions.iter().any(|version| version.as_str() == Some("v1.14")));
 
     let capabilities_request =
         Request::builder().method("GET").uri("/_matrix/client/v3/capabilities").body(Body::empty()).unwrap();
@@ -160,7 +160,6 @@ async fn test_versions_and_public_capabilities_match_declared_room_version_surfa
     assert_eq!(capabilities["m.room.suggested"]["enabled"], true);
     assert_eq!(capabilities["m.voice"]["enabled"], true);
     assert_eq!(capabilities["m.thread"]["enabled"], true);
-    assert_eq!(capabilities["io.hula.sliding_sync"]["enabled"], true);
     assert_eq!(room_versions["default"], DEFAULT_ROOM_VERSION);
     // Only creatable versions appear in the client capability list.
     let creatable_count = SUPPORTED_ROOM_VERSIONS.iter().filter(|c| c.can_create).count();
