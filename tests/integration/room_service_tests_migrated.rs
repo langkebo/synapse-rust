@@ -290,15 +290,12 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 }
 
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
-    let member_storage = RoomMemberStorage::new(pool, "localhost");
+    let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let event_storage: Arc<dyn EventRepository> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let canonical_cache = cache;
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
-    let room_summary_service = Arc::new(RoomSummaryService::new(
-        room_summary_storage,
-        event_storage.clone(),
-        Some(Arc::new(member_storage.clone())),
-    ));
+    let room_summary_service =
+        Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),

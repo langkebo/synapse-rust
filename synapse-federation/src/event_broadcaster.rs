@@ -2,7 +2,7 @@ use crate::client::{FederationClient, FederationTransaction};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use synapse_storage::membership::RoomMemberStorage;
+use synapse_storage::RoomMemberRepository;
 use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ struct TransactionBatch {
 pub struct EventBroadcaster {
     server_name: String,
     federation_client: Option<Arc<FederationClient>>,
-    membership_storage: Option<Arc<RoomMemberStorage>>,
+    membership_storage: Option<Arc<dyn RoomMemberRepository>>,
     pending_queue: Arc<RwLock<Vec<PendingTransaction>>>,
     backoff_schedule: Vec<u64>,
     pool: Option<sqlx::PgPool>,
@@ -75,7 +75,7 @@ impl EventBroadcaster {
         self
     }
 
-    pub fn with_membership_storage(mut self, storage: Arc<RoomMemberStorage>) -> Self {
+    pub fn with_membership_storage(mut self, storage: Arc<dyn RoomMemberRepository>) -> Self {
         self.membership_storage = Some(storage);
         self
     }
@@ -84,7 +84,7 @@ impl EventBroadcaster {
         self.federation_client = Some(client);
     }
 
-    pub fn set_membership_storage(&mut self, storage: Arc<RoomMemberStorage>) {
+    pub fn set_membership_storage(&mut self, storage: Arc<dyn RoomMemberRepository>) {
         self.membership_storage = Some(storage);
     }
 

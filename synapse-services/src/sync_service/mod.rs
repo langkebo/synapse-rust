@@ -30,7 +30,7 @@ use tokio::sync::RwLock;
 
 pub struct SyncService {
     pub(crate) presence_storage: PresenceStorage,
-    pub(crate) member_storage: RoomMemberStorage,
+    pub(crate) member_storage: Arc<dyn RoomMemberRepository>,
     pub(crate) event_storage: Arc<dyn EventRepository>,
     pub(crate) room_storage: Arc<dyn RoomRepository>,
     pub(crate) filter_storage: FilterStorage,
@@ -69,7 +69,7 @@ impl SyncService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         presence_storage: PresenceStorage,
-        member_storage: RoomMemberStorage,
+        member_storage: Arc<dyn RoomMemberRepository>,
         event_storage: Arc<dyn EventRepository>,
         room_storage: Arc<dyn RoomRepository>,
         filter_storage: FilterStorage,
