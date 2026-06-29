@@ -1,69 +1,75 @@
 use crate::common::ApiError;
-use crate::web::routes::{extract_token_from_headers, AppState};
-use crate::web::utils::auth::resolve_request_id;
+use crate::web::routes::context::SyncContext;
+use crate::web::routes::extract_token_from_headers;
 use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
 };
 use serde_json::Value;
+use synapse_common::rate_limit_config::{RateLimitConfigFile, SyncRateLimitConfigFile};
 use synapse_services::sync_service::SyncServiceRequest;
 
-struct SyncParams<'a> {
-    state: AppState,
+struct SyncParams {
+    ctx: SyncContext,
     user_id: String,
     device_id: Option<String>,
     timeout: u64,
     is_full_state: bool,
     request_id: String,
-    set_presence: &'a str,
-    filter: Option<&'a str>,
-    since: Option<&'a str>,
+    set_presence: String,
+    filter: Option<String>,
+    since: Option<String>,
+}
+
+/// Build an effective `SyncRateLimitOverride`-like struct from the context's
+/// rate-limit config manager (dynamic) falling back to the static config.
+fn resolve_rate_limit_override(
+    ctx: &SyncContext,
+) -> (bool, bool, u32, u32, u32, u32) {
+    if let Some(manager) = &ctx.rate_limit_config_manager {
+        let config: RateLimitConfigFile = manager.get_config();
+        (config.fail_open_on_error, config.sync.enabled,
+         config.sync.initial.per_second, config.sync.initial.burst_size,
+         config.sync.incremental.per_second, config.sync.incremental.burst_size)
+    } else {
+        let config = &ctx.config.rate_limit;
+        (config.fail_open_on_error, config.sync.enabled,
+         config.sync.initial.per_second, config.sync.initial.burst_size,
+         config.sync.incremental.per_second, config.sync.incremental.burst_size)
+    }
 }
 
 pub(crate) async fn sync(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, device_id, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, device_id, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
-    let request_id = resolve_request_id(&headers);
-    let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online");
-    let filter = params.get("filter").and_then(|v| v.as_str());
-    let since = params.get("since").and_then(|v| v.as_str());
+    let request_id = crate::web::utils::auth::resolve_request_id(&headers);
+    let set_presence = params.get("set_presence").and_then(|v| v.as_str()).unwrap_or("online").to_string();
+    let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let file_config = state.sync_rate_limit_override();
-    let fail_open_on_error =
-        file_config.as_ref().map_or(state.services.core.config.rate_limit.fail_open_on_error, |c| c.fail_open_on_error);
-    let sync_rate_limit_enabled =
-        file_config.as_ref().map_or(state.services.core.config.rate_limit.sync.enabled, |c| c.sync.enabled);
+    let (fail_open_on_error, sync_rate_limit_enabled,
+         init_per_second, init_burst_size,
+         inc_per_second, inc_burst_size) = resolve_rate_limit_override(&ctx);
+
     if sync_rate_limit_enabled {
         let is_initial = since.is_none();
-        let (per_second, burst_size) = match &file_config {
-            Some(c) if c.sync.enabled => {
-                if is_initial {
-                    (c.sync.initial.per_second, c.sync.initial.burst_size)
-                } else {
-                    (c.sync.incremental.per_second, c.sync.incremental.burst_size)
-                }
-            }
-            _ => {
-                let c = &state.services.core.config.rate_limit.sync;
-                if is_initial {
-                    (c.initial.per_second, c.initial.burst_size)
-                } else {
-                    (c.incremental.per_second, c.incremental.burst_size)
-                }
-            }
+        let (per_second, burst_size) = if is_initial {
+            (init_per_second, init_burst_size)
+        } else {
+            (inc_per_second, inc_burst_size)
         };
 
         let device_id_for_ratelimit = device_id.as_deref().unwrap_or("default");
         let kind = if is_initial { "initial" } else { "incremental" };
         let rate_limit_key = format!("ratelimit:sync:{user_id}:{device_id_for_ratelimit}:{kind}");
-        let decision = match state.cache.rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size).await {
+        let decision = match ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size).await {
             Ok(decision) => decision,
             Err(error) => {
                 if fail_open_on_error {
@@ -88,7 +94,7 @@ pub(crate) async fn sync(
     }
 
     execute_sync(SyncParams {
-        state,
+        ctx,
         user_id,
         device_id,
         timeout,
@@ -101,21 +107,22 @@ pub(crate) async fn sync(
     .await
 }
 
-async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
-    // 服务端总超时 = 客户端要求的 timeout + 15s 缓冲(覆盖响应序列化等开销)
-    // 这样可以避免硬编码 60s 与客户端 timeout 参数错配
+async fn execute_sync(params: SyncParams) -> Result<Json<Value>, ApiError> {
+    // Server-side timeout = client's requested timeout + 15s buffer (covers
+    // response serialization overhead). This avoids hard-coding 60s and
+    // mismatching client timeout parameters.
     let server_timeout = std::time::Duration::from_millis(params.timeout.saturating_add(15_000));
 
     let sync_result = tokio::time::timeout(
         server_timeout,
-        params.state.services.rooms.sync_service.sync_with_request(SyncServiceRequest {
+        params.ctx.sync_service.sync_with_request(SyncServiceRequest {
             user_id: &params.user_id,
             device_id: params.device_id.as_deref(),
             timeout: params.timeout,
             is_full_state: params.is_full_state,
-            set_presence: params.set_presence,
-            filter_id: params.filter,
-            since: params.since,
+            set_presence: &params.set_presence,
+            filter_id: params.filter.as_deref(),
+            since: params.since.as_deref(),
         }),
     )
     .await;
@@ -134,17 +141,17 @@ async fn execute_sync(params: SyncParams<'_>) -> Result<Json<Value>, ApiError> {
 }
 
 pub(crate) async fn get_events(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
 
-    let result = state.services.rooms.sync_service.get_events(&user_id, from, timeout).await?;
+    let result = ctx.sync_service.get_events(&user_id, from, timeout).await?;
 
     Ok(Json(result))
 }
