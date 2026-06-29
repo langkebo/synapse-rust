@@ -1,8 +1,9 @@
 use super::ensure_room_view_access;
 use crate::common::ApiError;
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    extract_token_from_headers, is_joined_room_member, is_joined_room_member_or_creator, validate_membership,
-    validate_room_id, validate_user_id, AppState, AuthenticatedUser,
+    extract_token_from_headers, is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id,
+    validate_user_id, AuthenticatedUser,
 };
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -12,16 +13,16 @@ use axum::{
 use serde_json::{json, Value};
 
 pub(crate) async fn join_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
-    state.services.rooms.room_service.join_room(&room_id, &user_id).await?;
+    ctx.room_service.join_room(&room_id, &user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": chrono::Utc::now().timestamp_millis()
@@ -29,32 +30,32 @@ pub(crate) async fn join_room(
 }
 
 pub(crate) async fn join_room_by_id_or_alias(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id_or_alias): Path<String>,
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         // Try local alias lookup first.
-        match state.services.rooms.room_service.get_room_by_alias(&room_id_or_alias).await {
+        match ctx.room_service.get_room_by_alias(&room_id_or_alias).await {
             Ok(Some(rid)) => rid,
             Ok(None) => {
                 // Local lookup failed — try federation directory query for
                 // remote aliases.
                 // Reference: element-hq/synapse `synapse/handlers/directory.py::DirectoryHandler.get_association`
-                let local_server = &state.services.core.server_name;
+                let local_server = &ctx.server_name;
                 let remote_server =
                     room_id_or_alias.rsplit_once(':').map(|(_, srv)| srv).filter(|srv| *srv != local_server.as_str());
 
                 if let Some(remote_server) = remote_server {
-                    let federation_client = state.services.federation.federation_client.clone();
+                    let federation_client = ctx.federation_client.clone();
                     let dir_response =
                         federation_client.query_directory(remote_server, &room_id_or_alias).await.map_err(|e| {
                             ::tracing::warn!(
@@ -73,11 +74,8 @@ pub(crate) async fn join_room_by_id_or_alias(
             Err(e) => return Err(ApiError::not_found(format!("Room alias not found: {e}"))),
         }
     } else {
-        let alias = format!("#{}:{}", room_id_or_alias, state.services.core.server_name);
-        state
-            .services
-            .rooms
-            .room_service
+        let alias = format!("#{}:{}", room_id_or_alias, ctx.server_name);
+        ctx.room_service
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -99,7 +97,7 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    state.services.rooms.room_service.join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
+    ctx.room_service.join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -107,18 +105,16 @@ pub(crate) async fn join_room_by_id_or_alias(
 }
 
 pub(crate) async fn leave_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
-    state.services.rooms.room_service.leave_room(&room_id, &auth_user.user_id).await?;
+    ctx.room_service.leave_room(&room_id, &auth_user.user_id).await?;
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, &auth_user.user_id, "left", Some(&auth_user.user_id), None)
         .await
@@ -135,33 +131,27 @@ pub(crate) async fn leave_room(
 }
 
 pub(crate) async fn knock_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id_or_alias): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .get_room_by_alias(&room_id_or_alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
             .ok_or_else(|| ApiError::not_found("Room ID not found for alias".to_string()))?
     } else {
-        let alias = format!("#{}:{}", room_id_or_alias, state.services.core.server_name);
-        state
-            .services
-            .rooms
-            .room_service
+        let alias = format!("#{}:{}", room_id_or_alias, ctx.server_name);
+        ctx.room_service
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -177,7 +167,7 @@ pub(crate) async fn knock_room(
         "User knocking on room"
     );
 
-    state.services.rooms.room_service.knock_room(&room_id, &user_id, reason.as_deref()).await?;
+    ctx.room_service.knock_room(&room_id, &user_id, reason.as_deref()).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -185,7 +175,7 @@ pub(crate) async fn knock_room(
 }
 
 pub(crate) async fn invite_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
@@ -199,9 +189,9 @@ pub(crate) async fn invite_user(
 
     validate_user_id(invitee)?;
 
-    state.services.core.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
+    ctx.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
 
-    state.services.rooms.room_service.invite_user(&room_id, &auth_user.user_id, invitee).await?;
+    ctx.room_service.invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -211,14 +201,14 @@ pub(crate) async fn invite_user(
 }
 
 pub(crate) async fn invite_user_by_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
 
@@ -229,7 +219,7 @@ pub(crate) async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    state.services.core.auth_service.can_invite_user(&room_id, &user_id).await?;
+    ctx.auth_service.can_invite_user(&room_id, &user_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -239,7 +229,7 @@ pub(crate) async fn invite_user_by_room(
         "User inviting another user to room"
     );
 
-    state.services.rooms.room_service.invite_user(&room_id, &user_id, invitee).await?;
+    ctx.room_service.invite_user(&room_id, &user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -249,7 +239,7 @@ pub(crate) async fn invite_user_by_room(
 }
 
 pub(crate) async fn get_room_members(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -258,12 +248,12 @@ pub(crate) async fn get_room_members(
     let request_id = resolve_request_id(&headers);
 
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
-    let room = state.services.rooms.room_service.get_room(&room_id).await?;
+    let room = ctx.room_service.get_room(&room_id).await?;
 
     let is_member =
-        is_joined_room_member_or_creator(&state, &user_id, &room_id, room.get("creator").and_then(|v| v.as_str()))
+        is_member_or_creator_ctx(&ctx, &user_id, &room_id, room.get("creator").and_then(|v| v.as_str()))
             .await?;
 
     if !room.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false) && !is_member {
@@ -290,7 +280,7 @@ pub(crate) async fn get_room_members(
         validate_membership(nmf)?;
     }
 
-    let members = state.services.rooms.room_service.get_room_members(&room_id, &user_id).await?;
+    let members = ctx.room_service.get_room_members(&room_id, &user_id).await?;
 
     let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
         if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
@@ -333,15 +323,15 @@ pub(crate) async fn get_room_members(
 }
 
 pub(crate) async fn get_room_members_recent(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let token = extract_token_from_headers(&headers)?;
-    let (user_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
-    let members = state.services.rooms.room_service.get_room_members(&room_id, &user_id).await?;
+    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let members = ctx.room_service.get_room_members(&room_id, &user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
     let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).min(1000);
@@ -359,15 +349,15 @@ pub(crate) async fn get_room_members_recent(
 }
 
 pub(crate) async fn get_joined_members(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room = state.services.rooms.room_service.get_room(&room_id).await?;
+    let room = ctx.room_service.get_room(&room_id).await?;
 
-    let is_member = is_joined_room_member(&state, &auth_user.user_id, &room_id).await?;
+    let is_member = is_member_ctx(&ctx, &auth_user.user_id, &room_id).await?;
 
     if !room.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false) && !is_member {
         return Err(ApiError::forbidden(
@@ -375,7 +365,7 @@ pub(crate) async fn get_joined_members(
         ));
     }
 
-    let members = state.services.rooms.room_service.get_joined_members_with_profiles(&room_id).await?;
+    let members = ctx.room_service.get_joined_members_with_profiles(&room_id).await?;
 
     let joined: std::collections::HashMap<String, Value> = members
         .into_iter()
@@ -401,22 +391,20 @@ pub(crate) async fn get_joined_members(
 }
 
 pub(crate) async fn get_room_membership(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, target_user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     validate_user_id(&target_user_id)?;
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let membership = state
-        .services
-        .rooms
+    let membership = ctx
         .room_service
         .get_room_member_record(&room_id, &target_user_id)
         .await?
@@ -428,18 +416,18 @@ pub(crate) async fn get_room_membership(
 }
 
 pub(crate) async fn get_membership_events(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100).min(1000) as i64;
 
-    let memberships = state.services.rooms.room_service.get_membership_history(&room_id, limit).await?;
+    let memberships = ctx.room_service.get_membership_history(&room_id, limit).await?;
 
     let events: Vec<Value> = memberships
         .into_iter()
@@ -463,22 +451,20 @@ pub(crate) async fn get_membership_events(
 }
 
 pub(crate) async fn get_room_invites(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let _invites = state.services.rooms.room_service.get_joined_members_with_profiles(&room_id).await?;
+    let _invites = ctx.room_service.get_joined_members_with_profiles(&room_id).await?;
 
-    let invited_members: Vec<serde_json::Value> = state
-        .services
-        .rooms
+    let invited_members: Vec<serde_json::Value> = ctx
         .room_service
         .get_room_members_by_membership(&room_id, "invite")
         .await?
@@ -504,7 +490,7 @@ pub(crate) async fn get_room_invites(
 }
 
 pub(crate) async fn kick_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
@@ -527,12 +513,10 @@ pub(crate) async fn kick_user(
         }
     }
 
-    state.services.rooms.room_service.kick_user(&room_id, target, &auth_user.user_id, reason).await?;
+    ctx.room_service.kick_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, target, "kicked", Some(&auth_user.user_id), reason)
         .await
@@ -551,7 +535,7 @@ pub(crate) async fn kick_user(
 }
 
 pub(crate) async fn ban_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
@@ -574,12 +558,10 @@ pub(crate) async fn ban_user(
         }
     }
 
-    state.services.rooms.room_service.ban_user(&room_id, target, &auth_user.user_id, reason).await?;
+    ctx.room_service.ban_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, target, "banned", Some(&auth_user.user_id), reason)
         .await
@@ -597,8 +579,12 @@ pub(crate) async fn ban_user(
     Ok(Json(json!({})))
 }
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 pub(crate) async fn unban_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
@@ -612,7 +598,7 @@ pub(crate) async fn unban_user(
 
     validate_user_id(target)?;
 
-    state.services.rooms.room_service.unban_user(&room_id, target, &auth_user.user_id).await?;
+    ctx.room_service.unban_user(&room_id, target, &auth_user.user_id).await?;
 
     Ok(Json(json!({})))
 }
