@@ -245,8 +245,9 @@ pub mod test_utils;
 // `crate::...` references inside `synapse-services` remain stable while the
 // public root API stays explicit.
 pub use auth::{
-    AuthService, Claims, ClaimsBuilder, GuestAuthExt, PasswordPolicy, PasswordPolicyService, PasswordValidationResult,
-}; // AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
+    Auth, AuthService, Claims, ClaimsBuilder, GuestAuthExt, PasswordPolicy, PasswordPolicyService,
+    PasswordValidationResult,
+}; // Auth, AuthService, GuestAuthExt, PasswordPolicy, PasswordPolicyService, ...
 pub use cache::{
     circuit_breaker, compression, federation_signature_cache, invalidation, query_cache, strategy, CacheConfig,
     CacheEntry, CacheEntryKey, CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig,
