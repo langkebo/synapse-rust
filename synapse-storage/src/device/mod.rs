@@ -1,6 +1,11 @@
+use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
+
+pub mod repository;
+pub use repository::DeviceRepository;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Device {
@@ -921,6 +926,109 @@ impl DeviceStorage {
         .await?;
 
         Ok(rows.iter().map(|row| row.get("user_id")).collect())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DeviceRepository delegation
+// ---------------------------------------------------------------------------
+
+#[async_trait]
+impl DeviceRepository for DeviceStorage {
+    async fn create_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<Device, sqlx::Error> {
+        // CONCERN: Inherent DeviceStorage::create_device takes (device_id, user_id)
+        // order -- swap arguments to match the actual storage method signature.
+        self.create_device(device_id, user_id, display_name).await
+    }
+
+    async fn get_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Option<Device>, sqlx::Error> {
+        // CONCERN: Inherent DeviceStorage::get_device only accepts device_id.
+        // Delegating to get_user_device(user_id, device_id) instead.
+        self.get_user_device(user_id, device_id).await
+    }
+
+    async fn get_user_devices(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<Device>, sqlx::Error> {
+        self.get_user_devices(user_id).await
+    }
+
+    async fn update_device(
+        &self,
+        _user_id: &str,
+        _device_id: &str,
+        _display_name: Option<&str>,
+        _device_key: Option<&serde_json::Value>,
+        _last_seen_ip: Option<&str>,
+        _user_agent: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        // CONCERN: No combined update_device method exists with these parameters.
+        // DeviceStorage has update_device_display_name and
+        // update_user_device_display_name but neither handles device_key,
+        // last_seen_ip, or user_agent.  This is a no-op stub until the
+        // underlying storage method is added.
+        tracing::warn!("DeviceRepository::update_device not yet implemented on DeviceStorage");
+        Ok(())
+    }
+
+    async fn delete_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        // CONCERN: Inherent DeviceStorage::delete_device only takes device_id.
+        // Delegating to delete_user_device(user_id, device_id) instead and
+        // discarding the row-count return value to match the trait signature.
+        self.delete_user_device(user_id, device_id).await.map(|_| ())
+    }
+
+    async fn delete_all_devices(
+        &self,
+        user_id: &str,
+        _except_device_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        // CONCERN: Inherent DeviceStorage::delete_user_devices does not
+        // support the except_device_id parameter.  When except_device_id is
+        // Some, the excluded device will also be deleted until the underlying
+        // storage method is extended.
+        self.delete_user_devices(user_id).await
+    }
+
+    async fn get_device_keys_for_users(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, Vec<Device>>, sqlx::Error> {
+        // CONCERN: Inherent DeviceStorage::get_device_keys_for_users returns
+        // HashMap<String, HashMap<String, Device>> (user_id -> device_id -> Device).
+        // Converting to the trait's expected HashMap<String, Vec<Device>>.
+        let result = self.get_device_keys_for_users(user_ids).await?;
+        Ok(result.into_iter().map(|(k, v)| (k, v.into_values().collect())).collect())
+    }
+
+    async fn get_device_count(
+        &self,
+        user_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.get_device_count(user_id).await
+    }
+
+    async fn record_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.record_device_list_change(user_id, device_id, change_type).await
     }
 }
 
