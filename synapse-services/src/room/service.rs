@@ -908,4 +908,136 @@ mod tests {
         let result = service.get_room("!nonexistent:example.com").await;
         assert!(result.is_err());
     }
+
+    /// Handler-level test: fully populated Room -> JSON response with all fields.
+    /// Proves the full chain: mock RoomRepository -> RoomService::get_room() -> JSON Value.
+    #[tokio::test]
+    async fn test_get_room_json_response_all_fields_populated() {
+        let mock = MockRoomRepo {
+            room: Some(synapse_storage::Room {
+                room_id: "!fullroom:example.com".to_string(),
+                name: Some("Full Room".to_string()),
+                topic: Some("A room with all fields set".to_string()),
+                avatar_url: Some("mxc://example.com/avatar".to_string()),
+                canonical_alias: Some("#full:example.com".to_string()),
+                join_rule: "public".to_string(),
+                creator_user_id: Some("@bob:example.com".to_string()),
+                room_version: "10".to_string(),
+                encryption: Some("m.megolm.v1.aes-sha2".to_string()),
+                is_public: true,
+                member_count: 42,
+                history_visibility: "world_readable".to_string(),
+                created_ts: 1678901234,
+                is_federatable: true,
+                is_spotlight: true,
+                is_flagged: false,
+            }),
+        };
+
+        let service = make_service(Arc::new(mock));
+        let result = service.get_room("!fullroom:example.com").await;
+
+        // Step 1: API call must succeed.
+        assert!(result.is_ok(), "get_room must return Ok for a found room");
+        let json = result.unwrap();
+
+        // Step 2: Verify every key that get_room() emits is present.
+        let expected_keys: [&str; 7] = [
+            "room_id", "name", "topic", "canonical_alias",
+            "is_public", "creator", "join_rule",
+        ];
+        for key in &expected_keys {
+            assert!(
+                json.get(key).is_some(),
+                "JSON response must contain key '{}'", key
+            );
+        }
+
+        // Step 3: Verify exact values.
+        assert_eq!(json["room_id"], json!("!fullroom:example.com"));
+        assert_eq!(json["name"], json!("Full Room"));
+        assert_eq!(json["topic"], json!("A room with all fields set"));
+        assert_eq!(json["canonical_alias"], json!("#full:example.com"));
+        assert_eq!(json["is_public"], json!(true));
+        assert_eq!(json["creator"], json!("@bob:example.com"));
+        assert_eq!(json["join_rule"], json!("public"));
+
+        // Step 4: Verify types.
+        assert!(json["room_id"].is_string(), "room_id must be a string");
+        assert!(json["name"].is_string(), "name must be a string");
+        assert!(json["topic"].is_string(), "topic must be a string");
+        assert!(json["canonical_alias"].is_string(), "canonical_alias must be a string");
+        assert!(json["is_public"].is_boolean(), "is_public must be a bool");
+        assert!(json["creator"].is_string(), "creator must be a string");
+        assert!(json["join_rule"].is_string(), "join_rule must be a string");
+
+        // Step 5: Verify no extra keys leaked (get_room returns exactly 7 keys).
+        assert_eq!(
+            json.as_object().map(|o| o.len()),
+            Some(7),
+            "get_room JSON must have exactly 7 keys"
+        );
+    }
+
+    /// Handler-level test: sparse Room (None fields) -> JSON response with null values.
+    /// Verifies that None-able fields serialize as `null` rather than being stripped.
+    #[tokio::test]
+    async fn test_get_room_json_response_null_fields_present() {
+        let mock = MockRoomRepo {
+            room: Some(synapse_storage::Room {
+                room_id: "!bare:example.com".to_string(),
+                name: None,
+                topic: None,
+                avatar_url: None,
+                canonical_alias: None,
+                join_rule: "knock".to_string(),
+                creator_user_id: None,
+                room_version: "1".to_string(),
+                encryption: None,
+                is_public: false,
+                member_count: 0,
+                history_visibility: "joined".to_string(),
+                created_ts: 0,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
+            }),
+        };
+
+        let service = make_service(Arc::new(mock));
+        let result = service.get_room("!bare:example.com").await;
+
+        assert!(result.is_ok(), "get_room must return Ok for a found room");
+        let json = result.unwrap();
+
+        // Required fields (non-Option in Room struct) must be present and correct.
+        assert_eq!(json["room_id"], json!("!bare:example.com"));
+        assert_eq!(json["join_rule"], json!("knock"));
+        assert_eq!(json["is_public"], json!(false));
+
+        // Option<String> fields that are None must appear as JSON null — not absent.
+        assert!(
+            json.get("name").is_some() && json["name"].is_null(),
+            "name must be present and null when not set"
+        );
+        assert!(
+            json.get("topic").is_some() && json["topic"].is_null(),
+            "topic must be present and null when not set"
+        );
+        assert!(
+            json.get("canonical_alias").is_some() && json["canonical_alias"].is_null(),
+            "canonical_alias must be present and null when not set"
+        );
+        assert!(
+            json.get("creator").is_some() && json["creator"].is_null(),
+            "creator must be present and null when not set"
+        );
+
+        // Verify exact key count (still 7 — null values use the key, unlike absent).
+        assert_eq!(
+            json.as_object().map(|o| o.len()),
+            Some(7),
+            "get_room JSON must have exactly 7 keys even when fields are null"
+        );
+    }
 }
