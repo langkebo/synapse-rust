@@ -161,6 +161,11 @@ pub use self::threepid::*;
 pub use self::token::*;
 pub use self::worker::*;
 
+// Storage repository traits (explicit re-exports for service-layer consumption)
+pub use event::EventRepository;
+pub use device::DeviceRepository;
+pub use room::RoomRepository;
+
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]
 pub use self::ai_connection::*;
