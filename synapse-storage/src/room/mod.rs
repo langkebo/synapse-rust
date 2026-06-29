@@ -1,6 +1,8 @@
 pub mod admin;
 pub(crate) mod models;
 pub use models::*;
+mod repository;
+pub use repository::RoomRepository;
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};

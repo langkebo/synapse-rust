@@ -1,8 +1,12 @@
+use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
+
+use super::repository::RoomRepository;
+use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoomSearchOrder {
@@ -249,4 +253,116 @@ pub(crate) struct RoomWithMembersRecord {
 #[derive(Clone)]
 pub struct RoomStorage {
     pub pool: Arc<Pool<Postgres>>,
+}
+
+impl RoomStorage {
+    /// Search the room directory (public rooms) by name/topic.
+    ///
+    /// This inherent method was added to support the `RoomRepository` trait;
+    /// it did not previously exist on `RoomStorage`.
+    pub async fn search_room_directory(
+        &self,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<Vec<Room>, sqlx::Error> {
+        let pattern = format!("%{}%", search_term);
+        let rows: Vec<RoomRecord> = sqlx::query_as(
+            r"
+            SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
+                   r.room_version, r.is_public, rs.member_count as member_count,
+                   rs.is_encrypted as is_encrypted, r.history_visibility, r.created_ts
+            FROM rooms r
+            LEFT JOIN room_summaries rs ON rs.room_id = r.room_id
+            WHERE r.is_public = TRUE
+              AND (LOWER(r.name) LIKE $1 OR LOWER(r.topic) LIKE $1)
+            ORDER BY r.name
+            LIMIT $2
+            ",
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| Room {
+                room_id: row.room_id.clone(),
+                name: row.name.clone(),
+                topic: row.topic.clone(),
+                avatar_url: row.avatar_url.clone(),
+                canonical_alias: row.canonical_alias.clone(),
+                join_rule: row.join_rule.clone().unwrap_or_else(|| DEFAULT_JOIN_RULE.to_string()),
+                creator_user_id: row.creator.clone(),
+                room_version: row.room_version.clone().unwrap_or_else(|| DEFAULT_ROOM_VERSION.to_string()),
+                encryption: Self::encryption_from_is_encrypted(row.is_encrypted),
+                is_public: row.is_public.unwrap_or(false),
+                member_count: row.member_count.unwrap_or(0),
+                history_visibility: row
+                    .history_visibility
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_HISTORY_VISIBILITY.to_string()),
+                created_ts: row.created_ts,
+                is_federatable: true,
+                is_spotlight: false,
+                is_flagged: false,
+            })
+            .collect())
+    }
+}
+
+#[async_trait]
+impl RoomRepository for RoomStorage {
+    async fn get_room(&self, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
+        self.get_room(room_id).await
+    }
+
+    async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error> {
+        self.get_rooms_batch(room_ids).await
+    }
+
+    async fn create_room(
+        &self,
+        room_id: &str,
+        creator: &str,
+        join_rule: &str,
+        room_version: &str,
+        is_public: bool,
+    ) -> Result<Room, sqlx::Error> {
+        self.create_room(room_id, creator, join_rule, room_version, is_public).await
+    }
+
+    async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
+        self.update_room_name(room_id, name).await
+    }
+
+    async fn update_room_topic(&self, room_id: &str, topic: &str) -> Result<(), sqlx::Error> {
+        self.update_room_topic(room_id, topic).await
+    }
+
+    async fn set_room_public(&self, room_id: &str, is_public: bool) -> Result<(), sqlx::Error> {
+        // NOTE: Delegates to `set_room_directory` — the only inherent method
+        // that updates both `rooms.is_public` and the `room_directory` table.
+        self.set_room_directory(room_id, is_public).await
+    }
+
+    async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_room(room_id).await
+    }
+
+    async fn get_public_rooms(&self, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
+        self.get_public_rooms(limit).await
+    }
+
+    async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_user_rooms(user_id).await
+    }
+
+    async fn search_room_directory(
+        &self,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<Vec<Room>, sqlx::Error> {
+        self.search_room_directory(search_term, limit).await
+    }
 }
