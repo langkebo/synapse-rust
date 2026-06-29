@@ -115,6 +115,56 @@ run_perf_soak_gate() {
         "$ROOT_DIR/scripts/test/perf/run_tests.sh" soak
 }
 
+# Check whether PostgreSQL and Redis are reachable before running integration tests.
+# Reads DATABASE_URL and REDIS_URL from the environment (same vars used by the server).
+check_infra_ready() {
+    local missing=""
+
+    # PostgreSQL check: parse host/port from DATABASE_URL if set, else try defaults
+    local db_host="localhost"
+    local db_port="${DB_PORT:-5432}"
+    if [ -n "${DATABASE_URL:-}" ]; then
+        # Extract host:port from postgres://user:pass@host:port/db
+        db_host=$(echo "$DATABASE_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')
+        db_port=$(echo "$DATABASE_URL" | sed -n 's|.*:\([0-9]\+\)/.*|\1|p')
+        [ -z "$db_port" ] && db_port=5432
+    fi
+
+    if command -v pg_isready >/dev/null 2>&1; then
+        if ! pg_isready -h "$db_host" -p "$db_port" -t 3 >/dev/null 2>&1; then
+            missing="PostgreSQL (${db_host}:${db_port})"
+        fi
+    elif ! timeout 3 bash -c "echo >/dev/tcp/${db_host}/${db_port}" 2>/dev/null; then
+        missing="PostgreSQL (${db_host}:${db_port})"
+    fi
+
+    # Redis check: parse host/port from REDIS_URL if set
+    local redis_host="localhost"
+    local redis_port="${REDIS_PORT:-6379}"
+    if [ -n "${REDIS_URL:-}" ]; then
+        redis_host=$(echo "$REDIS_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')
+        redis_port=$(echo "$REDIS_URL" | sed -n 's|.*:\([0-9]\+\)[^0-9]*$|\1|p; s|.*:\([0-9]\+\)$|\1|p')
+        [ -z "$redis_port" ] && redis_port=6379
+    fi
+
+    if command -v redis-cli >/dev/null 2>&1; then
+        if ! redis-cli -h "$redis_host" -p "$redis_port" ping >/dev/null 2>&1; then
+            missing="${missing:+$missing, }Redis (${redis_host}:${redis_port})"
+        fi
+    elif ! timeout 3 bash -c "echo >/dev/tcp/${redis_host}/${redis_port}" 2>/dev/null; then
+        missing="${missing:+$missing, }Redis (${redis_host}:${redis_port})"
+    fi
+
+    if [ -n "$missing" ]; then
+        echo "=== Infrastructure not ready: $missing ==="
+        echo "Integration tests require PostgreSQL and Redis."
+        echo "Start them with:  cd docker && docker compose up -d db redis"
+        echo "Then re-run:      TEST_THREADS=${TEST_THREADS} TEST_RETRIES=${TEST_RETRIES} bash scripts/run_ci_tests.sh --integration"
+        return 1
+    fi
+    return 0
+}
+
 export RUST_TEST_SHUFFLE="${RUST_TEST_SHUFFLE:-1}"
 if [ -z "${RUST_TEST_SHUFFLE_SEED:-}" ]; then
     if [ -n "${GITHUB_RUN_ID:-}" ]; then
@@ -167,8 +217,12 @@ if cargo nextest --version >/dev/null 2>&1; then
     fi
 
     if [ "$RUN_INTEGRATION" -eq 1 ]; then
-        echo ">>> Running integration test target (--test integration) ..."
-        "${nextest_base[@]}" --test integration --all-features
+        if check_infra_ready; then
+            echo ">>> Running integration test target (--test integration) ..."
+            "${nextest_base[@]}" --test integration --all-features
+        else
+            echo ">>> SKIPPED: Integration tests require PostgreSQL + Redis."
+        fi
     fi
 else
     echo "Using cargo test fallback (no nextest detected)"
@@ -181,8 +235,12 @@ else
         run_cargo_test_with_retries "unit" --test unit --features test-utils --locked -- --test-threads="$TEST_THREADS"
     fi
     if [ "$RUN_INTEGRATION" -eq 1 ]; then
-        echo ">>> Running integration test target (--test integration) ..."
-        run_cargo_test_with_retries "integration" --test integration --all-features --locked -- --test-threads="$TEST_THREADS"
+        if check_infra_ready; then
+            echo ">>> Running integration test target (--test integration) ..."
+            run_cargo_test_with_retries "integration" --test integration --all-features --locked -- --test-threads="$TEST_THREADS"
+        else
+            echo ">>> SKIPPED: Integration tests require PostgreSQL + Redis."
+        fi
     fi
 fi
 
