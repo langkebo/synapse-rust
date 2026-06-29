@@ -38,9 +38,9 @@ pub struct CreateRoomConfig {
 }
 
 pub struct RoomServiceConfig {
-    pub room_storage: RoomStorage,
+    pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub member_storage: RoomMemberStorage,
-    pub event_storage: EventStorage,
+    pub event_storage: Arc<dyn synapse_storage::EventRepository>,
     pub room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: AuthService,
@@ -64,7 +64,7 @@ pub struct RoomServiceConfig {
 }
 
 pub struct RoomService {
-    pub(crate) room_storage: RoomStorage,
+    pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub(crate) member_storage: RoomMemberStorage,
     pub(crate) room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
@@ -74,7 +74,7 @@ pub struct RoomService {
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
-    pub(crate) event_storage: EventStorage,
+    pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
     pub(crate) relations_storage: synapse_storage::relations::RelationsStorage,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
