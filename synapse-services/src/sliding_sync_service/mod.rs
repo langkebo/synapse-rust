@@ -8,9 +8,9 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
-use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::presence::PresenceStorage;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
+use synapse_storage::RoomMemberRepository;
 
 mod extensions;
 mod filters;
@@ -40,7 +40,7 @@ pub struct SlidingSyncService {
     event_storage: Arc<dyn EventRepository>,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: PresenceStorage,
-    member_storage: RoomMemberStorage,
+    member_storage: Arc<dyn RoomMemberRepository>,
     device_storage: Arc<dyn DeviceRepository>,
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
@@ -81,7 +81,7 @@ impl SlidingSyncService {
         event_storage: Arc<dyn EventRepository>,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: PresenceStorage,
-        member_storage: RoomMemberStorage,
+        member_storage: Arc<dyn RoomMemberRepository>,
         device_storage: Arc<dyn DeviceRepository>,
         to_device_storage: ToDeviceStorage,
         metrics: Arc<MetricsCollector>,

@@ -39,7 +39,7 @@ pub struct CreateRoomConfig {
 
 pub struct RoomServiceConfig {
     pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub member_storage: RoomMemberStorage,
+    pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub event_storage: Arc<dyn synapse_storage::EventRepository>,
     pub room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
@@ -65,7 +65,7 @@ pub struct RoomServiceConfig {
 
 pub struct RoomService {
     pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub(crate) member_storage: RoomMemberStorage,
+    pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub(crate) room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: AuthService,
@@ -614,7 +614,11 @@ mod tests {
             unimplemented!("get_user_rooms not used in test")
         }
 
-        async fn search_room_directory(&self, _search_term: &str, _limit: i64) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
+        async fn search_room_directory(
+            &self,
+            _search_term: &str,
+            _limit: i64,
+        ) -> Result<Vec<synapse_storage::Room>, sqlx::Error> {
             unimplemented!("search_room_directory not used in test")
         }
 
@@ -622,12 +626,7 @@ mod tests {
             unimplemented!("get_room_aliases not used in test")
         }
 
-        async fn set_room_alias(
-            &self,
-            _room_id: &str,
-            _alias: &str,
-            _created_by: &str,
-        ) -> Result<(), sqlx::Error> {
+        async fn set_room_alias(&self, _room_id: &str, _alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
             unimplemented!("set_room_alias not used in test")
         }
 
@@ -698,11 +697,7 @@ mod tests {
             unimplemented!("update_read_marker_with_type not used in test")
         }
 
-        async fn copy_room_state(
-            &self,
-            _source_room_id: &str,
-            _target_room_id: &str,
-        ) -> Result<(), sqlx::Error> {
+        async fn copy_room_state(&self, _source_room_id: &str, _target_room_id: &str) -> Result<(), sqlx::Error> {
             unimplemented!("copy_room_state not used in test")
         }
 
@@ -744,17 +739,11 @@ mod tests {
             unimplemented!("get_room_stats_overview not used in test")
         }
 
-        async fn get_single_room_stats(
-            &self,
-            _room_id: &str,
-        ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        async fn get_single_room_stats(&self, _room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
             unimplemented!("get_single_room_stats not used in test")
         }
 
-        async fn get_room_listings_status(
-            &self,
-            _room_id: &str,
-        ) -> Result<Option<(bool, bool)>, sqlx::Error> {
+        async fn get_room_listings_status(&self, _room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
             unimplemented!("get_room_listings_status not used in test")
         }
 
@@ -810,10 +799,7 @@ mod tests {
             unimplemented!("get_unread_counts_batch not used in test")
         }
 
-        async fn cleanup_abnormal_data(
-            &self,
-            _min_age_ms: Option<i64>,
-        ) -> Result<serde_json::Value, sqlx::Error> {
+        async fn cleanup_abnormal_data(&self, _min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
             unimplemented!("cleanup_abnormal_data not used in test")
         }
     }
@@ -834,15 +820,13 @@ mod tests {
         let pool = test_pool();
         let event_storage: Arc<dyn synapse_storage::EventRepository> =
             Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string()));
-        let cache = Arc::new(synapse_cache::CacheManager::new(
-            &synapse_cache::CacheConfig::default(),
-        ));
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
         let metrics = Arc::new(synapse_common::metrics::MetricsCollector::new());
         let security = synapse_common::config::SecurityConfig::default();
 
         RoomService {
             room_storage,
-            member_storage: synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost"),
+            member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
             room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
             user_storage: Arc::new(synapse_storage::FakeUserStore::new()),
             auth_service: crate::auth::AuthService::new(&pool, cache, metrics, &security, "localhost"),
@@ -942,15 +926,10 @@ mod tests {
         let json = result.unwrap();
 
         // Step 2: Verify every key that get_room() emits is present.
-        let expected_keys: [&str; 7] = [
-            "room_id", "name", "topic", "canonical_alias",
-            "is_public", "creator", "join_rule",
-        ];
+        let expected_keys: [&str; 7] =
+            ["room_id", "name", "topic", "canonical_alias", "is_public", "creator", "join_rule"];
         for key in &expected_keys {
-            assert!(
-                json.get(key).is_some(),
-                "JSON response must contain key '{}'", key
-            );
+            assert!(json.get(key).is_some(), "JSON response must contain key '{}'", key);
         }
 
         // Step 3: Verify exact values.
@@ -972,11 +951,7 @@ mod tests {
         assert!(json["join_rule"].is_string(), "join_rule must be a string");
 
         // Step 5: Verify no extra keys leaked (get_room returns exactly 7 keys).
-        assert_eq!(
-            json.as_object().map(|o| o.len()),
-            Some(7),
-            "get_room JSON must have exactly 7 keys"
-        );
+        assert_eq!(json.as_object().map(|o| o.len()), Some(7), "get_room JSON must have exactly 7 keys");
     }
 
     /// Handler-level test: sparse Room (None fields) -> JSON response with null values.
@@ -1016,14 +991,8 @@ mod tests {
         assert_eq!(json["is_public"], json!(false));
 
         // Option<String> fields that are None must appear as JSON null — not absent.
-        assert!(
-            json.get("name").is_some() && json["name"].is_null(),
-            "name must be present and null when not set"
-        );
-        assert!(
-            json.get("topic").is_some() && json["topic"].is_null(),
-            "topic must be present and null when not set"
-        );
+        assert!(json.get("name").is_some() && json["name"].is_null(), "name must be present and null when not set");
+        assert!(json.get("topic").is_some() && json["topic"].is_null(), "topic must be present and null when not set");
         assert!(
             json.get("canonical_alias").is_some() && json["canonical_alias"].is_null(),
             "canonical_alias must be present and null when not set"

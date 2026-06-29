@@ -244,7 +244,7 @@ fn assemble_e2ee(
 #[derive(Clone)]
 pub struct RoomSyncServices {
     pub room_storage: Arc<dyn RoomRepository>,
-    pub member_storage: RoomMemberStorage,
+    pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
     pub relations_storage: synapse_storage::relations::RelationsStorage,
@@ -275,7 +275,8 @@ fn assemble_room_and_sync(
     metrics: &Arc<MetricsCollector>,
 ) -> RoomSyncServices {
     let server_name_for_storage = config.server.get_server_name().to_string();
-    let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
+    let member_storage: Arc<dyn RoomMemberRepository> =
+        Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage));
     let room_storage_concrete = Arc::new(RoomStorage::new(pool));
     let room_storage: Arc<dyn RoomRepository> = room_storage_concrete.clone();
     let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
@@ -288,7 +289,7 @@ fn assemble_room_and_sync(
     let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
         Arc::new(room_summary_storage.clone()),
         event_storage.clone(),
-        Some(Arc::new(member_storage.clone())),
+        Some(member_storage.clone()),
     ));
 
     #[cfg(feature = "beacons")]
@@ -662,7 +663,7 @@ fn assemble_admin_support(
         user_storage.clone(),
         DeviceStorage::new(pool),
         RoomStorage::new(pool),
-        RoomMemberStorage::new(pool, config.server.get_server_name()),
+        Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
         config.server.name.clone(),
     ));
 
@@ -878,7 +879,7 @@ async fn assemble_core(
         let broadcaster = synapse_federation::event_broadcaster::EventBroadcaster::new(broadcaster_server_name)
             .with_client(broadcaster_federation_client)
             .with_pool(pool.as_ref().clone())
-            .with_membership_storage(Arc::new(broadcaster_member_storage));
+            .with_membership_storage(broadcaster_member_storage);
         broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
         Arc::new(broadcaster)
     };

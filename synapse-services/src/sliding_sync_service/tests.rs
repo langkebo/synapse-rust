@@ -1,6 +1,7 @@
 use super::*;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
+use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncRoom};
 
 #[tokio::test]
@@ -88,7 +89,7 @@ fn create_test_service() -> SlidingSyncService {
             pool.clone(),
             Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         ),
-        member_storage: RoomMemberStorage::new(&pool, "localhost"),
+        member_storage: Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),
         connection_tracker: Arc::new(

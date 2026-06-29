@@ -94,7 +94,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let event_storage = EventStorage::new(pool, "localhost".to_string());
     let typing_service = Arc::new(TypingService::default());
     let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
-    let member_storage = RoomMemberStorage::new(pool, "localhost");
+    let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let device_storage = DeviceStorage::new(pool);
     let to_device_storage = synapse_e2ee::to_device::ToDeviceStorage::new(pool);
     let metrics = Arc::new(MetricsCollector::new());

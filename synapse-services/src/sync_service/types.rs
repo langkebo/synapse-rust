@@ -110,7 +110,7 @@ pub struct RoomSyncCounts {
 
 pub struct SyncServiceDeps {
     pub presence_storage: PresenceStorage,
-    pub member_storage: RoomMemberStorage,
+    pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_storage: Arc<dyn RoomRepository>,
     pub filter_storage: FilterStorage,
