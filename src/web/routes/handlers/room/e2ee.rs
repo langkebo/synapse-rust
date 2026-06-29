@@ -1,22 +1,23 @@
 use crate::common::ApiError;
 use crate::e2ee::backup::models::BackupKeyInfo;
-use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-async fn latest_room_key_backup_version(state: &AppState, user_id: &str) -> Result<Option<String>, ApiError> {
-    let backups = state.services.e2ee.backup_service.get_all_backups(user_id).await?;
+async fn latest_room_key_backup_version(ctx: &RoomContext, user_id: &str) -> Result<Option<String>, ApiError> {
+    let backups = ctx.e2ee_backup_service.get_all_backups(user_id).await?;
 
     Ok(backups.into_iter().max_by_key(|backup| backup.version).map(|backup| backup.version.to_string()))
 }
 
-async fn ensure_room_key_backup_version(state: &AppState, user_id: &str) -> Result<String, ApiError> {
-    if let Some(version) = latest_room_key_backup_version(state, user_id).await? {
+async fn ensure_room_key_backup_version(ctx: &RoomContext, user_id: &str) -> Result<String, ApiError> {
+    if let Some(version) = latest_room_key_backup_version(ctx, user_id).await? {
         return Ok(version);
     }
 
-    state.services.e2ee.backup_service.create_backup(user_id, "m.megolm.v1.aes-sha2", Some(json!({}))).await
+    ctx.e2ee_backup_service.create_backup(user_id, "m.megolm.v1.aes-sha2", Some(json!({}))).await
 }
 
 fn room_key_to_json(key: &BackupKeyInfo) -> Value {
@@ -114,18 +115,18 @@ fn requested_room_key_session_ids(body: &Value, room_id: &str) -> Option<HashSet
 }
 
 pub(crate) async fn get_room_keys(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let version = latest_room_key_backup_version(&ctx, &auth_user.user_id).await?;
     let keys = if let Some(version) = version.clone() {
-        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
+        ctx.e2ee_backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
     } else {
         Vec::new()
     };
@@ -138,18 +139,18 @@ pub(crate) async fn get_room_keys(
 }
 
 pub(crate) async fn get_room_key_count(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let version = latest_room_key_backup_version(&ctx, &auth_user.user_id).await?;
     let count = if let Some(version) = version {
-        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?.len()
+        ctx.e2ee_backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?.len()
     } else {
         0
     };
@@ -160,20 +161,20 @@ pub(crate) async fn get_room_key_count(
 }
 
 pub(crate) async fn claim_room_keys(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let version = latest_room_key_backup_version(&ctx, &auth_user.user_id).await?;
     let requested_sessions = requested_room_key_session_ids(&body, &room_id);
     let keys = if let Some(version) = version {
-        state.services.e2ee.backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
+        ctx.e2ee_backup_service.get_room_backup_keys(&auth_user.user_id, &room_id, &version).await?
     } else {
         Vec::new()
     };
@@ -193,16 +194,16 @@ pub(crate) async fn claim_room_keys(
 }
 
 pub(crate) async fn get_room_keys_version(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let version = latest_room_key_backup_version(&state, &auth_user.user_id).await?.unwrap_or_else(|| "0".to_string());
+    let version = latest_room_key_backup_version(&ctx, &auth_user.user_id).await?.unwrap_or_else(|| "0".to_string());
 
     Ok(Json(json!({
         "version": version
@@ -210,24 +211,21 @@ pub(crate) async fn get_room_keys_version(
 }
 
 pub(crate) async fn forward_room_keys(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let keys = normalize_forwarded_room_keys(&body, &room_id);
-    let version = ensure_room_key_backup_version(&state, &auth_user.user_id).await?;
+    let version = ensure_room_key_backup_version(&ctx, &auth_user.user_id).await?;
 
     if !keys.is_empty() {
-        state
-            .services
-            .e2ee
-            .backup_service
+        ctx.e2ee_backup_service
             .upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone())
             .await?;
     }
