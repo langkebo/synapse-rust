@@ -265,7 +265,7 @@ impl RoomStorage {
         search_term: &str,
         limit: i64,
     ) -> Result<Vec<Room>, sqlx::Error> {
-        let pattern = format!("%{}%", search_term);
+        let pattern = format!("%{}%", search_term.to_lowercase());
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r"
             SELECT r.room_id, r.name, r.topic, r.avatar_url, r.canonical_alias, r.join_rules, r.creator,
