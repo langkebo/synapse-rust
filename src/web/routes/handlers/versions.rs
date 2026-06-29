@@ -9,6 +9,7 @@
 use crate::common::config::Config;
 #[cfg(feature = "burn-after-read")]
 use crate::web::routes::burn_after_read;
+use crate::web::routes::context::AuthContext;
 use crate::web::routes::extractors::auth::OptionalAuthenticatedUser;
 #[cfg(feature = "friends")]
 use crate::web::routes::friend_room;
@@ -17,7 +18,6 @@ use crate::web::routes::voice;
 #[cfg(feature = "widgets")]
 use crate::web::routes::widget;
 use crate::web::routes::{account_compat, room_summary, route_ledger::RouteEntry, sliding_sync};
-use crate::web::AppState;
 use axum::{
     extract::{Query, State},
     http::{
@@ -124,27 +124,27 @@ pub(crate) fn change_password_capability_enabled(config: &Config) -> bool {
 // ---------------------------------------------------------------------------
 
 /// 获取客户端 API 版本
-pub async fn get_client_versions(State(state): State<AppState>) -> impl axum::response::IntoResponse {
-    let governance = build_governance(&state.services.core.config);
+pub async fn get_client_versions(State(ctx): State<AuthContext>) -> impl axum::response::IntoResponse {
+    let governance = build_governance(&ctx.config);
     (client_versions_headers(), Json(governance.build_client_versions()))
 }
 
 /// 获取服务端版本
-pub async fn get_server_version(State(state): State<AppState>) -> impl axum::response::IntoResponse {
+pub async fn get_server_version(State(ctx): State<AuthContext>) -> impl axum::response::IntoResponse {
     Json(json!({
         "server_version": env!("CARGO_PKG_VERSION"),
         "python_version": "Rust",
-        "server_name": state.services.core.server_name
+        "server_name": ctx.server_name
     }))
 }
 
 /// 获取服务端能力
 pub async fn get_capabilities(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth: OptionalAuthenticatedUser,
     Query(_): Query<EmptyQuery>,
 ) -> Json<serde_json::Value> {
-    let governance = build_governance(&state.services.core.config);
+    let governance = build_governance(&ctx.config);
     Json(governance.build_capabilities_response(auth.user_id.is_some()))
 }
 
@@ -179,18 +179,18 @@ fn build_well_known_client(base_url: &str) -> serde_json::Value {
 }
 
 /// .well-known: Matrix 服务器发现
-pub async fn get_well_known_server(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let server_name = state.services.core.config.server.get_server_name();
-    let public_baseurl = state.services.core.config.server.get_public_baseurl();
-    let federation_port = state.services.core.config.federation.federation_port;
+pub async fn get_well_known_server(State(ctx): State<AuthContext>) -> Json<serde_json::Value> {
+    let server_name = ctx.config.server.get_server_name();
+    let public_baseurl = ctx.config.server.get_public_baseurl();
+    let federation_port = ctx.config.federation.federation_port;
     Json(json!({
         "m.server": derive_well_known_server(&public_baseurl, server_name, federation_port)
     }))
 }
 
 /// .well-known: Matrix 客户端发现
-pub async fn get_well_known_client(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let base_url = state.services.core.config.server.get_public_baseurl();
+pub async fn get_well_known_client(State(ctx): State<AuthContext>) -> Json<serde_json::Value> {
+    let base_url = ctx.config.server.get_public_baseurl();
     Json(build_well_known_client(&base_url))
 }
 
