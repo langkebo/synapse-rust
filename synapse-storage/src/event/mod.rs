@@ -1,8 +1,10 @@
 pub mod batch;
 pub(crate) mod models;
+pub mod repository;
 pub mod state;
 
 pub use models::*;
+pub use repository::EventRepository;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1294,6 +1296,84 @@ impl EventStorage {
         .fetch_all(&*self.pool)
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    // -----------------------------------------------------------------------
+    // EventRepository delegation targets
+    // -----------------------------------------------------------------------
+
+    pub async fn get_room_events_paginated_with_filter(
+        &self,
+        room_id: &str,
+        from: Option<&str>,
+        _to: Option<&str>,
+        limit: i64,
+        _filter: Option<&EventQueryFilter>,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let from_ts = from.and_then(|f| f.parse::<i64>().ok());
+        self.get_room_events_paginated(room_id, from_ts, limit, "b").await
+    }
+
+    pub async fn get_room_create_event(
+        &self,
+        room_id: &str,
+    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+        sqlx::query_as::<_, RoomEvent>(
+            r"
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+            FROM events
+            WHERE room_id = $1 AND event_type = 'm.room.create'
+            ORDER BY origin_server_ts ASC
+            LIMIT 1
+            ",
+        )
+        .bind(room_id)
+        .fetch_optional(&*self.pool)
+        .await
+    }
+
+    pub async fn count_room_events(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        let count = sqlx::query_scalar::<_, i64>(
+            r"
+            SELECT COALESCE(COUNT(*), 0) FROM events WHERE room_id = $1
+            ",
+        )
+        .bind(room_id)
+        .fetch_one(&*self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Room-scoped postgres full-text search.
+    /// Named differently from `search_postgres_messages` (which is user-scoped
+    /// and returns tuples) to avoid method name collision.
+    pub async fn search_room_postgres_messages(
+        &self,
+        room_id: &str,
+        search_term: &str,
+        limit: i64,
+    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+        let events = sqlx::query_as(
+            r"
+            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
+                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
+                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(origin, 'self') as origin, stream_ordering, redacts
+            FROM events
+            WHERE room_id = $1
+              AND event_type = 'm.room.message'
+              AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)
+            ORDER BY origin_server_ts DESC
+            LIMIT $3
+            ",
+        )
+        .bind(room_id)
+        .bind(search_term)
+        .bind(limit)
+        .fetch_all(&*self.pool)
+        .await?;
+        Ok(events)
     }
 }
 
