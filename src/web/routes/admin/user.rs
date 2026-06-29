@@ -460,7 +460,7 @@ pub async fn reset_user_password(
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.core.auth_service.validator.validate_password(&body.new_password)?;
+    state.services.core.auth_service.validator().validate_password(&body.new_password)?;
 
     let user = resolve_user(&state, &user_id).await?;
 

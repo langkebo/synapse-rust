@@ -23,19 +23,27 @@ struct SyncParams {
 
 /// Build an effective `SyncRateLimitOverride`-like struct from the context's
 /// rate-limit config manager (dynamic) falling back to the static config.
-fn resolve_rate_limit_override(
-    ctx: &SyncContext,
-) -> (bool, bool, u32, u32, u32, u32) {
+fn resolve_rate_limit_override(ctx: &SyncContext) -> (bool, bool, u32, u32, u32, u32) {
     if let Some(manager) = &ctx.rate_limit_config_manager {
         let config: RateLimitConfigFile = manager.get_config();
-        (config.fail_open_on_error, config.sync.enabled,
-         config.sync.initial.per_second, config.sync.initial.burst_size,
-         config.sync.incremental.per_second, config.sync.incremental.burst_size)
+        (
+            config.fail_open_on_error,
+            config.sync.enabled,
+            config.sync.initial.per_second,
+            config.sync.initial.burst_size,
+            config.sync.incremental.per_second,
+            config.sync.incremental.burst_size,
+        )
     } else {
         let config = &ctx.config.rate_limit;
-        (config.fail_open_on_error, config.sync.enabled,
-         config.sync.initial.per_second, config.sync.initial.burst_size,
-         config.sync.incremental.per_second, config.sync.incremental.burst_size)
+        (
+            config.fail_open_on_error,
+            config.sync.enabled,
+            config.sync.initial.per_second,
+            config.sync.initial.burst_size,
+            config.sync.incremental.per_second,
+            config.sync.incremental.burst_size,
+        )
     }
 }
 
@@ -54,17 +62,13 @@ pub(crate) async fn sync(
     let filter = params.get("filter").and_then(|v| v.as_str()).map(|s| s.to_string());
     let since = params.get("since").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let (fail_open_on_error, sync_rate_limit_enabled,
-         init_per_second, init_burst_size,
-         inc_per_second, inc_burst_size) = resolve_rate_limit_override(&ctx);
+    let (fail_open_on_error, sync_rate_limit_enabled, init_per_second, init_burst_size, inc_per_second, inc_burst_size) =
+        resolve_rate_limit_override(&ctx);
 
     if sync_rate_limit_enabled {
         let is_initial = since.is_none();
-        let (per_second, burst_size) = if is_initial {
-            (init_per_second, init_burst_size)
-        } else {
-            (inc_per_second, inc_burst_size)
-        };
+        let (per_second, burst_size) =
+            if is_initial { (init_per_second, init_burst_size) } else { (inc_per_second, inc_burst_size) };
 
         let device_id_for_ratelimit = device_id.as_deref().unwrap_or("default");
         let kind = if is_initial { "initial" } else { "incremental" };

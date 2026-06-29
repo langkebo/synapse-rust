@@ -11,7 +11,7 @@ fn create_service() -> UiaService {
     UiaService::new(cache, 3600)
 }
 
-fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
+fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_rust::auth::Auth> {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let metrics = Arc::new(MetricsCollector::new());
     let security = SecurityConfig {
@@ -31,10 +31,10 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> AuthService {
         ui_auth_session_timeout: 900,
         ..Default::default()
     };
-    AuthService::new(pool, cache, metrics, &security, "localhost")
+    Arc::new(AuthService::new(pool, cache, metrics, &security, "localhost"))
 }
 
-fn create_lazy_auth_service() -> AuthService {
+fn create_lazy_auth_service() -> Arc<dyn synapse_rust::auth::Auth> {
     let pool = Arc::new(
         sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")

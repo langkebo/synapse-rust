@@ -303,13 +303,13 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         event_storage,
         room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
-        auth_service: synapse_rust::auth::AuthService::new(
+        auth_service: Arc::new(synapse_rust::auth::AuthService::new(
             pool,
             canonical_cache,
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
-        ),
+        )),
         room_summary_service,
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),

@@ -19,7 +19,7 @@ pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>
         "access_token": access_token,
         "device_id": device_id,
         "user_id": user.user_id,
-        "expires_in": state.services.core.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry(),
     })))
 }
 

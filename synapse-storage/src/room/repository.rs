@@ -91,22 +91,13 @@ pub trait RoomRepository: Send + Sync {
     async fn get_user_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
     /// Search the room directory (public rooms) by name / topic.
-    async fn search_room_directory(
-        &self,
-        search_term: &str,
-        limit: i64,
-    ) -> Result<Vec<Room>, sqlx::Error>;
+    async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error>;
 
     // -- aliases --
 
     async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
-    async fn set_room_alias(
-        &self,
-        room_id: &str,
-        alias: &str,
-        _created_by: &str,
-    ) -> Result<(), sqlx::Error>;
+    async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error>;
 
     async fn get_room_by_alias(&self, alias: &str) -> Result<Option<String>, sqlx::Error>;
 
@@ -163,11 +154,7 @@ pub trait RoomRepository: Send + Sync {
 
     // -- room state copy --
 
-    async fn copy_room_state(
-        &self,
-        source_room_id: &str,
-        target_room_id: &str,
-    ) -> Result<(), sqlx::Error>;
+    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error>;
 
     // -- room existence --
 
@@ -203,17 +190,11 @@ pub trait RoomRepository: Send + Sync {
 
     async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error>;
 
-    async fn get_single_room_stats(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error>;
+    async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
 
     // -- listings --
 
-    async fn get_room_listings_status(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<(bool, bool)>, sqlx::Error>;
+    async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error>;
 
     async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
@@ -263,10 +244,7 @@ pub trait RoomRepository: Send + Sync {
 
     // -- cleanup --
 
-    async fn cleanup_abnormal_data(
-        &self,
-        min_age_ms: Option<i64>,
-    ) -> Result<serde_json::Value, sqlx::Error>;
+    async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error>;
 
     // -- power levels (on room due to upsert_power_levels_event existing in room module) --
     // Note: upsert_power_levels_event is on EventStorage, not RoomStorage.

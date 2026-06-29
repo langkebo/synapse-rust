@@ -86,7 +86,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>, shared_secret: &str, enabled: bool) 
     let auth_service = AuthService::new(pool, cache.clone(), metrics.clone(), &make_security_config(), "localhost");
     let config = make_admin_config(shared_secret, enabled);
     let user_store: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
-    AdminRegistrationService::new(auth_service, config, user_store, cache, metrics)
+    AdminRegistrationService::new(Arc::new(auth_service), config, user_store, cache, metrics)
 }
 
 #[tokio::test]

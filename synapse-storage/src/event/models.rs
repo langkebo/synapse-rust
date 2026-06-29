@@ -159,10 +159,7 @@ impl EventRepository for EventStorage {
         EventStorage::get_room_events_paginated(self, room_id, from, limit, direction).await
     }
 
-    async fn get_events_batch(
-        &self,
-        event_ids: &[String],
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    async fn get_events_batch(&self, event_ids: &[String]) -> Result<Vec<RoomEvent>, sqlx::Error> {
         self.get_events_batch(event_ids).await
     }
 
@@ -223,11 +220,7 @@ impl EventRepository for EventStorage {
         self.get_room_events_since_stream_batch_filtered(room_ids, since_stream_ordering, limit_per_room, filter).await
     }
 
-    async fn has_room_events_since(
-        &self,
-        room_ids: &[String],
-        since: i64,
-    ) -> Result<bool, sqlx::Error> {
+    async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         self.has_room_events_since(room_ids, since).await
     }
 
@@ -240,10 +233,7 @@ impl EventRepository for EventStorage {
         self.get_state_event(room_id, event_type, state_key).await
     }
 
-    async fn get_state_events(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<StateEvent>, sqlx::Error> {
+    async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         self.get_state_events(room_id).await
     }
 
@@ -322,10 +312,7 @@ impl EventRepository for EventStorage {
         self.get_room_events_paginated_with_filter(room_id, from, to, limit, filter).await
     }
 
-    async fn get_room_create_event(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+    async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         self.get_room_create_event(room_id).await
     }
 
@@ -368,12 +355,7 @@ impl EventRepository for EventStorage {
         self.upsert_ephemeral_event(room_id, user_id, event_type, content, stream_id, created_ts, expires_at).await
     }
 
-    async fn delete_ephemeral_event(
-        &self,
-        room_id: &str,
-        event_type: &str,
-        user_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    async fn delete_ephemeral_event(&self, room_id: &str, event_type: &str, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_ephemeral_event(room_id, event_type, user_id).await
     }
 
@@ -435,11 +417,7 @@ impl EventRepository for EventStorage {
 
     // -- redaction --
 
-    async fn redact_event_content(
-        &self,
-        event_id: &str,
-        redacted_by: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
         self.redact_event_content(event_id, redacted_by).await
     }
 
@@ -458,10 +436,7 @@ impl EventRepository for EventStorage {
         self.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
     }
 
-    async fn get_event_signatures(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<EventSignature>, sqlx::Error> {
+    async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<EventSignature>, sqlx::Error> {
         self.get_event_signatures(event_id).await
     }
 
@@ -516,11 +491,7 @@ impl EventRepository for EventStorage {
         self.get_forward_extremities_count(room_id).await
     }
 
-    async fn get_latest_event_ids_in_room(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<String>, sqlx::Error> {
+    async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
         self.get_latest_event_ids_in_room(room_id, limit).await
     }
 
@@ -549,10 +520,7 @@ impl EventRepository for EventStorage {
 
     // -- missing event IDs --
 
-    async fn find_missing_event_ids(
-        &self,
-        event_ids: &[String],
-    ) -> Result<Vec<String>, sqlx::Error> {
+    async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
         self.find_missing_event_ids(event_ids).await
     }
 
@@ -566,11 +534,7 @@ impl EventRepository for EventStorage {
         self.get_state_events_at_or_before(room_id, origin_server_ts).await
     }
 
-    async fn get_state_events_by_type(
-        &self,
-        room_id: &str,
-        event_type: &str,
-    ) -> Result<Vec<StateEvent>, sqlx::Error> {
+    async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> Result<Vec<StateEvent>, sqlx::Error> {
         self.get_state_events_by_type(room_id, event_type).await
     }
 
@@ -582,10 +546,7 @@ impl EventRepository for EventStorage {
 
     // -- batch helpers --
 
-    async fn get_max_origin_server_ts_for_room(
-        &self,
-        room_id: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
         self.get_max_origin_server_ts_for_room(room_id).await
     }
 
@@ -595,21 +556,13 @@ impl EventRepository for EventStorage {
 
     // -- pending events --
 
-    async fn get_pending_room_events(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error> {
+    async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
         self.get_pending_room_events(room_id, limit).await
     }
 
     // -- counting --
 
-    async fn count_room_events_by_status(
-        &self,
-        room_id: &str,
-        status: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error> {
         self.count_room_events_by_status(room_id, status).await
     }
 
