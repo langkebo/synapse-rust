@@ -14,7 +14,6 @@ use std::sync::Arc;
 pub struct RoomContext {
     pub room_service: Arc<synapse_services::room_service::RoomService>,
     pub auth_service: synapse_services::auth::AuthService,
-    pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub sync_service: Arc<synapse_services::sync_service::SyncService>,
@@ -31,6 +30,7 @@ pub struct RoomContext {
     pub rtc_domain_service: Arc<synapse_services::rtc::RtcDomainService>,
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub config: synapse_common::config::Config,
+    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<synapse_services::beacon_service::BeaconService>,
     #[cfg(feature = "friends")]
@@ -42,7 +42,6 @@ impl FromRef<AppState> for RoomContext {
         Self {
             room_service: state.services.rooms.room_service.clone(),
             auth_service: state.services.core.auth_service.clone(),
-            user_storage: state.services.account.user_storage.clone(),
             server_name: state.services.core.server_name.clone(),
             cache: state.cache.clone(),
             sync_service: state.services.rooms.sync_service.clone(),
@@ -59,6 +58,7 @@ impl FromRef<AppState> for RoomContext {
             rtc_domain_service: state.services.extensions.rtc_domain_service.clone(),
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             config: state.services.core.config.clone(),
+            admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             #[cfg(feature = "beacons")]
             beacon_service: state.services.rooms.beacon_service.clone(),
             #[cfg(feature = "friends")]
@@ -76,6 +76,7 @@ pub struct SyncContext {
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
 }
 
 impl FromRef<AppState> for SyncContext {
@@ -87,6 +88,7 @@ impl FromRef<AppState> for SyncContext {
             cache: state.cache.clone(),
             config: state.services.core.config.clone(),
             rate_limit_config_manager: state.rate_limit_config_manager().cloned(),
+            admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
         }
     }
 }
@@ -103,6 +105,7 @@ pub struct DeviceContext {
     pub uia_service: Arc<synapse_services::uia_service::UiaService>,
     pub event_broadcaster: Arc<synapse_federation::EventBroadcaster>,
     pub config: synapse_common::config::Config,
+    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
 }
 
 impl FromRef<AppState> for DeviceContext {
@@ -117,6 +120,7 @@ impl FromRef<AppState> for DeviceContext {
             uia_service: state.services.extensions.uia_service.clone(),
             event_broadcaster: state.services.core.event_broadcaster.clone(),
             config: state.services.core.config.clone(),
+            admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
         }
     }
 }
@@ -130,6 +134,7 @@ pub struct AuthContext {
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
+    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
 }
 
 impl FromRef<AppState> for AuthContext {
@@ -141,6 +146,7 @@ impl FromRef<AppState> for AuthContext {
             server_name: state.services.core.server_name.clone(),
             cache: state.cache.clone(),
             config: state.services.core.config.clone(),
+            admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
         }
     }
 }

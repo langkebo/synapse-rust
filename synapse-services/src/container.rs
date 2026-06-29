@@ -887,7 +887,7 @@ async fn assemble_core(
     let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
         pool,
         user_storage.clone(),
-        RoomStorage::new(pool),
+        rooms.room_storage.clone(),
         FilterStorage::new(pool),
         OpenIdTokenStorage::new(pool),
     ));

@@ -165,9 +165,8 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
 // =============================================================================
 // These are needed because handlers migrate from State<AppState> to
 // State<RoomContext> (etc.), and the auth extractors must work with the
-// new state type. Audit-event creation is elided here because the contexts
-// do not carry admin_audit_service — audit coverage for auth events remains
-// in the AppState-based impl used by admin routes.
+// new state type. Each context carries an optional admin_audit_service
+// field for best-effort audit event creation on write operations.
 
 impl FromRequestParts<RoomContext> for AuthenticatedUser {
     type Rejection = ApiError;
@@ -188,16 +187,29 @@ impl FromRequestParts<RoomContext> for AuthenticatedUser {
             let result = state.auth_service.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                    // Audit logging for sensitive write operations (best-effort,
-                    // skipped if admin audit service not available in context).
-                    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                        && !path.starts_with("/_synapse/admin")
-                    {
-                        let _request_id = resolve_request_id(&headers);
-                        // Audit is omitted for context-based extraction; the
-                        // AppState-based impl provides full audit coverage for
-                        // admin routes that still use AppState directly.
-                        let _ = (_request_id, path, method);
+                    // Best-effort audit logging for sensitive write operations
+                    if let Some(ref audit_svc) = state.admin_audit_service {
+                        if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                            && !path.starts_with("/_synapse/admin")
+                        {
+                            let request_id = resolve_request_id(&headers);
+                            let audit_request = CreateAuditEventRequest {
+                                actor_id: user_id.clone(),
+                                action: format!("user.{}", method.as_str().to_lowercase()),
+                                resource_type: "client_api".to_string(),
+                                resource_id: path.clone(),
+                                result: "success".to_string(),
+                                request_id,
+                                details: Some(json!({
+                                    "path": path,
+                                    "method": method.as_str(),
+                                    "is_admin": is_admin,
+                                })),
+                            };
+                            if let Err(e) = audit_svc.create_event(audit_request).await {
+                                ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+                            }
+                        }
                     }
 
                     Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
@@ -218,11 +230,39 @@ impl FromRequestParts<SyncContext> for AuthenticatedUser {
         let uri = parts.uri.to_string();
         let token_result = extract_token_from_request(&parts.headers, &uri);
         let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
 
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
                 state.auth_service.validate_token(&token).await?;
+
+            if let Some(ref audit_svc) = state.admin_audit_service {
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                    && !path.starts_with("/_synapse/admin")
+                {
+                    let request_id = resolve_request_id(&headers);
+                    let audit_request = CreateAuditEventRequest {
+                        actor_id: user_id.clone(),
+                        action: format!("user.{}", method.as_str().to_lowercase()),
+                        resource_type: "client_api".to_string(),
+                        resource_id: path.clone(),
+                        result: "success".to_string(),
+                        request_id,
+                        details: Some(json!({
+                            "path": path,
+                            "method": method.as_str(),
+                            "is_admin": is_admin,
+                        })),
+                    };
+                    if let Err(e) = audit_svc.create_event(audit_request).await {
+                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+                    }
+                }
+            }
+
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
         }
     }
@@ -238,11 +278,39 @@ impl FromRequestParts<DeviceContext> for AuthenticatedUser {
         let uri = parts.uri.to_string();
         let token_result = extract_token_from_request(&parts.headers, &uri);
         let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
 
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
                 state.auth_service.validate_token(&token).await?;
+
+            if let Some(ref audit_svc) = state.admin_audit_service {
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                    && !path.starts_with("/_synapse/admin")
+                {
+                    let request_id = resolve_request_id(&headers);
+                    let audit_request = CreateAuditEventRequest {
+                        actor_id: user_id.clone(),
+                        action: format!("user.{}", method.as_str().to_lowercase()),
+                        resource_type: "client_api".to_string(),
+                        resource_id: path.clone(),
+                        result: "success".to_string(),
+                        request_id,
+                        details: Some(json!({
+                            "path": path,
+                            "method": method.as_str(),
+                            "is_admin": is_admin,
+                        })),
+                    };
+                    if let Err(e) = audit_svc.create_event(audit_request).await {
+                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+                    }
+                }
+            }
+
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
         }
     }
@@ -258,11 +326,39 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
         let uri = parts.uri.to_string();
         let token_result = extract_token_from_request(&parts.headers, &uri);
         let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
 
         async move {
             let token = token_result?;
             let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
                 state.auth_service.validate_token(&token).await?;
+
+            if let Some(ref audit_svc) = state.admin_audit_service {
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                    && !path.starts_with("/_synapse/admin")
+                {
+                    let request_id = resolve_request_id(&headers);
+                    let audit_request = CreateAuditEventRequest {
+                        actor_id: user_id.clone(),
+                        action: format!("user.{}", method.as_str().to_lowercase()),
+                        resource_type: "client_api".to_string(),
+                        resource_id: path.clone(),
+                        result: "success".to_string(),
+                        request_id,
+                        details: Some(json!({
+                            "path": path,
+                            "method": method.as_str(),
+                            "is_admin": is_admin,
+                        })),
+                    };
+                    if let Err(e) = audit_svc.create_event(audit_request).await {
+                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+                    }
+                }
+            }
+
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
         }
     }
