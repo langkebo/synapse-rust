@@ -4,13 +4,13 @@
 //! homeserver configuration details (homeserver URL, identity server, feature
 //! flags) that clients use to self-configure.
 
+use crate::web::routes::context::AuthContext;
 use crate::web::routes::ApiError;
-use crate::web::AppState;
 use axum::{extract::State, Json};
 use serde_json::json;
 
-pub async fn get_client_config(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    let config = &state.services.core.config;
+pub async fn get_client_config(State(ctx): State<AuthContext>) -> Result<Json<serde_json::Value>, ApiError> {
+    let config = &ctx.config;
     let base_url = config.server.get_public_baseurl();
 
     Ok(Json(json!({
