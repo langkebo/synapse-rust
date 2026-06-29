@@ -551,9 +551,10 @@ impl SyncService {
             return Ok(result);
         }
 
-        let rows = RoomAccountDataStorage::list_room_account_data_batch(self.event_storage.pool().as_ref(), user_id, room_ids)
-            .await
-            .map_err(map_internal!("Failed to get room account data"))?;
+        let rows =
+            RoomAccountDataStorage::list_room_account_data_batch(self.event_storage.pool().as_ref(), user_id, room_ids)
+                .await
+                .map_err(map_internal!("Failed to get room account data"))?;
 
         for row in rows {
             if let Some(events) = result.get_mut(&row.room_id) {

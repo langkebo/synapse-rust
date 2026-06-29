@@ -1,8 +1,8 @@
 use crate::cache::CacheManager;
 use crate::web::routes::AppState;
 use axum::extract::FromRef;
-use synapse_common::rate_limit_config::RateLimitConfigManager;
 use std::sync::Arc;
+use synapse_common::rate_limit_config::RateLimitConfigManager;
 
 /// Context for room-related handlers (create, join, leave, state, messages).
 ///
@@ -13,7 +13,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RoomContext {
     pub room_service: Arc<synapse_services::room_service::RoomService>,
-    pub auth_service: synapse_services::auth::AuthService,
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub sync_service: Arc<synapse_services::sync_service::SyncService>,
@@ -71,7 +71,7 @@ impl FromRef<AppState> for RoomContext {
 #[derive(Clone)]
 pub struct SyncContext {
     pub sync_service: Arc<synapse_services::sync_service::SyncService>,
-    pub auth_service: synapse_services::auth::AuthService,
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
@@ -97,7 +97,7 @@ impl FromRef<AppState> for SyncContext {
 #[derive(Clone)]
 pub struct DeviceContext {
     pub device_storage: Arc<dyn synapse_storage::DeviceRepository>,
-    pub auth_service: synapse_services::auth::AuthService,
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
@@ -128,7 +128,7 @@ impl FromRef<AppState> for DeviceContext {
 /// Context for auth-related handlers (login, register, token refresh).
 #[derive(Clone)]
 pub struct AuthContext {
-    pub auth_service: synapse_services::auth::AuthService,
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,

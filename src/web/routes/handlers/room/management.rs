@@ -310,11 +310,8 @@ pub(crate) async fn get_room_visibility(
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let visibility = ctx
-        .room_service
-        .get_room_visibility(&room_id)
-        .await
-        .map_err(map_internal!("Failed to get room visibility"))?;
+    let visibility =
+        ctx.room_service.get_room_visibility(&room_id).await.map_err(map_internal!("Failed to get room visibility"))?;
 
     Ok(Json(json!({
         "visibility": visibility
@@ -391,8 +388,7 @@ pub(crate) async fn upgrade_room(
 
     ensure_room_state_write_access(&ctx, &auth_user, &room_id, "m.room.tombstone").await?;
 
-    let new_room_id =
-        ctx.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
+    let new_room_id = ctx.room_service.upgrade_room(&room_id, &body.new_version, &auth_user.user_id).await?;
 
     Ok(Json(UpgradeRoomResponse { replacement_room: new_room_id }))
 }
@@ -454,8 +450,7 @@ pub(crate) async fn room_initial_sync(
         .collect::<Vec<Value>>();
 
     let members = ctx.room_service.get_room_members(&room_id, &auth_user.user_id).await?;
-    let messages =
-        ctx.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, "b").await?;
+    let messages = ctx.room_service.get_room_messages(&room_id, &auth_user.user_id, from, limit, "b").await?;
 
     let member_events = members.get("chunk").and_then(Value::as_array).cloned().unwrap_or_default();
     let visibility = if room.is_public { "public" } else { "private" };
@@ -538,10 +533,8 @@ pub(crate) async fn get_room_sync(
     let full_state = params.full_state.unwrap_or(false);
     let since = params.since.as_deref();
 
-    let result = ctx
-        .sync_service
-        .room_sync_with_timeout(&auth_user.user_id, &room_id, timeout, full_state, since)
-        .await?;
+    let result =
+        ctx.sync_service.room_sync_with_timeout(&auth_user.user_id, &room_id, timeout, full_state, since).await?;
 
     Ok(Json(result))
 }
@@ -624,10 +617,7 @@ pub(crate) async fn set_room_account_data(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    ctx
-        .account_data_service
-        .set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body)
-        .await?;
+    ctx.account_data_service.set_room_account_data(&auth_user.user_id, &room_id, &data_type, &body).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -649,10 +639,7 @@ pub(crate) async fn get_room_account_data(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let result = ctx
-        .account_data_service
-        .get_room_account_data(&auth_user.user_id, &room_id, &data_type)
-        .await?;
+    let result = ctx.account_data_service.get_room_account_data(&auth_user.user_id, &room_id, &data_type).await?;
 
     match result {
         Some(data) => Ok(Json(data)),
@@ -796,10 +783,7 @@ pub(crate) async fn set_room_vault_data(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    ctx
-        .account_data_service
-        .set_room_account_data(&auth_user.user_id, &room_id, "m.room.vault_data", &body)
-        .await?;
+    ctx.account_data_service.set_room_account_data(&auth_user.user_id, &room_id, "m.room.vault_data", &body).await?;
 
     Ok(Json(json!({
         "room_id": room_id,

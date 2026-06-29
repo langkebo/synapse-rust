@@ -950,20 +950,13 @@ impl DeviceRepository for DeviceStorage {
         self.create_device(device_id, user_id, display_name).await
     }
 
-    async fn get_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<Device>, sqlx::Error> {
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         // CONCERN: Inherent DeviceStorage::get_device only accepts device_id.
         // Delegating to get_user_device(user_id, device_id) instead.
         self.get_user_device(user_id, device_id).await
     }
 
-    async fn get_user_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<Device>, sqlx::Error> {
+    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         self.get_user_devices(user_id).await
     }
 
@@ -996,21 +989,14 @@ impl DeviceRepository for DeviceStorage {
         self.update_device_last_seen(device_id).await
     }
 
-    async fn delete_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
         // CONCERN: Inherent DeviceStorage::delete_device only takes device_id.
         // Delegating to delete_user_device(user_id, device_id) instead and
         // discarding the row-count return value to match the trait signature.
         self.delete_user_device(user_id, device_id).await.map(|_| ())
     }
 
-    async fn delete_all_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_user_devices(user_id).await
     }
 
@@ -1025,10 +1011,7 @@ impl DeviceRepository for DeviceStorage {
         Ok(result.into_iter().map(|(k, v)| (k, v.into_values().collect())).collect())
     }
 
-    async fn get_device_count(
-        &self,
-        user_id: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         self.get_device_count(user_id).await
     }
 
@@ -1047,10 +1030,7 @@ impl DeviceRepository for DeviceStorage {
         self.get_max_device_list_stream_id().await
     }
 
-    async fn get_max_device_list_stream_id_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
         self.get_max_device_list_stream_id_for_user(user_id).await
     }
 
@@ -1062,10 +1042,7 @@ impl DeviceRepository for DeviceStorage {
         self.get_device_lists_since_with_shared_rooms(since_stream_id, exclude_user_id).await
     }
 
-    async fn has_device_list_updates_since(
-        &self,
-        since_stream_id: i64,
-    ) -> Result<bool, sqlx::Error> {
+    async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
         self.has_device_list_updates_since(since_stream_id).await
     }
 

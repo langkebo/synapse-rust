@@ -34,10 +34,7 @@ pub trait EventRepository: Send + Sync {
         direction: &str,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
-    async fn get_events_batch(
-        &self,
-        event_ids: &[String],
-    ) -> Result<Vec<RoomEvent>, sqlx::Error>;
+    async fn get_events_batch(&self, event_ids: &[String]) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
     // -- room event batch queries (sync-oriented) --
 
@@ -84,11 +81,7 @@ pub trait EventRepository: Send + Sync {
         filter: &EventQueryFilter,
     ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
 
-    async fn has_room_events_since(
-        &self,
-        room_ids: &[String],
-        since: i64,
-    ) -> Result<bool, sqlx::Error>;
+    async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error>;
 
     async fn get_state_event(
         &self,
@@ -97,10 +90,7 @@ pub trait EventRepository: Send + Sync {
         state_key: &str,
     ) -> Result<Option<StateEvent>, sqlx::Error>;
 
-    async fn get_state_events(
-        &self,
-        room_id: &str,
-    ) -> Result<Vec<StateEvent>, sqlx::Error>;
+    async fn get_state_events(&self, room_id: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
     async fn get_state_events_batch(
         &self,
@@ -163,10 +153,7 @@ pub trait EventRepository: Send + Sync {
         filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
-    async fn get_room_create_event(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomEvent>, sqlx::Error>;
+    async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error>;
 
     async fn count_room_events(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
@@ -199,12 +186,7 @@ pub trait EventRepository: Send + Sync {
         expires_at: Option<i64>,
     ) -> Result<(), sqlx::Error>;
 
-    async fn delete_ephemeral_event(
-        &self,
-        room_id: &str,
-        event_type: &str,
-        user_id: &str,
-    ) -> Result<(), sqlx::Error>;
+    async fn delete_ephemeral_event(&self, room_id: &str, event_type: &str, user_id: &str) -> Result<(), sqlx::Error>;
 
     async fn get_ephemeral_events(
         &self,
@@ -252,11 +234,7 @@ pub trait EventRepository: Send + Sync {
 
     // -- redaction --
 
-    async fn redact_event_content(
-        &self,
-        event_id: &str,
-        redacted_by: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
+    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error>;
 
     // -- event signatures --
 
@@ -271,10 +249,7 @@ pub trait EventRepository: Send + Sync {
         created_ts: i64,
     ) -> Result<(), sqlx::Error>;
 
-    async fn get_event_signatures(
-        &self,
-        event_id: &str,
-    ) -> Result<Vec<super::models::EventSignature>, sqlx::Error>;
+    async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<super::models::EventSignature>, sqlx::Error>;
 
     // -- power levels --
 
@@ -317,11 +292,7 @@ pub trait EventRepository: Send + Sync {
 
     async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
-    async fn get_latest_event_ids_in_room(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<String>, sqlx::Error>;
+    async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error>;
 
     // -- missing events / DAG gap fill --
 
@@ -344,10 +315,7 @@ pub trait EventRepository: Send + Sync {
 
     // -- missing event IDs --
 
-    async fn find_missing_event_ids(
-        &self,
-        event_ids: &[String],
-    ) -> Result<Vec<String>, sqlx::Error>;
+    async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error>;
 
     // -- state events (filtered) --
 
@@ -357,11 +325,7 @@ pub trait EventRepository: Send + Sync {
         origin_server_ts: i64,
     ) -> Result<Vec<StateEvent>, sqlx::Error>;
 
-    async fn get_state_events_by_type(
-        &self,
-        room_id: &str,
-        event_type: &str,
-    ) -> Result<Vec<StateEvent>, sqlx::Error>;
+    async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> Result<Vec<StateEvent>, sqlx::Error>;
 
     // -- cleanup --
 
@@ -369,28 +333,17 @@ pub trait EventRepository: Send + Sync {
 
     // -- batch helpers --
 
-    async fn get_max_origin_server_ts_for_room(
-        &self,
-        room_id: &str,
-    ) -> Result<i64, sqlx::Error>;
+    async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error>;
 
     async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error>;
 
     // -- pending events --
 
-    async fn get_pending_room_events(
-        &self,
-        room_id: &str,
-        limit: i64,
-    ) -> Result<Vec<RoomEvent>, sqlx::Error>;
+    async fn get_pending_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error>;
 
     // -- counting --
 
-    async fn count_room_events_by_status(
-        &self,
-        room_id: &str,
-        status: &str,
-    ) -> Result<i64, sqlx::Error>;
+    async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error>;
 
     // -- daily message count --
 

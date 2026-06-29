@@ -240,8 +240,7 @@ impl FromRequestParts<SyncContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                    && !path.starts_with("/_synapse/admin")
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
                 {
                     let request_id = resolve_request_id(&headers);
                     let audit_request = CreateAuditEventRequest {
@@ -288,8 +287,7 @@ impl FromRequestParts<DeviceContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                    && !path.starts_with("/_synapse/admin")
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
                 {
                     let request_id = resolve_request_id(&headers);
                     let audit_request = CreateAuditEventRequest {
@@ -336,8 +334,7 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                    && !path.starts_with("/_synapse/admin")
+                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
                 {
                     let request_id = resolve_request_id(&headers);
                     let audit_request = CreateAuditEventRequest {

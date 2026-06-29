@@ -49,7 +49,7 @@ pub struct ServiceContainer {
 
 #[derive(Clone)]
 pub struct CoreServices {
-    pub auth_service: AuthService,
+    pub auth_service: Arc<dyn Auth>,
     pub registration_service: Arc<crate::registration_service::RegistrationService>,
     pub search_service: Arc<crate::search_service::SearchService>,
     pub media_service: crate::media_service::MediaService,
@@ -269,7 +269,7 @@ fn assemble_room_and_sync(
     cache: &Arc<CacheManager>,
     config: &Config,
     task_queue: &Option<Arc<RedisTaskQueue>>,
-    auth_service: &AuthService,
+    auth_service: &Arc<dyn Auth>,
     presence_storage: &PresenceStorage,
     to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
     metrics: &Arc<MetricsCollector>,
@@ -303,7 +303,7 @@ fn assemble_room_and_sync(
         user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
         auth_service: auth_service.clone(),
         room_summary_service: room_summary_service.clone(),
-        validator: auth_service.validator.clone(),
+        validator: auth_service.validator().clone(),
         server_name: config.server.name.clone(),
         task_queue: task_queue.clone(),
         relations_storage: relations_storage.clone(),
@@ -524,7 +524,7 @@ fn assemble_admin_support(
     config: &Config,
     task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
-    auth_service: &AuthService,
+    auth_service: &Arc<dyn Auth>,
     user_storage: &Arc<dyn UserStore>,
 ) -> AdminServices {
     let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
@@ -820,7 +820,7 @@ async fn assemble_core(
     config: &Config,
     task_queue: &Option<Arc<RedisTaskQueue>>,
     metrics: &Arc<MetricsCollector>,
-    auth_service: &AuthService,
+    auth_service: &Arc<dyn Auth>,
     user_storage: &Arc<dyn UserStore>,
     rooms: &RoomSyncServices,
     federation: &FederationServices,
@@ -1105,14 +1105,14 @@ impl ServiceContainer {
         let server_metrics = Arc::new(ServerMetrics::new(metrics.clone()));
 
         // Auth — must be initialized first; downstream services depend on it
-        let auth_service = AuthService::new_with_lifetime(
+        let auth_service: Arc<dyn Auth> = Arc::new(AuthService::new_with_lifetime(
             pool,
             cache.clone(),
             metrics.clone(),
             &config.security,
             &config.server.name,
             config.access_token_lifetime_seconds(),
-        );
+        ));
 
         // Core storage
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));

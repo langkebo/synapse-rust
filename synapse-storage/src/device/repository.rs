@@ -20,16 +20,9 @@ pub trait DeviceRepository: Send + Sync {
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error>;
 
-    async fn get_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Option<Device>, sqlx::Error>;
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
 
-    async fn get_user_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<Device>, sqlx::Error>;
+    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error>;
 
     // update_device is split into update_device_display_name +
     // update_device_last_seen matching the existing DeviceStorage API surface.
@@ -47,26 +40,14 @@ pub trait DeviceRepository: Send + Sync {
         user_agent: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
-    async fn delete_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<(), sqlx::Error>;
+    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
 
-    async fn delete_all_devices(
-        &self,
-        user_id: &str,
-    ) -> Result<(), sqlx::Error>;
+    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error>;
 
-    async fn get_device_keys_for_users(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, Vec<Device>>, sqlx::Error>;
+    async fn get_device_keys_for_users(&self, user_ids: &[String])
+        -> Result<HashMap<String, Vec<Device>>, sqlx::Error>;
 
-    async fn get_device_count(
-        &self,
-        user_id: &str,
-    ) -> Result<i64, sqlx::Error>;
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 
     async fn record_device_list_change(
         &self,
@@ -79,10 +60,7 @@ pub trait DeviceRepository: Send + Sync {
 
     async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error>;
 
-    async fn get_max_device_list_stream_id_for_user(
-        &self,
-        user_id: &str,
-    ) -> Result<i64, sqlx::Error>;
+    async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 
     async fn get_device_lists_since_with_shared_rooms(
         &self,
@@ -90,10 +68,7 @@ pub trait DeviceRepository: Send + Sync {
         exclude_user_id: &str,
     ) -> Result<(Vec<String>, Vec<String>), sqlx::Error>;
 
-    async fn has_device_list_updates_since(
-        &self,
-        since_stream_id: i64,
-    ) -> Result<bool, sqlx::Error>;
+    async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error>;
 
     // -- lazy-loaded members --
 

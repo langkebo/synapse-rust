@@ -14,7 +14,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct AdminRegistrationService {
-    auth_service: AuthService,
+    auth_service: Arc<dyn Auth>,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
     cache: Arc<CacheManager>,
@@ -49,7 +49,7 @@ pub struct AdminRegisterResponse {
 
 impl AdminRegistrationService {
     pub fn new(
-        auth_service: AuthService,
+        auth_service: Arc<dyn Auth>,
         config: AdminRegistrationConfig,
         user_storage: Arc<dyn UserStore>,
         cache: Arc<CacheManager>,
@@ -171,10 +171,10 @@ impl AdminRegistrationService {
         Ok(AdminRegisterResponse {
             access_token,
             refresh_token,
-            expires_in: self.auth_service.token_expiry,
+            expires_in: self.auth_service.token_expiry(),
             device_id,
             user_id: user.user_id(),
-            home_server: self.auth_service.server_name.clone(),
+            home_server: self.auth_service.server_name().to_string(),
         })
     }
 

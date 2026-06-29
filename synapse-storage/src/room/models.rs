@@ -260,11 +260,7 @@ impl RoomStorage {
     ///
     /// This inherent method was added to support the `RoomRepository` trait;
     /// it did not previously exist on `RoomStorage`.
-    pub async fn search_room_directory(
-        &self,
-        search_term: &str,
-        limit: i64,
-    ) -> Result<Vec<Room>, sqlx::Error> {
+    pub async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         let pattern = format!("%{}%", search_term.to_lowercase());
         let rows: Vec<RoomRecord> = sqlx::query_as(
             r"
@@ -414,11 +410,7 @@ impl RoomRepository for RoomStorage {
         self.get_user_rooms(user_id).await
     }
 
-    async fn search_room_directory(
-        &self,
-        search_term: &str,
-        limit: i64,
-    ) -> Result<Vec<Room>, sqlx::Error> {
+    async fn search_room_directory(&self, search_term: &str, limit: i64) -> Result<Vec<Room>, sqlx::Error> {
         self.search_room_directory(search_term, limit).await
     }
 
@@ -428,12 +420,7 @@ impl RoomRepository for RoomStorage {
         self.get_room_aliases(room_id).await
     }
 
-    async fn set_room_alias(
-        &self,
-        room_id: &str,
-        alias: &str,
-        _created_by: &str,
-    ) -> Result<(), sqlx::Error> {
+    async fn set_room_alias(&self, room_id: &str, alias: &str, _created_by: &str) -> Result<(), sqlx::Error> {
         self.set_room_alias(room_id, alias, _created_by).await
     }
 
@@ -516,11 +503,7 @@ impl RoomRepository for RoomStorage {
 
     // -- room state copy --
 
-    async fn copy_room_state(
-        &self,
-        source_room_id: &str,
-        target_room_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
         self.copy_room_state(source_room_id, target_room_id).await
     }
 
@@ -574,19 +557,13 @@ impl RoomRepository for RoomStorage {
         self.get_room_stats_overview().await
     }
 
-    async fn get_single_room_stats(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<serde_json::Value>, sqlx::Error> {
+    async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
         self.get_single_room_stats(room_id).await
     }
 
     // -- listings --
 
-    async fn get_room_listings_status(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<(bool, bool)>, sqlx::Error> {
+    async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
         self.get_room_listings_status(room_id).await
     }
 
@@ -652,10 +629,7 @@ impl RoomRepository for RoomStorage {
 
     // -- cleanup --
 
-    async fn cleanup_abnormal_data(
-        &self,
-        min_age_ms: Option<i64>,
-    ) -> Result<serde_json::Value, sqlx::Error> {
+    async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
         self.cleanup_abnormal_data(min_age_ms).await
     }
 }

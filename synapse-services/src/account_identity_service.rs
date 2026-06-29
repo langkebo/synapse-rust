@@ -1,4 +1,4 @@
-use crate::auth::AuthService;
+use crate::auth::Auth;
 use crate::uia_service::UiaService;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -184,7 +184,7 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &AuthService,
+        auth_service: &Arc<dyn Auth>,
     ) -> Result<(), Value> {
         uia_service
             .require_uia(
@@ -202,7 +202,7 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &AuthService,
+        auth_service: &Arc<dyn Auth>,
     ) -> Result<(), Value> {
         uia_service
             .require_uia(auth, user_id, UiaService::get_cross_signing_flows(), auth_service, &self.threepid_storage)

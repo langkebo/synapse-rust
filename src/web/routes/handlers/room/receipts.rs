@@ -80,13 +80,9 @@ pub(crate) async fn set_read_markers(
 
     let room = ctx.room_service.get_room(&room_id).await?;
 
-    let is_member = is_member_or_creator_ctx(
-        &ctx,
-        &auth_user.user_id,
-        &room_id,
-        room.get("creator").and_then(|v| v.as_str()),
-    )
-    .await?;
+    let is_member =
+        is_member_or_creator_ctx(&ctx, &auth_user.user_id, &room_id, room.get("creator").and_then(|v| v.as_str()))
+            .await?;
 
     if !is_member {
         return Err(ApiError::forbidden("You are not a member of this room".to_string()));

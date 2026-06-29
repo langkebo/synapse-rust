@@ -31,7 +31,7 @@ pub(crate) async fn register(
             "device_id": device_id,
             "user_id": user.user_id,
             "is_guest": true,
-            "expires_in": state.services.core.auth_service.token_expiry,
+            "expires_in": state.services.core.auth_service.token_expiry(),
             "well_known": {
                 "m.homeserver": {
                     "base_url": state.services.core.config.server.get_public_baseurl()
@@ -73,8 +73,8 @@ pub(crate) async fn register(
     let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
     let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
-    state.services.core.auth_service.validator.validate_username(username)?;
-    state.services.core.auth_service.validator.validate_password(password)?;
+    state.services.core.auth_service.validator().validate_username(username)?;
+    state.services.core.auth_service.validator().validate_password(password)?;
 
     let displayname = body.get("displayname").and_then(|v| v.as_str());
     let initial_device_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
@@ -99,7 +99,7 @@ pub(crate) async fn check_username_availability(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
-    if let Err(e) = state.services.core.auth_service.validator.validate_username(username) {
+    if let Err(e) = state.services.core.auth_service.validator().validate_username(username) {
         return Err(e.into());
     }
 
@@ -142,7 +142,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    if state.services.core.auth_service.validator.validate_email(email).is_err() {
+    if state.services.core.auth_service.validator().validate_email(email).is_err() {
         return Err(ApiError::bad_request("Invalid email address format".to_string()));
     }
 
@@ -350,7 +350,7 @@ pub(crate) async fn login(
     Ok(Json(json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": state.services.core.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry(),
         "device_id": device_id,
         "user_id": user.user_id(),
         "well_known": {
@@ -393,7 +393,7 @@ pub(crate) async fn refresh_token(
     Ok(Json(json!({
         "access_token": new_access,
         "refresh_token": new_refresh,
-        "expires_in": state.services.core.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry(),
         "device_id": device_id
     })))
 }

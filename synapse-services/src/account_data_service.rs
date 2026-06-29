@@ -97,9 +97,16 @@ impl AccountDataService {
     ) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
         let now = chrono::Utc::now().timestamp();
-        RoomAccountDataStorage::upsert_room_account_data(self.room_storage.pool().as_ref(), user_id, room_id, data_type, body, now)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))
+        RoomAccountDataStorage::upsert_room_account_data(
+            self.room_storage.pool().as_ref(),
+            user_id,
+            room_id,
+            data_type,
+            body,
+            now,
+        )
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))
     }
 
     #[instrument(skip(self))]
@@ -109,8 +116,13 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        RoomAccountDataStorage::get_room_account_data_content(self.room_storage.pool().as_ref(), user_id, room_id, data_type)
-            .await
+        RoomAccountDataStorage::get_room_account_data_content(
+            self.room_storage.pool().as_ref(),
+            user_id,
+            room_id,
+            data_type,
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -120,8 +132,13 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<AccountDataWithTimestamp>, ApiError> {
-        RoomAccountDataStorage::get_room_account_data_with_ts(self.room_storage.pool().as_ref(), user_id, room_id, data_type)
-            .await
+        RoomAccountDataStorage::get_room_account_data_with_ts(
+            self.room_storage.pool().as_ref(),
+            user_id,
+            room_id,
+            data_type,
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -131,7 +148,8 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<bool, ApiError> {
-        RoomAccountDataStorage::delete_room_account_data(self.room_storage.pool().as_ref(), user_id, room_id, data_type).await
+        RoomAccountDataStorage::delete_room_account_data(self.room_storage.pool().as_ref(), user_id, room_id, data_type)
+            .await
     }
 
     #[instrument(skip(self, content))]

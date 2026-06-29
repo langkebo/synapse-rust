@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 pub struct RegistrationService {
     user_storage: Arc<dyn synapse_storage::UserStore>,
-    auth_service: crate::auth::AuthService,
+    auth_service: Arc<dyn crate::auth::Auth>,
     metrics: Arc<MetricsCollector>,
     // HP-2 FIX: Make base URL configurable instead of hardcoded
     base_url: String,
@@ -18,7 +18,7 @@ pub struct RegistrationService {
 impl RegistrationService {
     pub fn new(
         user_storage: Arc<dyn synapse_storage::UserStore>,
-        auth_service: crate::auth::AuthService,
+        auth_service: Arc<dyn crate::auth::Auth>,
         metrics: Arc<MetricsCollector>,
         server_name: &str,
         enable_registration: bool,
@@ -103,7 +103,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry,
+            "expires_in": self.auth_service.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
@@ -152,7 +152,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry,
+            "expires_in": self.auth_service.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {

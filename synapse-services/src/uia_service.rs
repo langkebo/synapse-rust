@@ -245,7 +245,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        auth_service: &crate::auth::AuthService,
+        auth_service: &Arc<dyn crate::auth::Auth>,
     ) -> Result<(), ApiError> {
         let password = auth
             .get("password")
@@ -293,7 +293,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        auth_service: &crate::auth::AuthService,
+        auth_service: &Arc<dyn crate::auth::Auth>,
     ) -> Result<(), ApiError> {
         let token = auth
             .get("token")
@@ -473,7 +473,7 @@ impl UiaService {
         auth: Option<&Value>,
         user_id: &str,
         flows: Vec<UiaFlow>,
-        auth_service: &crate::auth::AuthService,
+        auth_service: &Arc<dyn crate::auth::Auth>,
         threepid_storage: &ThreepidStorage,
     ) -> Result<(), Value> {
         let auth_val = match auth {

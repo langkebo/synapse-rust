@@ -225,9 +225,7 @@ pub(crate) async fn forward_room_keys(
     let version = ensure_room_key_backup_version(&ctx, &auth_user.user_id).await?;
 
     if !keys.is_empty() {
-        ctx.e2ee_backup_service
-            .upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone())
-            .await?;
+        ctx.e2ee_backup_service.upload_room_keys_for_room(&auth_user.user_id, &room_id, &version, keys.clone()).await?;
     }
 
     Ok(Json(json!({

@@ -204,11 +204,7 @@ pub(crate) async fn send_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        ctx
-            .beacon_service
-            .create_beacon(params)
-            .await
-            .map_err(map_internal!("Failed to index beacon_info"))?;
+        ctx.beacon_service.create_beacon(params).await.map_err(map_internal!("Failed to index beacon_info"))?;
     }
 
     Ok(Json(json!({
@@ -314,11 +310,7 @@ pub(crate) async fn put_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        ctx
-            .beacon_service
-            .create_beacon(params)
-            .await
-            .map_err(map_internal!("Failed to index beacon_info"))?;
+        ctx.beacon_service.create_beacon(params).await.map_err(map_internal!("Failed to index beacon_info"))?;
     }
 
     Ok(Json(json!({
@@ -456,8 +448,7 @@ pub(crate) async fn get_room_permissions(
     validate_room_id(&room_id)?;
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let power_levels_events =
-        ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+    let power_levels_events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let pl_content = power_levels_events
         .iter()
@@ -465,8 +456,7 @@ pub(crate) async fn get_room_permissions(
         .and_then(|e| e.get("content").cloned())
         .unwrap_or(json!({}));
 
-    let join_rules_events =
-        ctx.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
+    let join_rules_events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
 
     let join_rule = join_rules_events
         .iter()

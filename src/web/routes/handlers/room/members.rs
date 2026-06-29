@@ -253,8 +253,7 @@ pub(crate) async fn get_room_members(
     let room = ctx.room_service.get_room(&room_id).await?;
 
     let is_member =
-        is_member_or_creator_ctx(&ctx, &user_id, &room_id, room.get("creator").and_then(|v| v.as_str()))
-            .await?;
+        is_member_or_creator_ctx(&ctx, &user_id, &room_id, room.get("creator").and_then(|v| v.as_str())).await?;
 
     if !room.get("is_public").and_then(|v| v.as_bool()).unwrap_or(false) && !is_member {
         ::tracing::warn!(

@@ -995,7 +995,7 @@ async fn oidc_callback(
     Ok(Json(serde_json::json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": state.services.core.auth_service.token_expiry,
+        "expires_in": state.services.core.auth_service.token_expiry(),
         "device_id": device_id,
         "user_id": user_id_for_log,
     })))

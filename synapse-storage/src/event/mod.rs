@@ -1320,10 +1320,7 @@ impl EventStorage {
         self.get_room_events_paginated(room_id, from_ts, limit, "b").await
     }
 
-    pub async fn get_room_create_event(
-        &self,
-        room_id: &str,
-    ) -> Result<Option<RoomEvent>, sqlx::Error> {
+    pub async fn get_room_create_event(&self, room_id: &str) -> Result<Option<RoomEvent>, sqlx::Error> {
         sqlx::query_as::<_, RoomEvent>(
             r"
             SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
