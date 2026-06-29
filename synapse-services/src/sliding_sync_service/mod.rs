@@ -6,11 +6,11 @@ use synapse_common::config::PerformanceConfig;
 use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::device::DeviceStorage;
+use synapse_storage::device::DeviceRepository;
+use synapse_storage::event::EventRepository;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::presence::PresenceStorage;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
-use synapse_storage::EventStorage;
 
 mod extensions;
 mod filters;
@@ -37,11 +37,11 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
-    event_storage: EventStorage,
+    event_storage: Arc<dyn EventRepository>,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: PresenceStorage,
     member_storage: RoomMemberStorage,
-    device_storage: DeviceStorage,
+    device_storage: Arc<dyn DeviceRepository>,
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
@@ -78,11 +78,11 @@ impl SlidingSyncService {
     pub fn new(
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
-        event_storage: EventStorage,
+        event_storage: Arc<dyn EventRepository>,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
-        device_storage: DeviceStorage,
+        device_storage: Arc<dyn DeviceRepository>,
         to_device_storage: ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: PerformanceConfig,

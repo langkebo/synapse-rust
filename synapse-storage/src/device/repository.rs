@@ -4,11 +4,15 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::Device;
 
 #[async_trait]
 pub trait DeviceRepository: Send + Sync {
+    /// Returns a reference to the database connection pool.
+    fn pool(&self) -> &Arc<sqlx::PgPool>;
+
     async fn create_device(
         &self,
         user_id: &str,
@@ -70,4 +74,41 @@ pub trait DeviceRepository: Send + Sync {
         device_id: Option<&str>,
         change_type: &str,
     ) -> Result<i64, sqlx::Error>;
+
+    // -- device list stream --
+
+    async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_max_device_list_stream_id_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<i64, sqlx::Error>;
+
+    async fn get_device_lists_since_with_shared_rooms(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error>;
+
+    async fn has_device_list_updates_since(
+        &self,
+        since_stream_id: i64,
+    ) -> Result<bool, sqlx::Error>;
+
+    // -- lazy-loaded members --
+
+    async fn get_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error>;
+
+    async fn upsert_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        member_user_ids: &std::collections::HashSet<String>,
+    ) -> Result<u64, sqlx::Error>;
 }

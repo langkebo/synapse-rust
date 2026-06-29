@@ -22,16 +22,19 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use synapse_common::*;
+use synapse_storage::device::DeviceRepository;
+use synapse_storage::event::EventRepository;
+use synapse_storage::room::RoomRepository;
 use synapse_storage::{PresenceStorage, UserRoomMembership};
 use tokio::sync::RwLock;
 
 pub struct SyncService {
     pub(crate) presence_storage: PresenceStorage,
     pub(crate) member_storage: RoomMemberStorage,
-    pub(crate) event_storage: EventStorage,
-    pub(crate) room_storage: RoomStorage,
+    pub(crate) event_storage: Arc<dyn EventRepository>,
+    pub(crate) room_storage: Arc<dyn RoomRepository>,
     pub(crate) filter_storage: FilterStorage,
-    pub(crate) device_storage: DeviceStorage,
+    pub(crate) device_storage: Arc<dyn DeviceRepository>,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
     pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
@@ -67,10 +70,10 @@ impl SyncService {
     pub fn new(
         presence_storage: PresenceStorage,
         member_storage: RoomMemberStorage,
-        event_storage: EventStorage,
-        room_storage: RoomStorage,
+        event_storage: Arc<dyn EventRepository>,
+        room_storage: Arc<dyn RoomRepository>,
         filter_storage: FilterStorage,
-        device_storage: DeviceStorage,
+        device_storage: Arc<dyn DeviceRepository>,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: synapse_common::config::PerformanceConfig,

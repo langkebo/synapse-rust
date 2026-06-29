@@ -935,6 +935,10 @@ impl DeviceStorage {
 
 #[async_trait]
 impl DeviceRepository for DeviceStorage {
+    fn pool(&self) -> &Arc<Pool<Postgres>> {
+        &self.pool
+    }
+
     async fn create_device(
         &self,
         user_id: &str,
@@ -1029,6 +1033,55 @@ impl DeviceRepository for DeviceStorage {
         change_type: &str,
     ) -> Result<i64, sqlx::Error> {
         self.record_device_list_change(user_id, device_id, change_type).await
+    }
+
+    // -- device list stream --
+
+    async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
+        self.get_max_device_list_stream_id().await
+    }
+
+    async fn get_max_device_list_stream_id_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.get_max_device_list_stream_id_for_user(user_id).await
+    }
+
+    async fn get_device_lists_since_with_shared_rooms(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
+        self.get_device_lists_since_with_shared_rooms(since_stream_id, exclude_user_id).await
+    }
+
+    async fn has_device_list_updates_since(
+        &self,
+        since_stream_id: i64,
+    ) -> Result<bool, sqlx::Error> {
+        self.has_device_list_updates_since(since_stream_id).await
+    }
+
+    // -- lazy-loaded members --
+
+    async fn get_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+        self.get_lazy_loaded_members(user_id, device_id, room_id).await
+    }
+
+    async fn upsert_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        member_user_ids: &std::collections::HashSet<String>,
+    ) -> Result<u64, sqlx::Error> {
+        self.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
     }
 }
 

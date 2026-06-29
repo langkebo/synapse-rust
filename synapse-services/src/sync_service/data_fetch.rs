@@ -222,7 +222,7 @@ impl SyncService {
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = AccountDataStorage::new(&self.event_storage.pool)
+        let rows = AccountDataStorage::new(self.event_storage.pool())
             .list_account_data(user_id)
             .await
             .map_err(map_internal!("Failed to get account data"))?;
@@ -525,7 +525,7 @@ impl SyncService {
         room_id: &str,
         user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = RoomAccountDataStorage::list_room_account_data(&self.event_storage.pool, user_id, room_id)
+        let rows = RoomAccountDataStorage::list_room_account_data(self.event_storage.pool().as_ref(), user_id, room_id)
             .await
             .map_err(map_internal!("Failed to get room account data"))?;
 
@@ -551,7 +551,7 @@ impl SyncService {
             return Ok(result);
         }
 
-        let rows = RoomAccountDataStorage::list_room_account_data_batch(&self.event_storage.pool, user_id, room_ids)
+        let rows = RoomAccountDataStorage::list_room_account_data_batch(self.event_storage.pool().as_ref(), user_id, room_ids)
             .await
             .map_err(map_internal!("Failed to get room account data"))?;
 

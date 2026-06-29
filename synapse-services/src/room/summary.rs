@@ -4,7 +4,6 @@
 //! Stats and queue operations live in [`summary_stats`].
 
 use crate::common::{ApiError, ApiResult};
-use crate::storage::event::EventStorage;
 use crate::storage::membership::RoomMemberStorage;
 use crate::storage::room_summary::*;
 pub use crate::storage::room_summary::{
@@ -12,18 +11,19 @@ pub use crate::storage::room_summary::{
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
 use std::sync::Arc;
+use synapse_storage::EventRepository;
 use tracing::{debug, info, instrument};
 
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<RoomSummaryStorage>,
-    pub(crate) event_storage: Arc<EventStorage>,
+    pub(crate) event_storage: Arc<dyn EventRepository>,
     pub(crate) member_storage: Option<Arc<RoomMemberStorage>>,
 }
 
 impl RoomSummaryService {
     pub fn new(
         storage: Arc<RoomSummaryStorage>,
-        event_storage: Arc<EventStorage>,
+        event_storage: Arc<dyn EventRepository>,
         member_storage: Option<Arc<RoomMemberStorage>>,
     ) -> Self {
         Self { storage, event_storage, member_storage }
