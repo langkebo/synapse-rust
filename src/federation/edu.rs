@@ -180,7 +180,7 @@ async fn handle_device_list_update_edu(
     let change_type =
         if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
 
-    let pool = &*state.services.account.device_storage.pool;
+    let pool = state.services.account.device_storage.pool().as_ref();
     let result = sqlx::query(
         r#"
         INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)

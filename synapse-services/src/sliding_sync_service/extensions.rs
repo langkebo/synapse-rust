@@ -201,7 +201,7 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
         since_pos: Option<&str>,
     ) -> Result<Value, sqlx::Error> {
-        let device_key_storage = DeviceKeyStorage::new(&self.event_storage.pool);
+        let device_key_storage = DeviceKeyStorage::new(self.event_storage.pool());
         let key_counts = device_key_storage
             .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await

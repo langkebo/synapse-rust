@@ -76,7 +76,7 @@ pub struct AccountServices {
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
     pub user_storage: Arc<dyn UserStore>,
     pub threepid_storage: ThreepidStorage,
-    pub device_storage: DeviceStorage,
+    pub device_storage: Arc<dyn DeviceRepository>,
     pub token_storage: AccessTokenStorage,
     pub presence_storage: PresenceStorage,
     pub presence_service: Arc<crate::presence_service::PresenceService>,
@@ -243,9 +243,9 @@ fn assemble_e2ee(
 
 #[derive(Clone)]
 pub struct RoomSyncServices {
-    pub room_storage: RoomStorage,
+    pub room_storage: Arc<dyn RoomRepository>,
     pub member_storage: RoomMemberStorage,
-    pub event_storage: EventStorage,
+    pub event_storage: Arc<dyn EventRepository>,
     pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
     pub relations_storage: synapse_storage::relations::RelationsStorage,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
@@ -276,15 +276,18 @@ fn assemble_room_and_sync(
 ) -> RoomSyncServices {
     let server_name_for_storage = config.server.get_server_name().to_string();
     let member_storage = RoomMemberStorage::new(pool, &server_name_for_storage);
-    let room_storage = RoomStorage::new(pool);
-    let event_storage = EventStorage::new(pool, server_name_for_storage);
+    let room_storage_concrete = Arc::new(RoomStorage::new(pool));
+    let room_storage: Arc<dyn RoomRepository> = room_storage_concrete.clone();
+    let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
+    let event_storage: Arc<dyn EventRepository> = event_storage_concrete.clone();
+    let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
     let relations_storage = synapse_storage::relations::RelationsStorage::new(pool);
     let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
     let room_tag_storage = synapse_storage::room_tag::RoomTagStorage::new(pool.clone());
 
     let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
         Arc::new(room_summary_storage.clone()),
-        Arc::new(event_storage.clone()),
+        event_storage.clone(),
         Some(Arc::new(member_storage.clone())),
     ));
 
@@ -319,7 +322,7 @@ fn assemble_room_and_sync(
         event_storage: event_storage.clone(),
         room_storage: room_storage.clone(),
         filter_storage: FilterStorage::new(pool),
-        device_storage: DeviceStorage::new(pool),
+        device_storage: device_storage.clone(),
         to_device_storage: to_device_storage.clone(),
         metrics: metrics.clone(),
         performance: config.performance.clone(),
@@ -328,7 +331,6 @@ fn assemble_room_and_sync(
     let typing_service = Arc::new(crate::typing_service::TypingService::new(cache.clone()));
 
     let sliding_sync_storage = synapse_storage::sliding_sync::SlidingSyncStorage::new(pool.clone());
-    let device_storage = synapse_storage::device::DeviceStorage::new(pool);
     let sliding_sync_service = Arc::new(crate::sliding_sync_service::SlidingSyncService::new(
         sliding_sync_storage,
         cache.clone(),
@@ -336,7 +338,7 @@ fn assemble_room_and_sync(
         typing_service.clone(),
         presence_storage.clone(),
         member_storage.clone(),
-        device_storage,
+        device_storage.clone(),
         to_device_storage.clone(),
         metrics.clone(),
         config.performance.clone(),
@@ -345,7 +347,7 @@ fn assemble_room_and_sync(
     let space_storage = SpaceStorage::new(pool);
     let space_service = Arc::new(crate::space_service::SpaceService::new(
         Arc::new(space_storage.clone()),
-        Arc::new(room_storage.clone()),
+        room_storage_concrete.clone(),
         config.server.name.clone(),
     ));
 
@@ -615,9 +617,11 @@ fn assemble_admin_support(
     let rendezvous_message_storage = synapse_storage::rendezvous::RendezvousMessageStorage::new(pool.clone());
 
     let app_service_storage = ApplicationServiceStorage::new(pool);
+    let app_service_event_storage: Arc<EventStorage> =
+        Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
     let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
         Arc::new(app_service_storage.clone()),
-        Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned())),
+        app_service_event_storage,
         config.server.get_server_name().to_owned(),
     ));
     let app_service_scheduler =
@@ -1111,6 +1115,7 @@ impl ServiceContainer {
 
         // Core storage
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
+        let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
         let threepid_storage = ThreepidStorage::new(pool);
         let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
@@ -1215,7 +1220,7 @@ impl ServiceContainer {
                 account_identity_service,
                 user_storage,
                 threepid_storage,
-                device_storage: DeviceStorage::new(pool),
+                device_storage: device_storage.clone(),
                 token_storage: AccessTokenStorage::new(pool),
                 presence_storage,
                 presence_service: presence_service.clone(),

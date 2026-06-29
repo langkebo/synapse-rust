@@ -41,7 +41,7 @@ impl RoomService {
 
         let mut tx = self
             .room_storage
-            .pool
+            .pool()
             .begin()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to start transaction", &e))?;

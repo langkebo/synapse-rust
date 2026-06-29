@@ -273,8 +273,8 @@ async fn test_to_device_next_batch_token_respects_limit() {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
-    let event_storage = EventStorage::new(&pool, "localhost".to_string());
-    let room_storage = RoomStorage::new(&pool);
+    let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
+    let room_storage = Arc::new(RoomStorage::new(&pool));
     let to_device_storage = ToDeviceStorage::new(&pool);
 
     let sync_service = SyncService::new(
@@ -283,7 +283,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
         event_storage,
         room_storage,
         FilterStorage::new(&pool),
-        DeviceStorage::new(&pool),
+        Arc::new(DeviceStorage::new(&pool)),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -346,10 +346,10 @@ async fn test_to_device_messages_are_deleted_after_ack() {
     let sync_service = SyncService::new(
         PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
         RoomMemberStorage::new(&pool, "localhost"),
-        EventStorage::new(&pool, "localhost".to_string()),
-        RoomStorage::new(&pool),
+        Arc::new(EventStorage::new(&pool, "localhost".to_string())),
+        Arc::new(RoomStorage::new(&pool)),
         FilterStorage::new(&pool),
-        DeviceStorage::new(&pool),
+        Arc::new(DeviceStorage::new(&pool)),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),

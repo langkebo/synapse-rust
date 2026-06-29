@@ -6,6 +6,9 @@ use std::sync::Arc;
 use synapse_common::config::PerformanceConfig;
 use synapse_common::*;
 use synapse_e2ee::to_device::ToDeviceStorage;
+use synapse_storage::device::DeviceRepository;
+use synapse_storage::event::EventRepository;
+use synapse_storage::room::RoomRepository;
 use synapse_storage::PresenceStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,10 +111,10 @@ pub struct RoomSyncCounts {
 pub struct SyncServiceDeps {
     pub presence_storage: PresenceStorage,
     pub member_storage: RoomMemberStorage,
-    pub event_storage: EventStorage,
-    pub room_storage: RoomStorage,
+    pub event_storage: Arc<dyn EventRepository>,
+    pub room_storage: Arc<dyn RoomRepository>,
     pub filter_storage: FilterStorage,
-    pub device_storage: DeviceStorage,
+    pub device_storage: Arc<dyn DeviceRepository>,
     pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,
     pub performance: PerformanceConfig,
