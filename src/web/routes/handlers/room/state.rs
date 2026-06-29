@@ -3,7 +3,8 @@ use super::{
 };
 use crate::common::ApiError;
 use crate::map_internal;
-use crate::web::routes::{validate_room_id, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{validate_room_id, AuthenticatedUser};
 use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 #[cfg(feature = "beacons")]
@@ -11,21 +12,21 @@ use synapse_storage::beacon::CreateBeaconInfoParams;
 use synapse_storage::event::CreateEventParams;
 
 pub(crate) async fn get_room_state(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let state_events = state.services.rooms.room_service.get_state_events(&room_id).await?;
+    let state_events = ctx.room_service.get_state_events(&room_id).await?;
 
     Ok(Json(json!({
         "events": state_events
@@ -33,23 +34,23 @@ pub(crate) async fn get_room_state(
 }
 
 pub(crate) async fn get_state_by_type(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event_with_empty_key =
         events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
@@ -66,17 +67,17 @@ pub(crate) async fn get_state_by_type(
 }
 
 pub(crate) async fn get_state_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -91,7 +92,7 @@ pub(crate) async fn get_state_event(
 }
 
 pub(crate) async fn send_state_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
     Json(body): Json<Value>,
@@ -100,11 +101,11 @@ pub(crate) async fn send_state_event(
 
     let content = body;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
     // Variable used only when `beacons` feature is enabled.
     #[allow(unused_variables)]
@@ -183,9 +184,7 @@ pub(crate) async fn send_state_event(
         Some(auth_user.user_id.clone())
     };
 
-    let state_event = state
-        .services
-        .rooms
+    let state_event = ctx
         .room_service
         .create_event(
             CreateEventParams {
@@ -205,9 +204,7 @@ pub(crate) async fn send_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        state
-            .services
-            .rooms
+        ctx
             .beacon_service
             .create_beacon(params)
             .await
@@ -222,18 +219,18 @@ pub(crate) async fn send_state_event(
 }
 
 pub(crate) async fn put_state_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type, state_key)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
     if (final_event_type.starts_with("m.beacon_info")
         || final_event_type.starts_with("org.matrix.msc3672.beacon_info")
@@ -297,9 +294,7 @@ pub(crate) async fn put_state_event(
         None
     };
 
-    let event = state
-        .services
-        .rooms
+    let event = ctx
         .room_service
         .create_event(
             CreateEventParams {
@@ -319,9 +314,7 @@ pub(crate) async fn put_state_event(
 
     #[cfg(feature = "beacons")]
     if let Some(params) = beacon_info_params {
-        state
-            .services
-            .rooms
+        ctx
             .beacon_service
             .create_beacon(params)
             .await
@@ -336,17 +329,17 @@ pub(crate) async fn put_state_event(
 }
 
 pub(crate) async fn get_state_event_empty_key(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -357,15 +350,15 @@ pub(crate) async fn get_state_event_empty_key(
 }
 
 pub(crate) async fn get_power_levels(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+    let events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let event = events
         .iter()
@@ -378,22 +371,20 @@ pub(crate) async fn get_power_levels(
 }
 
 pub(crate) async fn put_state_event_empty_key(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
-    let event = state
-        .services
-        .rooms
+    let event = ctx
         .room_service
         .create_event(
             CreateEventParams {
@@ -419,22 +410,20 @@ pub(crate) async fn put_state_event_empty_key(
 }
 
 pub(crate) async fn put_state_event_no_key(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_type)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let new_event_id = crate::common::crypto::generate_event_id(&state.services.core.server_name);
+    let new_event_id = crate::common::crypto::generate_event_id(&ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
 
     let final_event_type = normalize_room_event_type(&event_type);
-    ensure_room_state_write_access(&state, &auth_user, &room_id, &final_event_type).await?;
+    ensure_room_state_write_access(&ctx, &auth_user, &room_id, &final_event_type).await?;
 
-    let event = state
-        .services
-        .rooms
+    let event = ctx
         .room_service
         .create_event(
             CreateEventParams {
@@ -460,15 +449,15 @@ pub(crate) async fn put_state_event_no_key(
 }
 
 pub(crate) async fn get_room_permissions(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    ensure_room_view_access(&state, &auth_user, &room_id).await?;
+    ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
     let power_levels_events =
-        state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+        ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let pl_content = power_levels_events
         .iter()
@@ -477,7 +466,7 @@ pub(crate) async fn get_room_permissions(
         .unwrap_or(json!({}));
 
     let join_rules_events =
-        state.services.rooms.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
+        ctx.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
 
     let join_rule = join_rules_events
         .iter()
