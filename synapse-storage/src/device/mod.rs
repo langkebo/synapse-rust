@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-pub mod repository;
+mod repository;
 pub use repository::DeviceRepository;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -963,22 +963,27 @@ impl DeviceRepository for DeviceStorage {
         self.get_user_devices(user_id).await
     }
 
-    async fn update_device(
+    async fn update_device_display_name(
         &self,
-        _user_id: &str,
-        _device_id: &str,
-        _display_name: Option<&str>,
-        _device_key: Option<&serde_json::Value>,
+        user_id: &str,
+        device_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let name = display_name.unwrap_or("");
+        self.update_user_device_display_name(user_id, device_id, name).await.map(|_| ())
+    }
+
+    async fn update_device_last_seen(
+        &self,
+        device_id: &str,
         _last_seen_ip: Option<&str>,
         _user_agent: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        // CONCERN: No combined update_device method exists with these parameters.
-        // DeviceStorage has update_device_display_name and
-        // update_user_device_display_name but neither handles device_key,
-        // last_seen_ip, or user_agent.  This is a no-op stub until the
-        // underlying storage method is added.
-        tracing::warn!("DeviceRepository::update_device not yet implemented on DeviceStorage");
-        Ok(())
+        // CONCERN: DeviceStorage::update_device_last_seen only accepts
+        // device_id; last_seen_ip and user_agent are not yet persisted by the
+        // underlying storage.  When DeviceStorage is extended, these params
+        // should be threaded through.
+        self.update_device_last_seen(device_id).await
     }
 
     async fn delete_device(
@@ -995,12 +1000,7 @@ impl DeviceRepository for DeviceStorage {
     async fn delete_all_devices(
         &self,
         user_id: &str,
-        _except_device_id: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        // CONCERN: Inherent DeviceStorage::delete_user_devices does not
-        // support the except_device_id parameter.  When except_device_id is
-        // Some, the excluded device will also be deleted until the underlying
-        // storage method is extended.
         self.delete_user_devices(user_id).await
     }
 

@@ -1,3 +1,7 @@
+// Note: update_device is split into update_device_display_name and
+// update_device_last_seen matching the existing DeviceStorage API surface
+// (update_user_device_display_name and update_device_last_seen respectively).
+
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -23,12 +27,18 @@ pub trait DeviceRepository: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<Device>, sqlx::Error>;
 
-    async fn update_device(
+    // update_device is split into update_device_display_name +
+    // update_device_last_seen matching the existing DeviceStorage API surface.
+    async fn update_device_display_name(
         &self,
         user_id: &str,
         device_id: &str,
         display_name: Option<&str>,
-        device_key: Option<&serde_json::Value>,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn update_device_last_seen(
+        &self,
+        device_id: &str,
         last_seen_ip: Option<&str>,
         user_agent: Option<&str>,
     ) -> Result<(), sqlx::Error>;
@@ -42,7 +52,6 @@ pub trait DeviceRepository: Send + Sync {
     async fn delete_all_devices(
         &self,
         user_id: &str,
-        except_device_id: Option<&str>,
     ) -> Result<(), sqlx::Error>;
 
     async fn get_device_keys_for_users(
