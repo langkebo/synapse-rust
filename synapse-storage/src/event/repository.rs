@@ -8,6 +8,11 @@ pub trait EventRepository: Send + Sync {
 
     async fn create_event(&self, params: &CreateEventParams) -> Result<RoomEvent, sqlx::Error>;
 
+    /// Retrieve paginated room events.
+    ///
+    /// NOTE: `to` and `filter` parameters are not yet supported by the
+    /// Postgres implementation.  Non-None values will produce a
+    /// `tracing::warn!` log at runtime but are otherwise silently ignored.
     async fn get_room_events_paginated(
         &self,
         room_id: &str,
@@ -40,6 +45,11 @@ pub trait EventRepository: Send + Sync {
         room_ids: &[String],
     ) -> Result<std::collections::HashMap<String, Vec<StateEvent>>, sqlx::Error>;
 
+    /// Retrieve paginated room events (string-based cursor variant).
+    ///
+    /// NOTE: `to` and `filter` parameters are not yet supported by the
+    /// Postgres implementation.  Non-None values will produce a
+    /// `tracing::warn!` log at runtime but are otherwise silently ignored.
     async fn get_room_events_paginated_with_filter(
         &self,
         room_id: &str,
