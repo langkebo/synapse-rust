@@ -209,8 +209,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .unwrap();
         let v3_location_response =
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_location_request).await.unwrap();
-        assert_eq!(v3_location_response.status(), StatusCode::NOT_FOUND);
-
+        assert_eq!(v3_location_response.status(), StatusCode::BAD_REQUEST);
         let body = axum::body::to_bytes(v3_location_response.into_body(), 1024).await.unwrap();
         let v3_location_json: Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v3_location_json["errcode"], "M_UNRECOGNIZED");
@@ -221,7 +220,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
             .body(Body::empty())
             .unwrap();
         let r0_location_response = ServiceExt::<Request<Body>>::oneshot(app, r0_location_request).await.unwrap();
-        assert_eq!(r0_location_response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(r0_location_response.status(), StatusCode::BAD_REQUEST);
     });
 }
 

@@ -108,7 +108,7 @@ impl MatrixErrorCode {
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::LimitExceeded => StatusCode::TOO_MANY_REQUESTS,
             Self::Unknown => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unrecognized => StatusCode::NOT_FOUND,
+            Self::Unrecognized => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::UserDeactivated => StatusCode::FORBIDDEN,
             Self::UserInUse => StatusCode::CONFLICT,
@@ -1257,7 +1257,7 @@ where
                 Some("M_FORBIDDEN") => StatusCode::FORBIDDEN,
                 Some("M_UNAUTHORIZED") | Some("M_UNKNOWN_TOKEN") | Some("M_MISSING_TOKEN") => StatusCode::UNAUTHORIZED,
                 Some("M_LIMIT_EXCEEDED") => StatusCode::TOO_MANY_REQUESTS,
-                Some("M_UNRECOGNIZED") => StatusCode::NOT_FOUND,
+                Some("M_UNRECOGNIZED") => StatusCode::BAD_REQUEST,
                 Some("M_BAD_JSON")
                 | Some("M_NOT_JSON")
                 | Some("M_INVALID_PARAM")
