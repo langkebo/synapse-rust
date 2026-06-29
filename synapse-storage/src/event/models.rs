@@ -318,12 +318,7 @@ impl EventRepository for EventStorage {
         limit: i64,
         filter: Option<&EventQueryFilter>,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        if to.is_some() {
-            tracing::warn!("EventRepository::get_room_events_paginated_with_filter: 'to' parameter not yet supported");
-        }
-        if filter.is_some() {
-            tracing::warn!("EventRepository::get_room_events_paginated_with_filter: 'filter' parameter not yet supported");
-        }
+        // Warnings for unsupported to/filter are in the inherent method
         self.get_room_events_paginated_with_filter(room_id, from, to, limit, filter).await
     }
 
