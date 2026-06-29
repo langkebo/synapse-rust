@@ -38,6 +38,35 @@ pub struct AdminUser {
     pub role: String,
 }
 
+async fn audit_user_action(
+    audit_svc: &synapse_services::AdminAuditService,
+    user_id: &str,
+    method: &Method,
+    path: &str,
+    headers: &HeaderMap,
+    is_admin: bool,
+) {
+    if matches!(method, &Method::POST | &Method::PUT | &Method::DELETE) && !path.starts_with("/_synapse/admin") {
+        let request_id = resolve_request_id(headers);
+        let audit_request = CreateAuditEventRequest {
+            actor_id: user_id.to_string(),
+            action: format!("user.{}", method.as_str().to_lowercase()),
+            resource_type: "client_api".to_string(),
+            resource_id: path.to_string(),
+            result: "success".to_string(),
+            request_id,
+            details: Some(json!({
+                "path": path,
+                "method": method.as_str(),
+                "is_admin": is_admin,
+            })),
+        };
+        if let Err(e) = audit_svc.create_event(audit_request).await {
+            ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
+        }
+    }
+}
+
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = ApiError;
 
@@ -57,32 +86,15 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             let result = state.services.core.auth_service.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                    // 对敏感写操作记录审计日志 (非管理员路径)
-                    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                        && !path.starts_with("/_synapse/admin")
-                    {
-                        let request_id = resolve_request_id(&headers);
-
-                        let audit_request = CreateAuditEventRequest {
-                            actor_id: user_id.clone(),
-                            action: format!("user.{}", method.as_str().to_lowercase()),
-                            resource_type: "client_api".to_string(),
-                            resource_id: path.clone(),
-                            result: "success".to_string(), // 在提取器中目前只能记录尝试/成功，真正的执行结果在 handler
-                            request_id,
-                            details: Some(json!({
-                                "path": path,
-                                "method": method.as_str(),
-                                "is_admin": is_admin,
-                            })),
-                        };
-
-                        if let Err(e) =
-                            state.services.admin.security.admin_audit_service.create_event(audit_request).await
-                        {
-                            ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-                        }
-                    }
+                    audit_user_action(
+                        &state.services.admin.security.admin_audit_service,
+                        &user_id,
+                        &method,
+                        &path,
+                        &headers,
+                        is_admin,
+                    )
+                    .await;
 
                     Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
                 }
@@ -187,29 +199,8 @@ impl FromRequestParts<RoomContext> for AuthenticatedUser {
             let result = state.auth_service.validate_token(&token).await;
             match result {
                 Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
-                    // Best-effort audit logging for sensitive write operations
                     if let Some(ref audit_svc) = state.admin_audit_service {
-                        if matches!(method, Method::POST | Method::PUT | Method::DELETE)
-                            && !path.starts_with("/_synapse/admin")
-                        {
-                            let request_id = resolve_request_id(&headers);
-                            let audit_request = CreateAuditEventRequest {
-                                actor_id: user_id.clone(),
-                                action: format!("user.{}", method.as_str().to_lowercase()),
-                                resource_type: "client_api".to_string(),
-                                resource_id: path.clone(),
-                                result: "success".to_string(),
-                                request_id,
-                                details: Some(json!({
-                                    "path": path,
-                                    "method": method.as_str(),
-                                    "is_admin": is_admin,
-                                })),
-                            };
-                            if let Err(e) = audit_svc.create_event(audit_request).await {
-                                ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-                            }
-                        }
+                        audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
                     }
 
                     Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
@@ -240,26 +231,7 @@ impl FromRequestParts<SyncContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
-                {
-                    let request_id = resolve_request_id(&headers);
-                    let audit_request = CreateAuditEventRequest {
-                        actor_id: user_id.clone(),
-                        action: format!("user.{}", method.as_str().to_lowercase()),
-                        resource_type: "client_api".to_string(),
-                        resource_id: path.clone(),
-                        result: "success".to_string(),
-                        request_id,
-                        details: Some(json!({
-                            "path": path,
-                            "method": method.as_str(),
-                            "is_admin": is_admin,
-                        })),
-                    };
-                    if let Err(e) = audit_svc.create_event(audit_request).await {
-                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-                    }
-                }
+                audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
             }
 
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
@@ -287,26 +259,7 @@ impl FromRequestParts<DeviceContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
-                {
-                    let request_id = resolve_request_id(&headers);
-                    let audit_request = CreateAuditEventRequest {
-                        actor_id: user_id.clone(),
-                        action: format!("user.{}", method.as_str().to_lowercase()),
-                        resource_type: "client_api".to_string(),
-                        resource_id: path.clone(),
-                        result: "success".to_string(),
-                        request_id,
-                        details: Some(json!({
-                            "path": path,
-                            "method": method.as_str(),
-                            "is_admin": is_admin,
-                        })),
-                    };
-                    if let Err(e) = audit_svc.create_event(audit_request).await {
-                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-                    }
-                }
+                audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
             }
 
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
@@ -334,26 +287,7 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
                 state.auth_service.validate_token(&token).await?;
 
             if let Some(ref audit_svc) = state.admin_audit_service {
-                if matches!(method, Method::POST | Method::PUT | Method::DELETE) && !path.starts_with("/_synapse/admin")
-                {
-                    let request_id = resolve_request_id(&headers);
-                    let audit_request = CreateAuditEventRequest {
-                        actor_id: user_id.clone(),
-                        action: format!("user.{}", method.as_str().to_lowercase()),
-                        resource_type: "client_api".to_string(),
-                        resource_id: path.clone(),
-                        result: "success".to_string(),
-                        request_id,
-                        details: Some(json!({
-                            "path": path,
-                            "method": method.as_str(),
-                            "is_admin": is_admin,
-                        })),
-                    };
-                    if let Err(e) = audit_svc.create_event(audit_request).await {
-                        ::tracing::error!(target: "security_audit", "Failed to create user audit event: {}", e);
-                    }
-                }
+                audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
             }
 
             Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
