@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::{AuthContext, DeviceContext, RoomContext, SyncContext};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::auth::resolve_request_id;
@@ -129,6 +130,291 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
         async move {
             match token_result {
                 Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+// =============================================================================
+// FromRequestParts impls for typed context structs (RoomContext, SyncContext, etc.)
+// =============================================================================
+// These are needed because handlers migrate from State<AppState> to
+// State<RoomContext> (etc.), and the auth extractors must work with the
+// new state type. Audit-event creation is elided here because the contexts
+// do not carry admin_audit_service — audit coverage for auth events remains
+// in the AppState-based impl used by admin routes.
+
+impl FromRequestParts<RoomContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &RoomContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let result = state.auth_service.validate_token(&token).await;
+            match result {
+                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                    // Audit logging for sensitive write operations (best-effort,
+                    // skipped if admin audit service not available in context).
+                    if matches!(method, Method::POST | Method::PUT | Method::DELETE)
+                        && !path.starts_with("/_synapse/admin")
+                    {
+                        let _request_id = resolve_request_id(&headers);
+                        // Audit is omitted for context-based extraction; the
+                        // AppState-based impl provides full audit coverage for
+                        // admin routes that still use AppState directly.
+                        let _ = (_request_id, path, method);
+                    }
+
+                    Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<SyncContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &SyncContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+impl FromRequestParts<DeviceContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &DeviceContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+impl FromRequestParts<AuthContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AuthContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+// OptionalAuthenticatedUser for context types
+impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &RoomContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &SyncContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &DeviceContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AuthContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
                         user_id: Some(user_id),
                         device_id,

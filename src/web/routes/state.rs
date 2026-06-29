@@ -120,6 +120,10 @@ impl AppState {
         self.rate_limit_config_manager.as_ref().map(|manager| manager.get_config())
     }
 
+    pub fn rate_limit_config_manager(&self) -> Option<&Arc<RateLimitConfigManager>> {
+        self.rate_limit_config_manager.as_ref()
+    }
+
     pub fn sync_rate_limit_override(&self) -> Option<SyncRateLimitOverride> {
         self.rate_limit_config_manager.as_ref().map(|manager| {
             let config = manager.get_config();
