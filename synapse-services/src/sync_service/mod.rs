@@ -25,6 +25,7 @@ use synapse_common::*;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
+use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::PresenceRepository;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
@@ -34,6 +35,7 @@ pub struct SyncService {
     pub(crate) member_storage: Arc<dyn RoomMemberRepository>,
     pub(crate) event_storage: Arc<dyn EventRepository>,
     pub(crate) room_storage: Arc<dyn RoomRepository>,
+    pub(crate) room_account_data_storage: RoomAccountDataStorage,
     pub(crate) filter_storage: FilterStorage,
     pub(crate) device_storage: Arc<dyn DeviceRepository>,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
@@ -58,6 +60,7 @@ impl SyncService {
             member_storage: deps.member_storage,
             event_storage: deps.event_storage,
             room_storage: deps.room_storage,
+            room_account_data_storage: deps.room_account_data_storage,
             filter_storage: deps.filter_storage,
             device_storage: deps.device_storage,
             to_device_storage: deps.to_device_storage,
@@ -73,6 +76,7 @@ impl SyncService {
         member_storage: Arc<dyn RoomMemberRepository>,
         event_storage: Arc<dyn EventRepository>,
         room_storage: Arc<dyn RoomRepository>,
+        room_account_data_storage: RoomAccountDataStorage,
         filter_storage: FilterStorage,
         device_storage: Arc<dyn DeviceRepository>,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
@@ -84,6 +88,7 @@ impl SyncService {
             member_storage,
             event_storage,
             room_storage,
+            room_account_data_storage,
             filter_storage,
             device_storage,
             to_device_storage,

@@ -9,6 +9,7 @@ use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
+use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::PresenceRepository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +114,7 @@ pub struct SyncServiceDeps {
     pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_storage: Arc<dyn RoomRepository>,
+    pub room_account_data_storage: RoomAccountDataStorage,
     pub filter_storage: FilterStorage,
     pub device_storage: Arc<dyn DeviceRepository>,
     pub to_device_storage: ToDeviceStorage,

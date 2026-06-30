@@ -12,6 +12,7 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::room::RoomStorage;
+use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::FilterStorage;
 use synapse_storage::PresenceStorage;
 
@@ -282,6 +283,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
         member_storage,
         event_storage,
         room_storage,
+        RoomAccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         to_device_storage.clone(),
@@ -348,6 +350,7 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         Arc::new(RoomStorage::new(&pool)),
+        RoomAccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         to_device_storage.clone(),

@@ -139,10 +139,12 @@ impl CoreServices {
         };
 
         // Account data service
+        let room_account_data_storage = RoomAccountDataStorage::new(pool);
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
             pool,
             user_storage.clone(),
             rooms.room_storage.clone(),
+            room_account_data_storage,
             FilterStorage::new(pool),
             OpenIdTokenStorage::new(pool),
         ));
@@ -710,12 +712,14 @@ impl RoomSyncServices {
             beacon_service: None,
         }));
 
+        let sync_room_account_data_storage = RoomAccountDataStorage::new(pool);
         let sync_service =
             Arc::new(crate::sync_service::SyncService::from_deps(crate::sync_service::SyncServiceDeps {
                 presence_storage: presence_storage.clone(),
                 member_storage: member_storage.clone(),
                 event_storage: event_storage.clone(),
                 room_storage: room_storage.clone(),
+                room_account_data_storage: sync_room_account_data_storage,
                 filter_storage: FilterStorage::new(pool),
                 device_storage: device_storage.clone(),
                 to_device_storage: to_device_storage.clone(),
