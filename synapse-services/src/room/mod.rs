@@ -21,6 +21,8 @@ pub mod federation_membership;
 pub mod info;
 pub mod membership;
 pub use membership::service::MembershipService;
+pub mod messaging;
+pub use messaging::service::MessagingService;
 pub mod membership_actions;
 pub mod membership_moderation;
 pub mod messages;
