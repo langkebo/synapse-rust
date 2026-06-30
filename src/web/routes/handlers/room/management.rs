@@ -3,9 +3,9 @@ use crate::common::ApiError;
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    ensure_room_member, ensure_room_member_ctx, extract_token_from_headers, validate_room_id, AuthenticatedUser,
-    OptionalAuthenticatedUser,
+    ensure_room_member, ensure_room_member_ctx, validate_room_id, AuthenticatedUser, OptionalAuthenticatedUser,
 };
+use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -181,7 +181,7 @@ pub(crate) async fn create_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());

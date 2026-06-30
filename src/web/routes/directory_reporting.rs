@@ -2,9 +2,9 @@ use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
-    ensure_room_member, extract_token_from_headers, validate_event_id, validate_room_alias, validate_room_id,
-    validate_user_id, AppState,
+    ensure_room_member, validate_event_id, validate_room_alias, validate_room_id, validate_user_id, AppState,
 };
+use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -53,7 +53,7 @@ pub(crate) async fn get_user_directory_profile(
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let _ = state.services.core.auth_service.validate_token(&token).await?;
 
     validate_user_id(&user_id)?;
@@ -79,7 +79,7 @@ pub(crate) async fn search_user_directory(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (requester_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -129,7 +129,7 @@ pub(crate) async fn list_user_directory(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (requester_id, _, _, _, _) = state.services.core.auth_service.validate_token(&token).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;

@@ -2,9 +2,10 @@ use super::ensure_room_view_access;
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    extract_token_from_headers, is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id,
-    validate_user_id, AuthenticatedUser,
+    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id,
+    AuthenticatedUser,
 };
+use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
@@ -19,7 +20,7 @@ pub(crate) async fn join_room(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     ctx.room_service.join_room(&room_id, &user_id).await?;
@@ -36,7 +37,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     body: Option<Json<serde_json::Value>>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
@@ -137,7 +138,7 @@ pub(crate) async fn knock_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
@@ -207,7 +208,7 @@ pub(crate) async fn invite_user_by_room(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
@@ -247,7 +248,7 @@ pub(crate) async fn get_room_members(
     validate_room_id(&room_id)?;
     let request_id = resolve_request_id(&headers);
 
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let room = ctx.room_service.get_room(&room_id).await?;
@@ -328,7 +329,7 @@ pub(crate) async fn get_room_members_recent(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
     let members = ctx.room_service.get_room_members(&room_id, &user_id).await?;
 
