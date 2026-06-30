@@ -11,12 +11,7 @@ pub async fn logging_middleware(request: Request<Body>, next: axum::middleware::
     let start = Instant::now();
     let method = request.method().clone();
     let uri = request.uri().clone();
-    let authenticated = request
-        .headers()
-        .get("authorization")
-        .and_then(|h| h.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .is_some();
+    let authenticated = crate::web::utils::auth::bearer_token_opt(request.headers()).is_some();
 
     let mut headers = request.headers().clone();
     headers.remove("authorization");
