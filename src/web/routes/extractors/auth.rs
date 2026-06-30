@@ -75,7 +75,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -136,7 +136,7 @@ impl FromRequestParts<AppState> for OptionalAuthenticatedUser {
         state: &AppState,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -188,7 +188,7 @@ impl FromRequestParts<RoomContext> for AuthenticatedUser {
         state: &RoomContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -219,7 +219,7 @@ impl FromRequestParts<SyncContext> for AuthenticatedUser {
         state: &SyncContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -247,7 +247,7 @@ impl FromRequestParts<DeviceContext> for AuthenticatedUser {
         state: &DeviceContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -275,7 +275,7 @@ impl FromRequestParts<AuthContext> for AuthenticatedUser {
         state: &AuthContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
         let method = parts.method.clone();
         let path = parts.uri.path().to_string();
@@ -304,7 +304,7 @@ impl FromRequestParts<RoomContext> for OptionalAuthenticatedUser {
         state: &RoomContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -348,7 +348,7 @@ impl FromRequestParts<SyncContext> for OptionalAuthenticatedUser {
         state: &SyncContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -392,7 +392,7 @@ impl FromRequestParts<DeviceContext> for OptionalAuthenticatedUser {
         state: &DeviceContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -436,7 +436,7 @@ impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
         state: &AuthContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
-        let token_result = extract_token_from_request(&parts.headers, &uri);
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
         let state = state.clone();
 
         async move {
@@ -478,33 +478,17 @@ pub trait AuthExtractor {
 
 impl AuthExtractor for HeaderMap {
     fn extract_token(&self, uri: &str) -> Result<String, ApiError> {
-        extract_token_from_request(self, uri)
+        crate::web::utils::auth::extract_token(self, uri)
     }
 }
 
 pub(crate) fn extract_token_from_request(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
-    match crate::web::utils::auth::bearer_token(headers) {
-        Ok(token) => Ok(token),
-        Err(header_err) => {
-            if let Some(query) = uri.split('?').nth(1) {
-                for pair in query.split('&') {
-                    if let Some(value) = pair.strip_prefix("access_token=") {
-                        return Ok(value.to_string());
-                    }
-                }
-            }
-            Err(header_err)
-        }
-    }
-}
-
-pub(crate) fn extract_token_from_headers(headers: &HeaderMap) -> Result<String, ApiError> {
-    crate::web::utils::auth::bearer_token(headers)
+    crate::web::utils::auth::extract_token(headers, uri)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{AdminUser, OptionalAuthenticatedUser};
     use axum::body::Body;
     use axum::http::{header, HeaderMap, Request};
 
@@ -512,27 +496,27 @@ mod tests {
     fn test_extract_token_from_headers_valid() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer test-token-123".parse().unwrap());
-        assert_eq!(extract_token_from_headers(&headers).unwrap(), "test-token-123");
+        assert_eq!(crate::web::utils::auth::bearer_token(&headers).unwrap(), "test-token-123");
     }
 
     #[test]
     fn test_extract_token_from_headers_missing() {
         let headers = HeaderMap::new();
-        assert!(extract_token_from_headers(&headers).is_err());
+        assert!(crate::web::utils::auth::bearer_token(&headers).is_err());
     }
 
     #[test]
     fn test_extract_token_from_request_bearer_header() {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer header-token".parse().unwrap());
-        assert_eq!(extract_token_from_request(&headers, "/test").unwrap(), "header-token");
+        assert_eq!(crate::web::utils::auth::extract_token(&headers, "/test").unwrap(), "header-token");
     }
 
     #[test]
     fn test_extract_token_from_request_query_param() {
         let headers = HeaderMap::new();
         let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
-        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "query-token");
+        assert_eq!(crate::web::utils::auth::extract_token(&headers, uri).unwrap(), "query-token");
     }
 
     #[test]
@@ -540,28 +524,28 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("authorization", "Bearer header-token".parse().unwrap());
         let uri = "/test?access_token=query-token";
-        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "header-token");
+        assert_eq!(crate::web::utils::auth::extract_token(&headers, uri).unwrap(), "header-token");
     }
 
     #[test]
     fn test_extract_token_from_request_query_only() {
         let headers = HeaderMap::new();
         let uri = "/test?access_token=abc123";
-        assert_eq!(extract_token_from_request(&headers, uri).unwrap(), "abc123");
+        assert_eq!(crate::web::utils::auth::extract_token(&headers, uri).unwrap(), "abc123");
     }
 
     #[test]
     fn test_extract_token_from_request_no_token() {
         let headers = HeaderMap::new();
         let uri = "/test";
-        assert!(extract_token_from_request(&headers, uri).is_err());
+        assert!(crate::web::utils::auth::extract_token(&headers, uri).is_err());
     }
 
     #[test]
     fn test_extract_token_from_request_query_no_access_token() {
         let headers = HeaderMap::new();
         let uri = "/test?other_param=value";
-        assert!(extract_token_from_request(&headers, uri).is_err());
+        assert!(crate::web::utils::auth::extract_token(&headers, uri).is_err());
     }
 
     fn build_request_with_token(token: Option<&str>) -> Request<Body> {
@@ -579,7 +563,7 @@ mod tests {
         // and the FromRequestParts implementation returns Err.
         let req = build_request_with_token(None);
         assert!(
-            extract_token_from_headers(req.headers()).is_err(),
+            crate::web::utils::auth::bearer_token(req.headers()).is_err(),
             "AuthenticatedUser must reject requests without an auth token"
         );
     }
@@ -591,7 +575,7 @@ mod tests {
         // is_admin / is_shadow_banned / is_guest default to false.
         let req = build_request_with_token(None);
         assert!(
-            extract_token_from_headers(req.headers()).is_err(),
+            crate::web::utils::auth::bearer_token(req.headers()).is_err(),
             "OptionalAuthenticatedUser handles missing token gracefully"
         );
 
@@ -615,7 +599,7 @@ mod tests {
         let req = build_request_with_token(Some("non-admin-token"));
 
         // The token is structurally present (but not an admin token):
-        assert_eq!(extract_token_from_headers(req.headers()).unwrap(), "non-admin-token");
+        assert_eq!(crate::web::utils::auth::bearer_token(req.headers()).unwrap(), "non-admin-token");
         // Full privilege checking requires a running server with token
         // storage -- covered by integration tests.
 
