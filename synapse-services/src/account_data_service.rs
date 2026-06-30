@@ -15,6 +15,7 @@ pub struct AccountDataService {
     account_data_storage: Arc<dyn AccountDataRepository>,
     user_storage: Arc<dyn UserStore>,
     room_storage: Arc<dyn synapse_storage::RoomRepository>,
+    room_account_data_storage: RoomAccountDataStorage,
     filter_storage: FilterStorage,
     openid_token_storage: OpenIdTokenStorage,
 }
@@ -24,6 +25,7 @@ impl AccountDataService {
         pool: &Arc<sqlx::PgPool>,
         user_storage: Arc<dyn UserStore>,
         room_storage: Arc<dyn synapse_storage::RoomRepository>,
+        room_account_data_storage: RoomAccountDataStorage,
         filter_storage: FilterStorage,
         openid_token_storage: OpenIdTokenStorage,
     ) -> Self {
@@ -31,6 +33,7 @@ impl AccountDataService {
             account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
             user_storage,
             room_storage,
+            room_account_data_storage,
             filter_storage,
             openid_token_storage,
         }
@@ -104,16 +107,10 @@ impl AccountDataService {
     ) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
         let now = chrono::Utc::now().timestamp();
-        RoomAccountDataStorage::upsert_room_account_data(
-            self.room_storage.pool().as_ref(),
-            user_id,
-            room_id,
-            data_type,
-            body,
-            now,
-        )
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))
+        self.room_account_data_storage
+            .upsert_room_account_data(user_id, room_id, data_type, body, now)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to save room account data", &e))
     }
 
     #[instrument(skip(self))]
@@ -123,13 +120,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        RoomAccountDataStorage::get_room_account_data_content(
-            self.room_storage.pool().as_ref(),
-            user_id,
-            room_id,
-            data_type,
-        )
-        .await
+        self.room_account_data_storage.get_room_account_data_content(user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self))]
@@ -139,13 +130,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<AccountDataWithTimestamp>, ApiError> {
-        RoomAccountDataStorage::get_room_account_data_with_ts(
-            self.room_storage.pool().as_ref(),
-            user_id,
-            room_id,
-            data_type,
-        )
-        .await
+        self.room_account_data_storage.get_room_account_data_with_ts(user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self))]
@@ -155,8 +140,7 @@ impl AccountDataService {
         room_id: &str,
         data_type: &str,
     ) -> Result<bool, ApiError> {
-        RoomAccountDataStorage::delete_room_account_data(self.room_storage.pool().as_ref(), user_id, room_id, data_type)
-            .await
+        self.room_account_data_storage.delete_room_account_data(user_id, room_id, data_type).await
     }
 
     #[instrument(skip(self, content))]

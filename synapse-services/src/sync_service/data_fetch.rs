@@ -2,7 +2,7 @@ use super::types::*;
 use super::SyncService;
 use crate::map_internal;
 use synapse_common::*;
-use synapse_storage::{AccountDataStorage, RoomAccountDataStorage};
+use synapse_storage::AccountDataStorage;
 
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -525,7 +525,9 @@ impl SyncService {
         room_id: &str,
         user_id: &str,
     ) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = RoomAccountDataStorage::list_room_account_data(self.event_storage.pool().as_ref(), user_id, room_id)
+        let rows = self
+            .room_account_data_storage
+            .list_room_account_data(user_id, room_id)
             .await
             .map_err(map_internal!("Failed to get room account data"))?;
 
@@ -551,10 +553,11 @@ impl SyncService {
             return Ok(result);
         }
 
-        let rows =
-            RoomAccountDataStorage::list_room_account_data_batch(self.event_storage.pool().as_ref(), user_id, room_ids)
-                .await
-                .map_err(map_internal!("Failed to get room account data"))?;
+        let rows = self
+            .room_account_data_storage
+            .list_room_account_data_batch(user_id, room_ids)
+            .await
+            .map_err(map_internal!("Failed to get room account data"))?;
 
         for row in rows {
             if let Some(events) = result.get_mut(&row.room_id) {

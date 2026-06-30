@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
+use std::sync::Arc;
 use synapse_common::ApiError;
 
-pub struct RoomAccountDataStorage;
+pub struct RoomAccountDataStorage {
+    pool: Arc<sqlx::PgPool>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct RoomAccountDataRecord {
@@ -13,20 +16,25 @@ pub struct RoomAccountDataRecord {
 }
 
 impl RoomAccountDataStorage {
+    pub fn new(pool: &Arc<sqlx::PgPool>) -> Self {
+        Self { pool: pool.clone() }
+    }
+
     pub async fn get_room_account_data_content(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
     ) -> Result<Option<Value>, ApiError> {
-        let row = Self::get_room_account_data(pool, user_id, room_id, data_type)
+        let row = self
+            .get_room_account_data(user_id, room_id, data_type)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         Ok(row.map(|row| row.get::<Value, _>("data")))
     }
 
     pub async fn get_room_account_data_with_ts(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
@@ -37,7 +45,7 @@ impl RoomAccountDataStorage {
         .bind(user_id)
         .bind(room_id)
         .bind(data_type)
-        .fetch_optional(pool)
+        .fetch_optional(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -49,7 +57,7 @@ impl RoomAccountDataStorage {
     }
 
     pub async fn get_room_account_data(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
@@ -58,12 +66,12 @@ impl RoomAccountDataStorage {
             .bind(user_id)
             .bind(room_id)
             .bind(data_type)
-            .fetch_optional(pool)
+            .fetch_optional(self.pool.as_ref())
             .await
     }
 
     pub async fn list_room_account_data(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
@@ -75,13 +83,13 @@ impl RoomAccountDataStorage {
         )
         .bind(user_id)
         .bind(room_id)
-        .fetch_all(pool)
+        .fetch_all(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
     pub async fn list_room_account_data_batch(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_ids: &[String],
     ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
@@ -97,13 +105,13 @@ impl RoomAccountDataStorage {
         )
         .bind(user_id)
         .bind(room_ids)
-        .fetch_all(pool)
+        .fetch_all(self.pool.as_ref())
         .await
         .map_err(|e| ApiError::internal_with_log("Database error", &e))
     }
 
     pub async fn get_room_vault_data(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
     ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
@@ -113,12 +121,12 @@ impl RoomAccountDataStorage {
         .bind(user_id)
         .bind(room_id)
         .bind("m.room.vault_data")
-        .fetch_optional(pool)
+        .fetch_optional(self.pool.as_ref())
         .await
     }
 
     pub async fn upsert_room_account_data(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
@@ -136,13 +144,13 @@ impl RoomAccountDataStorage {
         .bind(data_type)
         .bind(data)
         .bind(now)
-        .execute(pool)
+        .execute(self.pool.as_ref())
         .await?;
         Ok(())
     }
 
     pub async fn delete_room_account_data(
-        pool: &sqlx::PgPool,
+        &self,
         user_id: &str,
         room_id: &str,
         data_type: &str,
@@ -152,7 +160,7 @@ impl RoomAccountDataStorage {
                 .bind(user_id)
                 .bind(room_id)
                 .bind(data_type)
-                .execute(pool)
+                .execute(self.pool.as_ref())
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
         Ok(result.rows_affected() > 0)
