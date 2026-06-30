@@ -1199,6 +1199,7 @@ impl ServiceContainer {
         rooms.room_service.set_federation_client(federation.federation_client.clone()).await;
         rooms.room_service.membership.set_room_service(rooms.room_service.clone()).await;
         rooms.room_service.messaging.set_room_service(rooms.room_service.clone()).await;
+        rooms.room_service.lifecycle.set_room_service(rooms.room_service.clone()).await;
 
         // Media domain service (needs core.media_service and admin.media_quota_service)
         let chunked_upload_service = Arc::new(crate::media::chunked_upload::ChunkedUploadService::new(pool.clone()));

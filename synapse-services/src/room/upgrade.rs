@@ -5,9 +5,10 @@ use serde_json::json;
 use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
-use super::service::{CreateRoomConfig, RoomService};
+use super::lifecycle::service::LifecycleService;
+use super::service::CreateRoomConfig;
 
-impl RoomService {
+impl LifecycleService {
     pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
         let old_room = self
             .room_storage
@@ -61,7 +62,8 @@ impl RoomService {
         // signed with the server's signing key and broadcast to all remote
         // servers with joined members in the old room, so federated
         // homeservers learn that the room has been replaced.
-        let tombstone_event = self
+        let room_svc = self.room_service_ref().await;
+        let tombstone_event = room_svc
             .create_event(
                 CreateEventParams {
                     event_id: tombstone_event_id,
@@ -91,7 +93,7 @@ impl RoomService {
         // Auto-join the upgrading user to the new room.  `create_room` only
         // invites the creator; we need them to be a joined member so they can
         // immediately use the replacement room (matches Synapse behavior).
-        if let Err(e) = self.join_room(&new_room_id, user_id).await {
+        if let Err(e) = room_svc.join_room(&new_room_id, user_id).await {
             ::tracing::warn!(
                 old_room_id = %old_room_id,
                 new_room_id = %new_room_id,
@@ -106,7 +108,7 @@ impl RoomService {
         // through the federation invite path (handled transparently by
         // `invite_user`).
         for invitee_id in &members_to_invite {
-            if let Err(e) = self.invite_user(&new_room_id, user_id, invitee_id).await {
+            if let Err(e) = room_svc.invite_user(&new_room_id, user_id, invitee_id).await {
                 ::tracing::warn!(
                     old_room_id = %old_room_id,
                     new_room_id = %new_room_id,

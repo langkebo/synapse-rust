@@ -10,6 +10,7 @@ use synapse_storage::StateEvent;
 use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
+use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
 use super::state::service::{RoomStateService, RoomStateServiceConfig};
@@ -74,6 +75,8 @@ pub struct RoomService {
     pub messaging: MessagingService,
     /// Domain sub-service: room state operations (aliases, tags, info, directory, etc.)
     pub state: RoomStateService,
+    /// Domain sub-service: room lifecycle operations (create, upgrade, migration)
+    pub lifecycle: LifecycleService,
     #[allow(dead_code)]
     pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
     #[allow(dead_code)]
@@ -146,10 +149,21 @@ impl RoomService {
         };
         let state = RoomStateService::new(state_cfg);
 
+        let lifecycle_cfg = LifecycleServiceConfig {
+            room_storage: config.room_storage.clone(),
+            member_storage: config.member_storage.clone(),
+            event_storage: config.event_storage.clone(),
+            user_storage: config.user_storage.clone(),
+            validator: config.validator.clone(),
+            server_name: config.server_name.clone(),
+        };
+        let lifecycle = LifecycleService::new(lifecycle_cfg);
+
         Self {
             membership,
             messaging,
             state,
+            lifecycle,
             room_storage: config.room_storage,
             member_storage: config.member_storage,
             event_storage: config.event_storage,
@@ -865,6 +879,28 @@ impl RoomService {
     pub async fn check_room_has_encryption(&self, room_id: &str) -> ApiResult<bool> {
         self.state.check_room_has_encryption(room_id).await
     }
+
+    // =========================================================================
+    // Lifecycle forwarding methods — delegate to LifecycleService
+    // =========================================================================
+
+    pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
+        self.lifecycle.create_room(user_id, config).await
+    }
+    pub async fn upgrade_room(&self, old_room_id: &str, new_version: &str, user_id: &str) -> ApiResult<String> {
+        self.lifecycle.upgrade_room(old_room_id, new_version, user_id).await
+    }
+    pub async fn get_tombstone_event(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
+        self.lifecycle.get_tombstone_event(room_id).await
+    }
+    pub async fn migrate_room_content(
+        &self, source_room_id: &str, target_room_id: &str, user_id: &str,
+    ) -> ApiResult<()> {
+        self.lifecycle.migrate_room_content(source_room_id, target_room_id, user_id).await
+    }
+    pub async fn is_room_upgrade_allowed(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
+        self.lifecycle.is_room_upgrade_allowed(room_id, user_id).await
+    }
 }
 
 #[cfg(feature = "friends")]
@@ -1389,10 +1425,21 @@ mod tests {
         };
         let state = RoomStateService::new(state_cfg);
 
+        let lifecycle_cfg = LifecycleServiceConfig {
+            room_storage: room_storage.clone(),
+            member_storage: member_storage.clone(),
+            event_storage: event_storage.clone(),
+            user_storage: user_storage.clone(),
+            validator: Arc::new(synapse_common::validation::Validator::default()),
+            server_name: "example.com".to_string(),
+        };
+        let lifecycle = LifecycleService::new(lifecycle_cfg);
+
         RoomService {
             membership,
             messaging,
             state,
+            lifecycle,
             room_storage,
             member_storage,
             room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),

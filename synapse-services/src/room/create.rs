@@ -3,14 +3,15 @@
 //! Contains `create_room` and small utility helpers.
 //! Event creation helpers live in [`create_events`].
 
-use super::service::{CreateRoomConfig, RoomService};
+use super::lifecycle::service::LifecycleService;
+use super::service::CreateRoomConfig;
 use super::utils::validate_room_alias_input;
 use serde_json::json;
 use synapse_common::room_versions::{resolve_room_version, DEFAULT_ROOM_VERSION};
 use synapse_common::{generate_event_id, generate_room_id, ApiError, ApiResult};
 use synapse_storage::CreateEventParams;
 
-impl RoomService {
+impl LifecycleService {
     pub async fn create_room(&self, user_id: &str, config: CreateRoomConfig) -> ApiResult<serde_json::Value> {
         if let Some(alias) = &config.room_alias_name {
             if let Err(e) = self.validator.validate_username(alias) {
@@ -410,7 +411,8 @@ impl RoomService {
             is_direct: config.is_direct,
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
-        if let Err(e) = self.room_summary_service.create_summary(summary_request).await {
+        let room_svc = self.room_service_ref().await;
+        if let Err(e) = room_svc.room_summary_service.create_summary(summary_request).await {
             ::tracing::warn!(
                 error = %e,
                 room_id = %room_id,
