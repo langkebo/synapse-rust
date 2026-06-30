@@ -1,4 +1,7 @@
+pub mod repository;
+
 use chrono::Utc;
+use repository::RefreshTokenRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -780,5 +783,154 @@ impl RefreshTokenStorage {
         .await?;
 
         Ok(result.rows_affected() as i64)
+    }
+}
+
+#[async_trait::async_trait]
+impl RefreshTokenRepository for RefreshTokenStorage {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        &self.pool
+    }
+
+    // CRUD
+    async fn create_token(&self, request: CreateRefreshTokenRequest) -> Result<RefreshToken, sqlx::Error> {
+        self.create_token(request).await
+    }
+
+    async fn get_token(&self, token_hash: &str) -> Result<Option<RefreshToken>, sqlx::Error> {
+        self.get_token(token_hash).await
+    }
+
+    async fn get_token_by_id(&self, id: i64) -> Result<Option<RefreshToken>, sqlx::Error> {
+        self.get_token_by_id(id).await
+    }
+
+    async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
+        self.get_user_tokens(user_id).await
+    }
+
+    async fn get_active_tokens(&self, user_id: &str) -> Result<Vec<RefreshToken>, sqlx::Error> {
+        self.get_active_tokens(user_id).await
+    }
+
+    async fn delete_token(&self, token_hash: &str) -> Result<(), sqlx::Error> {
+        self.delete_token(token_hash).await
+    }
+
+    async fn delete_user_tokens(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        self.delete_user_tokens(user_id).await
+    }
+
+    // Revocation
+    async fn revoke_token(&self, token_hash: &str, reason: &str) -> Result<(), sqlx::Error> {
+        self.revoke_token(token_hash, reason).await
+    }
+
+    async fn revoke_token_cas(&self, token_hash: &str, reason: &str) -> Result<bool, sqlx::Error> {
+        self.revoke_token_cas(token_hash, reason).await
+    }
+
+    async fn revoke_token_by_id(&self, id: i64, reason: &str) -> Result<(), sqlx::Error> {
+        self.revoke_token_by_id(id, reason).await
+    }
+
+    async fn revoke_all_user_tokens(&self, user_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
+        self.revoke_all_user_tokens(user_id, reason).await
+    }
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.revoke_all_user_tokens_except_device(user_id, device_id, reason)
+            .await
+    }
+
+    async fn revoke_device_tokens(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.revoke_device_tokens(user_id, device_id, reason).await
+    }
+
+    // Usage tracking
+    async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error> {
+        self.update_token_usage(token_hash, access_token_id).await
+    }
+
+    async fn record_usage(&self, request: &RecordUsageRequest) -> Result<(), sqlx::Error> {
+        self.record_usage(request).await
+    }
+
+    // Family / rotation
+    async fn create_family(
+        &self,
+        family_id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+    ) -> Result<RefreshTokenFamily, sqlx::Error> {
+        self.create_family(family_id, user_id, device_id).await
+    }
+
+    async fn get_family(&self, family_id: &str) -> Result<Option<RefreshTokenFamily>, sqlx::Error> {
+        self.get_family(family_id).await
+    }
+
+    async fn mark_family_compromised(&self, family_id: &str) -> Result<(), sqlx::Error> {
+        self.mark_family_compromised(family_id).await
+    }
+
+    async fn record_rotation(
+        &self,
+        family_id: &str,
+        old_token_hash: Option<&str>,
+        new_token_hash: &str,
+        reason: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.record_rotation(family_id, old_token_hash, new_token_hash, reason)
+            .await
+    }
+
+    async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
+        self.get_rotations(family_id).await
+    }
+
+    // Blacklist
+    async fn add_to_blacklist(
+        &self,
+        token_hash: &str,
+        token_type: &str,
+        user_id: &str,
+        expires_at: i64,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.add_to_blacklist(token_hash, token_type, user_id, expires_at, reason)
+            .await
+    }
+
+    async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
+        self.is_blacklisted(token_hash).await
+    }
+
+    // Cleanup
+    async fn cleanup_expired_tokens(&self) -> Result<i64, sqlx::Error> {
+        self.cleanup_expired_tokens().await
+    }
+
+    async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error> {
+        self.cleanup_blacklist().await
+    }
+
+    // Stats
+    async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error> {
+        self.get_user_stats(user_id).await
+    }
+
+    async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
+        self.get_usage_history(user_id, limit).await
     }
 }

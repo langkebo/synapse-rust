@@ -845,7 +845,7 @@ pub struct AdminUserServices {
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub email_verification_storage: EmailVerificationStorage,
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    pub refresh_token_storage: synapse_storage::refresh_token::RefreshTokenStorage,
+    pub refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository>,
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
     pub registration_token_storage: synapse_storage::registration_token::RegistrationTokenStorage,
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
@@ -965,9 +965,11 @@ impl AdminServices {
             Arc::new(audit_storage.clone()),
         ));
 
-        let refresh_token_storage = synapse_storage::refresh_token::RefreshTokenStorage::new(pool);
+        let refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository> = Arc::new(
+            synapse_storage::refresh_token::RefreshTokenStorage::new(pool),
+        );
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
-            Arc::new(refresh_token_storage.clone()),
+            refresh_token_storage.clone(),
             config.server.refresh_token_ttl_secs.saturating_mul(1000),
         ));
 
@@ -1053,7 +1055,7 @@ impl AdminServices {
         let admin_server_service = Arc::new(crate::admin_server_service::AdminServerService::new(pool.clone()));
         let admin_token_service = Arc::new(crate::admin_token_service::AdminTokenService::new(
             AccessTokenStorage::new(pool),
-            Arc::new(refresh_token_storage.clone()),
+            refresh_token_storage.clone(),
             registration_token_service.clone(),
         ));
         let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
