@@ -350,7 +350,7 @@ fn create_room_service(
         validator: Arc::new(Validator::default()),
         server_name: "localhost".to_string(),
         task_queue: None,
-        relations_storage: RelationsStorage::new(pool),
+        relations_storage: Arc::new(RelationsStorage::new(pool)),
         event_broadcaster: Some(Arc::new(EventBroadcaster::new("localhost".to_string()))),
         app_service_manager: None,
         key_rotation_manager: None,

@@ -636,7 +636,7 @@ pub struct RoomSyncServices {
     pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
-    pub relations_storage: synapse_storage::relations::RelationsStorage,
+    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
@@ -672,7 +672,7 @@ impl RoomSyncServices {
         let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
         let event_storage: Arc<dyn EventRepository> = event_storage_concrete.clone();
         let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
-        let relations_storage = synapse_storage::relations::RelationsStorage::new(pool);
+        let relations_storage: Arc<dyn synapse_storage::RelationsRepository> = Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
         let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
         let room_tag_storage: Arc<dyn RoomTagRepository> = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
 
@@ -744,7 +744,7 @@ impl RoomSyncServices {
         ));
 
         let relations_service = Arc::new(crate::relations_service::RelationsService::new(
-            Arc::new(relations_storage.clone()),
+            relations_storage.clone(),
             config.server.server_name.clone().unwrap_or_default(),
         ));
 

@@ -28,7 +28,7 @@ pub struct MessagingService {
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
-    pub(crate) relations_storage: synapse_storage::relations::RelationsStorage,
+    pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     /// Back-reference to RoomService for cross-domain calls (e.g.,
     /// `sign_and_broadcast_event`, `dispatch_appservice_event`,
     /// `room_summary_service`).
@@ -47,7 +47,7 @@ pub struct MessagingServiceConfig {
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: synapse_storage::relations::RelationsStorage,
+    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
 }
 
@@ -65,7 +65,7 @@ impl MessagingService {
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
-            relations_storage: config.relations_storage,
+            relations_storage: config.relations_storage.clone(),
             room_service: Arc::new(RwLock::new(None)),
         }
     }

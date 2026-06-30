@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::relations::{EventRelation, RelationQueryParams, RelationsStorage};
+use synapse_storage::relations::{EventRelation, RelationQueryParams};
+use synapse_storage::RelationsRepository;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,12 +74,12 @@ pub struct RelationTarget {
 
 #[derive(Clone)]
 pub struct RelationsService {
-    storage: Arc<RelationsStorage>,
+    storage: Arc<dyn RelationsRepository>,
     server_name: String,
 }
 
 impl RelationsService {
-    pub fn new(storage: Arc<RelationsStorage>, server_name: String) -> Self {
+    pub fn new(storage: Arc<dyn RelationsRepository>, server_name: String) -> Self {
         Self { storage, server_name }
     }
 
