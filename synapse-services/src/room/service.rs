@@ -53,7 +53,7 @@ pub struct RoomServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: synapse_storage::relations::RelationsStorage,
+    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager, used to sign locally-produced PDUs before
@@ -95,7 +95,7 @@ pub struct RoomService {
     #[allow(dead_code)]
     pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
     #[allow(dead_code)]
-    pub(crate) relations_storage: synapse_storage::relations::RelationsStorage,
+    pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     #[allow(dead_code)]
@@ -175,7 +175,7 @@ impl RoomService {
             server_name: config.server_name,
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
-            relations_storage: config.relations_storage,
+            relations_storage: config.relations_storage.clone(),
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
             app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
             key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
@@ -1523,7 +1523,7 @@ mod tests {
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
             task_queue: None,
-            relations_storage: synapse_storage::relations::RelationsStorage::new(&pool),
+            relations_storage: Arc::new(synapse_storage::relations::RelationsStorage::new(&pool)),
             event_broadcaster: None,
         };
         let messaging = MessagingService::new(messaging_cfg);
@@ -1564,7 +1564,7 @@ mod tests {
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             room_summary_service,
             event_storage,
-            relations_storage: synapse_storage::relations::RelationsStorage::new(&pool),
+            relations_storage: Arc::new(synapse_storage::relations::RelationsStorage::new(&pool)),
             event_broadcaster: Arc::new(RwLock::new(None)),
             app_service_manager: Arc::new(RwLock::new(None)),
             key_rotation_manager: Arc::new(RwLock::new(None)),

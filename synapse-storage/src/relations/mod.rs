@@ -1,3 +1,6 @@
+pub mod repository;
+
+use repository::RelationsRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -384,6 +387,87 @@ impl RelationsStorage {
         .await?;
 
         Ok(result.is_some())
+    }
+}
+
+#[async_trait::async_trait]
+impl RelationsRepository for RelationsStorage {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        &self.pool
+    }
+
+    async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
+        self.create_relation(params).await
+    }
+
+    async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
+        self.get_relation(room_id, event_id).await
+    }
+
+    async fn count_relations(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        relation_type: Option<&str>,
+    ) -> Result<i64, sqlx::Error> {
+        self.count_relations(room_id, relates_to_event_id, relation_type).await
+    }
+
+    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
+        self.get_relations(params).await
+    }
+
+    async fn get_annotations(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<EventRelation>, sqlx::Error> {
+        self.get_annotations(room_id, relates_to_event_id, limit).await
+    }
+
+    async fn get_references(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        limit: Option<i32>,
+    ) -> Result<Vec<EventRelation>, sqlx::Error> {
+        self.get_references(room_id, relates_to_event_id, limit).await
+    }
+
+    async fn get_replacement(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        sender: &str,
+    ) -> Result<Option<EventRelation>, sqlx::Error> {
+        self.get_replacement(room_id, relates_to_event_id, sender).await
+    }
+
+    async fn aggregate_annotations(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+    ) -> Result<Vec<AggregationResult>, sqlx::Error> {
+        self.aggregate_annotations(room_id, relates_to_event_id).await
+    }
+
+    async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
+        self.redact_relation(room_id, event_id).await
+    }
+
+    async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
+        self.delete_relation(room_id, event_id, sender).await
+    }
+
+    async fn relation_exists(
+        &self,
+        room_id: &str,
+        relates_to_event_id: &str,
+        relation_type: &str,
+        sender: &str,
+    ) -> Result<bool, sqlx::Error> {
+        self.relation_exists(room_id, relates_to_event_id, relation_type, sender).await
     }
 }
 
