@@ -2,11 +2,11 @@ use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::crypto::random_string;
 use synapse_common::ApiError;
-use synapse_storage::AccountDataRepository;
 use synapse_storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::user::UserStore;
+use synapse_storage::AccountDataRepository;
 use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
@@ -38,7 +38,10 @@ impl AccountDataService {
 
     #[instrument(skip(self))]
     pub async fn list_account_data(&self, user_id: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
-        let result = self.account_data_storage.list_account_data(user_id).await
+        let result = self
+            .account_data_storage
+            .list_account_data(user_id)
+            .await
             .map_err(|e| ApiError::internal_with_log("Failed to list account data", &e))?;
         Ok(result.into_iter().map(|row| (row.data_type, row.content)).collect())
     }
@@ -85,7 +88,9 @@ impl AccountDataService {
 
     #[instrument(skip(self))]
     pub async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
-        self.account_data_storage.delete_account_data(user_id, data_type).await
+        self.account_data_storage
+            .delete_account_data(user_id, data_type)
+            .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))
     }
 

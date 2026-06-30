@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::AccountDataRepository;
 use synapse_storage::push::PushStorage;
+use synapse_storage::AccountDataRepository;
 
 #[derive(Debug, Clone)]
 pub struct UpsertPusherRequest {
@@ -37,7 +37,10 @@ pub struct ClientPushService {
 
 impl ClientPushService {
     pub fn new(pool: Arc<PgPool>) -> Self {
-        Self { account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)), push_storage: PushStorage::new(pool) }
+        Self {
+            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(&pool)),
+            push_storage: PushStorage::new(pool),
+        }
     }
 
     pub async fn get_pushers(&self, user_id: &str, device_id: Option<&str>) -> Result<Vec<Value>, ApiError> {

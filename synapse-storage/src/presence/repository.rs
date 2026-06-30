@@ -9,12 +9,7 @@ pub trait PresenceRepository: Send + Sync {
     /// Returns a reference to the database connection pool.
     fn pool(&self) -> &Arc<sqlx::PgPool>;
 
-    async fn set_presence(
-        &self,
-        user_id: &str,
-        presence: &str,
-        status_msg: Option<&str>,
-    ) -> Result<(), sqlx::Error>;
+    async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error>;
 
     async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error>;
 

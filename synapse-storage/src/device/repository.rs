@@ -46,20 +46,12 @@ pub trait DeviceRepository: Send + Sync {
     async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
 
     /// Delete a single device and return the count of rows affected.
-    async fn delete_device_returning_count(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<u64, sqlx::Error>;
+    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error>;
 
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error>;
 
     /// Delete multiple devices in a batch and return the count of rows affected.
-    async fn delete_devices_batch(
-        &self,
-        user_id: &str,
-        device_ids: &[String],
-    ) -> Result<u64, sqlx::Error>;
+    async fn delete_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error>;
 
     async fn get_device_keys_for_users(&self, user_ids: &[String])
         -> Result<HashMap<String, Vec<Device>>, sqlx::Error>;

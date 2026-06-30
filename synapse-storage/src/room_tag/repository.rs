@@ -12,13 +12,7 @@ pub trait RoomTagRepository: Send + Sync {
 
     async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error>;
 
-    async fn add_tag(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        tag: &str,
-        order: Option<f64>,
-    ) -> Result<(), sqlx::Error>;
+    async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error>;
 
     async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error>;
 }

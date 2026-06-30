@@ -10,8 +10,8 @@ pub mod membership;
 use serde_json::json;
 use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::RoomRepository;
 use synapse_storage::space::*;
+use synapse_storage::RoomRepository;
 use tracing::{error, info, instrument, warn};
 
 pub struct SpaceService {

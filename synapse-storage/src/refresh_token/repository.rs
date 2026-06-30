@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use super::{
-    CreateRefreshTokenRequest, RecordUsageRequest, RefreshToken, RefreshTokenFamily,
-    RefreshTokenRotation, RefreshTokenStats, RefreshTokenUsage,
+    CreateRefreshTokenRequest, RecordUsageRequest, RefreshToken, RefreshTokenFamily, RefreshTokenRotation,
+    RefreshTokenStats, RefreshTokenUsage,
 };
 
 #[async_trait]
@@ -30,12 +30,7 @@ pub trait RefreshTokenRepository: Send + Sync {
         device_id: &str,
         reason: &str,
     ) -> Result<i64, sqlx::Error>;
-    async fn revoke_device_tokens(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        reason: &str,
-    ) -> Result<i64, sqlx::Error>;
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error>;
 
     // Usage tracking
     async fn update_token_usage(&self, token_hash: &str, access_token_id: &str) -> Result<(), sqlx::Error>;
