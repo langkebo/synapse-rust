@@ -12,17 +12,7 @@ use serde_json::json;
 use synapse_storage::audit::CreateAuditEventRequest;
 
 pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
-    if let Some(token) = crate::web::utils::auth::bearer_token_opt(headers) {
-        return Some(token);
-    }
-    if let Some(query) = uri.split('?').nth(1) {
-        for pair in query.split('&') {
-            if let Some(value) = pair.strip_prefix("access_token=") {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
+    crate::web::utils::auth::extract_token_opt(headers, uri)
 }
 
 pub async fn auth_middleware(
