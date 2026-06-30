@@ -16,7 +16,6 @@ pub mod burn_after_read;
 pub mod create;
 pub mod create_events;
 pub mod events;
-pub mod federation_broadcast;
 pub mod federation_membership;
 pub mod info;
 pub mod infrastructure;
