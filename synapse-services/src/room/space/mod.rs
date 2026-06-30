@@ -10,18 +10,18 @@ pub mod membership;
 use serde_json::json;
 use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::room::RoomStorage;
+use synapse_storage::RoomRepository;
 use synapse_storage::space::*;
 use tracing::{error, info, instrument, warn};
 
 pub struct SpaceService {
     pub(crate) space_storage: Arc<SpaceStorage>,
-    pub(crate) room_storage: Arc<RoomStorage>,
+    pub(crate) room_storage: Arc<dyn RoomRepository>,
     pub(crate) server_name: String,
 }
 
 impl SpaceService {
-    pub fn new(space_storage: Arc<SpaceStorage>, room_storage: Arc<RoomStorage>, server_name: String) -> Self {
+    pub fn new(space_storage: Arc<SpaceStorage>, room_storage: Arc<dyn RoomRepository>, server_name: String) -> Self {
         Self { space_storage, room_storage, server_name }
     }
 

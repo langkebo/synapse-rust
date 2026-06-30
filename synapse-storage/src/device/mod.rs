@@ -956,6 +956,10 @@ impl DeviceRepository for DeviceStorage {
         self.get_user_device(user_id, device_id).await
     }
 
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        self.get_device(device_id).await
+    }
+
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
         self.get_user_devices(user_id).await
     }
@@ -996,8 +1000,24 @@ impl DeviceRepository for DeviceStorage {
         self.delete_user_device(user_id, device_id).await.map(|_| ())
     }
 
+    async fn delete_device_returning_count(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        self.delete_user_device(user_id, device_id).await
+    }
+
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_user_devices(user_id).await
+    }
+
+    async fn delete_devices_batch(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+    ) -> Result<u64, sqlx::Error> {
+        self.delete_user_devices_batch(user_id, device_ids).await
     }
 
     async fn get_device_keys_for_users(

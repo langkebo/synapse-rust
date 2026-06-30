@@ -229,7 +229,7 @@ impl AuthService {
 
         if let Some(existing_device) = self
             .device_storage
-            .get_device(&device_id)
+            .get_device_by_id(&device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?
         {
@@ -238,7 +238,7 @@ impl AuthService {
             }
         } else {
             self.device_storage
-                .create_device(&device_id, &user.user_id, initial_display_name)
+                .create_device(&user.user_id, &device_id, initial_display_name)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
         }

@@ -739,7 +739,7 @@ impl RoomSyncServices {
         let space_storage = SpaceStorage::new(pool);
         let space_service = Arc::new(crate::space_service::SpaceService::new(
             Arc::new(space_storage.clone()),
-            room_storage_concrete.clone(),
+            room_storage.clone(),
             config.server.name.clone(),
         ));
 

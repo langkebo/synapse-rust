@@ -72,7 +72,7 @@ impl AuthService {
 
     pub async fn deactivate_user(&self, user_id: &str) -> ApiResult<()> {
         self.user_storage
-            .deactivate_user(user_id)
+            .set_deactivation_status(user_id, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to deactivate user", &e))?;
 
@@ -93,7 +93,7 @@ impl AuthService {
         }
 
         self.device_storage
-            .delete_user_devices(user_id)
+            .delete_all_devices(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 
@@ -113,7 +113,7 @@ impl AuthService {
     pub async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
         let rows = self
             .device_storage
-            .delete_user_device(user_id, device_id)
+            .delete_device_returning_count(user_id, device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete device", &e))?;
 
@@ -156,7 +156,7 @@ impl AuthService {
 
         let rows = self
             .device_storage
-            .delete_user_devices_batch(user_id, device_ids)
+            .delete_devices_batch(user_id, device_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 

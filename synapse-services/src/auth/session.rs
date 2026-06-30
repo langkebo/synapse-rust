@@ -86,7 +86,7 @@ impl AuthService {
             .map_err(|e| ApiError::internal_with_log("Failed to revoke refresh tokens", &e))?;
 
         self.device_storage
-            .delete_user_devices(user_id)
+            .delete_all_devices(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 
