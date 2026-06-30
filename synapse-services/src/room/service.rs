@@ -109,6 +109,15 @@ pub struct RoomService {
 
 impl RoomService {
     pub fn new(config: RoomServiceConfig) -> Self {
+        // Build shared infrastructure FIRST so its event_broadcaster Arc<RwLock>
+        // can be shared with MembershipService (avoids a separate wrapper).
+        let infra = RoomInfrastructure {
+            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster.clone())),
+            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
+            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager.clone())),
+            federation_client: Arc::new(RwLock::new(config.federation_client.clone())),
+        };
+
         let membership_cfg = MembershipServiceConfig {
             member_storage: config.member_storage.clone(),
             room_storage: config.room_storage.clone(),
@@ -118,6 +127,8 @@ impl RoomService {
             server_name: config.server_name.clone(),
             federation_client: config.federation_client.clone(),
             key_rotation_manager: config.key_rotation_manager.clone(),
+            event_broadcaster: infra.event_broadcaster.clone(),
+            room_summary_service: config.room_summary_service.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -173,12 +184,7 @@ impl RoomService {
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             relations_storage: config.relations_storage.clone(),
-            infra: RoomInfrastructure {
-                event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
-                app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
-                key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
-                federation_client: Arc::new(RwLock::new(config.federation_client)),
-            },
+            infra,
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
             #[cfg(not(feature = "beacons"))]
@@ -1509,6 +1515,8 @@ mod tests {
             server_name: "example.com".to_string(),
             federation_client: None,
             key_rotation_manager: None,
+            event_broadcaster: Arc::new(RwLock::new(None)),
+            room_summary_service: room_summary_service.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 

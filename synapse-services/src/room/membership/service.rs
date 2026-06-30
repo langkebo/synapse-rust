@@ -14,7 +14,7 @@ use synapse_storage::event::RoomEvent;
 use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
-use super::super::service::RoomService;
+use crate::room::summary::RoomSummaryService;
 
 /// Domain service for room membership operations — join, leave, invite,
 /// kick, ban, unban, knock, forget, and federation membership.
@@ -28,10 +28,8 @@ pub struct MembershipService {
     pub(crate) server_name: String,
     pub(crate) federation_client: Arc<RwLock<Option<Arc<FederationClient>>>>,
     pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
-    /// Back-reference to RoomService for cross-domain calls (e.g.,
-    /// `sign_and_broadcast_event`, `room_summary_service`).
-    /// Set via `set_room_service` after RoomService is wrapped in `Arc`.
-    pub(crate) room_service: Arc<RwLock<Option<Arc<RoomService>>>>,
+    pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub(crate) room_summary_service: Arc<RoomSummaryService>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -44,6 +42,8 @@ pub struct MembershipServiceConfig {
     pub server_name: String,
     pub federation_client: Option<Arc<FederationClient>>,
     pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
+    pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub room_summary_service: Arc<RoomSummaryService>,
 }
 
 impl MembershipService {
@@ -57,14 +57,9 @@ impl MembershipService {
             server_name: config.server_name,
             federation_client: Arc::new(RwLock::new(config.federation_client)),
             key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
-            room_service: Arc::new(RwLock::new(None)),
+            event_broadcaster: config.event_broadcaster,
+            room_summary_service: config.room_summary_service,
         }
-    }
-
-    /// Post-construction wiring: set the back-reference to the enclosing
-    /// [`RoomService`]. Called once after `RoomService` is wrapped in `Arc`.
-    pub async fn set_room_service(&self, room_service: Arc<RoomService>) {
-        *self.room_service.write().await = Some(room_service);
     }
 
     // =========================================================================
@@ -241,9 +236,9 @@ impl MembershipService {
             );
         }
 
-        // 5. Broadcast to remote servers via room_service back-reference.
-        if let Some(room_service) = self.room_service.read().await.as_ref() {
-            let broadcaster_guard = room_service.infra.event_broadcaster.read().await;
+        // 5. Broadcast to remote servers via event_broadcaster.
+        {
+            let broadcaster_guard = self.event_broadcaster.read().await;
             if let Some(ref broadcaster) = *broadcaster_guard {
                 if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
                     ::tracing::warn!(
@@ -257,12 +252,5 @@ impl MembershipService {
         }
 
         Ok(())
-    }
-
-    /// Resolve the room_service back-reference, panicking if not set.
-    /// Used for methods that require the back-reference (e.g., room_summary_service
-    /// access). Panics if called before `set_room_service()` wiring.
-    pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service.read().await.clone().expect("MembershipService::room_service back-reference not wired")
     }
 }

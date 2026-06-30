@@ -1217,7 +1217,6 @@ impl ServiceContainer {
         rooms.room_service.set_event_broadcaster(core.event_broadcaster.clone()).await;
         rooms.room_service.set_key_rotation_manager(Arc::new(federation.key_rotation_manager.clone())).await;
         rooms.room_service.set_federation_client(federation.federation_client.clone()).await;
-        rooms.room_service.membership.set_room_service(rooms.room_service.clone()).await;
         rooms.room_service.messaging.set_room_service(rooms.room_service.clone()).await;
         rooms.room_service.lifecycle.set_room_service(rooms.room_service.clone()).await;
 
