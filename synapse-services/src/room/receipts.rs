@@ -4,9 +4,9 @@ use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use synapse_storage::Receipt;
 
-use super::service::RoomService;
+use super::messaging::service::MessagingService;
 
-impl RoomService {
+impl MessagingService {
     pub async fn send_receipt(
         &self,
         room_id: &str,

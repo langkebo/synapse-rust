@@ -5,9 +5,9 @@ use crate::common::constants::BURN_AFTER_READ_DELAY_SECS;
 use crate::common::error::ApiResult;
 use std::time::Duration;
 
-use super::service::RoomService;
+use super::messaging::service::MessagingService;
 
-impl RoomService {
+impl MessagingService {
     pub async fn process_read_receipt(
         &self,
         room_id: &str,

@@ -5,9 +5,9 @@ use serde_json::json;
 use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
-use super::service::RoomService;
+use super::messaging::service::MessagingService;
 
-impl RoomService {
+impl MessagingService {
     pub async fn get_event_record(&self, event_id: &str) -> ApiResult<Option<synapse_storage::RoomEvent>> {
         self.event_storage.get_event(event_id).await.map_err(|e| ApiError::internal_with_log("Failed to get event", &e))
     }
@@ -128,8 +128,9 @@ impl RoomService {
         }
 
         if should_update_summary {
+            let room_svc = self.room_service_ref().await;
             if let Err(error) =
-                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+                room_svc.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
                 ::tracing::warn!(
                     error = %error,
@@ -139,7 +140,7 @@ impl RoomService {
                     state_key = ?state_key,
                     "Failed to queue room summary update"
                 );
-            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+            } else if let Err(error) = room_svc.room_summary_service.process_pending_updates(32).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
             }
         }
@@ -214,8 +215,9 @@ impl RoomService {
         }
 
         if should_update_summary {
+            let room_svc = self.room_service_ref().await;
             if let Err(error) =
-                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+                room_svc.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
                 ::tracing::warn!(
                     error = %error,
@@ -225,7 +227,7 @@ impl RoomService {
                     state_key = ?state_key,
                     "Failed to queue room summary update"
                 );
-            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
+            } else if let Err(error) = room_svc.room_summary_service.process_pending_updates(32).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
             }
         }

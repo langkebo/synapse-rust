@@ -2,9 +2,9 @@
 
 use crate::common::error::{ApiError, ApiResult};
 
-use super::service::RoomService;
+use super::messaging::service::MessagingService;
 
-impl RoomService {
+impl MessagingService {
     pub async fn update_read_marker(
         &self,
         room_id: &str,

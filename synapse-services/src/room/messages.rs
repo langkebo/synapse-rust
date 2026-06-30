@@ -5,9 +5,9 @@ use serde_json::json;
 use synapse_common::{generate_event_id, generate_stream_token_from_ts, parse_stream_token};
 use synapse_storage::CreateEventParams;
 
-use super::service::RoomService;
+use super::messaging::service::MessagingService;
 
-impl RoomService {
+impl MessagingService {
     #[::tracing::instrument(skip(self, content))]
     pub async fn send_message(
         &self,
