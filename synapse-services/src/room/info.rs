@@ -4,9 +4,9 @@ use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use synapse_storage::{Room, RoomSearchCursor, RoomSearchOrder};
 
-use super::service::RoomService;
+use super::state::service::RoomStateService;
 
-impl RoomService {
+impl RoomStateService {
     pub async fn get_room_encryption_status(
         &self,
         room_id: &str,

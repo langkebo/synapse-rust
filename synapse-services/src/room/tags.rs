@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 
-use super::service::RoomService;
+use super::state::service::RoomStateService;
 
 /// Domain errors for tag operations.
 #[derive(Debug, thiserror::Error)]
@@ -20,7 +20,7 @@ impl From<TagsError> for ApiError {
     }
 }
 
-impl RoomService {
+impl RoomStateService {
     #[tracing::instrument(skip(self))]
     pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<synapse_storage::room_tag::RoomTag>, TagsError> {
         self.room_tag_storage.get_all_tags(user_id).await.map_err(|e| {

@@ -30,6 +30,8 @@ pub mod read_markers;
 pub mod receipts;
 pub mod service;
 pub mod space;
+pub mod state;
+pub use state::service::RoomStateService;
 
 pub mod summary;
 pub mod summary_state;
