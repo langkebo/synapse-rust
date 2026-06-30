@@ -1,5 +1,5 @@
 use crate::common::ApiError;
-use crate::web::routes::context::{AuthContext, DeviceContext, RoomContext, SyncContext};
+use crate::web::routes::context::{AuthContext, DeviceContext, E2eeRoomContext, RoomContext, SyncContext};
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::auth::resolve_request_id;
@@ -186,6 +186,37 @@ impl FromRequestParts<RoomContext> for AuthenticatedUser {
     fn from_request_parts(
         parts: &mut Parts,
         state: &RoomContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let result = state.auth_service.validate_token(&token).await;
+            match result {
+                Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => {
+                    if let Some(ref audit_svc) = state.admin_audit_service {
+                        audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
+                    }
+
+                    Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+                }
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<E2eeRoomContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &E2eeRoomContext,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let uri = parts.uri.to_string();
         let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
