@@ -143,7 +143,7 @@ pub use self::monitoring::{
 pub use self::oidc_user_mapping::*;
 pub use self::openid_token::*;
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
-pub use self::presence::*;
+pub use self::presence::{PresenceSnapshot, PresenceStorage};
 pub use self::push::*;
 pub use self::push_notification::*;
 pub use self::qr_login::*;
@@ -165,6 +165,7 @@ pub use self::worker::*;
 pub use device::DeviceRepository;
 pub use event::EventRepository;
 pub use membership::repository::RoomMemberRepository;
+pub use presence::repository::PresenceRepository;
 pub use room::RoomRepository;
 pub use room_tag::repository::RoomTagRepository;
 

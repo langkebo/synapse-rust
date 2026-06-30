@@ -8,7 +8,7 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
-use synapse_storage::presence::PresenceStorage;
+use synapse_storage::PresenceRepository;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
 use synapse_storage::RoomMemberRepository;
 
@@ -39,7 +39,7 @@ pub struct SlidingSyncService {
     cache: Arc<CacheManager>,
     event_storage: Arc<dyn EventRepository>,
     typing_service: Arc<crate::typing_service::TypingService>,
-    presence_storage: PresenceStorage,
+    presence_storage: Arc<dyn PresenceRepository>,
     member_storage: Arc<dyn RoomMemberRepository>,
     device_storage: Arc<dyn DeviceRepository>,
     to_device_storage: ToDeviceStorage,
@@ -80,7 +80,7 @@ impl SlidingSyncService {
         cache: Arc<CacheManager>,
         event_storage: Arc<dyn EventRepository>,
         typing_service: Arc<crate::typing_service::TypingService>,
-        presence_storage: PresenceStorage,
+        presence_storage: Arc<dyn PresenceRepository>,
         member_storage: Arc<dyn RoomMemberRepository>,
         device_storage: Arc<dyn DeviceRepository>,
         to_device_storage: ToDeviceStorage,
