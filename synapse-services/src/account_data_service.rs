@@ -2,7 +2,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::crypto::random_string;
 use synapse_common::ApiError;
-use synapse_storage::account_data::AccountDataStorage;
+use synapse_storage::AccountDataRepository;
 use synapse_storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 use synapse_storage::room_account_data::RoomAccountDataStorage;
@@ -12,7 +12,7 @@ use tracing::instrument;
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
-    account_data_storage: AccountDataStorage,
+    account_data_storage: Arc<dyn AccountDataRepository>,
     user_storage: Arc<dyn UserStore>,
     room_storage: Arc<dyn synapse_storage::RoomRepository>,
     filter_storage: FilterStorage,
@@ -28,7 +28,7 @@ impl AccountDataService {
         openid_token_storage: OpenIdTokenStorage,
     ) -> Self {
         Self {
-            account_data_storage: AccountDataStorage::new(pool),
+            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
             user_storage,
             room_storage,
             filter_storage,
@@ -38,7 +38,8 @@ impl AccountDataService {
 
     #[instrument(skip(self))]
     pub async fn list_account_data(&self, user_id: &str) -> Result<serde_json::Map<String, Value>, ApiError> {
-        let result = self.account_data_storage.list_account_data(user_id).await?;
+        let result = self.account_data_storage.list_account_data(user_id).await
+            .map_err(|e| ApiError::internal_with_log("Failed to list account data", &e))?;
         Ok(result.into_iter().map(|row| (row.data_type, row.content)).collect())
     }
 
@@ -85,6 +86,7 @@ impl AccountDataService {
     #[instrument(skip(self))]
     pub async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
         self.account_data_storage.delete_account_data(user_id, data_type).await
+            .map_err(|e| ApiError::internal_with_log("Failed to delete account data", &e))
     }
 
     #[instrument(skip(self, body))]
