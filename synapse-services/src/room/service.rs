@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
+use super::state::service::{RoomStateService, RoomStateServiceConfig};
 
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
@@ -71,10 +72,13 @@ pub struct RoomService {
     pub membership: MembershipService,
     /// Domain sub-service: messaging operations (events, messages, receipts, etc.)
     pub messaging: MessagingService,
+    /// Domain sub-service: room state operations (aliases, tags, info, directory, etc.)
+    pub state: RoomStateService,
     #[allow(dead_code)]
     pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
     #[allow(dead_code)]
     pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
+    #[allow(dead_code)]
     pub(crate) room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
     #[allow(dead_code)]
@@ -132,9 +136,20 @@ impl RoomService {
         };
         let messaging = MessagingService::new(messaging_cfg);
 
+        let state_cfg = RoomStateServiceConfig {
+            room_storage: config.room_storage.clone(),
+            member_storage: config.member_storage.clone(),
+            event_storage: config.event_storage.clone(),
+            room_tag_storage: config.room_tag_storage.clone(),
+            user_storage: config.user_storage.clone(),
+            server_name: config.server_name.clone(),
+        };
+        let state = RoomStateService::new(state_cfg);
+
         Self {
             membership,
             messaging,
+            state,
             room_storage: config.room_storage,
             member_storage: config.member_storage,
             event_storage: config.event_storage,
@@ -708,6 +723,148 @@ impl RoomService {
     ) -> ApiResult<()> {
         self.messaging.process_read_receipt(room_id, event_id, _user_id, _custom_delay_secs).await
     }
+
+    // =========================================================================
+    // State forwarding methods — delegate to RoomStateService
+    // =========================================================================
+
+    // -- aliases.rs ----------------------------------------------------------
+
+    pub async fn get_room_aliases(&self, room_id: &str) -> ApiResult<Vec<String>> {
+        self.state.get_room_aliases(room_id).await
+    }
+    pub async fn set_room_alias(&self, room_id: &str, alias: &str, created_by: &str) -> ApiResult<()> {
+        self.state.set_room_alias(room_id, alias, created_by).await
+    }
+    pub async fn get_room_by_alias(&self, alias: &str) -> ApiResult<Option<String>> {
+        self.state.get_room_by_alias(alias).await
+    }
+    pub async fn remove_room_alias(&self, room_id: &str) -> ApiResult<()> {
+        self.state.remove_room_alias(room_id).await
+    }
+    pub async fn remove_room_alias_by_name(&self, alias: &str) -> ApiResult<()> {
+        self.state.remove_room_alias_by_name(alias).await
+    }
+    pub async fn set_room_directory(&self, room_id: &str, is_public: bool) -> ApiResult<()> {
+        self.state.set_room_directory(room_id, is_public).await
+    }
+    pub async fn get_room_visibility(&self, room_id: &str) -> ApiResult<String> {
+        self.state.get_room_visibility(room_id).await
+    }
+    pub async fn remove_room_directory(&self, room_id: &str) -> ApiResult<()> {
+        self.state.remove_room_directory(room_id).await
+    }
+    pub async fn get_public_rooms(&self, limit: i64) -> ApiResult<serde_json::Value> {
+        self.state.get_public_rooms(limit).await
+    }
+
+    // -- tags.rs -------------------------------------------------------------
+
+    pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<synapse_storage::room_tag::RoomTag>, super::tags::TagsError> {
+        self.state.get_all_tags(user_id).await
+    }
+    pub async fn get_tags(
+        &self, user_id: &str, room_id: &str,
+    ) -> Result<Vec<synapse_storage::room_tag::RoomTag>, super::tags::TagsError> {
+        self.state.get_tags(user_id, room_id).await
+    }
+    pub async fn add_tag(
+        &self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>,
+    ) -> Result<(), super::tags::TagsError> {
+        self.state.add_tag(user_id, room_id, tag, order).await
+    }
+    pub async fn remove_tag(
+        &self, user_id: &str, room_id: &str, tag: &str,
+    ) -> Result<(), super::tags::TagsError> {
+        self.state.remove_tag(user_id, room_id, tag).await
+    }
+
+    // -- info.rs -------------------------------------------------------------
+
+    pub async fn get_room_encryption_status(
+        &self, room_id: &str,
+    ) -> ApiResult<synapse_storage::room::RoomEncryptionStatus> {
+        self.state.get_room_encryption_status(room_id).await
+    }
+    pub async fn delete_room(&self, room_id: &str, requester_id: &str) -> ApiResult<()> {
+        self.state.delete_room(room_id, requester_id).await
+    }
+    pub async fn get_user_room_list(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        self.state.get_user_room_list(user_id).await
+    }
+    pub async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> ApiResult<serde_json::Value> {
+        self.state.cleanup_abnormal_data(min_age_ms).await
+    }
+    pub async fn room_exists(&self, room_id: &str) -> ApiResult<bool> {
+        self.state.room_exists(room_id).await
+    }
+    pub async fn block_room(&self, room_id: &str, blocked_by: &str, reason: Option<&str>) -> ApiResult<()> {
+        self.state.block_room(room_id, blocked_by, reason).await
+    }
+    pub async fn get_room_block_status(&self, room_id: &str) -> ApiResult<Option<i64>> {
+        self.state.get_room_block_status(room_id).await
+    }
+    pub async fn unblock_room(&self, room_id: &str) -> ApiResult<()> {
+        self.state.unblock_room(room_id).await
+    }
+    pub async fn get_public_rooms_paginated(
+        &self, limit: i64, since_ts: Option<i64>, since_room_id: Option<&str>,
+    ) -> ApiResult<Vec<synapse_storage::Room>> {
+        self.state.get_public_rooms_paginated(limit, since_ts, since_room_id).await
+    }
+    pub async fn count_public_rooms(&self) -> ApiResult<i64> {
+        self.state.count_public_rooms().await
+    }
+    pub async fn get_room_stats_overview(&self) -> ApiResult<serde_json::Value> {
+        self.state.get_room_stats_overview().await
+    }
+    pub async fn get_single_room_stats(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
+        self.state.get_single_room_stats(room_id).await
+    }
+    pub async fn get_all_rooms_with_members(
+        &self, limit: i64, from: Option<synapse_storage::RoomSearchCursor>, order_by: synapse_storage::RoomSearchOrder,
+    ) -> ApiResult<(Vec<(synapse_storage::Room, i64)>, Option<String>)> {
+        self.state.get_all_rooms_with_members(limit, from, order_by).await
+    }
+    pub async fn get_room_count(&self) -> ApiResult<i64> {
+        self.state.get_room_count().await
+    }
+    pub async fn get_room_record(&self, room_id: &str) -> ApiResult<Option<synapse_storage::Room>> {
+        self.state.get_room_record(room_id).await
+    }
+    pub async fn get_room_listings_status(&self, room_id: &str) -> ApiResult<Option<(bool, bool)>> {
+        self.state.get_room_listings_status(room_id).await
+    }
+    pub async fn set_room_public_with_directory(&self, room_id: &str) -> ApiResult<bool> {
+        self.state.set_room_public_with_directory(room_id).await
+    }
+    pub async fn set_room_private_with_directory(&self, room_id: &str) -> ApiResult<bool> {
+        self.state.set_room_private_with_directory(room_id).await
+    }
+    pub async fn shutdown_room_and_remove_members(&self, room_id: &str) -> ApiResult<()> {
+        self.state.shutdown_room_and_remove_members(room_id).await
+    }
+    pub async fn grant_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.state.grant_room_admin(room_id, user_id).await
+    }
+    pub async fn purge_history_before(&self, room_id: &str, timestamp: i64) -> ApiResult<u64> {
+        self.state.purge_history_before(room_id, timestamp).await
+    }
+    pub async fn get_room_version(&self, room_id: &str) -> ApiResult<Option<String>> {
+        self.state.get_room_version(room_id).await
+    }
+    pub async fn search_all_rooms_admin(
+        &self, search_term: Option<&str>, limit: i64, order_by: synapse_storage::RoomSearchOrder,
+        cursor: Option<synapse_storage::RoomSearchCursor>, is_public: Option<bool>, is_encrypted: Option<bool>,
+    ) -> ApiResult<(Vec<serde_json::Value>, i64, Option<String>)> {
+        self.state.search_all_rooms_admin(search_term, limit, order_by, cursor, is_public, is_encrypted).await
+    }
+    pub async fn is_room_creator(&self, room_id: &str, user_id: &str) -> ApiResult<bool> {
+        self.state.is_room_creator(room_id, user_id).await
+    }
+    pub async fn check_room_has_encryption(&self, room_id: &str) -> ApiResult<bool> {
+        self.state.check_room_has_encryption(room_id).await
+    }
 }
 
 #[cfg(feature = "friends")]
@@ -1222,9 +1379,20 @@ mod tests {
         };
         let messaging = MessagingService::new(messaging_cfg);
 
+        let state_cfg = RoomStateServiceConfig {
+            room_storage: room_storage.clone(),
+            member_storage: member_storage.clone(),
+            event_storage: event_storage.clone(),
+            room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+            user_storage: user_storage.clone(),
+            server_name: "example.com".to_string(),
+        };
+        let state = RoomStateService::new(state_cfg);
+
         RoomService {
             membership,
             messaging,
+            state,
             room_storage,
             member_storage,
             room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),

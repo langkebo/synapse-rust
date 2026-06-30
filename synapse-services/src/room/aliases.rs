@@ -3,10 +3,10 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 
-use super::service::RoomService;
+use super::state::service::RoomStateService;
 use super::utils::validate_room_alias_input;
 
-impl RoomService {
+impl RoomStateService {
     pub async fn get_room_aliases(&self, room_id: &str) -> ApiResult<Vec<String>> {
         self.room_storage
             .get_room_aliases(room_id)
