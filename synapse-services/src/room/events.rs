@@ -128,9 +128,8 @@ impl MessagingService {
         }
 
         if should_update_summary {
-            let room_svc = self.room_service_ref().await;
             if let Err(error) =
-                room_svc.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
                 ::tracing::warn!(
                     error = %error,
@@ -140,7 +139,7 @@ impl MessagingService {
                     state_key = ?state_key,
                     "Failed to queue room summary update"
                 );
-            } else if let Err(error) = room_svc.room_summary_service.process_pending_updates(32).await {
+            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
             }
         }
@@ -215,9 +214,8 @@ impl MessagingService {
         }
 
         if should_update_summary {
-            let room_svc = self.room_service_ref().await;
             if let Err(error) =
-                room_svc.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
+                self.room_summary_service.queue_update(&room_id, &event_id, &event_type, state_key.as_deref()).await
             {
                 ::tracing::warn!(
                     error = %error,
@@ -227,7 +225,7 @@ impl MessagingService {
                     state_key = ?state_key,
                     "Failed to queue room summary update"
                 );
-            } else if let Err(error) = room_svc.room_summary_service.process_pending_updates(32).await {
+            } else if let Err(error) = self.room_summary_service.process_pending_updates(32).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, batch_size = 32_u64, "Failed to process room summary updates");
             }
         }
