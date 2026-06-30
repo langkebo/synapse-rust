@@ -18,10 +18,7 @@ impl RateLimitStorage {
         Self { pool: pool.clone() }
     }
 
-    pub async fn get_user_rate_limit(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<RateLimitRecord>, sqlx::Error> {
+    pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error> {
         sqlx::query_as::<_, RateLimitRecord>(
             r"
             SELECT messages_per_second, burst_count
