@@ -5,9 +5,9 @@ use serde_json::json;
 use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
-use super::service::RoomService;
+use super::MembershipService;
 
-impl RoomService {
+impl MembershipService {
     /// Join a room, automatically detecting whether the room is local or
     /// remote.  For remote rooms, delegates to the federation make_join /
     /// send_join flow.  `via_servers` is used to select the destination
