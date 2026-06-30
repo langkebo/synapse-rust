@@ -167,6 +167,7 @@ pub use device::DeviceRepository;
 pub use event::EventRepository;
 pub use membership::repository::RoomMemberRepository;
 pub use presence::repository::PresenceRepository;
+pub use refresh_token::repository::RefreshTokenRepository;
 pub use relations::repository::RelationsRepository;
 pub use room::RoomRepository;
 pub use room_tag::repository::RoomTagRepository;

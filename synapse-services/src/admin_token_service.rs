@@ -1,7 +1,7 @@
 use crate::registration_token_service::RegistrationTokenService;
 use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::refresh_token::RefreshTokenStorage;
+use synapse_storage::RefreshTokenRepository;
 use synapse_storage::registration_token::{
     CreateRegistrationTokenRequest, RegistrationToken, UpdateRegistrationTokenRequest,
 };
@@ -28,14 +28,14 @@ pub struct AdminRefreshTokenInfo {
 
 pub struct AdminTokenService {
     token_storage: AccessTokenStorage,
-    refresh_token_storage: Arc<RefreshTokenStorage>,
+    refresh_token_storage: Arc<dyn RefreshTokenRepository>,
     registration_token_service: Arc<RegistrationTokenService>,
 }
 
 impl AdminTokenService {
     pub fn new(
         token_storage: AccessTokenStorage,
-        refresh_token_storage: Arc<RefreshTokenStorage>,
+        refresh_token_storage: Arc<dyn RefreshTokenRepository>,
         registration_token_service: Arc<RegistrationTokenService>,
     ) -> Self {
         Self { token_storage, refresh_token_storage, registration_token_service }
