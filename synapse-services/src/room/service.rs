@@ -392,7 +392,9 @@ impl RoomService {
         self.membership.get_membership_history(room_id, limit).await
     }
     pub async fn get_room_members_by_membership(
-        &self, room_id: &str, membership: &str,
+        &self,
+        room_id: &str,
+        membership: &str,
     ) -> ApiResult<Vec<storage::RoomMember>> {
         self.membership.get_room_members_by_membership(room_id, membership).await
     }
@@ -403,7 +405,9 @@ impl RoomService {
         self.membership.user_shares_room_with_server(user_id, server_name).await
     }
     pub async fn filter_users_sharing_room_with_server(
-        &self, user_ids: &[String], server_name: &str,
+        &self,
+        user_ids: &[String],
+        server_name: &str,
     ) -> ApiResult<std::collections::HashSet<String>> {
         self.membership.filter_users_sharing_room_with_server(user_ids, server_name).await
     }
@@ -417,7 +421,11 @@ impl RoomService {
         self.membership.remove_member_record(room_id, user_id).await
     }
     pub async fn get_room_members_paginated_admin(
-        &self, room_id: &str, membership: &str, limit: i64, from: Option<&str>,
+        &self,
+        room_id: &str,
+        membership: &str,
+        limit: i64,
+        from: Option<&str>,
     ) -> ApiResult<Vec<storage::RoomMember>> {
         self.membership.get_room_members_paginated_admin(room_id, membership, limit, from).await
     }
@@ -443,14 +451,21 @@ impl RoomService {
         self.membership.get_invited_members_count(room_id).await
     }
     pub async fn add_member(
-        &self, room_id: &str, user_id: &str, membership: &str,
-        display_name: Option<&str>, join_reason: Option<&str>,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        membership: &str,
+        display_name: Option<&str>,
+        join_reason: Option<&str>,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<storage::RoomMember> {
         self.membership.add_member(room_id, user_id, membership, display_name, join_reason, tx).await
     }
     pub async fn join_room_with_via_servers(
-        &self, room_id: &str, user_id: &str, via_servers: &[String],
+        &self,
+        room_id: &str,
+        user_id: &str,
+        via_servers: &[String],
     ) -> ApiResult<()> {
         self.membership.join_room_with_via_servers(room_id, user_id, via_servers).await
     }
@@ -476,7 +491,11 @@ impl RoomService {
         self.membership.unban_user(room_id, user_id, unbanned_by).await
     }
     pub async fn kick_user(
-        &self, room_id: &str, target_user_id: &str, kicked_by: &str, reason: Option<&str>,
+        &self,
+        room_id: &str,
+        target_user_id: &str,
+        kicked_by: &str,
+        reason: Option<&str>,
     ) -> ApiResult<()> {
         self.membership.kick_user(room_id, target_user_id, kicked_by, reason).await
     }
@@ -490,7 +509,10 @@ impl RoomService {
         self.membership.invite_user_via_federation(room_id, inviter_id, invitee_id).await
     }
     pub async fn exchange_third_party_invite_via_federation(
-        &self, destination: &str, room_id: &str, invite_event: &Value,
+        &self,
+        destination: &str,
+        room_id: &str,
+        invite_event: &Value,
     ) -> ApiResult<Value> {
         self.membership.exchange_third_party_invite_via_federation(destination, room_id, invite_event).await
     }
@@ -566,17 +588,27 @@ impl RoomService {
         self.messaging.get_event_record(event_id).await
     }
     pub async fn get_event_record_in_room(
-        &self, room_id: &str, event_id: &str,
+        &self,
+        room_id: &str,
+        event_id: &str,
     ) -> ApiResult<synapse_storage::RoomEvent> {
         self.messaging.get_event_record_in_room(room_id, event_id).await
     }
     pub async fn find_event_by_timestamp(
-        &self, room_id: &str, ts: i64, forward: bool,
+        &self,
+        room_id: &str,
+        ts: i64,
+        forward: bool,
     ) -> ApiResult<Option<(String, i64)>> {
         self.messaging.find_event_by_timestamp(room_id, ts, forward).await
     }
     pub async fn report_event(
-        &self, event_id: &str, room_id: &str, reporter_user_id: &str, reason: Option<&str>, score: i32,
+        &self,
+        event_id: &str,
+        room_id: &str,
+        reporter_user_id: &str,
+        reason: Option<&str>,
+        score: i32,
     ) -> ApiResult<i64> {
         self.messaging.report_event(event_id, room_id, reporter_user_id, reason, score).await
     }
@@ -587,33 +619,40 @@ impl RoomService {
         self.messaging.get_state_event_records(room_id).await
     }
     pub async fn get_state_events_at_or_before(
-        &self, room_id: &str, origin_server_ts: i64,
+        &self,
+        room_id: &str,
+        origin_server_ts: i64,
     ) -> ApiResult<Vec<synapse_storage::StateEvent>> {
         self.messaging.get_state_events_at_or_before(room_id, origin_server_ts).await
     }
     pub async fn create_event(
-        &self, params: synapse_storage::CreateEventParams,
+        &self,
+        params: synapse_storage::CreateEventParams,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<synapse_storage::RoomEvent> {
         self.messaging.create_event(params, tx).await
     }
     pub async fn create_event_with_graph(
-        &self, params: synapse_storage::CreateEventParams,
-        prev_events: &[String], auth_events: &[String], depth: i64,
+        &self,
+        params: synapse_storage::CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
         tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
     ) -> ApiResult<synapse_storage::RoomEvent> {
         self.messaging.create_event_with_graph(params, prev_events, auth_events, depth, tx).await
     }
-    pub async fn get_state_events_by_type(
-        &self, room_id: &str, event_type: &str,
-    ) -> ApiResult<Vec<serde_json::Value>> {
+    pub async fn get_state_events_by_type(&self, room_id: &str, event_type: &str) -> ApiResult<Vec<serde_json::Value>> {
         self.messaging.get_state_events_by_type(room_id, event_type).await
     }
     pub async fn get_pinned_event_ids(&self, room_id: &str) -> ApiResult<Vec<String>> {
         self.messaging.get_pinned_event_ids(room_id).await
     }
     pub async fn set_pinned_event_ids(
-        &self, room_id: &str, user_id: &str, pinned_event_ids: &[String],
+        &self,
+        room_id: &str,
+        user_id: &str,
+        pinned_event_ids: &[String],
     ) -> ApiResult<()> {
         self.messaging.set_pinned_event_ids(room_id, user_id, pinned_event_ids).await
     }
@@ -627,22 +666,35 @@ impl RoomService {
         self.messaging.get_room_events(room_id, limit).await
     }
     pub async fn get_room_events_by_type(
-        &self, room_id: &str, event_type: &str, limit: i64,
+        &self,
+        room_id: &str,
+        event_type: &str,
+        limit: i64,
     ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.messaging.get_room_events_by_type(room_id, event_type, limit).await
     }
     pub async fn get_room_events_paginated_admin(
-        &self, room_id: &str, from: Option<i64>, limit: i64, direction: &str,
+        &self,
+        room_id: &str,
+        from: Option<i64>,
+        limit: i64,
+        direction: &str,
     ) -> ApiResult<Vec<synapse_storage::RoomEvent>> {
         self.messaging.get_room_events_paginated_admin(room_id, from, limit, direction).await
     }
     pub async fn get_event_context_admin(
-        &self, room_id: &str, event_id: &str, context_limit: i64,
+        &self,
+        room_id: &str,
+        event_id: &str,
+        context_limit: i64,
     ) -> ApiResult<serde_json::Value> {
         self.messaging.get_event_context_admin(room_id, event_id, context_limit).await
     }
     pub async fn search_room_messages_admin(
-        &self, room_id: &str, search_pattern: &str, limit: i64,
+        &self,
+        room_id: &str,
+        search_pattern: &str,
+        limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
         self.messaging.search_room_messages_admin(room_id, search_pattern, limit).await
     }
@@ -656,14 +708,20 @@ impl RoomService {
         self.messaging.redact_event_content(event_id, redacted_by).await
     }
     pub async fn save_event_signature(
-        &self, event_id: &str, user_id: &str, device_id: &str,
-        signature: &str, key_id: &str, algorithm: &str, created_ts: i64,
+        &self,
+        event_id: &str,
+        user_id: &str,
+        device_id: &str,
+        signature: &str,
+        key_id: &str,
+        algorithm: &str,
+        created_ts: i64,
     ) -> ApiResult<()> {
-        self.messaging.save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts).await
+        self.messaging
+            .save_event_signature(event_id, user_id, device_id, signature, key_id, algorithm, created_ts)
+            .await
     }
-    pub async fn get_event_signatures(
-        &self, event_id: &str,
-    ) -> ApiResult<Vec<synapse_storage::event::EventSignature>> {
+    pub async fn get_event_signatures(&self, event_id: &str) -> ApiResult<Vec<synapse_storage::event::EventSignature>> {
         self.messaging.get_event_signatures(event_id).await
     }
     pub async fn get_daily_message_count(&self) -> ApiResult<i64> {
@@ -673,7 +731,11 @@ impl RoomService {
         self.messaging.find_missing_event_ids(event_ids).await
     }
     pub async fn get_missing_events_between(
-        &self, room_id: &str, earliest_events: &[String], latest_events: &[String], limit: i64,
+        &self,
+        room_id: &str,
+        earliest_events: &[String],
+        latest_events: &[String],
+        limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
         self.messaging.get_missing_events_between(room_id, earliest_events, latest_events, limit).await
     }
@@ -681,22 +743,37 @@ impl RoomService {
     // -- messages.rs --------------------------------------------------------
 
     pub async fn send_message(
-        &self, room_id: &str, user_id: &str, event_type: &str, content: &serde_json::Value,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
     ) -> ApiResult<serde_json::Value> {
         self.messaging.send_message(room_id, user_id, event_type, content).await
     }
     pub async fn get_room_messages(
-        &self, room_id: &str, user_id: &str, from: i64, limit: i64, direction: &str,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        from: i64,
+        limit: i64,
+        direction: &str,
     ) -> ApiResult<serde_json::Value> {
         self.messaging.get_room_messages(room_id, user_id, from, limit, direction).await
     }
     pub async fn get_ephemeral_events_for_client(
-        &self, room_id: &str, limit: i64,
+        &self,
+        room_id: &str,
+        limit: i64,
     ) -> ApiResult<Vec<serde_json::Value>> {
         self.messaging.get_ephemeral_events_for_client(room_id, limit).await
     }
     pub async fn set_typing_ephemeral_event(
-        &self, room_id: &str, user_id: &str, typing_user_ids: &[String], timeout_ms: i64,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        typing_user_ids: &[String],
+        timeout_ms: i64,
     ) -> ApiResult<()> {
         self.messaging.set_typing_ephemeral_event(room_id, user_id, typing_user_ids, timeout_ms).await
     }
@@ -707,12 +784,20 @@ impl RoomService {
     // -- receipts.rs --------------------------------------------------------
 
     pub async fn send_receipt(
-        &self, room_id: &str, user_id: &str, event_id: &str, receipt_type: &str, body: &serde_json::Value,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        receipt_type: &str,
+        body: &serde_json::Value,
     ) -> ApiResult<()> {
         self.messaging.send_receipt(room_id, user_id, event_id, receipt_type, body).await
     }
     pub async fn get_receipts(
-        &self, room_id: &str, receipt_type: &str, event_id: &str,
+        &self,
+        room_id: &str,
+        receipt_type: &str,
+        event_id: &str,
     ) -> ApiResult<Vec<synapse_storage::Receipt>> {
         self.messaging.get_receipts(room_id, receipt_type, event_id).await
     }
@@ -720,20 +805,26 @@ impl RoomService {
     // -- read_markers.rs ----------------------------------------------------
 
     pub async fn update_read_marker(
-        &self, room_id: &str, user_id: &str, event_id: &str, marker_type: &str,
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_id: &str,
+        marker_type: &str,
     ) -> ApiResult<()> {
         self.messaging.update_read_marker(room_id, user_id, event_id, marker_type).await
     }
-    pub async fn set_read_markers(
-        &self, room_id: &str, user_id: &str, body: &serde_json::Value,
-    ) -> ApiResult<()> {
+    pub async fn set_read_markers(&self, room_id: &str, user_id: &str, body: &serde_json::Value) -> ApiResult<()> {
         self.messaging.set_read_markers(room_id, user_id, body).await
     }
 
     // -- burn_after_read.rs -------------------------------------------------
 
     pub async fn process_read_receipt(
-        &self, room_id: &str, event_id: &str, _user_id: &str, _custom_delay_secs: Option<u64>,
+        &self,
+        room_id: &str,
+        event_id: &str,
+        _user_id: &str,
+        _custom_delay_secs: Option<u64>,
     ) -> ApiResult<()> {
         self.messaging.process_read_receipt(room_id, event_id, _user_id, _custom_delay_secs).await
     }
@@ -774,29 +865,37 @@ impl RoomService {
 
     // -- tags.rs -------------------------------------------------------------
 
-    pub async fn get_all_tags(&self, user_id: &str) -> Result<Vec<synapse_storage::room_tag::RoomTag>, super::tags::TagsError> {
+    pub async fn get_all_tags(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<synapse_storage::room_tag::RoomTag>, super::tags::TagsError> {
         self.state.get_all_tags(user_id).await
     }
     pub async fn get_tags(
-        &self, user_id: &str, room_id: &str,
+        &self,
+        user_id: &str,
+        room_id: &str,
     ) -> Result<Vec<synapse_storage::room_tag::RoomTag>, super::tags::TagsError> {
         self.state.get_tags(user_id, room_id).await
     }
     pub async fn add_tag(
-        &self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>,
+        &self,
+        user_id: &str,
+        room_id: &str,
+        tag: &str,
+        order: Option<f64>,
     ) -> Result<(), super::tags::TagsError> {
         self.state.add_tag(user_id, room_id, tag, order).await
     }
-    pub async fn remove_tag(
-        &self, user_id: &str, room_id: &str, tag: &str,
-    ) -> Result<(), super::tags::TagsError> {
+    pub async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), super::tags::TagsError> {
         self.state.remove_tag(user_id, room_id, tag).await
     }
 
     // -- info.rs -------------------------------------------------------------
 
     pub async fn get_room_encryption_status(
-        &self, room_id: &str,
+        &self,
+        room_id: &str,
     ) -> ApiResult<synapse_storage::room::RoomEncryptionStatus> {
         self.state.get_room_encryption_status(room_id).await
     }
@@ -822,7 +921,10 @@ impl RoomService {
         self.state.unblock_room(room_id).await
     }
     pub async fn get_public_rooms_paginated(
-        &self, limit: i64, since_ts: Option<i64>, since_room_id: Option<&str>,
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_room_id: Option<&str>,
     ) -> ApiResult<Vec<synapse_storage::Room>> {
         self.state.get_public_rooms_paginated(limit, since_ts, since_room_id).await
     }
@@ -836,7 +938,10 @@ impl RoomService {
         self.state.get_single_room_stats(room_id).await
     }
     pub async fn get_all_rooms_with_members(
-        &self, limit: i64, from: Option<synapse_storage::RoomSearchCursor>, order_by: synapse_storage::RoomSearchOrder,
+        &self,
+        limit: i64,
+        from: Option<synapse_storage::RoomSearchCursor>,
+        order_by: synapse_storage::RoomSearchOrder,
     ) -> ApiResult<(Vec<(synapse_storage::Room, i64)>, Option<String>)> {
         self.state.get_all_rooms_with_members(limit, from, order_by).await
     }
@@ -868,8 +973,13 @@ impl RoomService {
         self.state.get_room_version(room_id).await
     }
     pub async fn search_all_rooms_admin(
-        &self, search_term: Option<&str>, limit: i64, order_by: synapse_storage::RoomSearchOrder,
-        cursor: Option<synapse_storage::RoomSearchCursor>, is_public: Option<bool>, is_encrypted: Option<bool>,
+        &self,
+        search_term: Option<&str>,
+        limit: i64,
+        order_by: synapse_storage::RoomSearchOrder,
+        cursor: Option<synapse_storage::RoomSearchCursor>,
+        is_public: Option<bool>,
+        is_encrypted: Option<bool>,
     ) -> ApiResult<(Vec<serde_json::Value>, i64, Option<String>)> {
         self.state.search_all_rooms_admin(search_term, limit, order_by, cursor, is_public, is_encrypted).await
     }
@@ -894,7 +1004,10 @@ impl RoomService {
         self.lifecycle.get_tombstone_event(room_id).await
     }
     pub async fn migrate_room_content(
-        &self, source_room_id: &str, target_room_id: &str, user_id: &str,
+        &self,
+        source_room_id: &str,
+        target_room_id: &str,
+        user_id: &str,
     ) -> ApiResult<()> {
         self.lifecycle.migrate_room_content(source_room_id, target_room_id, user_id).await
     }

@@ -60,10 +60,6 @@ impl LifecycleService {
     /// `create_event`, `join_room`, `invite_user`, `room_summary_service`
     /// access). Panics if called before `set_room_service()` wiring.
     pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service
-            .read()
-            .await
-            .clone()
-            .expect("LifecycleService::room_service back-reference not wired")
+        self.room_service.read().await.clone().expect("LifecycleService::room_service back-reference not wired")
     }
 }

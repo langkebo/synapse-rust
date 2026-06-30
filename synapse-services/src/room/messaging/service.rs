@@ -78,11 +78,7 @@ impl MessagingService {
 
     /// Resolve the room_service back-reference, panicking if not set.
     pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service
-            .read()
-            .await
-            .clone()
-            .expect("MessagingService::room_service back-reference not wired")
+        self.room_service.read().await.clone().expect("MessagingService::room_service back-reference not wired")
     }
 
     /// Dispatch an event to application services (best-effort).

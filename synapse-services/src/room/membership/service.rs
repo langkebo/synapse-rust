@@ -94,9 +94,7 @@ impl MembershipService {
     }
 
     /// Get the federation client, returning an error if not configured.
-    pub(crate) async fn require_federation_client(
-        &self,
-    ) -> ApiResult<Arc<synapse_federation::FederationClient>> {
+    pub(crate) async fn require_federation_client(&self) -> ApiResult<Arc<synapse_federation::FederationClient>> {
         self.federation_client
             .read()
             .await
@@ -150,11 +148,7 @@ impl MembershipService {
 
     /// Check if the destination server is allowed by the room's server ACL
     /// policy before making an outbound federation request.
-    pub(crate) async fn check_outbound_server_acl(
-        &self,
-        room_id: &str,
-        destination: &str,
-    ) -> ApiResult<()> {
+    pub(crate) async fn check_outbound_server_acl(&self, room_id: &str, destination: &str) -> ApiResult<()> {
         // Only check if the room exists locally (has state events)
         if !self.room_storage.room_exists(room_id).await? {
             return Ok(());
@@ -197,15 +191,10 @@ impl MembershipService {
         };
 
         // 1. Fetch prev_events (forward extremities of the room).
-        let prev_events = self
-            .event_storage
-            .get_latest_event_ids_in_room(&event.room_id, 10)
-            .await
-            .unwrap_or_default();
+        let prev_events = self.event_storage.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
 
         // Exclude the event itself.
-        let prev_events: Vec<String> =
-            prev_events.into_iter().filter(|id| id != &event.event_id).collect();
+        let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
 
         // 2. Build the PDU JSON.
         let mut pdu = json!({
@@ -235,21 +224,14 @@ impl MembershipService {
             .map_err(|e| ApiError::internal_with_log("Failed to get signing key", &e))?
             .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
 
-        sign_and_hash_event(
-            &self.server_name,
-            &signing_key.key_id,
-            &signing_key.secret_key,
-            &mut pdu,
-        )
-        .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
+        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
+            .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
 
         // 4. Persist signatures and hashes back to the events table.
         let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
         let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
-        if let Err(e) = self
-            .event_storage
-            .update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes)
-            .await
+        if let Err(e) =
+            self.event_storage.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
         {
             ::tracing::warn!(
                 event_id = %event.event_id,
@@ -263,9 +245,7 @@ impl MembershipService {
         if let Some(room_service) = self.room_service.read().await.as_ref() {
             let broadcaster_guard = room_service.event_broadcaster.read().await;
             if let Some(ref broadcaster) = *broadcaster_guard {
-                if let Err(e) =
-                    broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await
-                {
+                if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
                     ::tracing::warn!(
                         event_id = %event.event_id,
                         room_id = %event.room_id,
@@ -283,10 +263,6 @@ impl MembershipService {
     /// Used for methods that require the back-reference (e.g., room_summary_service
     /// access). Panics if called before `set_room_service()` wiring.
     pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service
-            .read()
-            .await
-            .clone()
-            .expect("MembershipService::room_service back-reference not wired")
+        self.room_service.read().await.clone().expect("MembershipService::room_service back-reference not wired")
     }
 }
