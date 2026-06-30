@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
+use super::SlidingSyncService;
 use serde_json::{json, Value};
 use synapse_common::error::ApiError;
-use super::SlidingSyncService;
 
 impl SlidingSyncService {
     pub(super) async fn build_extensions_response(
@@ -233,11 +233,8 @@ impl SlidingSyncService {
             otk_counts.insert(algo, json!(count));
         }
 
-        let unused_fallback_types = self
-            .device_key_storage
-            .get_unused_fallback_key_types(user_id, device_id)
-            .await
-            .unwrap_or_else(|_| vec![]);
+        let unused_fallback_types =
+            self.device_key_storage.get_unused_fallback_key_types(user_id, device_id).await.unwrap_or_else(|_| vec![]);
 
         Ok(json!({
             "device_lists": {

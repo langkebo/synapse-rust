@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use sqlx::PgPool;
+use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
 use synapse_storage::{RateLimitStorage, UserStore};

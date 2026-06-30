@@ -1065,8 +1065,11 @@ impl AdminServices {
 
         let admin_media_service =
             Arc::new(crate::admin_media_service::AdminMediaService::new(pool, user_storage.clone()));
-        let admin_security_service =
-            Arc::new(crate::admin_security_service::AdminSecurityService::new(user_storage.clone(), cache.clone(), pool));
+        let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
+            user_storage.clone(),
+            cache.clone(),
+            pool,
+        ));
         let admin_server_service = Arc::new(crate::admin_server_service::AdminServerService::new(pool.clone()));
         let admin_token_service = Arc::new(crate::admin_token_service::AdminTokenService::new(
             AccessTokenStorage::new(pool),

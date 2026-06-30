@@ -1,9 +1,9 @@
 use super::types::*;
 use super::SyncService;
 use crate::map_internal;
-use synapse_common::*;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use synapse_common::*;
 
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
