@@ -2,8 +2,7 @@ use super::ensure_room_view_access;
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id,
-    AuthenticatedUser,
+    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id, AuthenticatedUser,
 };
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;

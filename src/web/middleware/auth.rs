@@ -1,8 +1,8 @@
 use crate::common::ApiError;
 use crate::web::routes::admin::audit::resolve_request_id;
-use crate::web::utils::auth::bearer_token;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
+use crate::web::utils::auth::bearer_token;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, Request};
