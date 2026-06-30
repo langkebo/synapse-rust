@@ -6,9 +6,6 @@
 use std::sync::Arc;
 use synapse_common::validation::Validator;
 use synapse_storage::UserStore;
-use tokio::sync::RwLock;
-
-use super::super::service::RoomService;
 
 /// Domain service for room lifecycle operations — create, upgrade, and
 /// migration.
@@ -20,10 +17,9 @@ pub struct LifecycleService {
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) validator: Arc<Validator>,
     pub(crate) server_name: String,
-    /// Back-reference to RoomService for cross-domain calls (e.g.,
-    /// `create_event`, `join_room`, `invite_user`, `room_summary_service`).
-    /// Set via `set_room_service` after RoomService is wrapped in `Arc`.
-    pub(crate) room_service: Arc<RwLock<Option<Arc<RoomService>>>>,
+    /// Direct reference to RoomSummaryService, injected during construction
+    /// instead of via a back-reference to RoomService.
+    pub(crate) room_summary_service: Arc<crate::room::summary::RoomSummaryService>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
@@ -34,6 +30,7 @@ pub struct LifecycleServiceConfig {
     pub user_storage: Arc<dyn UserStore>,
     pub validator: Arc<Validator>,
     pub server_name: String,
+    pub room_summary_service: Arc<crate::room::summary::RoomSummaryService>,
 }
 
 impl LifecycleService {
@@ -45,21 +42,7 @@ impl LifecycleService {
             user_storage: config.user_storage,
             validator: config.validator,
             server_name: config.server_name,
-            room_service: Arc::new(RwLock::new(None)),
+            room_summary_service: config.room_summary_service,
         }
-    }
-
-    /// Post-construction wiring: set the back-reference to the enclosing
-    /// [`RoomService`]. Called once after `RoomService` is wrapped in `Arc`.
-    pub async fn set_room_service(&self, room_service: Arc<RoomService>) {
-        *self.room_service.write().await = Some(room_service);
-    }
-
-    /// Resolve the room_service back-reference, panicking if not set.
-    /// Used for methods that require the back-reference (e.g.,
-    /// `create_event`, `join_room`, `invite_user`, `room_summary_service`
-    /// access). Panics if called before `set_room_service()` wiring.
-    pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service.read().await.clone().expect("LifecycleService::room_service back-reference not wired")
     }
 }

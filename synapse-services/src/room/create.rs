@@ -411,8 +411,7 @@ impl LifecycleService {
             is_direct: config.is_direct,
             is_space: Some(config.room_type.as_deref() == Some("m.space")),
         };
-        let room_svc = self.room_service_ref().await;
-        if let Err(e) = room_svc.room_summary_service.create_summary(summary_request).await {
+        if let Err(e) = self.room_summary_service.create_summary(summary_request).await {
             ::tracing::warn!(
                 error = %e,
                 room_id = %room_id,
