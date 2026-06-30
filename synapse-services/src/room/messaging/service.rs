@@ -51,9 +51,9 @@ pub struct MessagingServiceConfig {
     pub beacon_service: Option<()>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
-    pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
-    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
-    pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
+    pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
+    pub key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
 }
 
@@ -70,10 +70,10 @@ impl MessagingService {
             beacon_service: None,
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
-            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
+            event_broadcaster: config.event_broadcaster,
             relations_storage: config.relations_storage.clone(),
-            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
-            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
+            app_service_manager: config.app_service_manager,
+            key_rotation_manager: config.key_rotation_manager,
             room_summary_service: config.room_summary_service,
         }
     }

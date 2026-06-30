@@ -126,8 +126,8 @@ impl RoomService {
             user_storage: config.user_storage.clone(),
             auth_service: config.auth_service.clone(),
             server_name: config.server_name.clone(),
-            federation_client: config.federation_client.clone(),
-            key_rotation_manager: config.key_rotation_manager.clone(),
+            federation_client: infra.federation_client.clone(),
+            key_rotation_manager: infra.key_rotation_manager.clone(),
             event_broadcaster: infra.event_broadcaster.clone(),
             room_summary_service: config.room_summary_service.clone(),
         };
@@ -144,9 +144,9 @@ impl RoomService {
             beacon_service: None,
             task_queue: config.task_queue.clone(),
             relations_storage: config.relations_storage.clone(),
-            event_broadcaster: config.event_broadcaster.clone(),
-            app_service_manager: config.app_service_manager.clone(),
-            key_rotation_manager: config.key_rotation_manager.clone(),
+            event_broadcaster: infra.event_broadcaster.clone(),
+            app_service_manager: infra.app_service_manager.clone(),
+            key_rotation_manager: infra.key_rotation_manager.clone(),
             room_summary_service: config.room_summary_service.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
@@ -1639,8 +1639,8 @@ mod tests {
             user_storage: user_storage.clone(),
             auth_service: auth_service.clone(),
             server_name: "example.com".to_string(),
-            federation_client: None,
-            key_rotation_manager: None,
+            federation_client: Arc::new(RwLock::new(None)),
+            key_rotation_manager: Arc::new(RwLock::new(None)),
             event_broadcaster: Arc::new(RwLock::new(None)),
             room_summary_service: room_summary_service.clone(),
         };
@@ -1657,9 +1657,9 @@ mod tests {
             beacon_service: None,
             task_queue: None,
             relations_storage: Arc::new(synapse_storage::relations::RelationsStorage::new(&pool)),
-            event_broadcaster: None,
-            app_service_manager: None,
-            key_rotation_manager: None,
+            event_broadcaster: Arc::new(RwLock::new(None)),
+            app_service_manager: Arc::new(RwLock::new(None)),
+            key_rotation_manager: Arc::new(RwLock::new(None)),
             room_summary_service: room_summary_service.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
