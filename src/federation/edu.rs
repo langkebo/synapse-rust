@@ -180,20 +180,12 @@ async fn handle_device_list_update_edu(
     let change_type =
         if content.get("deleted").and_then(|v| v.as_bool()).unwrap_or(false) { "deleted" } else { "updated" };
 
-    let pool = state.services.account.device_storage.pool().as_ref();
-    let result = sqlx::query(
-        r#"
-        INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
-        VALUES ($1, $2, $3, $4, $4)
-        ON CONFLICT DO NOTHING
-        "#,
-    )
-    .bind(user_id)
-    .bind(device_id)
-    .bind(change_type)
-    .bind(stream_id)
-    .execute(pool)
-    .await;
+    let result = state
+        .services
+        .account
+        .device_storage
+        .insert_device_list_change(user_id, device_id, change_type, stream_id)
+        .await;
 
     match result {
         Ok(_) => {
