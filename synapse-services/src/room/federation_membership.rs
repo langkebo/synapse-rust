@@ -18,89 +18,13 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::{json, Value};
-use std::sync::Arc;
 use synapse_common::generate_event_id;
-use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::CreateEventParams;
 
-use super::service::RoomService;
+use super::MembershipService;
 
-impl RoomService {
-    // =========================================================================
-    // Helpers
-    // =========================================================================
-
-    /// Extract the server name from a Matrix ID (`@user:server` or `!room:server`).
-    fn server_name_from_id(id: &str) -> Option<&str> {
-        id.rsplit_once(':').map(|(_, server)| server)
-    }
-
-    /// Return `true` if the given Matrix ID belongs to a remote server.
-    fn is_remote_id(id: &str, local_server: &str) -> bool {
-        Self::server_name_from_id(id).is_some_and(|srv| srv != local_server)
-    }
-
-    /// Get the federation client, returning an error if not configured.
-    async fn require_federation_client(&self) -> ApiResult<Arc<synapse_federation::FederationClient>> {
-        self.federation_client
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| ApiError::internal("Federation client not configured".to_string()))
-    }
-
-    /// Get the current signing key, returning an error if not configured.
-    async fn require_signing_key(&self) -> ApiResult<SigningKey> {
-        let key_rotation_manager = self
-            .key_rotation_manager
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| ApiError::internal("Key rotation manager not configured".to_string()))?;
-        key_rotation_manager
-            .get_current_key()
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to get signing key", &e))?
-            .ok_or_else(|| ApiError::internal("No signing key available".to_string()))
-    }
-
-    /// Check if the destination server is allowed by the room's server ACL
-    /// policy before making an outbound federation request.
-    ///
-    /// If the room doesn't exist locally or has no `m.room.server_acl` event,
-    /// the check passes (all servers are allowed). This only enforces ACLs for
-    /// rooms that already have a local state.
-    async fn check_outbound_server_acl(&self, room_id: &str, destination: &str) -> ApiResult<()> {
-        // Only check if the room exists locally (has state events)
-        if !self.room_storage.room_exists(room_id).await? {
-            return Ok(());
-        }
-
-        let acl_events = self.get_state_events_by_type(room_id, "m.room.server_acl").await?;
-        let Some(acl_event) = acl_events.first() else {
-            return Ok(());
-        };
-
-        let Some(acl_content) = acl_event.get("content") else {
-            return Ok(());
-        };
-
-        let Some(acl) = synapse_federation::ServerAclContent::from_value(acl_content) else {
-            tracing::warn!(room_id = %room_id, destination = %destination, "Failed to parse m.room.server_acl content for outbound check");
-            return Ok(());
-        };
-
-        if !acl.is_server_allowed(destination) {
-            return Err(ApiError::forbidden(format!(
-                "Server '{}' is denied by room ACL for room '{}'",
-                destination, room_id
-            )));
-        }
-
-        Ok(())
-    }
-
+impl MembershipService {
     // =========================================================================
     // Outbound federation join
     // =========================================================================
@@ -531,20 +455,6 @@ impl RoomService {
         }
 
         Ok(())
-    }
-
-    /// Check if a user ID belongs to a remote server (relative to this
-    /// homeserver).  Public so route handlers can decide between local and
-    /// federation invite paths.
-    pub fn is_remote_user(&self, user_id: &str) -> bool {
-        Self::is_remote_id(user_id, &self.server_name)
-    }
-
-    /// Check if a room ID belongs to a remote server (relative to this
-    /// homeserver).  Public so route handlers can decide between local and
-    /// federation join paths.
-    pub fn is_remote_room(&self, room_id: &str) -> bool {
-        Self::is_remote_id(room_id, &self.server_name)
     }
 
     // =========================================================================

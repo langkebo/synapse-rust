@@ -5,9 +5,9 @@ use serde_json::json;
 use synapse_common::generate_event_id;
 use synapse_storage::CreateEventParams;
 
-use super::service::RoomService;
+use super::MembershipService;
 
-impl RoomService {
+impl MembershipService {
     pub async fn invite_user(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
         if !self
             .room_storage

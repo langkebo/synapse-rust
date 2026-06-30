@@ -10,6 +10,8 @@ use synapse_storage::StateEvent;
 use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
+use super::membership::service::{MembershipService, MembershipServiceConfig};
+
 #[derive(Debug, Default, Clone)]
 pub struct CreateRoomConfig {
     pub visibility: Option<String>,
@@ -64,21 +66,30 @@ pub struct RoomServiceConfig {
 }
 
 pub struct RoomService {
+    /// Domain sub-service: membership operations (join, leave, invite, etc.)
+    pub membership: MembershipService,
+    #[allow(dead_code)]
     pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
+    #[allow(dead_code)]
     pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub(crate) room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
     pub user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
     pub(crate) auth_service: Arc<dyn Auth>,
     pub validator: Arc<Validator>,
+    #[allow(dead_code)]
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
+    #[allow(dead_code)]
     pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
     pub(crate) relations_storage: synapse_storage::relations::RelationsStorage,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
+    #[allow(dead_code)]
     pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
+    #[allow(dead_code)]
     pub(crate) federation_client: Arc<RwLock<Option<Arc<synapse_federation::FederationClient>>>>,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
@@ -89,7 +100,20 @@ pub struct RoomService {
 
 impl RoomService {
     pub fn new(config: RoomServiceConfig) -> Self {
+        let membership_cfg = MembershipServiceConfig {
+            member_storage: config.member_storage.clone(),
+            room_storage: config.room_storage.clone(),
+            event_storage: config.event_storage.clone(),
+            user_storage: config.user_storage.clone(),
+            auth_service: config.auth_service.clone(),
+            server_name: config.server_name.clone(),
+            federation_client: config.federation_client.clone(),
+            key_rotation_manager: config.key_rotation_manager.clone(),
+        };
+        let membership = MembershipService::new(membership_cfg);
+
         Self {
+            membership,
             room_storage: config.room_storage,
             member_storage: config.member_storage,
             event_storage: config.event_storage,
@@ -292,6 +316,140 @@ impl RoomService {
         Ok(json!(rooms))
     }
 
+    // =========================================================================
+    // Membership forwarding methods — delegate to MembershipService
+    // =========================================================================
+
+    pub async fn get_room_members(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
+        self.membership.get_room_members(room_id, user_id).await
+    }
+    pub async fn get_joined_rooms(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        self.membership.get_joined_rooms(user_id).await
+    }
+    pub async fn get_shared_room_users(&self, user_id: &str) -> ApiResult<Vec<String>> {
+        self.membership.get_shared_room_users(user_id).await
+    }
+    pub async fn share_common_room(&self, user_id: &str, other_user_id: &str) -> ApiResult<bool> {
+        self.membership.share_common_room(user_id, other_user_id).await
+    }
+    pub async fn share_common_rooms_batch(&self, user_id: &str, other_user_ids: &[String]) -> ApiResult<Vec<String>> {
+        self.membership.share_common_rooms_batch(user_id, other_user_ids).await
+    }
+    pub async fn get_joined_members_with_profiles(&self, room_id: &str) -> ApiResult<Vec<storage::RoomMember>> {
+        self.membership.get_joined_members_with_profiles(room_id).await
+    }
+    pub async fn get_membership_history(&self, room_id: &str, limit: i64) -> ApiResult<Vec<storage::RoomMember>> {
+        self.membership.get_membership_history(room_id, limit).await
+    }
+    pub async fn get_room_members_by_membership(
+        &self, room_id: &str, membership: &str,
+    ) -> ApiResult<Vec<storage::RoomMember>> {
+        self.membership.get_room_members_by_membership(room_id, membership).await
+    }
+    pub async fn has_any_non_banned_member_from_server(&self, room_id: &str, server_name: &str) -> ApiResult<bool> {
+        self.membership.has_any_non_banned_member_from_server(room_id, server_name).await
+    }
+    pub async fn user_shares_room_with_server(&self, user_id: &str, server_name: &str) -> ApiResult<bool> {
+        self.membership.user_shares_room_with_server(user_id, server_name).await
+    }
+    pub async fn filter_users_sharing_room_with_server(
+        &self, user_ids: &[String], server_name: &str,
+    ) -> ApiResult<std::collections::HashSet<String>> {
+        self.membership.filter_users_sharing_room_with_server(user_ids, server_name).await
+    }
+    pub async fn get_room_membership(&self, room_id: &str, user_id: &str) -> ApiResult<Option<String>> {
+        self.membership.get_room_membership(room_id, user_id).await
+    }
+    pub async fn get_room_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<Option<storage::RoomMember>> {
+        self.membership.get_room_member_record(room_id, user_id).await
+    }
+    pub async fn remove_member_record(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.remove_member_record(room_id, user_id).await
+    }
+    pub async fn get_room_members_paginated_admin(
+        &self, room_id: &str, membership: &str, limit: i64, from: Option<&str>,
+    ) -> ApiResult<Vec<storage::RoomMember>> {
+        self.membership.get_room_members_paginated_admin(room_id, membership, limit, from).await
+    }
+    pub async fn get_room_member_count_admin(&self, room_id: &str) -> ApiResult<i64> {
+        self.membership.get_room_member_count_admin(room_id).await
+    }
+    pub async fn admin_ban_user_membership(&self, room_id: &str, user_id: &str, banned_by: &str) -> ApiResult<()> {
+        self.membership.admin_ban_user_membership(room_id, user_id, banned_by).await
+    }
+    pub async fn admin_unban_user_membership(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.admin_unban_user_membership(room_id, user_id).await
+    }
+    pub async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> ApiResult<()> {
+        self.membership.set_ban_reason(room_id, user_id, reason).await
+    }
+    pub async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> ApiResult<()> {
+        self.membership.force_leave_membership(room_id, user_id, now).await
+    }
+    pub async fn decrement_member_count(&self, room_id: &str) -> ApiResult<()> {
+        self.membership.decrement_member_count(room_id).await
+    }
+    pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
+        self.membership.get_invited_members_count(room_id).await
+    }
+    pub async fn add_member(
+        &self, room_id: &str, user_id: &str, membership: &str,
+        display_name: Option<&str>, join_reason: Option<&str>,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> ApiResult<storage::RoomMember> {
+        self.membership.add_member(room_id, user_id, membership, display_name, join_reason, tx).await
+    }
+    pub async fn join_room_with_via_servers(
+        &self, room_id: &str, user_id: &str, via_servers: &[String],
+    ) -> ApiResult<()> {
+        self.membership.join_room_with_via_servers(room_id, user_id, via_servers).await
+    }
+    pub async fn join_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.join_room(room_id, user_id).await
+    }
+    pub async fn leave_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.leave_room(room_id, user_id).await
+    }
+    pub async fn forget_room(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.forget_room(room_id, user_id).await
+    }
+    pub async fn invite_user(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+        self.membership.invite_user(room_id, inviter_id, invitee_id).await
+    }
+    pub async fn knock_room(&self, room_id: &str, user_id: &str, reason: Option<&str>) -> ApiResult<()> {
+        self.membership.knock_room(room_id, user_id, reason).await
+    }
+    pub async fn ban_user(&self, room_id: &str, user_id: &str, banned_by: &str, reason: Option<&str>) -> ApiResult<()> {
+        self.membership.ban_user(room_id, user_id, banned_by, reason).await
+    }
+    pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
+        self.membership.unban_user(room_id, user_id, unbanned_by).await
+    }
+    pub async fn kick_user(
+        &self, room_id: &str, target_user_id: &str, kicked_by: &str, reason: Option<&str>,
+    ) -> ApiResult<()> {
+        self.membership.kick_user(room_id, target_user_id, kicked_by, reason).await
+    }
+    pub async fn join_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.join_room_via_federation(destination, room_id, user_id).await
+    }
+    pub async fn leave_room_via_federation(&self, destination: &str, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.membership.leave_room_via_federation(destination, room_id, user_id).await
+    }
+    pub async fn invite_user_via_federation(&self, room_id: &str, inviter_id: &str, invitee_id: &str) -> ApiResult<()> {
+        self.membership.invite_user_via_federation(room_id, inviter_id, invitee_id).await
+    }
+    pub async fn exchange_third_party_invite_via_federation(
+        &self, destination: &str, room_id: &str, invite_event: &Value,
+    ) -> ApiResult<Value> {
+        self.membership.exchange_third_party_invite_via_federation(destination, room_id, invite_event).await
+    }
+    pub fn is_remote_user(&self, user_id: &str) -> bool {
+        self.membership.is_remote_user(user_id)
+    }
+    pub fn is_remote_room(&self, room_id: &str) -> bool {
+        self.membership.is_remote_room(room_id)
+    }
     /// Collect child room summaries for space hierarchy.
     ///
     /// Given a list of child room IDs, loads room metadata and state events
@@ -823,22 +981,41 @@ mod tests {
         let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
         let metrics = Arc::new(synapse_common::metrics::MetricsCollector::new());
         let security = synapse_common::config::SecurityConfig::default();
+        let member_storage: Arc<dyn synapse_storage::RoomMemberRepository> =
+            Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost"));
+        let user_storage: Arc<dyn UserStore> = Arc::new(synapse_storage::FakeUserStore::new());
+        let auth_service: Arc<dyn Auth> =
+            Arc::new(crate::auth::AuthService::new(&pool, cache.clone(), metrics, &security, "localhost"));
+        let room_summary_service = Arc::new(crate::room::summary::RoomSummaryService::new(
+            Arc::new(synapse_storage::room_summary::RoomSummaryStorage::new(&pool)),
+            event_storage.clone(),
+            None,
+        ));
+
+        let membership_cfg = MembershipServiceConfig {
+            member_storage: member_storage.clone(),
+            room_storage: room_storage.clone(),
+            event_storage: event_storage.clone(),
+            user_storage: user_storage.clone(),
+            auth_service: auth_service.clone(),
+            server_name: "example.com".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+        };
+        let membership = MembershipService::new(membership_cfg);
 
         RoomService {
+            membership,
             room_storage,
-            member_storage: Arc::new(synapse_storage::membership::RoomMemberStorage::new(&pool, "localhost")),
+            member_storage,
             room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
-            user_storage: Arc::new(synapse_storage::FakeUserStore::new()),
-            auth_service: Arc::new(crate::auth::AuthService::new(&pool, cache, metrics, &security, "localhost")),
+            user_storage,
+            auth_service,
             validator: Arc::new(synapse_common::validation::Validator::default()),
             server_name: "example.com".to_string(),
             task_queue: None,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
-            room_summary_service: Arc::new(crate::room::summary::RoomSummaryService::new(
-                Arc::new(synapse_storage::room_summary::RoomSummaryStorage::new(&pool)),
-                event_storage.clone(),
-                None,
-            )),
+            room_summary_service,
             event_storage,
             relations_storage: synapse_storage::relations::RelationsStorage::new(&pool),
             event_broadcaster: Arc::new(RwLock::new(None)),

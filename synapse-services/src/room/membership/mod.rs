@@ -3,13 +3,15 @@
 //! Action methods live in [`membership_actions`].
 //! Moderation methods live in [`membership_moderation`].
 
+pub mod service;
+
 use crate::common::error::{ApiError, ApiResult};
 use crate::*;
 use serde_json::json;
 
-use super::service::RoomService;
+use service::MembershipService;
 
-impl RoomService {
+impl MembershipService {
     pub async fn get_room_members(&self, room_id: &str, user_id: &str) -> ApiResult<serde_json::Value> {
         if !self
             .room_storage
@@ -230,7 +232,8 @@ impl RoomService {
     }
 
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
-        let summary = self.room_summary_service.get_summary(room_id).await?;
+        let room_service = self.room_service_ref().await;
+        let summary = room_service.room_summary_service.get_summary(room_id).await?;
         Ok(summary.map(|summary| summary.invited_member_count).unwrap_or(0))
     }
 
@@ -261,7 +264,8 @@ impl RoomService {
                 last_active_ts: member.joined_ts.or(member.updated_ts),
             };
 
-            if let Err(error) = self.room_summary_service.add_member(request).await {
+            let room_service = self.room_service_ref().await;
+            if let Err(error) = room_service.room_summary_service.add_member(request).await {
                 ::tracing::warn!(
                     error = %error,
                     room_id = %room_id,
@@ -271,7 +275,7 @@ impl RoomService {
                 );
             }
 
-            if let Err(error) = self.room_summary_service.recalculate_heroes(room_id).await {
+            if let Err(error) = room_service.room_summary_service.recalculate_heroes(room_id).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, "Failed to recalculate room summary heroes");
             }
         }
