@@ -36,7 +36,7 @@ impl UserId {
 
 // ============== Pagination ==============
 
-pub(crate) use auth::extract_token_from_headers;
+// extract_token_from_headers removed — use crate::web::utils::auth::bearer_token directly
 pub use auth::{AdminUser, AuthExtractor, AuthenticatedUser, OptionalAuthenticatedUser};
 pub use json::MatrixJson;
 pub use pagination::Pagination;
