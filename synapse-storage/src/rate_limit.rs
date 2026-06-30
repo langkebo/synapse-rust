@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sqlx::PgPool;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -6,17 +8,18 @@ pub struct RateLimitRecord {
     pub burst_count: Option<i32>,
 }
 
-#[derive(Clone, Default)]
-pub struct RateLimitStorage;
+#[derive(Clone)]
+pub struct RateLimitStorage {
+    pool: Arc<PgPool>,
+}
 
 impl RateLimitStorage {
-    pub fn new() -> Self {
-        Self
+    pub fn new(pool: &Arc<PgPool>) -> Self {
+        Self { pool: pool.clone() }
     }
 
     pub async fn get_user_rate_limit(
         &self,
-        pool: &PgPool,
         user_id: &str,
     ) -> Result<Option<RateLimitRecord>, sqlx::Error> {
         sqlx::query_as::<_, RateLimitRecord>(
@@ -27,13 +30,12 @@ impl RateLimitStorage {
             ",
         )
         .bind(user_id)
-        .fetch_optional(pool)
+        .fetch_optional(self.pool.as_ref())
         .await
     }
 
     pub async fn upsert_user_rate_limit(
         &self,
-        pool: &PgPool,
         user_id: &str,
         messages_per_second: f64,
         burst_count: i32,
@@ -50,12 +52,12 @@ impl RateLimitStorage {
         .bind(user_id)
         .bind(messages_per_second)
         .bind(burst_count)
-        .execute(pool)
+        .execute(self.pool.as_ref())
         .await?;
         Ok(())
     }
 
-    pub async fn delete_user_rate_limit(&self, pool: &PgPool, user_id: &str) -> Result<(), sqlx::Error> {
+    pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             DELETE FROM rate_limits
@@ -63,7 +65,7 @@ impl RateLimitStorage {
             ",
         )
         .bind(user_id)
-        .execute(pool)
+        .execute(self.pool.as_ref())
         .await?;
         Ok(())
     }
