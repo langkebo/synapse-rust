@@ -22,6 +22,9 @@ pub trait DeviceRepository: Send + Sync {
 
     async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
 
+    /// Get a device by device_id only (cross-user lookup for conflict detection).
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
+
     async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error>;
 
     // update_device is split into update_device_display_name +
@@ -42,7 +45,21 @@ pub trait DeviceRepository: Send + Sync {
 
     async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
 
+    /// Delete a single device and return the count of rows affected.
+    async fn delete_device_returning_count(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<u64, sqlx::Error>;
+
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error>;
+
+    /// Delete multiple devices in a batch and return the count of rows affected.
+    async fn delete_devices_batch(
+        &self,
+        user_id: &str,
+        device_ids: &[String],
+    ) -> Result<u64, sqlx::Error>;
 
     async fn get_device_keys_for_users(&self, user_ids: &[String])
         -> Result<HashMap<String, Vec<Device>>, sqlx::Error>;

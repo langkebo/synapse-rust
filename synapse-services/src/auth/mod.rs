@@ -34,8 +34,8 @@ const DEFAULT_POWER_LEVEL: i64 = 50;
 
 #[derive(Clone)]
 pub struct AuthService {
-    pub user_storage: UserStorage,
-    pub device_storage: DeviceStorage,
+    pub user_storage: Arc<dyn UserStore>,
+    pub device_storage: Arc<dyn DeviceRepository>,
     pub token_storage: AccessTokenStorage,
     pub refresh_token_storage: Arc<dyn RefreshTokenRepository>,
     pub room_storage: RoomStorage,
@@ -76,8 +76,8 @@ impl AuthService {
     ) -> Self {
         let server_name_for_storage = server_name.to_string();
         Self {
-            user_storage: UserStorage::new(pool, cache.clone()),
-            device_storage: DeviceStorage::new(pool),
+            user_storage: Arc::new(UserStorage::new(pool, cache.clone())),
+            device_storage: Arc::new(DeviceStorage::new(pool)),
             token_storage: AccessTokenStorage::new(pool),
             refresh_token_storage: Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool)),
             room_storage: RoomStorage::new(pool),

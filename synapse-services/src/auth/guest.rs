@@ -36,7 +36,7 @@ impl GuestAuthExt for AuthService {
             .map_err(|e| ApiError::internal_with_log("Failed to mark guest user", &e))?;
 
         self.device_storage
-            .create_device(&device_id, &user.user_id, Some("Guest Device"))
+            .create_device(&user.user_id, &device_id, Some("Guest Device"))
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
 
