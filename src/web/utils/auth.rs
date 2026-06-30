@@ -38,6 +38,40 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Result<String, ApiError> {
     Ok(token)
 }
 
+/// Extract bearer token from Authorization header, falling back to
+/// `access_token=` query parameter if the header is missing or invalid.
+pub(crate) fn extract_token(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
+    match bearer_token(headers) {
+        Ok(token) => Ok(token),
+        Err(header_err) => {
+            if let Some(query) = uri.split('?').nth(1) {
+                for pair in query.split('&') {
+                    if let Some(value) = pair.strip_prefix("access_token=") {
+                        return Ok(value.to_string());
+                    }
+                }
+            }
+            Err(header_err)
+        }
+    }
+}
+
+/// Like `extract_token` but returns `None` instead of an error when
+/// no token is found.
+pub(crate) fn extract_token_opt(headers: &HeaderMap, uri: &str) -> Option<String> {
+    if let Some(token) = bearer_token_opt(headers) {
+        return Some(token);
+    }
+    if let Some(query) = uri.split('?').nth(1) {
+        for pair in query.split('&') {
+            if let Some(value) = pair.strip_prefix("access_token=") {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +183,80 @@ mod tests {
         headers.insert("authorization", "Bearer ".parse().unwrap());
         let err = bearer_token(&headers).unwrap_err();
         assert!(err.code_is(MatrixErrorCode::Unauthorized));
+    }
+
+    // === extract_token tests ===
+
+    #[test]
+    fn test_extract_token_from_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        assert_eq!(extract_token(&headers, "/test").unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_from_query_param() {
+        let headers = HeaderMap::new();
+        let uri = "/_matrix/client/v3/sync?access_token=query-token&other=value";
+        assert_eq!(extract_token(&headers, uri).unwrap(), "query-token");
+    }
+
+    #[test]
+    fn test_extract_token_header_takes_priority() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer header-token".parse().unwrap());
+        let uri = "/test?access_token=query-token";
+        assert_eq!(extract_token(&headers, uri).unwrap(), "header-token");
+    }
+
+    #[test]
+    fn test_extract_token_query_only() {
+        let headers = HeaderMap::new();
+        let uri = "/test?access_token=abc123";
+        assert_eq!(extract_token(&headers, uri).unwrap(), "abc123");
+    }
+
+    #[test]
+    fn test_extract_token_no_token_at_all() {
+        let headers = HeaderMap::new();
+        let uri = "/test";
+        assert!(extract_token(&headers, uri).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_query_no_access_token_param() {
+        let headers = HeaderMap::new();
+        let uri = "/test?other_param=value";
+        assert!(extract_token(&headers, uri).is_err());
+    }
+
+    // === extract_token_opt tests ===
+
+    #[test]
+    fn test_extract_token_opt_from_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer my-token".parse().unwrap());
+        assert_eq!(extract_token_opt(&headers, "/test"), Some("my-token".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_opt_from_query() {
+        let headers = HeaderMap::new();
+        let uri = "/test?access_token=q-token";
+        assert_eq!(extract_token_opt(&headers, uri), Some("q-token".to_string()));
+    }
+
+    #[test]
+    fn test_extract_token_opt_none() {
+        let headers = HeaderMap::new();
+        assert_eq!(extract_token_opt(&headers, "/test"), None);
+    }
+
+    #[test]
+    fn test_extract_token_opt_empty_bearer() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", "Bearer ".parse().unwrap());
+        let uri = "/test?access_token=fallback";
+        assert_eq!(extract_token_opt(&headers, uri), Some("fallback".to_string()));
     }
 }
