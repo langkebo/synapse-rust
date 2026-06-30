@@ -96,13 +96,7 @@ impl RoomTagRepository for RoomTagStorage {
         self.get_tags(user_id, room_id).await
     }
 
-    async fn add_tag(
-        &self,
-        user_id: &str,
-        room_id: &str,
-        tag: &str,
-        order: Option<f64>,
-    ) -> Result<(), sqlx::Error> {
+    async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error> {
         self.add_tag(user_id, room_id, tag, order).await
     }
 

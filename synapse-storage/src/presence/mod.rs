@@ -660,12 +660,7 @@ impl PresenceRepository for PresenceStorage {
         &self.pool
     }
 
-    async fn set_presence(
-        &self,
-        user_id: &str,
-        presence: &str,
-        status_msg: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
+    async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
         self.set_presence(user_id, presence, status_msg).await
     }
 

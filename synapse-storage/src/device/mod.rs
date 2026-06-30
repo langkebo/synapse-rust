@@ -1000,11 +1000,7 @@ impl DeviceRepository for DeviceStorage {
         self.delete_user_device(user_id, device_id).await.map(|_| ())
     }
 
-    async fn delete_device_returning_count(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<u64, sqlx::Error> {
+    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
         self.delete_user_device(user_id, device_id).await
     }
 
@@ -1012,11 +1008,7 @@ impl DeviceRepository for DeviceStorage {
         self.delete_user_devices(user_id).await
     }
 
-    async fn delete_devices_batch(
-        &self,
-        user_id: &str,
-        device_ids: &[String],
-    ) -> Result<u64, sqlx::Error> {
+    async fn delete_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
         self.delete_user_devices_batch(user_id, device_ids).await
     }
 

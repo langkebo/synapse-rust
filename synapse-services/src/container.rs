@@ -385,7 +385,8 @@ impl ExtensionServices {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
-        let account_data_storage: Arc<dyn synapse_storage::AccountDataRepository> = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        let account_data_storage: Arc<dyn synapse_storage::AccountDataRepository> =
+            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
@@ -672,9 +673,11 @@ impl RoomSyncServices {
         let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
         let event_storage: Arc<dyn EventRepository> = event_storage_concrete.clone();
         let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
-        let relations_storage: Arc<dyn synapse_storage::RelationsRepository> = Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
+        let relations_storage: Arc<dyn synapse_storage::RelationsRepository> =
+            Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
         let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
-        let room_tag_storage: Arc<dyn RoomTagRepository> = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
+        let room_tag_storage: Arc<dyn RoomTagRepository> =
+            Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
 
         let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
             Arc::new(room_summary_storage.clone()),
@@ -965,9 +968,8 @@ impl AdminServices {
             Arc::new(audit_storage.clone()),
         ));
 
-        let refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository> = Arc::new(
-            synapse_storage::refresh_token::RefreshTokenStorage::new(pool),
-        );
+        let refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository> =
+            Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
             refresh_token_storage.clone(),
             config.server.refresh_token_ttl_secs.saturating_mul(1000),
@@ -999,7 +1001,8 @@ impl AdminServices {
         ));
 
         let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
-        let account_data_storage_for_push: Arc<dyn synapse_storage::AccountDataRepository> = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        let account_data_storage_for_push: Arc<dyn synapse_storage::AccountDataRepository> =
+            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service = Arc::new(
             crate::push_notification_service::PushNotificationService::new(Arc::new(push_notification_storage.clone()))
                 .with_account_data_storage(account_data_storage_for_push),
@@ -1158,8 +1161,7 @@ impl ServiceContainer {
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
         let threepid_storage = ThreepidStorage::new(pool);
-        let presence_storage: Arc<dyn PresenceRepository> =
-            Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
+        let presence_storage: Arc<dyn PresenceRepository> = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());

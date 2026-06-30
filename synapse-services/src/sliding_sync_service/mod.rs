@@ -8,8 +8,8 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
-use synapse_storage::PresenceRepository;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
+use synapse_storage::PresenceRepository;
 use synapse_storage::RoomMemberRepository;
 
 mod extensions;

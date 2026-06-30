@@ -1,11 +1,11 @@
 use crate::registration_token_service::RegistrationTokenService;
 use std::sync::Arc;
 use synapse_common::ApiError;
-use synapse_storage::RefreshTokenRepository;
 use synapse_storage::registration_token::{
     CreateRegistrationTokenRequest, RegistrationToken, UpdateRegistrationTokenRequest,
 };
 use synapse_storage::token::AccessTokenStorage;
+use synapse_storage::RefreshTokenRepository;
 use tracing::instrument;
 
 #[derive(Debug, Clone)]

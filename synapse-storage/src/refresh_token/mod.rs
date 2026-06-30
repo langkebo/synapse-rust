@@ -844,16 +844,10 @@ impl RefreshTokenRepository for RefreshTokenStorage {
         device_id: &str,
         reason: &str,
     ) -> Result<i64, sqlx::Error> {
-        self.revoke_all_user_tokens_except_device(user_id, device_id, reason)
-            .await
+        self.revoke_all_user_tokens_except_device(user_id, device_id, reason).await
     }
 
-    async fn revoke_device_tokens(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        reason: &str,
-    ) -> Result<i64, sqlx::Error> {
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
         self.revoke_device_tokens(user_id, device_id, reason).await
     }
 
@@ -891,8 +885,7 @@ impl RefreshTokenRepository for RefreshTokenStorage {
         new_token_hash: &str,
         reason: &str,
     ) -> Result<(), sqlx::Error> {
-        self.record_rotation(family_id, old_token_hash, new_token_hash, reason)
-            .await
+        self.record_rotation(family_id, old_token_hash, new_token_hash, reason).await
     }
 
     async fn get_rotations(&self, family_id: &str) -> Result<Vec<RefreshTokenRotation>, sqlx::Error> {
@@ -908,8 +901,7 @@ impl RefreshTokenRepository for RefreshTokenStorage {
         expires_at: i64,
         reason: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        self.add_to_blacklist(token_hash, token_type, user_id, expires_at, reason)
-            .await
+        self.add_to_blacklist(token_hash, token_type, user_id, expires_at, reason).await
     }
 
     async fn is_blacklisted(&self, token_hash: &str) -> Result<bool, sqlx::Error> {
