@@ -59,6 +59,28 @@ impl FromRef<AppState> for RoomContext {
     }
 }
 
+/// Context for E2EE room-key backup handlers.
+///
+/// Contains only the services needed by the e2ee handler module.
+#[derive(Clone)]
+pub struct E2eeRoomContext {
+    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
+}
+
+impl FromRef<AppState> for E2eeRoomContext {
+    fn from_ref(state: &AppState) -> Self {
+        Self {
+            room_service: state.services.rooms.room_service.clone(),
+            e2ee_backup_service: state.services.e2ee.backup_service.clone(),
+            auth_service: state.services.core.auth_service.clone(),
+            admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
+        }
+    }
+}
+
 /// Context for sync handlers.
 #[derive(Clone)]
 pub struct SyncContext {
