@@ -3,14 +3,16 @@
 //!
 //! Extracted from RoomService as part of the domain split plan (Task 2).
 
-use crate::common::error::ApiResult;
+use crate::common::error::{ApiError, ApiResult};
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::task_queue::RedisTaskQueue;
+use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::event::RoomEvent;
 use tokio::sync::RwLock;
 
-use super::super::service::RoomService;
+use crate::room::summary::RoomSummaryService;
 
 /// Domain service for messaging operations — events, messages, receipts,
 /// read markers, burn-after-read, and federation broadcast.
@@ -29,11 +31,12 @@ pub struct MessagingService {
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
-    /// Back-reference to RoomService for cross-domain calls (e.g.,
-    /// `sign_and_broadcast_event`, `dispatch_appservice_event`,
-    /// `room_summary_service`).
-    /// Set via `set_room_service` after RoomService is wrapped in `Arc`.
-    pub(crate) room_service: Arc<RwLock<Option<Arc<RoomService>>>>,
+    /// Application service manager for dispatching events to bridges.
+    pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
+    /// Server signing key manager for signing locally-produced PDUs.
+    pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
+    /// Room summary service for updating room metadata on events.
+    pub(crate) room_summary_service: Arc<RoomSummaryService>,
 }
 
 /// Configuration for constructing a [`MessagingService`].
@@ -49,6 +52,9 @@ pub struct MessagingServiceConfig {
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
+    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
+    pub room_summary_service: Arc<RoomSummaryService>,
 }
 
 impl MessagingService {
@@ -66,23 +72,13 @@ impl MessagingService {
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
             relations_storage: config.relations_storage.clone(),
-            room_service: Arc::new(RwLock::new(None)),
+            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
+            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
+            room_summary_service: config.room_summary_service,
         }
     }
 
-    /// Post-construction wiring: set the back-reference to the enclosing
-    /// [`RoomService`]. Called once after `RoomService` is wrapped in `Arc`.
-    pub async fn set_room_service(&self, room_service: Arc<RoomService>) {
-        *self.room_service.write().await = Some(room_service);
-    }
-
-    /// Resolve the room_service back-reference, panicking if not set.
-    pub(crate) async fn room_service_ref(&self) -> Arc<RoomService> {
-        self.room_service.read().await.clone().expect("MessagingService::room_service back-reference not wired")
-    }
-
     /// Dispatch an event to application services (best-effort).
-    /// Delegates to RoomService which owns the app_service_manager.
     pub(crate) async fn dispatch_appservice_event(
         &self,
         event_id: &str,
@@ -92,19 +88,95 @@ impl MessagingService {
         content: &serde_json::Value,
         state_key: Option<&str>,
     ) {
-        self.room_service_ref()
-            .await
-            .dispatch_appservice_event(event_id, room_id, event_type, sender, content, state_key)
-            .await;
+        let app_service_manager = self.app_service_manager.read().await.clone();
+        let Some(app_service_manager) = app_service_manager else {
+            return;
+        };
+        if let Err(error) =
+            app_service_manager.enqueue_matching_event(event_id, room_id, event_type, sender, content, state_key).await
+        {
+            ::tracing::warn!(error = %error, "Failed to dispatch appservice event");
+        }
     }
 
     /// Sign a locally-produced event and broadcast it to all remote servers
     /// that have joined members in the room.
     ///
-    /// Best-effort: delegates to RoomService which owns the key_rotation_manager
-    /// and event_broadcaster. In test setups without federation config, this is
-    /// a no-op.
+    /// Best-effort: in test setups without federation config, this is a no-op.
+    /// Broadcast failures are logged but not propagated.
     pub(crate) async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
-        self.room_service_ref().await.sign_and_broadcast_event(event).await
+        // 0. Check if federation signing is configured.
+        let key_rotation_guard = self.key_rotation_manager.read().await;
+        let Some(ref key_rotation_manager) = *key_rotation_guard else {
+            return Ok(());
+        };
+
+        // 1. Fetch prev_events (forward extremities of the room).
+        let prev_events = self.event_storage.get_latest_event_ids_in_room(&event.room_id, 10).await.unwrap_or_default();
+
+        // Exclude the event itself.
+        let prev_events: Vec<String> = prev_events.into_iter().filter(|id| id != &event.event_id).collect();
+
+        // 2. Build the PDU JSON.
+        let mut pdu = json!({
+            "event_id": event.event_id,
+            "room_id": event.room_id,
+            "sender": event.user_id,
+            "user_id": event.user_id,
+            "type": event.event_type,
+            "content": event.content,
+            "origin_server_ts": event.origin_server_ts,
+            "origin": self.server_name,
+            "prev_events": prev_events,
+        });
+
+        if let Some(ref state_key) = event.state_key {
+            pdu["state_key"] = serde_json::Value::String(state_key.clone());
+        }
+
+        if let Some(ref redacts) = event.redacts {
+            pdu["redacts"] = serde_json::Value::String(redacts.clone());
+        }
+
+        // 3. Sign and hash the PDU.
+        let signing_key = key_rotation_manager
+            .get_current_key()
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to get signing key", &e))?
+            .ok_or_else(|| ApiError::internal("No signing key available".to_string()))?;
+
+        sign_and_hash_event(&self.server_name, &signing_key.key_id, &signing_key.secret_key, &mut pdu)
+            .map_err(|e| ApiError::internal(format!("Failed to sign event: {e}")))?;
+
+        // 4. Persist signatures and hashes back to the events table.
+        let signatures = pdu.get("signatures").cloned().unwrap_or(serde_json::Value::Null);
+        let hashes = pdu.get("hashes").cloned().unwrap_or(serde_json::Value::Null);
+        if let Err(e) =
+            self.event_storage.update_event_signatures_and_hashes(&event.event_id, &signatures, &hashes).await
+        {
+            ::tracing::warn!(
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                error = %e,
+                "Failed to persist event signatures/hashes"
+            );
+        }
+
+        // 5. Broadcast to remote servers via event_broadcaster.
+        {
+            let broadcaster_guard = self.event_broadcaster.read().await;
+            if let Some(ref broadcaster) = *broadcaster_guard {
+                if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
+                    ::tracing::warn!(
+                        event_id = %event.event_id,
+                        room_id = %event.room_id,
+                        error = %e,
+                        "Failed to broadcast event to federation peers"
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }

@@ -113,7 +113,7 @@ impl RoomService {
         // can be shared with MembershipService (avoids a separate wrapper).
         let infra = RoomInfrastructure {
             event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster.clone())),
-            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
+            app_service_manager: Arc::new(RwLock::new(config.app_service_manager.clone())),
             key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager.clone())),
             federation_client: Arc::new(RwLock::new(config.federation_client.clone())),
         };
@@ -144,6 +144,9 @@ impl RoomService {
             task_queue: config.task_queue.clone(),
             relations_storage: config.relations_storage.clone(),
             event_broadcaster: config.event_broadcaster.clone(),
+            app_service_manager: config.app_service_manager.clone(),
+            key_rotation_manager: config.key_rotation_manager.clone(),
+            room_summary_service: config.room_summary_service.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
 
@@ -1532,6 +1535,9 @@ mod tests {
             task_queue: None,
             relations_storage: Arc::new(synapse_storage::relations::RelationsStorage::new(&pool)),
             event_broadcaster: None,
+            app_service_manager: None,
+            key_rotation_manager: None,
+            room_summary_service: room_summary_service.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
 
