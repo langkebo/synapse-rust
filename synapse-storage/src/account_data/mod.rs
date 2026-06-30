@@ -1,3 +1,5 @@
+pub mod repository;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -67,5 +69,34 @@ impl AccountDataStorage {
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to upsert account data", &e))?;
         Ok(())
+    }
+}
+
+use repository::AccountDataRepository;
+
+#[async_trait::async_trait]
+impl AccountDataRepository for AccountDataStorage {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        &self.pool
+    }
+
+    async fn get_account_data_content(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, sqlx::Error> {
+        self.get_account_data_content(user_id, data_type).await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))
+    }
+
+    async fn list_account_data(&self, user_id: &str) -> Result<Vec<AccountDataRecord>, sqlx::Error> {
+        self.list_account_data(user_id).await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))
+    }
+
+    async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, sqlx::Error> {
+        self.delete_account_data(user_id, data_type).await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))
+    }
+
+    async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), sqlx::Error> {
+        self.upsert_account_data(user_id, data_type, content).await
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))
     }
 }

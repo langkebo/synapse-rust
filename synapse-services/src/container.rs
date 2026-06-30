@@ -385,7 +385,7 @@ impl ExtensionServices {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
-        let account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
+        let account_data_storage: Arc<dyn synapse_storage::AccountDataRepository> = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
@@ -997,7 +997,7 @@ impl AdminServices {
         ));
 
         let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
-        let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        let account_data_storage_for_push: Arc<dyn synapse_storage::AccountDataRepository> = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service = Arc::new(
             crate::push_notification_service::PushNotificationService::new(Arc::new(push_notification_storage.clone()))
                 .with_account_data_storage(account_data_storage_for_push),
