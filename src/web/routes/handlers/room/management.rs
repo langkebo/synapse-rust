@@ -3,12 +3,12 @@ use crate::common::ApiError;
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    ensure_room_member, ensure_room_member_ctx, validate_room_id, AuthenticatedUser, OptionalAuthenticatedUser,
+    ensure_room_member, ensure_room_member_ctx, validate_room_id, AppState, AuthenticatedUser, OptionalAuthenticatedUser,
 };
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{FromRef, Json, Path, Query, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -895,17 +895,20 @@ pub(crate) async fn get_room_service_types(
 }
 
 pub(crate) async fn get_room_device(
-    State(ctx): State<RoomContext>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path((room_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
+    let ctx = RoomContext::from_ref(&state);
     validate_room_id(&room_id)?;
     if !ctx.room_service.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let device = ctx
+    let device = state
+        .services
+        .account
         .account_device_list_service
         .get_device(&device_id)
         .await?

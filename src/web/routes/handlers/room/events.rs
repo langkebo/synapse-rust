@@ -2,7 +2,7 @@ use super::{ensure_room_view_access, get_room_event, parse_room_messages_from_to
 use crate::common::{ApiError, ContentSanitizer};
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
-use crate::web::routes::{validate_event_id, validate_room_id, AuthenticatedUser};
+use crate::web::routes::{validate_event_id, validate_room_id, AppState, AuthenticatedUser};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -127,7 +127,7 @@ pub(crate) async fn get_room_thread(
 }
 
 pub(crate) async fn get_room_notifications(
-    State(ctx): State<RoomContext>,
+    State(state): State<AppState>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -138,7 +138,10 @@ pub(crate) async fn get_room_notifications(
 
     let _from = params.get("from").cloned();
 
-    let notifications = ctx
+    let notifications = state
+        .services
+        .admin
+        .modules
         .push_notification_service
         .get_room_notifications(&auth_user.user_id, &room_id, limit)
         .await

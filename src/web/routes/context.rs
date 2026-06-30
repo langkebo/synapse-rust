@@ -23,18 +23,14 @@ pub struct RoomContext {
     pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
     pub search_service: Arc<synapse_services::search_service::SearchService>,
     pub retention_service: Arc<synapse_services::retention_service::RetentionService>,
-    pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
     pub translation_service: Arc<synapse_services::translation_service::TranslationService>,
     pub federation_client: Arc<synapse_federation::FederationClient>,
-    pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     pub rtc_domain_service: Arc<synapse_services::rtc::RtcDomainService>,
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub config: synapse_common::config::Config,
     pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<synapse_services::beacon_service::BeaconService>,
-    #[cfg(feature = "friends")]
-    pub friend_room_service: Arc<synapse_services::friend_room_service::FriendRoomService>,
 }
 
 impl FromRef<AppState> for RoomContext {
@@ -51,18 +47,14 @@ impl FromRef<AppState> for RoomContext {
             account_data_service: state.services.core.account_data_service.clone(),
             search_service: state.services.core.search_service.clone(),
             retention_service: state.services.admin.modules.retention_service.clone(),
-            push_notification_service: state.services.admin.modules.push_notification_service.clone(),
             translation_service: state.services.extensions.translation_service.clone(),
             federation_client: state.services.federation.federation_client.clone(),
-            account_device_list_service: state.services.account.account_device_list_service.clone(),
             rtc_domain_service: state.services.extensions.rtc_domain_service.clone(),
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             config: state.services.core.config.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             #[cfg(feature = "beacons")]
             beacon_service: state.services.rooms.beacon_service.clone(),
-            #[cfg(feature = "friends")]
-            friend_room_service: state.services.extensions.friend_room_service.clone(),
         }
     }
 }
