@@ -32,7 +32,7 @@ impl RoomService {
     ///   still valid locally).
     pub async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
         // 0. Check if federation signing is configured.
-        let key_rotation_guard = self.key_rotation_manager.read().await;
+        let key_rotation_guard = self.infra.key_rotation_manager.read().await;
         let Some(ref key_rotation_manager) = *key_rotation_guard else {
             // No signing key configured — skip signing and broadcasting.
             // This is normal in test setups.
@@ -92,7 +92,7 @@ impl RoomService {
         }
 
         // 5. Broadcast to remote servers.
-        let broadcaster_guard = self.event_broadcaster.read().await;
+        let broadcaster_guard = self.infra.event_broadcaster.read().await;
         if let Some(ref broadcaster) = *broadcaster_guard {
             if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
                 ::tracing::warn!(
