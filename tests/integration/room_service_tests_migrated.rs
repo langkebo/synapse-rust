@@ -301,7 +301,7 @@ fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> Ro
         room_storage: Arc::new(RoomStorage::new(pool)),
         member_storage,
         event_storage,
-        room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+        room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
         auth_service: Arc::new(synapse_rust::auth::AuthService::new(
             pool,
