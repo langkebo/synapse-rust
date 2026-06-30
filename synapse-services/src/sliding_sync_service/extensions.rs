@@ -2,8 +2,6 @@ use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
 use synapse_common::error::ApiError;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
-
 use super::SlidingSyncService;
 
 impl SlidingSyncService {
@@ -201,8 +199,8 @@ impl SlidingSyncService {
         conn_id: Option<&str>,
         since_pos: Option<&str>,
     ) -> Result<Value, sqlx::Error> {
-        let device_key_storage = DeviceKeyStorage::new(self.event_storage.pool());
-        let key_counts = device_key_storage
+        let key_counts = self
+            .device_key_storage
             .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
@@ -235,8 +233,11 @@ impl SlidingSyncService {
             otk_counts.insert(algo, json!(count));
         }
 
-        let unused_fallback_types =
-            device_key_storage.get_unused_fallback_key_types(user_id, device_id).await.unwrap_or_else(|_| vec![]);
+        let unused_fallback_types = self
+            .device_key_storage
+            .get_unused_fallback_key_types(user_id, device_id)
+            .await
+            .unwrap_or_else(|_| vec![]);
 
         Ok(json!({
             "device_lists": {

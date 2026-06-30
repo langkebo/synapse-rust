@@ -5,6 +5,7 @@ use synapse_cache::CacheManager;
 use synapse_common::config::PerformanceConfig;
 use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
@@ -38,6 +39,7 @@ pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
     event_storage: Arc<dyn EventRepository>,
+    device_key_storage: DeviceKeyStorage,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: Arc<dyn PresenceRepository>,
     member_storage: Arc<dyn RoomMemberRepository>,
@@ -79,6 +81,7 @@ impl SlidingSyncService {
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
         event_storage: Arc<dyn EventRepository>,
+        device_key_storage: DeviceKeyStorage,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: Arc<dyn PresenceRepository>,
         member_storage: Arc<dyn RoomMemberRepository>,
@@ -95,6 +98,7 @@ impl SlidingSyncService {
             storage,
             cache,
             event_storage,
+            device_key_storage,
             typing_service,
             presence_storage,
             member_storage,

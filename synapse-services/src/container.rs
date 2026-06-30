@@ -15,6 +15,7 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_e2ee::backup::KeyBackupService;
 use synapse_e2ee::cross_signing::CrossSigningService;
 use synapse_e2ee::device_keys::DeviceKeyService;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_request::KeyRequestService;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::megolm::MegolmProvider;
@@ -713,6 +714,9 @@ impl RoomSyncServices {
         }));
 
         let sync_room_account_data_storage = RoomAccountDataStorage::new(pool);
+        let sync_account_data_storage = synapse_storage::account_data::AccountDataStorage::new(pool);
+        let sync_device_key_storage = DeviceKeyStorage::new(pool);
+        let sync_key_rotation_storage = KeyRotationStorage::new(pool.clone());
         let sync_service =
             Arc::new(crate::sync_service::SyncService::from_deps(crate::sync_service::SyncServiceDeps {
                 presence_storage: presence_storage.clone(),
@@ -720,8 +724,11 @@ impl RoomSyncServices {
                 event_storage: event_storage.clone(),
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
+                account_data_storage: sync_account_data_storage,
                 filter_storage: FilterStorage::new(pool),
                 device_storage: device_storage.clone(),
+                device_key_storage: sync_device_key_storage.clone(),
+                key_rotation_storage: sync_key_rotation_storage,
                 to_device_storage: to_device_storage.clone(),
                 metrics: metrics.clone(),
                 performance: config.performance.clone(),
@@ -734,6 +741,7 @@ impl RoomSyncServices {
             sliding_sync_storage,
             cache.clone(),
             event_storage.clone(),
+            sync_device_key_storage,
             typing_service.clone(),
             presence_storage.clone(),
             member_storage.clone(),
