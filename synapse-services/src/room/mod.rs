@@ -19,6 +19,7 @@ pub mod events;
 pub mod federation_broadcast;
 pub mod federation_membership;
 pub mod info;
+pub mod infrastructure;
 pub mod membership;
 pub use membership::service::MembershipService;
 pub mod messaging;

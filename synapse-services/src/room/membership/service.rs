@@ -243,7 +243,7 @@ impl MembershipService {
 
         // 5. Broadcast to remote servers via room_service back-reference.
         if let Some(room_service) = self.room_service.read().await.as_ref() {
-            let broadcaster_guard = room_service.event_broadcaster.read().await;
+            let broadcaster_guard = room_service.infra.event_broadcaster.read().await;
             if let Some(ref broadcaster) = *broadcaster_guard {
                 if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
                     ::tracing::warn!(

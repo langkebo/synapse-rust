@@ -10,6 +10,7 @@ use synapse_storage::StateEvent;
 use synapse_storage::UserStore;
 use tokio::sync::RwLock;
 
+use super::infrastructure::RoomInfrastructure;
 use super::lifecycle::service::{LifecycleService, LifecycleServiceConfig};
 use super::membership::service::{MembershipService, MembershipServiceConfig};
 use super::messaging::service::{MessagingService, MessagingServiceConfig};
@@ -96,12 +97,8 @@ pub struct RoomService {
     pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
     #[allow(dead_code)]
     pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
-    pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
-    pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
-    #[allow(dead_code)]
-    pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
-    #[allow(dead_code)]
-    pub(crate) federation_client: Arc<RwLock<Option<Arc<synapse_federation::FederationClient>>>>,
+    /// Shared infrastructure injected into sub-services.
+    pub(crate) infra: RoomInfrastructure,
     #[cfg(feature = "beacons")]
     #[allow(dead_code)]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
@@ -176,10 +173,12 @@ impl RoomService {
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
             relations_storage: config.relations_storage.clone(),
-            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
-            app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
-            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
-            federation_client: Arc::new(RwLock::new(config.federation_client)),
+            infra: RoomInfrastructure {
+                event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster)),
+                app_service_manager: Arc::new(RwLock::new(config.app_service_manager)),
+                key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
+                federation_client: Arc::new(RwLock::new(config.federation_client)),
+            },
             #[cfg(feature = "beacons")]
             beacon_service: config.beacon_service,
             #[cfg(not(feature = "beacons"))]
@@ -241,22 +240,22 @@ impl RoomService {
         &self,
         event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
     ) {
-        *self.event_broadcaster.write().await = Some(event_broadcaster);
+        self.infra.set_event_broadcaster(event_broadcaster).await;
     }
 
     pub async fn set_key_rotation_manager(&self, key_rotation_manager: Arc<synapse_federation::KeyRotationManager>) {
-        *self.key_rotation_manager.write().await = Some(key_rotation_manager);
+        self.infra.set_key_rotation_manager(key_rotation_manager).await;
     }
 
     pub async fn set_federation_client(&self, federation_client: Arc<synapse_federation::FederationClient>) {
-        *self.federation_client.write().await = Some(federation_client);
+        self.infra.set_federation_client(federation_client).await;
     }
 
     pub async fn set_app_service_manager(
         &self,
         app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     ) {
-        *self.app_service_manager.write().await = Some(app_service_manager);
+        self.infra.set_app_service_manager(app_service_manager).await;
     }
 
     pub async fn dispatch_appservice_event(
@@ -268,7 +267,7 @@ impl RoomService {
         content: &serde_json::Value,
         state_key: Option<&str>,
     ) {
-        let app_service_manager = self.app_service_manager.read().await.clone();
+        let app_service_manager = self.infra.app_service_manager.read().await.clone();
         let Some(app_service_manager) = app_service_manager else {
             return;
         };
@@ -1565,10 +1564,7 @@ mod tests {
             room_summary_service,
             event_storage,
             relations_storage: Arc::new(synapse_storage::relations::RelationsStorage::new(&pool)),
-            event_broadcaster: Arc::new(RwLock::new(None)),
-            app_service_manager: Arc::new(RwLock::new(None)),
-            key_rotation_manager: Arc::new(RwLock::new(None)),
-            federation_client: Arc::new(RwLock::new(None)),
+            infra: RoomInfrastructure::new(),
             beacon_service: None,
         }
     }
