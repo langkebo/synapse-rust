@@ -32,6 +32,8 @@ pub mod service;
 pub mod space;
 pub mod state;
 pub use state::service::RoomStateService;
+pub mod lifecycle;
+pub use lifecycle::service::LifecycleService;
 
 pub mod summary;
 pub mod summary_state;
