@@ -1,3 +1,6 @@
+pub mod repository;
+
+use repository::PresenceRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
@@ -11,6 +14,118 @@ pub struct PresenceSnapshot {
     pub presence: String,
     pub status_msg: Option<String>,
     pub last_active_ts: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn now_ms() -> i64 {
+        chrono::Utc::now().timestamp_millis()
+    }
+
+    #[test]
+    fn test_presence_snapshot_construction_online() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@alice:example.com".to_string(),
+            presence: "online".to_string(),
+            status_msg: Some("Working".to_string()),
+            last_active_ts: Some(now_ms()),
+        };
+        assert_eq!(snapshot.user_id, "@alice:example.com");
+        assert_eq!(snapshot.presence, "online");
+        assert_eq!(snapshot.status_msg.as_deref(), Some("Working"));
+        assert!(snapshot.last_active_ts.is_some());
+    }
+
+    #[test]
+    fn test_presence_snapshot_construction_offline_no_status() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@bob:example.com".to_string(),
+            presence: "offline".to_string(),
+            status_msg: None,
+            last_active_ts: None,
+        };
+        assert_eq!(snapshot.presence, "offline");
+        assert!(snapshot.status_msg.is_none());
+        assert!(snapshot.last_active_ts.is_none());
+    }
+
+    #[test]
+    fn test_presence_snapshot_serde_roundtrip_full() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@carol:example.com".to_string(),
+            presence: "away".to_string(),
+            status_msg: Some("Be right back".to_string()),
+            last_active_ts: Some(1_700_000_000_000),
+        };
+        let json = serde_json::to_string(&snapshot).expect("serialize PresenceSnapshot");
+        let restored: PresenceSnapshot = serde_json::from_str(&json).expect("deserialize PresenceSnapshot");
+        assert_eq!(restored.user_id, snapshot.user_id);
+        assert_eq!(restored.presence, snapshot.presence);
+        assert_eq!(restored.status_msg, snapshot.status_msg);
+        assert_eq!(restored.last_active_ts, snapshot.last_active_ts);
+    }
+
+    #[test]
+    fn test_presence_snapshot_serde_roundtrip_null_fields() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@dave:example.com".to_string(),
+            presence: "unavailable".to_string(),
+            status_msg: None,
+            last_active_ts: None,
+        };
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        // Verify JSON contains null for optional fields
+        assert!(json.contains("\"status_msg\":null"));
+        assert!(json.contains("\"last_active_ts\":null"));
+        let restored: PresenceSnapshot = serde_json::from_str(&json).expect("deserialize");
+        assert!(restored.status_msg.is_none());
+        assert!(restored.last_active_ts.is_none());
+    }
+
+    #[test]
+    fn test_presence_snapshot_empty_status_message() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@eve:example.com".to_string(),
+            presence: "online".to_string(),
+            status_msg: Some(String::new()),
+            last_active_ts: Some(0),
+        };
+        assert_eq!(snapshot.status_msg.as_deref(), Some(""));
+        assert_eq!(snapshot.last_active_ts, Some(0));
+    }
+
+    #[test]
+    fn test_presence_snapshot_clone_preserves_fields() {
+        let snapshot = PresenceSnapshot {
+            user_id: "@frank:example.com".to_string(),
+            presence: "online".to_string(),
+            status_msg: Some("Busy".to_string()),
+            last_active_ts: Some(now_ms()),
+        };
+        let cloned = snapshot.clone();
+        assert_eq!(cloned.user_id, snapshot.user_id);
+        assert_eq!(cloned.presence, snapshot.presence);
+        assert_eq!(cloned.status_msg, snapshot.status_msg);
+        assert_eq!(cloned.last_active_ts, snapshot.last_active_ts);
+    }
+
+    #[test]
+    fn test_presence_snapshot_json_field_names() {
+        // Verify the JSON field names match the Matrix spec format (snake_case)
+        let snapshot = PresenceSnapshot {
+            user_id: "@x:example.com".to_string(),
+            presence: "online".to_string(),
+            status_msg: None,
+            last_active_ts: None,
+        };
+        let json = serde_json::to_string(&snapshot).expect("serialize");
+        assert!(json.contains("\"user_id\""));
+        assert!(json.contains("\"presence\""));
+        assert!(json.contains("\"status_msg\""));
+        assert!(json.contains("\"last_active_ts\""));
+    }
 }
 
 #[derive(Clone)]
@@ -536,5 +651,80 @@ impl PresenceStorage {
         }
 
         Ok(map)
+    }
+}
+
+#[async_trait::async_trait]
+impl PresenceRepository for PresenceStorage {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        &self.pool
+    }
+
+    async fn set_presence(
+        &self,
+        user_id: &str,
+        presence: &str,
+        status_msg: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.set_presence(user_id, presence, status_msg).await
+    }
+
+    async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
+        self.get_presence(user_id).await
+    }
+
+    async fn get_presence_with_meta(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<(String, Option<String>, Option<i64>)>, sqlx::Error> {
+        self.get_presence_with_meta(user_id).await
+    }
+
+    async fn get_presences(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, (String, Option<String>)>, sqlx::Error> {
+        self.get_presences(user_ids).await
+    }
+
+    async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
+        self.set_typing(room_id, user_id, typing).await
+    }
+
+    async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
+        self.add_subscription(subscriber_id, target_id).await
+    }
+
+    async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
+        self.remove_subscription(subscriber_id, target_id).await
+    }
+
+    async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_subscriptions(subscriber_id).await
+    }
+
+    async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_subscribers(target_id).await
+    }
+
+    async fn get_presence_batch(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(String, String, Option<String>)>, sqlx::Error> {
+        self.get_presence_batch(user_ids).await
+    }
+
+    async fn get_presence_batch_with_meta(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
+        self.get_presence_batch_with_meta(user_ids).await
+    }
+
+    async fn get_presence_snapshots(
+        &self,
+        user_ids: &[String],
+    ) -> Result<HashMap<String, PresenceSnapshot>, sqlx::Error> {
+        self.get_presence_snapshots(user_ids).await
     }
 }

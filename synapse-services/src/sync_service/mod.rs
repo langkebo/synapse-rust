@@ -25,11 +25,12 @@ use synapse_common::*;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
-use synapse_storage::{PresenceStorage, UserRoomMembership};
+use synapse_storage::PresenceRepository;
+use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
 
 pub struct SyncService {
-    pub(crate) presence_storage: PresenceStorage,
+    pub(crate) presence_storage: Arc<dyn PresenceRepository>,
     pub(crate) member_storage: Arc<dyn RoomMemberRepository>,
     pub(crate) event_storage: Arc<dyn EventRepository>,
     pub(crate) room_storage: Arc<dyn RoomRepository>,
@@ -68,7 +69,7 @@ impl SyncService {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        presence_storage: PresenceStorage,
+        presence_storage: Arc<dyn PresenceRepository>,
         member_storage: Arc<dyn RoomMemberRepository>,
         event_storage: Arc<dyn EventRepository>,
         room_storage: Arc<dyn RoomRepository>,

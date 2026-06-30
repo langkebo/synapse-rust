@@ -1,4 +1,5 @@
 use crate::common::error::{ApiError, ApiResult};
+use std::sync::Arc;
 
 /// Presence status tuple: (presence_state, status_msg, last_active_ts)
 pub type PresenceRecord = (String, Option<String>, Option<i64>);
@@ -6,11 +7,11 @@ pub type PresenceRecord = (String, Option<String>, Option<i64>);
 pub type PresenceBatchRecord = (String, String, Option<String>, Option<i64>);
 
 pub struct PresenceService {
-    storage: synapse_storage::PresenceStorage,
+    storage: Arc<dyn synapse_storage::PresenceRepository>,
 }
 
 impl PresenceService {
-    pub fn new(storage: synapse_storage::PresenceStorage) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::PresenceRepository>) -> Self {
         Self { storage }
     }
 
@@ -93,7 +94,7 @@ mod tests {
 
     #[test]
     fn test_presence_service_constructor() {
-        // PresenceService::new takes PresenceStorage — this is a
+        // PresenceService::new takes Arc<dyn PresenceRepository> — this is a
         // compile-time verification that the constructor signature is correct
     }
 }

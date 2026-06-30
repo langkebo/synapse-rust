@@ -9,7 +9,7 @@ use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
-use synapse_storage::PresenceStorage;
+use synapse_storage::PresenceRepository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncToken {
@@ -109,7 +109,7 @@ pub struct RoomSyncCounts {
 }
 
 pub struct SyncServiceDeps {
-    pub presence_storage: PresenceStorage,
+    pub presence_storage: std::sync::Arc<dyn PresenceRepository>,
     pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_storage: Arc<dyn RoomRepository>,
