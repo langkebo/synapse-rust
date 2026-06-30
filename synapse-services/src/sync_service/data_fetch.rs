@@ -2,8 +2,6 @@ use super::types::*;
 use super::SyncService;
 use crate::map_internal;
 use synapse_common::*;
-use synapse_storage::AccountDataStorage;
-
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
@@ -222,7 +220,8 @@ impl SyncService {
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
-        let rows = AccountDataStorage::new(self.event_storage.pool())
+        let rows = self
+            .account_data_storage
             .list_account_data(user_id)
             .await
             .map_err(map_internal!("Failed to get account data"))?;

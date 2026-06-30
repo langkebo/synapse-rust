@@ -5,7 +5,6 @@ use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::*;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
 
 impl SyncService {
     pub(crate) async fn build_sync_response(
@@ -209,8 +208,8 @@ impl SyncService {
             return Ok(json!({}));
         };
 
-        let device_key_storage = DeviceKeyStorage::new(self.device_storage.pool());
-        let counts = device_key_storage
+        let counts = self
+            .device_key_storage
             .get_one_time_keys_count_by_algorithm(user_id, device_id)
             .await
             .map_err(map_internal!("Failed to load one-time key count"))?;
@@ -224,9 +223,8 @@ impl SyncService {
     }
 
     async fn build_key_rotation_needed(&self, user_id: &str) -> ApiResult<Value> {
-        let rotation_storage = synapse_e2ee::key_rotation::KeyRotationStorage::new(self.event_storage.pool().clone());
-
-        let rooms = rotation_storage
+        let rooms = self
+            .key_rotation_storage
             .get_rooms_needing_key_rotation(user_id)
             .await
             .map_err(map_internal!("Failed to get rooms needing key rotation"))?;
@@ -250,10 +248,9 @@ impl SyncService {
             .unwrap_or_default();
 
         let mut user_device_counts = serde_json::Map::new();
-        let device_key_storage = DeviceKeyStorage::new(self.device_storage.pool());
 
         if !changed_users.is_empty() {
-            let counts = device_key_storage.get_device_counts_batch(&changed_users).await.unwrap_or_default();
+            let counts = self.device_key_storage.get_device_counts_batch(&changed_users).await.unwrap_or_default();
             for uid in &changed_users {
                 if let Some(count) = counts.get(uid) {
                     user_device_counts.insert(

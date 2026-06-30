@@ -1,7 +1,6 @@
 use super::AuthService;
 use super::DEFAULT_POWER_LEVEL;
 use synapse_common::*;
-use synapse_storage::EventStorage;
 
 impl AuthService {
     pub async fn get_user_power_level(&self, room_id: &str, user_id: &str) -> ApiResult<i64> {
@@ -58,8 +57,8 @@ impl AuthService {
     }
 
     pub(crate) async fn get_room_power_levels_content(&self, room_id: &str) -> ApiResult<Option<serde_json::Value>> {
-        let event_storage = EventStorage::new(self.user_storage.pool(), self.server_name.clone());
-        let events = event_storage
+        let events = self
+            .event_storage
             .get_state_events_by_type(room_id, "m.room.power_levels")
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
@@ -69,8 +68,8 @@ impl AuthService {
     /// Returns the room version string (e.g. `"10"`) from the `m.room.create`
     /// state event, or `DEFAULT_ROOM_VERSION` if not set.
     pub(crate) async fn get_room_version(&self, room_id: &str) -> ApiResult<String> {
-        let event_storage = EventStorage::new(self.user_storage.pool(), self.server_name.clone());
-        let events = event_storage
+        let events = self
+            .event_storage
             .get_state_events_by_type(room_id, "m.room.create")
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
