@@ -3,7 +3,8 @@ use crate::common::ApiError;
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    ensure_room_member, ensure_room_member_ctx, validate_room_id, AppState, AuthenticatedUser, OptionalAuthenticatedUser,
+    ensure_room_member, ensure_room_member_ctx, validate_room_id, AppState, AuthenticatedUser,
+    OptionalAuthenticatedUser,
 };
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
