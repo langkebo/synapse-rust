@@ -40,8 +40,8 @@ pub struct MembershipServiceConfig {
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn crate::auth::Auth>,
     pub server_name: String,
-    pub federation_client: Option<Arc<FederationClient>>,
-    pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
+    pub federation_client: Arc<RwLock<Option<Arc<FederationClient>>>>,
+    pub key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
     pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
 }
@@ -55,8 +55,8 @@ impl MembershipService {
             user_storage: config.user_storage,
             auth_service: config.auth_service,
             server_name: config.server_name,
-            federation_client: Arc::new(RwLock::new(config.federation_client)),
-            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager)),
+            federation_client: config.federation_client,
+            key_rotation_manager: config.key_rotation_manager,
             event_broadcaster: config.event_broadcaster,
             room_summary_service: config.room_summary_service,
         }
