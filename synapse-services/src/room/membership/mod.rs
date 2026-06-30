@@ -232,8 +232,7 @@ impl MembershipService {
     }
 
     pub async fn get_invited_members_count(&self, room_id: &str) -> ApiResult<i64> {
-        let room_service = self.room_service_ref().await;
-        let summary = room_service.room_summary_service.get_summary(room_id).await?;
+        let summary = self.room_summary_service.get_summary(room_id).await?;
         Ok(summary.map(|summary| summary.invited_member_count).unwrap_or(0))
     }
 
@@ -264,8 +263,7 @@ impl MembershipService {
                 last_active_ts: member.joined_ts.or(member.updated_ts),
             };
 
-            let room_service = self.room_service_ref().await;
-            if let Err(error) = room_service.room_summary_service.add_member(request).await {
+            if let Err(error) = self.room_summary_service.add_member(request).await {
                 ::tracing::warn!(
                     error = %error,
                     room_id = %room_id,
@@ -275,7 +273,7 @@ impl MembershipService {
                 );
             }
 
-            if let Err(error) = room_service.room_summary_service.recalculate_heroes(room_id).await {
+            if let Err(error) = self.room_summary_service.recalculate_heroes(room_id).await {
                 ::tracing::warn!(error = %error, room_id = %room_id, "Failed to recalculate room summary heroes");
             }
         }
