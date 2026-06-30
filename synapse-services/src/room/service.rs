@@ -46,7 +46,7 @@ pub struct RoomServiceConfig {
     pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
+    pub room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn Auth>,
     pub room_summary_service: Arc<RoomSummaryService>,
@@ -82,7 +82,7 @@ pub struct RoomService {
     #[allow(dead_code)]
     pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     #[allow(dead_code)]
-    pub(crate) room_tag_storage: synapse_storage::room_tag::RoomTagStorage,
+    pub(crate) room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
     pub user_storage: Arc<dyn UserStore>,
     #[allow(dead_code)]
     pub(crate) auth_service: Arc<dyn Auth>,
@@ -1532,7 +1532,7 @@ mod tests {
             room_storage: room_storage.clone(),
             member_storage: member_storage.clone(),
             event_storage: event_storage.clone(),
-            room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+            room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
             user_storage: user_storage.clone(),
             server_name: "example.com".to_string(),
         };
@@ -1555,7 +1555,7 @@ mod tests {
             lifecycle,
             room_storage,
             member_storage,
-            room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+            room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
             user_storage,
             auth_service,
             validator: Arc::new(synapse_common::validation::Validator::default()),

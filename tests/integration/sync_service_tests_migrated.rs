@@ -337,7 +337,7 @@ fn create_room_service(
         room_storage,
         member_storage,
         event_storage,
-        room_tag_storage: synapse_storage::room_tag::RoomTagStorage::new(pool.clone()),
+        room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage,
         auth_service: Arc::new(synapse_rust::auth::AuthService::new(
             pool,

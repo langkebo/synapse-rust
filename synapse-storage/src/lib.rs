@@ -166,6 +166,7 @@ pub use device::DeviceRepository;
 pub use event::EventRepository;
 pub use membership::repository::RoomMemberRepository;
 pub use room::RoomRepository;
+pub use room_tag::repository::RoomTagRepository;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]
