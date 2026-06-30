@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use sqlx::PgPool;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
 use synapse_storage::{RateLimitStorage, UserStore};
@@ -17,8 +18,8 @@ pub struct AdminSecurityService {
 }
 
 impl AdminSecurityService {
-    pub fn new(user_storage: Arc<dyn UserStore>, cache: Arc<CacheManager>) -> Self {
-        Self { user_storage, rate_limit_storage: RateLimitStorage::new(), cache }
+    pub fn new(user_storage: Arc<dyn UserStore>, cache: Arc<CacheManager>, pool: &Arc<PgPool>) -> Self {
+        Self { user_storage, rate_limit_storage: RateLimitStorage::new(pool), cache }
     }
 
     #[instrument(skip(self))]
@@ -41,7 +42,7 @@ impl AdminSecurityService {
     pub async fn get_user_rate_limit(&self, user_id: &str) -> Result<UserRateLimit, ApiError> {
         let limit = self
             .rate_limit_storage
-            .get_user_rate_limit(self.user_storage.pool(), user_id)
+            .get_user_rate_limit(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -62,7 +63,7 @@ impl AdminSecurityService {
         burst_count: i32,
     ) -> Result<UserRateLimit, ApiError> {
         self.rate_limit_storage
-            .upsert_user_rate_limit(self.user_storage.pool(), user_id, messages_per_second, burst_count)
+            .upsert_user_rate_limit(user_id, messages_per_second, burst_count)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
 
@@ -72,7 +73,7 @@ impl AdminSecurityService {
     #[instrument(skip(self))]
     pub async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), ApiError> {
         self.rate_limit_storage
-            .delete_user_rate_limit(self.user_storage.pool(), user_id)
+            .delete_user_rate_limit(user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         Ok(())
