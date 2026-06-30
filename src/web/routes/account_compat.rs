@@ -1,7 +1,8 @@
 use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
-use crate::web::routes::{extract_token_from_headers, validate_user_id, AppState};
+use crate::web::routes::{validate_user_id, AppState};
+use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, State},
@@ -45,7 +46,7 @@ pub(crate) async fn enforce_profile_visibility(
     headers: &HeaderMap,
     user_id: &str,
 ) -> Result<(), ApiError> {
-    let token = extract_token_from_headers(headers).ok();
+    let token = bearer_token(headers).ok();
     let requester_id = if let Some(t) = token {
         state.services.core.auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id)
     } else {

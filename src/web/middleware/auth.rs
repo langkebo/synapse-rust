@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::admin::audit::resolve_request_id;
-use crate::web::routes::extract_token_from_headers;
+use crate::web::utils::auth::bearer_token;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::ip::extract_client_ip;
@@ -149,7 +149,7 @@ pub async fn admin_auth_middleware(
         Err(err) => {
             let response = err.into_response();
             let status = response.status().as_u16();
-            let (actor_id, device_id, authenticated_admin) = match extract_token_from_headers(&headers) {
+            let (actor_id, device_id, authenticated_admin) = match bearer_token(&headers) {
                 Ok(token) => match state.services.core.auth_service.validate_token(&token).await {
                     Ok((user_id, device_id, is_admin, _, _)) => (user_id, device_id, Some(is_admin)),
                     Err(_) => ("anonymous".to_string(), None, None),

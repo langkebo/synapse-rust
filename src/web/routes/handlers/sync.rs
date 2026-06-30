@@ -1,6 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::context::SyncContext;
-use crate::web::routes::extract_token_from_headers;
+use crate::web::utils::auth::bearer_token;
 use axum::{
     extract::{Json, Query, State},
     http::HeaderMap,
@@ -52,7 +52,7 @@ pub(crate) async fn sync(
     headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, device_id, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
@@ -149,7 +149,7 @@ pub(crate) async fn get_events(
     headers: HeaderMap,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = extract_token_from_headers(&headers)?;
+    let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
