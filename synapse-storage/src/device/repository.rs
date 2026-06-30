@@ -65,6 +65,17 @@ pub trait DeviceRepository: Send + Sync {
         change_type: &str,
     ) -> Result<i64, sqlx::Error>;
 
+    /// Insert a row into device_lists_changes directly, without touching
+    /// device_lists_stream.  Used by federation EDU handlers that receive a
+    /// pre-assigned stream_id from the remote server.
+    async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error>;
+
     // -- device list stream --
 
     async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error>;

@@ -120,6 +120,25 @@ impl DeviceStorage {
         let _ = self.record_device_list_changes_batch(user_id, device_ids, change_type).await;
     }
 
+    pub(crate) async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts) VALUES ($1, $2, $3, $4, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .bind(change_type)
+        .bind(stream_id)
+        .execute(&*self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn get_lazy_loaded_members(
         &self,
         user_id: &str,
@@ -1034,6 +1053,16 @@ impl DeviceRepository for DeviceStorage {
         change_type: &str,
     ) -> Result<i64, sqlx::Error> {
         self.record_device_list_change(user_id, device_id, change_type).await
+    }
+
+    async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.insert_device_list_change(user_id, device_id, change_type, stream_id).await
     }
 
     // -- device list stream --
