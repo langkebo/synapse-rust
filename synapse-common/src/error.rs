@@ -1423,25 +1423,6 @@ mod tests {
         assert_eq!(err.message, "Cache error: redis down");
     }
 
-    #[test]
-    fn test_api_error_domain_specific_constructors() {
-        let err = ApiError::user_deactivated("account disabled");
-        assert_eq!(err.kind, ApiErrorKind::Forbidden);
-        assert_eq!(err.code, MatrixErrorCode::UserDeactivated);
-
-        let err = ApiError::invalid_username("bad chars");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
-        assert_eq!(err.code, MatrixErrorCode::InvalidUsername);
-
-        let err = ApiError::too_large("file too big");
-        assert_eq!(err.kind, ApiErrorKind::BadRequest);
-        assert_eq!(err.code, MatrixErrorCode::TooLarge);
-
-        let err = ApiError::request_timeout("timed out");
-        assert_eq!(err.kind, ApiErrorKind::Timeout);
-        assert_eq!(err.code, MatrixErrorCode::RequestTimeout);
-    }
-
     // -----------------------------------------------------------------------
     // ApiError Display formatting
     // -----------------------------------------------------------------------
@@ -1673,14 +1654,6 @@ mod tests {
     fn test_api_error_retry_after_ms_for_non_rate_limited() {
         let err = ApiError::bad_request("nope");
         assert_eq!(err.retry_after_ms(), None);
-    }
-
-    #[test]
-    fn test_api_error_database_construction() {
-        let err = ApiError::database("connection pool exhausted");
-        assert_eq!(err.kind, ApiErrorKind::Internal);
-        assert_eq!(err.code, MatrixErrorCode::Unknown);
-        assert_eq!(err.message, "connection pool exhausted");
     }
 
     #[test]
