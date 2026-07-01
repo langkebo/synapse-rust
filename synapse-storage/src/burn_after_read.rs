@@ -183,7 +183,7 @@ impl BurnAfterReadStorage {
     }
 
     pub async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1")
+        sqlx::query("UPDATE burn_after_read_pending SET is_processed = TRUE WHERE id = $1 AND is_processed = FALSE")
             .bind(id)
             .execute(&*self.pool)
             .await?;
