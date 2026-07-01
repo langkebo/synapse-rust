@@ -88,10 +88,9 @@ pub struct CreateMediaCallbackBody {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateAccountDataCallbackBody {
     pub callback_name: String,
-    pub callback_type: String,
     pub config: serde_json::Value,
     pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
+    pub data_types: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -294,24 +293,22 @@ impl From<MediaCallback> for MediaCallbackResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountDataCallbackResponse {
     pub id: i64,
-    pub callback_type: String,
-    pub user_id: String,
-    pub data_type: String,
-    pub result: Option<serde_json::Value>,
-    pub created_ts: i64,
+    pub callback_name: String,
     pub is_enabled: bool,
+    pub data_types: Option<Vec<String>>,
+    pub config: Option<serde_json::Value>,
+    pub created_ts: i64,
 }
 
 impl From<AccountDataCallback> for AccountDataCallbackResponse {
     fn from(c: AccountDataCallback) -> Self {
         Self {
             id: c.id,
-            callback_type: c.callback_type,
-            user_id: c.user_id,
-            data_type: c.data_type,
-            result: c.result,
-            created_ts: c.created_ts,
+            callback_name: c.callback_name,
             is_enabled: c.is_enabled,
+            data_types: c.data_types,
+            config: c.config,
+            created_ts: c.created_ts,
         }
     }
 }
@@ -694,10 +691,9 @@ pub async fn create_account_data_callback(
 ) -> Result<impl IntoResponse, ApiError> {
     let request = CreateAccountDataCallbackRequest {
         callback_name: body.callback_name,
-        callback_type: body.callback_type,
         config: body.config,
         is_enabled: body.is_enabled,
-        priority: body.priority,
+        data_types: body.data_types,
     };
 
     let callback = state

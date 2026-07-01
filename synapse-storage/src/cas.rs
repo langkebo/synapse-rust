@@ -658,7 +658,7 @@ impl CasStorage {
             r"
             UPDATE cas_slo_sessions
             SET logout_sent_at = $1
-            WHERE session_id = $2
+            WHERE session_id = $2 AND logout_sent_at IS NULL
             ",
         )
         .bind(now)

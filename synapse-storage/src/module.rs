@@ -223,21 +223,19 @@ pub struct CreateMediaCallbackRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountDataCallback {
     pub id: i64,
-    pub callback_type: String,
-    pub user_id: String,
-    pub data_type: String,
-    pub result: Option<serde_json::Value>,
-    pub created_ts: i64,
+    pub callback_name: String,
     pub is_enabled: bool,
+    pub data_types: Option<Vec<String>>,
+    pub config: Option<serde_json::Value>,
+    pub created_ts: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateAccountDataCallbackRequest {
     pub callback_name: String,
-    pub callback_type: String,
     pub config: serde_json::Value,
     pub is_enabled: Option<bool>,
-    pub priority: Option<i32>,
+    pub data_types: Option<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -417,24 +415,14 @@ impl ModuleStorage {
     ) -> Result<SpamCheckResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         let score = request.score.unwrap_or(0);
-        let is_spam = !matches!(request.result.as_str(), "ok" | "allow" | "pass" | "clean");
-        let check_details = serde_json::json!({
-            "event_type": request.event_type,
-            "content": request.content,
-            "result": request.result,
-            "reason": request.reason,
-            "checker_module": request.checker_module,
-            "action_taken": request.action_taken,
-        });
 
         let row = sqlx::query_as::<_, SpamCheckResult>(
             r"
             INSERT INTO spam_check_results (
-                event_id, room_id, user_id, sender, event_type, content, result, score,
-                spam_score, is_spam, check_details, reason, checker_module, checked_ts,
-                action_taken, created_ts
+                event_id, room_id, sender, event_type, content, result, score,
+                reason, checker_module, checked_ts, action_taken, created_ts
             )
-            VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12, $13, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $10)
             RETURNING id, event_id, room_id, sender, event_type, content, result, score,
                 reason, checker_module, checked_ts, action_taken
             ",
@@ -446,8 +434,6 @@ impl ModuleStorage {
         .bind(&request.content)
         .bind(&request.result)
         .bind(score)
-        .bind(is_spam)
-        .bind(check_details)
         .bind(&request.reason)
         .bind(&request.checker_module)
         .bind(now)
@@ -503,31 +489,24 @@ impl ModuleStorage {
         request: CreateThirdPartyRuleRequest,
     ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
         let now = Utc::now().timestamp_millis();
-        let rule_details = serde_json::json!({
-            "event_type": request.event_type,
-            "rule_name": request.rule_name,
-            "reason": request.reason,
-            "modified_content": request.modified_content,
-        });
 
         let row = sqlx::query_as::<_, ThirdPartyRuleResult>(
             r"
             INSERT INTO third_party_rule_results (
-                rule_type, event_id, room_id, user_id, sender, event_type, rule_name,
-                is_allowed, rule_details, reason, modified_content, checked_ts, created_ts
+                event_id, room_id, sender, event_type, rule_name,
+                is_allowed, reason, modified_content, checked_ts, created_ts
             )
-            VALUES ($1, $2, $3, $4, $4, $5, $1, $6, $7, $8, $9, $10, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
             RETURNING id, event_id, room_id, sender, event_type, rule_name,
                 is_allowed, reason, modified_content, checked_ts
             ",
         )
-        .bind(&request.rule_name)
         .bind(&request.event_id)
         .bind(&request.room_id)
         .bind(&request.sender)
         .bind(&request.event_type)
+        .bind(&request.rule_name)
         .bind(request.is_allowed)
-        .bind(rule_details)
         .bind(&request.reason)
         .bind(&request.modified_content)
         .bind(now)
@@ -802,17 +781,16 @@ impl ModuleStorage {
         let row = sqlx::query_as::<_, AccountDataCallback>(
             r"
             INSERT INTO account_data_callbacks (
-                callback_name, callback_type, config, is_enabled, priority, created_ts, updated_ts
+                callback_name, config, is_enabled, data_types, created_ts
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $6)
-            RETURNING *
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, callback_name, is_enabled, data_types, config, created_ts
             ",
         )
         .bind(&request.callback_name)
-        .bind(&request.callback_type)
         .bind(&request.config)
         .bind(request.is_enabled.unwrap_or(true))
-        .bind(request.priority.unwrap_or(100))
+        .bind(&request.data_types)
         .bind(now)
         .fetch_one(&*self.pool)
         .await?;
@@ -823,7 +801,7 @@ impl ModuleStorage {
     #[instrument(skip(self))]
     pub async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
         let rows = sqlx::query_as::<_, AccountDataCallback>(
-            "SELECT id, callback_type, user_id, data_type, result, created_ts, is_enabled FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
+            "SELECT id, callback_name, is_enabled, data_types, config, created_ts FROM account_data_callbacks WHERE is_enabled = true ORDER BY created_ts DESC",
         )
         .fetch_all(&*self.pool)
         .await?;
