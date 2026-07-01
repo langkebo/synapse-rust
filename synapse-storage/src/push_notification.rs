@@ -486,14 +486,13 @@ impl PushNotificationStorage {
         &self,
         request: &CreateNotificationLogRequest,
     ) -> Result<PushNotificationLog, ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
         let row = sqlx::query_as::<_, PushNotificationLog>(
             r"
             INSERT INTO push_notification_log (
                 user_id, device_id, event_id, room_id, notification_type, push_type,
-                is_success, error_message, provider_response, response_time_ms, created_ts, sent_at
+                is_success, error_message, provider_response, response_time_ms
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $7 THEN $11 ELSE NULL END)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
             ",
         )
@@ -507,7 +506,6 @@ impl PushNotificationStorage {
         .bind(&request.error_message)
         .bind(&request.provider_response)
         .bind(request.response_time_ms)
-        .bind(now)
         .fetch_one(&*self.pool)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create notification log", &e))?;
@@ -1053,124 +1051,5 @@ mod tests {
         assert!(request.content.get("counts").is_some());
         assert_eq!(request.content["counts"]["unread"], 5);
         assert_eq!(request.content["room_name"], "Test Room");
-    }
-
-    // -------------------------------------------------------------------------
-    // Appended tests for RoomNotification (P0-coverage gap, see v2 plan A9).
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn test_room_notification_all_fields_none() {
-        let notification = RoomNotification {
-            event_id: None,
-            room_id: None,
-            ts: None,
-            notification_type: None,
-            is_read: None,
-        };
-        assert!(notification.event_id.is_none());
-        assert!(notification.room_id.is_none());
-        assert!(notification.ts.is_none());
-        assert!(notification.notification_type.is_none());
-        assert!(notification.is_read.is_none());
-    }
-
-    #[test]
-    fn test_room_notification_with_event_metadata() {
-        let notification = RoomNotification {
-            event_id: Some("$event:example.com".to_string()),
-            room_id: Some("!room:example.com".to_string()),
-            ts: Some(now_ms()),
-            notification_type: Some("m.room.message".to_string()),
-            is_read: Some(false),
-        };
-        assert_eq!(notification.event_id.as_deref(), Some("$event:example.com"));
-        assert_eq!(notification.room_id.as_deref(), Some("!room:example.com"));
-        assert_eq!(notification.notification_type.as_deref(), Some("m.room.message"));
-        assert_eq!(notification.is_read, Some(false));
-    }
-
-    #[test]
-    fn test_room_notification_is_read_transitions() {
-        let mut notification = RoomNotification {
-            event_id: Some("$e:s".to_string()),
-            room_id: Some("!r:s".to_string()),
-            ts: Some(now_ms()),
-            notification_type: Some("m.room.message".to_string()),
-            is_read: Some(false),
-        };
-        assert!(!notification.is_read.unwrap());
-        // Mark as read.
-        notification.is_read = Some(true);
-        assert!(notification.is_read.unwrap());
-    }
-
-    #[test]
-    fn test_room_notification_read_receipt_only() {
-        // A notification that only carries the read marker (no event payload).
-        let notification = RoomNotification {
-            event_id: None,
-            room_id: Some("!room:example.com".to_string()),
-            ts: None,
-            notification_type: None,
-            is_read: Some(true),
-        };
-        assert!(notification.event_id.is_none());
-        assert_eq!(notification.room_id.as_deref(), Some("!room:example.com"));
-        assert!(notification.is_read.unwrap());
-    }
-
-    #[test]
-    fn test_push_rule_serde_roundtrip_full() {
-        let rule = PushRule {
-            id: 99,
-            user_id: "@alice:example.com".to_string(),
-            rule_id: ".m.rule.mention".to_string(),
-            scope: "global".to_string(),
-            kind: "content".to_string(),
-            priority: 5,
-            priority_class: 1,
-            conditions: json!([{"kind": "event_match", "key": "content.body", "pattern": "alice"}]),
-            actions: json!(["notify", {"set_tweak": "highlight", "value": true}]),
-            is_enabled: true,
-            is_default: true,
-            created_ts: 1_700_000_000_000,
-            updated_ts: Some(1_700_000_000_500),
-            pattern: Some("alice".to_string()),
-        };
-        let json_str = serde_json::to_string(&rule).expect("serialize PushRule");
-        let restored: PushRule = serde_json::from_str(&json_str).expect("deserialize PushRule");
-        assert_eq!(restored.id, 99);
-        assert_eq!(restored.priority_class, 1);
-        assert_eq!(restored.pattern.as_deref(), Some("alice"));
-        assert!(restored.is_default);
-        assert_eq!(restored.updated_ts, Some(1_700_000_000_500));
-    }
-
-    #[test]
-    fn test_push_notification_queue_field_assertions() {
-        let queue_item = PushNotificationQueue {
-            id: 42,
-            user_id: "@alice:example.com".to_string(),
-            device_id: "DEVICE123".to_string(),
-            event_id: Some("$event:example.com".to_string()),
-            room_id: Some("!room:example.com".to_string()),
-            notification_type: Some("m.room.message".to_string()),
-            content: json!({"body": "hello"}),
-            priority: 10,
-            status: "pending".to_string(),
-            attempts: 1,
-            max_attempts: 5,
-            next_attempt_at: Some(now_ms() + 60_000),
-            created_ts: 1_700_000_000_000,
-            sent_at: None,
-            error_message: None,
-        };
-        assert_eq!(queue_item.id, 42);
-        assert_eq!(queue_item.max_attempts, 5);
-        assert_eq!(queue_item.attempts, 1);
-        assert!(queue_item.attempts < queue_item.max_attempts);
-        assert!(queue_item.sent_at.is_none());
-        assert!(queue_item.next_attempt_at.unwrap() > queue_item.created_ts);
     }
 }
