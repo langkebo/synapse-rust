@@ -308,7 +308,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1"#)
+        let result = sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE"#)
             .bind(notification_id)
             .execute(&self.pool)
             .await
@@ -578,7 +578,7 @@ impl ServerNotificationStorage {
     }
 
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1"#)
+        let result = sqlx::query(r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1 AND is_enabled = TRUE"#)
             .bind(name)
             .execute(&self.pool)
             .await
