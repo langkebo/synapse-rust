@@ -736,7 +736,7 @@ impl ApplicationServiceStorage {
     pub async fn has_exclusive_user_namespace_match(&self, as_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let matched = sqlx::query_scalar::<_, i64>(
             r"
-            SELECT 1::BIGINT
+            SELECT 1
             FROM application_service_user_namespaces
             WHERE as_id = $1
               AND is_exclusive = TRUE
