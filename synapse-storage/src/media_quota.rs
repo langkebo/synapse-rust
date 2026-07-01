@@ -193,7 +193,7 @@ impl MediaQuotaStorage {
     }
 
     pub async fn delete_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1")
+        let result = sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
             .bind(config_id)
             .execute(&self.pool)
             .await
