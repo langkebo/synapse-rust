@@ -94,4 +94,35 @@ mod tests {
         assert!(token.starts_with('t'));
         assert!(token.len() > 1);
     }
+
+    #[test]
+    fn test_current_timestamp_millis_monotonic() {
+        let t1 = current_timestamp_millis();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let t2 = current_timestamp_millis();
+        assert!(t2 >= t1, "timestamps must be monotonic");
+    }
+
+    #[test]
+    fn test_calculate_age_near_zero() {
+        let now = current_timestamp_millis();
+        let age = calculate_age(now);
+        // Age for the current timestamp should be very small (0 or 1 ms).
+        assert!(age <= 1, "age for now should be near zero, got {age}");
+    }
+
+    #[test]
+    fn test_stream_token_roundtrip() {
+        let ts = 9876543210;
+        let token = generate_stream_token_from_ts(Some(ts));
+        let parsed = parse_stream_token(&token);
+        assert_eq!(parsed, Some(ts));
+    }
+
+    #[test]
+    fn test_is_expired_exactly_now() {
+        let now = current_timestamp_millis();
+        // `is_expired` uses `<`, so a timestamp equal to now is NOT expired.
+        assert!(!is_expired(Some(now)), "exactly-now should not be expired");
+    }
 }
