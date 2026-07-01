@@ -603,7 +603,7 @@ impl ApplicationServiceStorage {
     pub async fn mark_event_processed(&self, event_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r"UPDATE application_service_events SET is_processed = TRUE, processed_ts = $2 WHERE event_id = $1",
+            r"UPDATE application_service_events SET is_processed = TRUE, processed_ts = $2 WHERE event_id = $1 AND is_processed = FALSE",
         )
         .bind(event_id)
         .bind(now)
@@ -639,7 +639,7 @@ impl ApplicationServiceStorage {
     pub async fn complete_transaction(&self, as_id: &str, transaction_id: &str) -> Result<(), sqlx::Error> {
         let now = Utc::now().timestamp_millis();
         sqlx::query(
-            r"UPDATE application_service_transactions SET completed_ts = $3, is_processed = TRUE, processed_ts = $3 WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2)",
+            r"UPDATE application_service_transactions SET completed_ts = $3, is_processed = TRUE, processed_ts = $3 WHERE as_id = $1 AND (txn_id = $2 OR transaction_id = $2) AND is_processed = FALSE",
         )
         .bind(as_id)
         .bind(transaction_id)
@@ -736,7 +736,7 @@ impl ApplicationServiceStorage {
     pub async fn has_exclusive_user_namespace_match(&self, as_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
         let matched = sqlx::query_scalar::<_, i64>(
             r"
-            SELECT 1
+            SELECT 1::BIGINT
             FROM application_service_user_namespaces
             WHERE as_id = $1
               AND is_exclusive = TRUE
