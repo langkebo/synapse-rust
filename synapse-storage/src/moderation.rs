@@ -487,3 +487,161 @@ mod tests {
         assert_eq!(log.confidence, 0.85);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    #[tokio::test]
+    async fn test_create_rule_returns_valid_record() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+        let params = CreateModerationRuleParams {
+            rule_type: ModerationRuleType::Keyword,
+            pattern: "spam_word".to_string(),
+            action: ModerationAction::Flag,
+            reason: Some("Test spam detection".to_string()),
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: Some(100),
+        };
+
+        let rule = storage.create_rule(params).await.expect("create_rule should succeed");
+
+        assert!(rule.id > 0);
+        assert!(!rule.rule_id.is_empty());
+        assert!(rule.rule_id.starts_with("mod_"));
+        assert_eq!(rule.rule_type, "keyword");
+        assert_eq!(rule.pattern, "spam_word");
+        assert_eq!(rule.action, "flag");
+        assert!(rule.is_active);
+        assert_eq!(rule.priority, 100);
+    }
+
+    #[tokio::test]
+    async fn test_get_rule_finds_created_rule() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+        let params = CreateModerationRuleParams {
+            rule_type: ModerationRuleType::Domain,
+            pattern: "baddomain.com".to_string(),
+            action: ModerationAction::Block,
+            reason: None,
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: None,
+        };
+
+        let created = storage.create_rule(params).await.unwrap();
+        let found = storage.get_rule(&created.rule_id).await.unwrap()
+            .expect("rule should be found");
+
+        assert_eq!(found.rule_id, created.rule_id);
+        assert_eq!(found.pattern, "baddomain.com");
+        assert_eq!(found.rule_type, "domain");
+    }
+
+    #[tokio::test]
+    async fn test_get_rule_returns_none_for_nonexistent() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+
+        let result = storage.get_rule("mod_nonexistent_12345").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_rules_by_type_filters_correctly() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+        let suffix = uuid::Uuid::new_v4();
+
+        // Create one keyword rule
+        storage.create_rule(CreateModerationRuleParams {
+            rule_type: ModerationRuleType::Keyword,
+            pattern: format!("keyword_{suffix}"),
+            action: ModerationAction::Flag,
+            reason: None,
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: None,
+        }).await.unwrap();
+
+        // Create one domain rule
+        storage.create_rule(CreateModerationRuleParams {
+            rule_type: ModerationRuleType::Domain,
+            pattern: format!("domain_{suffix}.com"),
+            action: ModerationAction::Block,
+            reason: None,
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: None,
+        }).await.unwrap();
+
+        let keyword_rules = storage.get_rules_by_type("keyword").await.unwrap();
+        assert!(keyword_rules.iter().all(|r| r.rule_type == "keyword"));
+    }
+
+    #[tokio::test]
+    async fn test_update_rule_changes_fields() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+        let params = CreateModerationRuleParams {
+            rule_type: ModerationRuleType::Regex,
+            pattern: r"old_pattern".to_string(),
+            action: ModerationAction::Flag,
+            reason: None,
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: Some(50),
+        };
+
+        let created = storage.create_rule(params).await.unwrap();
+        let updated = storage.update_rule(
+            &created.rule_id,
+            Some(r"new_pattern"),
+            Some("block"),
+            None,
+            Some(200),
+        ).await.unwrap();
+
+        assert_eq!(updated.pattern, "new_pattern");
+        assert_eq!(updated.action, "block");
+        assert_eq!(updated.priority, 200);
+    }
+
+    #[tokio::test]
+    async fn test_delete_rule_soft_deletes() {
+        let pool = test_pool().await;
+        let storage = ModerationStorage::new(pool);
+        let params = CreateModerationRuleParams {
+            rule_type: ModerationRuleType::User,
+            pattern: "@baduser:test.com".to_string(),
+            action: ModerationAction::Block,
+            reason: None,
+            created_by: "@admin:test.com".to_string(),
+            server_id: None,
+            priority: None,
+        };
+
+        let created = storage.create_rule(params).await.unwrap();
+        let deleted = storage.delete_rule(&created.rule_id).await.unwrap();
+        assert!(deleted, "delete_rule should return true");
+
+        // After soft-delete, get_rule should not find it
+        let found = storage.get_rule(&created.rule_id).await.unwrap();
+        assert!(found.is_none(), "soft-deleted rule should not be retrievable");
+    }
+}
