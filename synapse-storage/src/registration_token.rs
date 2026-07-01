@@ -444,7 +444,7 @@ impl RegistrationTokenStorage {
     }
 
     pub async fn deactivate_token(&self, id: i64) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1")
+        sqlx::query("UPDATE registration_tokens SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
             .bind(id)
             .execute(&*self.pool)
             .await?;
