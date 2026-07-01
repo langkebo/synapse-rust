@@ -234,7 +234,7 @@ impl ModerationStorage {
             r"
             UPDATE moderation_rules
             SET is_active = false
-            WHERE rule_id = $1 AND is_active = true
+            WHERE rule_id = $1 AND is_active = TRUE
             ",
         )
         .bind(rule_id)

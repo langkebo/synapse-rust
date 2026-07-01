@@ -239,7 +239,7 @@ impl PushNotificationStorage {
     }
 
     pub async fn unregister_device(&self, user_id: &str, device_id: &str) -> Result<(), ApiError> {
-        sqlx::query("UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = true")
+        sqlx::query("UPDATE push_device SET is_enabled = false WHERE user_id = $1 AND device_id = $2 AND is_enabled = TRUE")
             .bind(user_id)
             .bind(device_id)
             .execute(&*self.pool)
