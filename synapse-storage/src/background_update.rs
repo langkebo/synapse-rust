@@ -47,7 +47,7 @@ pub struct BackgroundUpdate {
     pub created_ts: i64,
     pub started_ts: Option<i64>,
     pub completed_ts: Option<i64>,
-    pub last_updated_ts: Option<i64>,
+    pub updated_ts: Option<i64>,
     pub error_message: Option<String>,
     pub retry_count: i32,
     pub max_retries: i32,
@@ -155,7 +155,7 @@ impl BackgroundUpdateStorage {
     }
 
     pub async fn get_update(&self, job_name: &str) -> Result<Option<BackgroundUpdate>, sqlx::Error> {
-        let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, last_updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE update_name = $1")
+        let row = sqlx::query_as::<_, BackgroundUpdate>("SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE update_name = $1")
             .bind(job_name)
             .fetch_optional(&*self.pool)
             .await?;
@@ -170,7 +170,7 @@ impl BackgroundUpdateStorage {
     ) -> Result<(Vec<BackgroundUpdate>, Option<String>), sqlx::Error> {
         let decoded = from.as_deref().and_then(decode_background_update_cursor);
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, last_updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates
+            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates
              WHERE ($2::BIGINT IS NULL AND $3::TEXT IS NULL)
                 OR created_ts < $2
                 OR (created_ts = $2 AND job_name < $3)
@@ -194,7 +194,7 @@ impl BackgroundUpdateStorage {
 
     pub async fn get_updates_by_status(&self, status: &str) -> Result<Vec<BackgroundUpdate>, sqlx::Error> {
         let rows = sqlx::query_as::<_, BackgroundUpdate>(
-            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, last_updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
+            "SELECT job_name, job_type, description, table_name, column_name, status, progress, total_items, processed_items, created_ts, started_ts, completed_ts, updated_ts, error_message, retry_count, max_retries, batch_size, sleep_ms, depends_on, metadata FROM background_updates WHERE status = $1 ORDER BY created_ts ASC",
         )
         .bind(status)
         .fetch_all(&*self.pool)
@@ -224,7 +224,7 @@ impl BackgroundUpdateStorage {
                 status = $2,
                 started_ts = COALESCE($3, started_ts),
                 completed_ts = COALESCE($4, completed_ts),
-                last_updated_ts = $5
+                updated_ts = $5
             WHERE update_name = $1
             RETURNING *
             ",
@@ -253,7 +253,7 @@ impl BackgroundUpdateStorage {
             UPDATE background_updates SET
                 processed_items = processed_items + $2,
                 total_items = COALESCE($3, total_items),
-                last_updated_ts = $4,
+                updated_ts = $4,
                 progress = CASE
                     WHEN COALESCE($3, total_items) > 0
                     THEN ROUND((processed_items + $2)::FLOAT / COALESCE($3, total_items) * 100)::INTEGER
@@ -281,7 +281,7 @@ impl BackgroundUpdateStorage {
             UPDATE background_updates SET
                 status = 'failed',
                 error_message = $2,
-                last_updated_ts = $3,
+                updated_ts = $3,
                 retry_count = retry_count + 1
             WHERE update_name = $1
             RETURNING *
@@ -514,7 +514,7 @@ mod tests {
             created_ts: 1234567800,
             started_ts: Some(1234567800),
             completed_ts: None,
-            last_updated_ts: Some(1234567890),
+            updated_ts: Some(1234567890),
             error_message: None,
             retry_count: 0,
             max_retries: 3,
@@ -542,7 +542,7 @@ mod tests {
             created_ts: 1234567800,
             started_ts: Some(1234567800),
             completed_ts: Some(1234567890),
-            last_updated_ts: Some(1234567890),
+            updated_ts: Some(1234567890),
             error_message: None,
             retry_count: 0,
             max_retries: 3,

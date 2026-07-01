@@ -38,7 +38,7 @@ mod tests {
             created_ts: 1234567890,
             started_ts: Some(1234568000),
             completed_ts: None,
-            last_updated_ts: Some(1234568500),
+            updated_ts: Some(1234568500),
             error_message: None,
             retry_count: 0,
             max_retries: 3,
