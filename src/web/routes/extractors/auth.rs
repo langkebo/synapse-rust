@@ -513,6 +513,7 @@ impl AuthExtractor for HeaderMap {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn extract_token_from_request(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
     crate::web::utils::auth::extract_token(headers, uri)
 }

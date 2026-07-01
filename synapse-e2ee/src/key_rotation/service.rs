@@ -271,7 +271,7 @@ impl KeyRotationStorage {
     }
 
     pub async fn log_rotation(&self, user_id: &str, room_id: &str, rotation_type: &str) -> Result<(), ApiError> {
-        let now = Utc::now();
+        let now = Utc::now().timestamp_millis();
         let new_key_id = uuid::Uuid::new_v4().to_string();
 
         sqlx::query(
@@ -348,9 +348,9 @@ impl KeyRotationStorage {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
             r"
-            INSERT INTO key_rotation_state (user_id, room_id, rotation_count, last_rotation_ts)
-            VALUES ($1, $2, 1, $3)
-            ON CONFLICT (user_id, room_id) DO UPDATE SET rotation_count = key_rotation_state.rotation_count + 1, last_rotation_ts = $3
+            INSERT INTO key_rotation_state (user_id, room_id, is_rotated, rotated_at)
+            VALUES ($1, $2, TRUE, $3)
+            ON CONFLICT (user_id, room_id) DO UPDATE SET is_rotated = TRUE, rotated_at = $3
             ",
         )
         .bind(user_id)
@@ -369,7 +369,7 @@ impl KeyRotationStorage {
     pub async fn check_needs_rotation(&self, user_id: &str, room_id: &str) -> Result<bool, ApiError> {
         let row = sqlx::query_as::<_, (bool,)>(
             r"
-            SELECT COALESCE(rotation_count, 0) > 0 FROM key_rotation_state
+            SELECT is_rotated FROM key_rotation_state
             WHERE user_id = $1 AND room_id = $2
             ",
         )
@@ -403,8 +403,8 @@ impl KeyRotationStorage {
         let row = sqlx::query(
             "SELECT
              COUNT(*) as total_sessions,
-             COUNT(CASE WHEN last_rotation_ts > $2 THEN 1 END) as rotated_sessions,
-             MAX(last_rotation_ts) as last_rotation
+             COUNT(CASE WHEN rotated_at > $2 THEN 1 END) as rotated_sessions,
+             MAX(rotated_at) as last_rotation
              FROM key_rotation_state
              WHERE user_id = $1",
         )
@@ -418,10 +418,11 @@ impl KeyRotationStorage {
         })?;
 
         use sqlx::Row;
+        let last_rotation_ms: Option<i64> = row.get("last_rotation");
         Ok(RotationStatus {
             total_sessions: row.get("total_sessions"),
             rotated_sessions: row.get("rotated_sessions"),
-            last_rotation: row.get("last_rotation"),
+            last_rotation: last_rotation_ms.and_then(chrono::DateTime::from_timestamp_millis),
         })
     }
 
@@ -561,7 +562,7 @@ impl KeyRotationStorage {
     pub async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError> {
         let result: Option<i64> = sqlx::query_scalar(
             r"
-            SELECT EXTRACT(EPOCH FROM rotated_at) * 1000
+            SELECT rotated_at
             FROM key_rotation_log
             WHERE user_id = $1 AND (new_key_id = $2 OR old_key_id = $2)
             ORDER BY rotated_at DESC LIMIT 1
@@ -585,7 +586,7 @@ impl KeyRotationStorage {
     pub async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
         let result: i64 = sqlx::query_scalar(
             r"
-            SELECT COALESCE(EXTRACT(EPOCH FROM MAX(rotated_at)) * 1000, 0)::bigint
+            SELECT COALESCE(MAX(rotated_at), 0)
             FROM key_rotation_log
             WHERE user_id = $1
             ",

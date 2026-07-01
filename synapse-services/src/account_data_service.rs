@@ -14,6 +14,7 @@ type AccountDataWithTimestamp = (Value, Option<i64>);
 pub struct AccountDataService {
     account_data_storage: Arc<dyn AccountDataRepository>,
     user_storage: Arc<dyn UserStore>,
+    #[allow(dead_code)]
     room_storage: Arc<dyn synapse_storage::RoomRepository>,
     room_account_data_storage: RoomAccountDataStorage,
     filter_storage: FilterStorage,

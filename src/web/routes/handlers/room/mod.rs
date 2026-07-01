@@ -14,7 +14,7 @@ pub(crate) use state::*;
 
 use crate::common::{parse_stream_token, ApiError};
 use crate::web::routes::context::RoomContext;
-use crate::web::routes::{ensure_room_member_ctx, ensure_room_member_strict_ctx, AppState, AuthenticatedUser};
+use crate::web::routes::{ensure_room_member_ctx, ensure_room_member_strict_ctx, AuthenticatedUser};
 use serde::{Deserialize, Serialize};
 
 fn parse_room_messages_from_token(params: &serde_json::Value) -> i64 {

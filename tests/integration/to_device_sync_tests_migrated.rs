@@ -7,7 +7,10 @@ use synapse_rust::common::metrics::MetricsCollector;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_services::sync_service::SyncService;
+use synapse_storage::account_data::AccountDataStorage;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
@@ -279,13 +282,16 @@ async fn test_to_device_next_batch_token_respects_limit() {
     let to_device_storage = ToDeviceStorage::new(&pool);
 
     let sync_service = SyncService::new(
-        presence_storage,
+        Arc::new(presence_storage.clone()),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
+        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
+        DeviceKeyStorage::new(&pool),
+        KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -346,13 +352,16 @@ async fn test_to_device_messages_are_deleted_after_ack() {
 
     let to_device_storage = ToDeviceStorage::new(&pool);
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
+        Arc::new(PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default())))),
         Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         Arc::new(RoomStorage::new(&pool)),
         RoomAccountDataStorage::new(&pool),
+        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
+        DeviceKeyStorage::new(&pool),
+        KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),

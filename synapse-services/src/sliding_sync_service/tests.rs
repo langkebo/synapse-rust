@@ -3,6 +3,7 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncRoom};
+use synapse_storage::PresenceStorage;
 
 #[tokio::test]
 async fn test_room_to_json() {
@@ -84,11 +85,12 @@ fn create_test_service() -> SlidingSyncService {
         storage: SlidingSyncStorage::new(pool.clone()),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         event_storage: Arc::new(EventStorage::new(&pool, "localhost".to_string())),
+        device_key_storage: synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool),
         typing_service: Arc::new(crate::typing_service::TypingService::default()),
-        presence_storage: PresenceStorage::new(
+        presence_storage: Arc::new(PresenceStorage::new(
             pool.clone(),
             Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-        ),
+        )),
         member_storage: Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         device_storage: Arc::new(DeviceStorage::new(&pool)),
         to_device_storage: ToDeviceStorage::new(&pool),

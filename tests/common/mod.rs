@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+pub mod friend_helpers;
 use sqlx::{PgPool, Pool, Postgres};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
