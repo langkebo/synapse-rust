@@ -596,4 +596,94 @@ mod db_tests {
         let tokens_a = storage.get_user_tokens(user_a).await.unwrap();
         assert!(tokens_a.iter().all(|t| t.user_id == *user_a));
     }
+
+    #[tokio::test]
+    async fn test_delete_token_revokes_it() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_revoke_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@revoke:test.com").await;
+        storage.create_token(token_str, "@revoke:test.com", None, None).await.unwrap();
+        storage.delete_token(token_str).await.expect("delete should succeed");
+
+        let found = storage.get_token(token_str).await.unwrap();
+        assert!(found.is_none(), "revoked token should not be found by get_token");
+    }
+
+    #[tokio::test]
+    async fn test_is_token_revoked_detects_revoked() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_is_revoked_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@is_revoked:test.com").await;
+        storage.create_token(token_str, "@is_revoked:test.com", None, None).await.unwrap();
+        assert!(!storage.is_token_revoked(token_str).await.unwrap());
+
+        storage.delete_token(token_str).await.unwrap();
+        assert!(storage.is_token_revoked(token_str).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_tokens_revokes_all_for_user() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user = &format!("@bulk_revoke_{suffix}:test.com");
+
+        ensure_test_user(&pool, user).await;
+
+        storage.create_token(&format!("t1_{suffix}"), user, None, None).await.unwrap();
+        storage.create_token(&format!("t2_{suffix}"), user, None, None).await.unwrap();
+        storage.delete_user_tokens(user).await.unwrap();
+
+        assert!(storage.get_token(&format!("t1_{suffix}")).await.unwrap().is_none());
+        assert!(storage.get_token(&format!("t2_{suffix}")).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_token_exists_positive_and_negative() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_exists_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@exists:test.com").await;
+
+        assert!(!storage.token_exists(token_str).await.unwrap());
+        storage.create_token(token_str, "@exists:test.com", None, None).await.unwrap();
+        assert!(storage.token_exists(token_str).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_blacklist_add_and_check() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_blacklist_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@blacklist:test.com").await;
+        storage.create_token(token_str, "@blacklist:test.com", None, None).await.unwrap();
+        storage.add_to_blacklist(token_str, "@blacklist:test.com", Some("test_reason")).await.unwrap();
+
+        assert!(storage.is_in_blacklist(token_str).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_device_tokens_targets_specific_device() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user = &format!("@device_revoke_{suffix}:test.com");
+
+        ensure_test_user(&pool, user).await;
+        ensure_test_device(&pool, user, "DEV_A").await;
+        ensure_test_device(&pool, user, "DEV_B").await;
+
+        storage.create_token(&format!("d1_{suffix}"), user, Some("DEV_A"), None).await.unwrap();
+        storage.create_token(&format!("d2_{suffix}"), user, Some("DEV_B"), None).await.unwrap();
+        storage.delete_user_device_tokens(user, "DEV_A").await.unwrap();
+
+        assert!(storage.get_token(&format!("d1_{suffix}")).await.unwrap().is_none());
+        assert!(storage.get_token(&format!("d2_{suffix}")).await.unwrap().is_some());
+    }
 }
