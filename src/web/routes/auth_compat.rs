@@ -10,7 +10,6 @@ use axum::{
     Json,
 };
 use serde_json::{json, Value};
-use synapse_services::auth::GuestAuthExt;
 
 pub(crate) async fn register(
     State(state): State<AppState>,

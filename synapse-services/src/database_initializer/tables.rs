@@ -5,7 +5,7 @@ use tracing::warn;
 
 #[cfg(feature = "runtime-ddl")]
 impl DatabaseInitService {
-    pub(crate) async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
+    pub async fn step_create_e2ee_tables(&self) -> Result<String, sqlx::Error> {
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS device_keys (
@@ -45,7 +45,7 @@ impl DatabaseInitService {
 
     /// 创建 E2EE 核心表 - 包括 Olm 和 Megolm 会话表
     /// 这些表在迁移文件中定义，确保在迁移失败时也能创建
-    pub(crate) async fn step_create_e2ee_core_tables(&self) -> Result<String, sqlx::Error> {
+    pub async fn step_create_e2ee_core_tables(&self) -> Result<String, sqlx::Error> {
         // Create olm_accounts table
         sqlx::query(
             r#"
@@ -245,7 +245,7 @@ impl DatabaseInitService {
         Ok("E2EE核心表创建完成".to_string())
     }
 
-    pub(crate) async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
+    pub async fn step_ensure_additional_tables(&self) -> Result<String, sqlx::Error> {
         // Ensure typing table exists
         sqlx::query(
             r#"

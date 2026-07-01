@@ -1,7 +1,6 @@
 //! Room upgrade and migration operations.
 
 use crate::common::error::{ApiError, ApiResult};
-use serde_json::json;
 
 use super::lifecycle::service::LifecycleService;
 

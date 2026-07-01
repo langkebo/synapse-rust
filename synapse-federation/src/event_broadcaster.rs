@@ -741,3 +741,163 @@ impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_common::traits::EventBroadcaster as _;
+
+    #[test]
+    fn test_federation_event_serde_roundtrip() {
+        let event = FederationEvent {
+            event_id: "$event:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hello"}),
+            origin: "example.com".to_string(),
+            destination: vec!["remote.com".to_string()],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let restored: FederationEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.event_id, event.event_id);
+        assert_eq!(restored.destination, event.destination);
+    }
+
+    #[test]
+    fn test_federation_event_serde_empty_destination() {
+        let event = FederationEvent {
+            event_id: "$event:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({}),
+            origin: "example.com".to_string(),
+            destination: vec![],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let restored: FederationEvent = serde_json::from_str(&json).unwrap();
+        assert!(restored.destination.is_empty());
+    }
+
+    #[test]
+    fn test_event_broadcaster_new_initializes_empty_state() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        assert_eq!(broadcaster.server_name, "example.com");
+        assert!(broadcaster.federation_client.is_none());
+        assert!(broadcaster.membership_storage.is_none());
+        assert!(broadcaster.pool.is_none());
+        assert_eq!(broadcaster.backoff_schedule, vec![1000, 5000, 15000, 30000, 60_000, 300000, 900000]);
+    }
+
+    #[test]
+    fn test_event_broadcaster_clone() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let cloned = broadcaster.clone();
+        assert_eq!(cloned.server_name, broadcaster.server_name);
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_count_on_empty_queue() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let count = broadcaster.get_pending_count().await;
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_edu_to_self_returns_ok() {
+        let broadcaster = EventBroadcaster::new("self.com".to_string());
+        let result = broadcaster
+            .broadcast_edu("self.com", &serde_json::json!({"type": "m.typing"}), "self.com")
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_event_no_destinations_returns_ok() {
+        // Without membership_storage, get_eligible_destinations returns empty vec.
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let event = serde_json::json!({
+            "event_id": "$event:example.com",
+            "room_id": "!room:example.com",
+            "type": "m.room.message"
+        });
+        let result = broadcaster.broadcast_event("!room:example.com", &event, "example.com").await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_backoff_delay_at_various_retry_counts() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        // retry_count 0 → index 0 → 1000
+        assert_eq!(broadcaster.get_backoff_delay(0), 1000);
+        // retry_count 1 → index 1 → 5000
+        assert_eq!(broadcaster.get_backoff_delay(1), 5000);
+        // retry_count 6 → index 6 → 900000
+        assert_eq!(broadcaster.get_backoff_delay(6), 900000);
+        // retry_count beyond array → clamped to last → 900000
+        assert_eq!(broadcaster.get_backoff_delay(100), 900000);
+    }
+
+    #[tokio::test]
+    async fn test_retry_pending_with_no_client_returns_zero() {
+        // Without a federation_client, retry_pending_transactions returns Ok(0).
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let result = broadcaster.retry_pending_transactions().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_recover_pending_without_pool_returns_zero() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let result = broadcaster.recover_pending_from_db().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_old_transactions_without_pool_returns_zero() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        let result = broadcaster.cleanup_old_transactions(0).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_federation_broadcast_error_display() {
+        let err = FederationBroadcastError::SendFailed("connection refused".to_string());
+        assert!(format!("{err}").contains("connection refused"));
+
+        let err = FederationBroadcastError::InvalidEvent("bad JSON".to_string());
+        assert!(format!("{err}").contains("bad JSON"));
+
+        let err = FederationBroadcastError::NetworkError("timeout".to_string());
+        assert!(format!("{err}").contains("timeout"));
+    }
+
+    #[test]
+    fn test_federation_broadcast_message_serde_roundtrip() {
+        let msg = FederationBroadcastMessage {
+            event: FederationEvent {
+                event_id: "$event:example.com".to_string(),
+                room_id: "!room:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                event_type: "m.room.message".to_string(),
+                content: serde_json::json!({"body": "test"}),
+                origin: "example.com".to_string(),
+                destination: vec!["remote.com".to_string()],
+            },
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let restored: FederationBroadcastMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.event.event_id, msg.event.event_id);
+    }
+
+    #[test]
+    fn test_broadcast_subscriber_count_on_empty_broadcaster() {
+        let broadcaster = EventBroadcaster::new("example.com".to_string());
+        // Without pending items, subscriber count should be 0.
+        assert_eq!(broadcaster.broadcast_subscriber_count(), 0);
+    }
+}

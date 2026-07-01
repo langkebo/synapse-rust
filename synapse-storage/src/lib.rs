@@ -117,6 +117,7 @@ pub use user_store_fake::FakeUserStore;
 #[cfg(test)]
 pub mod test_utils;
 
+#[allow(ambiguous_glob_reexports)]
 pub use self::account_data::*;
 pub use self::admin_federation::*;
 pub use self::admin_media::*;

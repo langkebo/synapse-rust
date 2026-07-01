@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::models::{CreateEventParams, EventQueryFilter, RoomEphemeralEvent, RoomEvent, StateEvent};
 
 #[async_trait]
+#[allow(clippy::too_many_arguments)]
 pub trait EventRepository: Send + Sync {
     /// Returns a reference to the database connection pool.
     fn pool(&self) -> &Arc<sqlx::PgPool>;

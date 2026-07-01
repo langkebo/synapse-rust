@@ -222,3 +222,162 @@ impl McpProxyService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_cache::CacheConfig;
+
+    fn make_service() -> McpProxyService {
+        let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+        McpProxyService::new(cache)
+    }
+
+    #[test]
+    fn test_service_construction() {
+        let service = make_service();
+        // Verify construction succeeds; client has 30s timeout configured.
+        drop(service);
+    }
+
+    #[test]
+    fn test_service_is_clone() {
+        let service = make_service();
+        let cloned = service.clone();
+        // Both instances should be usable independently.
+        drop(service);
+        drop(cloned);
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_non_http_protocol() {
+        let service = make_service();
+        let result = service.list_tools("ftp://example.com/mcp").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("HTTP(S)"), "expected protocol error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_no_protocol() {
+        let service = make_service();
+        let result = service.list_tools("example.com/mcp").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_localhost() {
+        let service = make_service();
+        let result = service.list_tools("http://localhost:8080/mcp").await;
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("loopback") || msg.contains("localhost"), "expected loopback error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_ipv4_loopback() {
+        let service = make_service();
+        let result = service.list_tools("http://127.0.0.1:8080/mcp").await;
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("loopback"), "expected loopback error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_ipv6_loopback() {
+        let service = make_service();
+        let result = service.list_tools("http://[::1]:8080/mcp").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_all_zeros() {
+        let service = make_service();
+        let result = service.list_tools("http://0.0.0.0:8080/mcp").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_private_ipv4_10() {
+        let service = make_service();
+        let result = service.list_tools("http://10.0.0.1:8080/mcp").await;
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        assert!(msg.contains("private") || msg.contains("local"), "expected private address error, got: {msg}");
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_private_ipv4_192() {
+        let service = make_service();
+        let result = service.list_tools("http://192.168.1.1:8080/mcp").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_private_ipv4_172() {
+        let service = make_service();
+        let result = service.list_tools("http://172.16.0.1:8080/mcp").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_tools_rejects_link_local() {
+        let service = make_service();
+        let result = service.list_tools("http://169.254.169.254/mcp").await;
+        assert!(result.is_err());
+        let msg = format!("{}", result.unwrap_err());
+        // 169.254.x.x is caught by is_link_local() which returns "private/local address".
+        assert!(
+            msg.contains("private") || msg.contains("local") || msg.contains("link-local") || msg.contains("metadata"),
+            "expected link-local/private error, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_also_validates_ssrf() {
+        let service = make_service();
+        let result = service
+            .call_tool(
+                "http://127.0.0.1:8080/mcp",
+                "get_trending_topics",
+                serde_json::json!({}),
+                "trendradar",
+                "@user:example.com",
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_validates_ssrf_for_non_trendradar_provider() {
+        let service = make_service();
+        let result = service
+            .call_tool(
+                "ftp://example.com/mcp",
+                "some_tool",
+                serde_json::json!({}),
+                "other_provider",
+                "@user:example.com",
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_health_returns_false_for_unreachable_endpoint() {
+        let service = make_service();
+        // Use a non-routable address to ensure connection failure.
+        // 203.0.113.x is TEST-NET-3 (RFC 5737), guaranteed to be non-routable.
+        let healthy = service.check_health("http://203.0.113.1:9999/health").await;
+        assert!(!healthy, "unreachable endpoint should return false");
+    }
+
+    #[tokio::test]
+    async fn test_check_health_returns_false_for_invalid_protocol() {
+        let service = make_service();
+        let healthy = service.check_health("not-a-url").await;
+        assert!(!healthy, "invalid URL should return false");
+    }
+}
+

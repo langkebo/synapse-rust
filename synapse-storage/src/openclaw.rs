@@ -432,7 +432,7 @@ impl OpenClawStorage {
         };
 
         let next_batch = if conversations.len() > limit as usize {
-            conversations.get(limit as usize).map(|conversation| {
+            conversations.get(limit as usize - 1).map(|conversation| {
                 encode_conversation_cursor(&ConversationCursor {
                     is_pinned: conversation.is_pinned,
                     updated_ts: conversation.updated_ts,
@@ -582,7 +582,7 @@ impl OpenClawStorage {
 
         let next_batch = if messages.len() > limit as usize {
             messages
-                .get(limit as usize)
+                .get(limit as usize - 1)
                 .map(|message| encode_message_cursor(&MessageCursor { created_ts: message.created_ts, id: message.id }))
         } else {
             None
@@ -764,7 +764,7 @@ impl OpenClawStorage {
         };
 
         let next_batch = if generations.len() > limit as usize {
-            generations.get(limit as usize).map(|generation| {
+            generations.get(limit as usize - 1).map(|generation| {
                 encode_generation_cursor(&GenerationCursor { created_ts: generation.created_ts, id: generation.id })
             })
         } else {

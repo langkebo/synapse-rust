@@ -193,6 +193,7 @@ pub struct AccountServices {
 }
 
 impl AccountServices {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         user_storage: Arc<dyn UserStore>,

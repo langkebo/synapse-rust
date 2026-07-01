@@ -572,3 +572,189 @@ impl EventRepository for EventStorage {
         self.get_daily_message_count().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn now_ms() -> i64 {
+        chrono::Utc::now().timestamp_millis()
+    }
+
+    #[test]
+    fn test_room_event_construction() {
+        let ev = RoomEvent {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hello"}),
+            state_key: None,
+            depth: 1,
+            origin_server_ts: now_ms(),
+            processed_ts: now_ms(),
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "example.com".to_string(),
+            stream_ordering: Some(1),
+            redacts: None,
+        };
+        assert_eq!(ev.event_id, "$ev1:example.com");
+        assert_eq!(ev.event_type, "m.room.message");
+        assert!(ev.state_key.is_none());
+        assert!(ev.redacts.is_none());
+        assert_eq!(ev.origin, "example.com");
+    }
+
+    #[test]
+    fn test_room_event_redaction_field() {
+        let ev = RoomEvent {
+            event_id: "$redact:example.com".to_string(),
+            room_id: "!r:example.com".to_string(),
+            user_id: "@admin:example.com".to_string(),
+            event_type: "m.room.redaction".to_string(),
+            content: serde_json::json!({}),
+            state_key: None,
+            depth: 2,
+            origin_server_ts: now_ms(),
+            processed_ts: now_ms(),
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "example.com".to_string(),
+            stream_ordering: None,
+            redacts: Some("$target:example.com".to_string()),
+        };
+        assert_eq!(ev.redacts.as_deref(), Some("$target:example.com"));
+    }
+
+    #[test]
+    fn test_state_event_construction_optional_fields() {
+        let se = StateEvent {
+            event_id: "$se1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@bob:example.com".to_string(),
+            event_type: Some("m.room.name".to_string()),
+            content: serde_json::json!({"name": "Test Room"}),
+            state_key: Some("".to_string()),
+            unsigned: None,
+            is_redacted: Some(false),
+            origin_server_ts: now_ms(),
+            depth: Some(1),
+            processed_ts: None,
+            not_before: None,
+            status: None,
+            reference_image: None,
+            origin: None,
+            user_id: None,
+            stream_ordering: None,
+        };
+        assert_eq!(se.event_type.as_deref(), Some("m.room.name"));
+        assert_eq!(se.state_key.as_deref(), Some(""));
+        assert_eq!(se.is_redacted, Some(false));
+    }
+
+    #[test]
+    fn test_room_ephemeral_event_construction() {
+        let ee = RoomEphemeralEvent {
+            event_type: "m.typing".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            content: serde_json::json!({"user_ids": []}),
+            stream_id: 42,
+            created_ts: now_ms(),
+        };
+        assert_eq!(ee.event_type, "m.typing");
+        assert_eq!(ee.stream_id, 42);
+        assert!(ee.created_ts > 0);
+    }
+
+    #[test]
+    fn test_create_event_params_construction() {
+        let params = CreateEventParams {
+            event_id: "$new:example.com".to_string(),
+            room_id: "!r:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hi"}),
+            state_key: None,
+            origin_server_ts: now_ms(),
+            redacts: None,
+        };
+        assert_eq!(params.event_type, "m.room.message");
+        assert!(params.state_key.is_none());
+        assert!(params.redacts.is_none());
+    }
+
+    #[test]
+    fn test_event_query_filter_default_all_none() {
+        let filter = EventQueryFilter::default();
+        assert!(filter.types.is_none());
+        assert!(filter.not_types.is_none());
+        assert!(filter.senders.is_none());
+        assert!(filter.not_senders.is_none());
+    }
+
+    #[test]
+    fn test_event_query_filter_equality() {
+        let f1 = EventQueryFilter {
+            types: Some(vec!["m.room.message".to_string()]),
+            not_types: None,
+            senders: Some(vec!["@alice:example.com".to_string()]),
+            not_senders: None,
+        };
+        let f2 = f1.clone();
+        assert_eq!(f1, f2);
+    }
+
+    #[test]
+    fn test_event_query_filter_inequality() {
+        let f1 = EventQueryFilter {
+            types: Some(vec!["m.room.message".to_string()]),
+            not_types: None,
+            senders: None,
+            not_senders: None,
+        };
+        let f2 = EventQueryFilter {
+            types: Some(vec!["m.room.member".to_string()]),
+            not_types: None,
+            senders: None,
+            not_senders: None,
+        };
+        assert_ne!(f1, f2);
+    }
+
+    #[test]
+    fn test_event_signature_construction() {
+        let sig = EventSignature {
+            id: uuid::Uuid::new_v4(),
+            event_id: "$ev:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEV1".to_string(),
+            signature: "sig_base64".to_string(),
+            key_id: "ed25519:1".to_string(),
+            created_ts: Some(now_ms()),
+        };
+        assert_eq!(sig.device_id, "DEV1");
+        assert_eq!(sig.key_id, "ed25519:1");
+        assert!(sig.created_ts.is_some());
+    }
+
+    #[test]
+    fn test_event_report_construction() {
+        let report = EventReport {
+            id: 1,
+            event_id: "$bad:example.com".to_string(),
+            room_id: "!r:example.com".to_string(),
+            reporter_user_id: "@bob:example.com".to_string(),
+            reason: Some("spam".to_string()),
+            score: 50,
+            received_ts: now_ms(),
+            resolved_ts: None,
+            resolved_by: None,
+        };
+        assert_eq!(report.score, 50);
+        assert_eq!(report.reason.as_deref(), Some("spam"));
+        assert!(report.resolved_ts.is_none());
+    }
+}

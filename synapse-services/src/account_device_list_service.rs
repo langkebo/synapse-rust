@@ -200,3 +200,154 @@ impl AccountDeviceListService {
         Ok(DeviceListDelta { changed, deleted, left, stream_id })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn sample_entry(user_id: &str, device_id: &str) -> DeviceListEntry {
+        DeviceListEntry {
+            user_id: user_id.to_string(),
+            device_id: device_id.to_string(),
+            display_name: Some("Phone".to_string()),
+            last_seen_ts: Some(1_700_000_000_000),
+        }
+    }
+
+    #[test]
+    fn test_device_list_entry_construction_and_field_access() {
+        let entry = DeviceListEntry {
+            user_id: "@alice:example.com".to_string(),
+            device_id: "DEVICE_001".to_string(),
+            display_name: Some("Laptop".to_string()),
+            last_seen_ts: Some(1_700_000_000_000),
+        };
+        assert_eq!(entry.user_id, "@alice:example.com");
+        assert_eq!(entry.device_id, "DEVICE_001");
+        assert_eq!(entry.display_name.as_deref(), Some("Laptop"));
+        assert_eq!(entry.last_seen_ts, Some(1_700_000_000_000));
+    }
+
+    #[test]
+    fn test_device_list_entry_with_none_fields() {
+        let entry = DeviceListEntry {
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEV".to_string(),
+            display_name: None,
+            last_seen_ts: None,
+        };
+        assert!(entry.display_name.is_none());
+        assert!(entry.last_seen_ts.is_none());
+    }
+
+    #[test]
+    fn test_device_list_entry_clone_is_equal() {
+        let entry = sample_entry("@alice:example.com", "DEV1");
+        let cloned = entry.clone();
+        assert_eq!(cloned.user_id, entry.user_id);
+        assert_eq!(cloned.device_id, entry.device_id);
+        assert_eq!(cloned.display_name, entry.display_name);
+        assert_eq!(cloned.last_seen_ts, entry.last_seen_ts);
+    }
+
+    #[test]
+    fn test_device_list_deletion_construction() {
+        let deletion = DeviceListDeletion {
+            user_id: "@charlie:example.com".to_string(),
+            device_id: "OLD_DEVICE".to_string(),
+        };
+        assert_eq!(deletion.user_id, "@charlie:example.com");
+        assert_eq!(deletion.device_id, "OLD_DEVICE");
+    }
+
+    #[test]
+    fn test_device_list_deletion_clone() {
+        let deletion = DeviceListDeletion {
+            user_id: "@dave:example.com".to_string(),
+            device_id: "DEV_X".to_string(),
+        };
+        let cloned = deletion.clone();
+        assert_eq!(cloned.user_id, deletion.user_id);
+        assert_eq!(cloned.device_id, deletion.device_id);
+    }
+
+    #[test]
+    fn test_device_list_snapshot_default_is_empty() {
+        let snapshot = DeviceListSnapshot::default();
+        assert!(snapshot.changed.is_empty());
+        assert!(snapshot.left.is_empty());
+    }
+
+    #[test]
+    fn test_device_list_snapshot_with_changed_and_left() {
+        let entry1 = sample_entry("@alice:example.com", "DEV1");
+        let entry2 = sample_entry("@bob:example.com", "DEV2");
+        let snapshot = DeviceListSnapshot {
+            changed: vec![entry1, entry2],
+            left: vec!["@gone:example.com".to_string()],
+        };
+        assert_eq!(snapshot.changed.len(), 2);
+        assert_eq!(snapshot.left.len(), 1);
+        assert_eq!(snapshot.left[0], "@gone:example.com");
+    }
+
+    #[test]
+    fn test_device_list_delta_default_is_empty_with_zero_stream_id() {
+        let delta = DeviceListDelta::default();
+        assert!(delta.changed.is_empty());
+        assert!(delta.deleted.is_empty());
+        assert!(delta.left.is_empty());
+        assert_eq!(delta.stream_id, 0);
+    }
+
+    #[test]
+    fn test_device_list_delta_construction_full() {
+        let entry = sample_entry("@alice:example.com", "DEV1");
+        let deletion = DeviceListDeletion {
+            user_id: "@bob:example.com".to_string(),
+            device_id: "DEV2".to_string(),
+        };
+        let delta = DeviceListDelta {
+            changed: vec![entry],
+            deleted: vec![deletion],
+            left: vec!["@left:example.com".to_string()],
+            stream_id: 42,
+        };
+        assert_eq!(delta.changed.len(), 1);
+        assert_eq!(delta.deleted.len(), 1);
+        assert_eq!(delta.left.len(), 1);
+        assert_eq!(delta.stream_id, 42);
+    }
+
+    #[test]
+    fn test_device_list_delta_clone_preserves_all_fields() {
+        let delta = DeviceListDelta {
+            changed: vec![sample_entry("@alice:example.com", "DEV1")],
+            deleted: vec![DeviceListDeletion {
+                user_id: "@bob:example.com".to_string(),
+                device_id: "DEV2".to_string(),
+            }],
+            left: vec!["@left:example.com".to_string()],
+            stream_id: 99,
+        };
+        let cloned = delta.clone();
+        assert_eq!(cloned.changed.len(), delta.changed.len());
+        assert_eq!(cloned.deleted.len(), delta.deleted.len());
+        assert_eq!(cloned.left.len(), delta.left.len());
+        assert_eq!(cloned.stream_id, delta.stream_id);
+    }
+
+    #[tokio::test]
+    async fn test_account_device_list_service_can_be_constructed_with_lazy_pool() {
+        let pool = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://unused:unused@localhost:5432/unused")
+                .expect("connect_lazy should not perform I/O"),
+        );
+        let service = AccountDeviceListService::new(DeviceStorage::new(&pool));
+        // Verify construction succeeds; no DB operations performed.
+        drop(service);
+    }
+}
+

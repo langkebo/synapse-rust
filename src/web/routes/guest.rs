@@ -6,7 +6,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use synapse_services::auth::GuestAuthExt;
 use validator::Validate;
 
 pub async fn register_guest(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
