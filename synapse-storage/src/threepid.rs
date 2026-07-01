@@ -436,7 +436,7 @@ impl ThreepidStorage {
             r"
             UPDATE threepid_validation_session
             SET is_validated = TRUE, validated_at = $2
-            WHERE id = $1
+            WHERE id = $1 AND is_validated = FALSE
             ",
         )
         .bind(id)
