@@ -436,3 +436,164 @@ mod tests {
         assert!(token.device_id.as_ref().unwrap().contains("CLIENT"));
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    /// Insert a minimal user row so the foreign-key constraint on
+    /// `access_tokens.user_id` is satisfied.  Uses ON CONFLICT DO NOTHING
+    /// so the same user can safely be referenced by multiple tests.
+    async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    /// Insert a minimal device row so the foreign-key constraint on
+    /// `access_tokens.device_id` is satisfied.
+    async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (device_id) DO NOTHING"#,
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test device");
+    }
+
+    #[tokio::test]
+    async fn test_create_token_returns_valid_record() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_token_{}", uuid::Uuid::new_v4());
+        let user_id = "@test_user:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+
+        let token = storage.create_token(token_str, user_id, None, None)
+            .await
+            .expect("create_token should succeed");
+
+        assert!(token.id > 0);
+        assert!(!token.token_hash.is_empty());
+        assert_eq!(token.user_id, user_id);
+        assert!(token.device_id.is_none());
+        assert!(token.created_ts > 0);
+        assert!(!token.is_revoked);
+    }
+
+    #[tokio::test]
+    async fn test_create_token_with_device_id() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_device_token_{}", uuid::Uuid::new_v4());
+        let device_id = &format!("device_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@alice:test.com").await;
+        ensure_test_device(&pool, "@alice:test.com", device_id).await;
+
+        let token = storage.create_token(token_str, "@alice:test.com", Some(device_id), None)
+            .await
+            .expect("create_token with device should succeed");
+
+        assert_eq!(token.device_id.as_deref(), Some(device_id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_create_token_with_expiry() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_expiring_token_{}", uuid::Uuid::new_v4());
+        let expires_at = chrono::Utc::now().timestamp_millis() + 3600000;
+
+        ensure_test_user(&pool, "@bob:test.com").await;
+
+        let token = storage.create_token(token_str, "@bob:test.com", None, Some(expires_at))
+            .await
+            .expect("create_token with expiry should succeed");
+
+        assert!(token.expires_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_token_finds_created_token() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let token_str = &format!("test_retrieve_{}", uuid::Uuid::new_v4());
+
+        ensure_test_user(&pool, "@charlie:test.com").await;
+
+        storage.create_token(token_str, "@charlie:test.com", None, None)
+            .await
+            .expect("create should succeed");
+
+        let found = storage.get_token(token_str)
+            .await
+            .expect("get_token should succeed")
+            .expect("token should be found");
+
+        assert_eq!(found.user_id, "@charlie:test.com");
+    }
+
+    #[tokio::test]
+    async fn test_get_token_returns_none_for_nonexistent() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+
+        let result = storage.get_token("nonexistent_token_12345")
+            .await
+            .expect("query should succeed");
+
+        assert!(result.is_none(), "nonexistent token should return None");
+    }
+
+    #[tokio::test]
+    async fn test_get_user_tokens_returns_only_user_tokens() {
+        let pool = test_pool().await;
+        let storage = AccessTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_a = &format!("@user_a_{suffix}:test.com");
+        let user_b = &format!("@user_b_{suffix}:test.com");
+
+        ensure_test_user(&pool, user_a).await;
+        ensure_test_user(&pool, user_b).await;
+
+        storage.create_token(&format!("tok_a1_{suffix}"), user_a, None, None).await.unwrap();
+        storage.create_token(&format!("tok_b1_{suffix}"), user_b, None, None).await.unwrap();
+
+        let tokens_a = storage.get_user_tokens(user_a).await.unwrap();
+        assert!(tokens_a.iter().all(|t| t.user_id == *user_a));
+    }
+}
