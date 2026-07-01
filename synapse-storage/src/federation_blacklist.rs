@@ -184,7 +184,7 @@ impl FederationBlacklistStorage {
             r#"
             UPDATE federation_blacklist
             SET is_enabled = false, updated_ts = $1
-            WHERE server_name = $2
+            WHERE server_name = $2 AND is_enabled = true
             "#,
             now,
             server_name
