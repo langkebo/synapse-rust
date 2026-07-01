@@ -53,9 +53,3 @@ impl RoomInfrastructure {
         *self.federation_client.write().await = Some(c);
     }
 }
-
-impl Default for RoomInfrastructure {
-    fn default() -> Self {
-        Self::new()
-    }
-}

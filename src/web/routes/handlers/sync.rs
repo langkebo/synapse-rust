@@ -6,7 +6,7 @@ use axum::{
     http::HeaderMap,
 };
 use serde_json::Value;
-use synapse_common::rate_limit_config::RateLimitConfigFile;
+use synapse_common::rate_limit_config::{RateLimitConfigFile, SyncRateLimitConfigFile};
 use synapse_services::sync_service::SyncServiceRequest;
 
 struct SyncParams {

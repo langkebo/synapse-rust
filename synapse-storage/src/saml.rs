@@ -644,7 +644,7 @@ impl SamlStorage {
             UPDATE saml_identity_providers
             SET metadata_xml = $1,
                 last_metadata_refresh_at = $4,
-                metadata_valid_until_at = $2,
+                metadata_valid_until = $2,
                 updated_ts = $4
             WHERE entity_id = $3
             "#,
@@ -765,7 +765,7 @@ impl SamlStorage {
 
     pub async fn process_logout_request(&self, request_id: &str) -> Result<(), ApiError> {
         let now_ts = chrono::Utc::now().timestamp_millis();
-        sqlx::query("UPDATE saml_logout_requests SET status = 'processed', processed_at = $2 WHERE request_id = $1")
+        sqlx::query("UPDATE saml_logout_requests SET status = 'processed', processed_ts = $2 WHERE request_id = $1")
             .bind(request_id)
             .bind(now_ts)
             .execute(&*self.pool)

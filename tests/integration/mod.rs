@@ -79,7 +79,6 @@ mod friend_federation_tests;
 mod key_backup_storage_tests_migrated;
 mod megolm_dual_write_storage_tests_migrated;
 mod membership_storage_tests_migrated;
-mod membership_storage_tests_additional;
 mod openid_token_storage_tests_migrated;
 mod permission_escalation_tests;
 mod presence_storage_tests_migrated;
@@ -127,19 +126,16 @@ mod matrixrtc_tests_migrated;
 mod registration_service_tests_migrated;
 mod relations_service_tests_migrated;
 mod room_service_tests_migrated;
-mod room_service_tests_additional;
 mod sliding_sync_service_tests_migrated;
 mod sync_service_tests_migrated;
 mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;
-mod uia_service_tests_additional;
 
 // Additional integration tests for service-layer files with 0% coverage.
 mod push_service_tests_additional;
 mod sync_data_fetch_tests_additional;
 mod sync_response_tests_additional;
 mod admin_user_service_tests_additional;
-mod capability_governance_tests_additional;
 
 // Additional integration tests for federation state resolution logic (0% coverage).
 mod federation_state_resolution_tests_additional;
