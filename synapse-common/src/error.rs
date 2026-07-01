@@ -1280,3 +1280,847 @@ where
 // ---------------------------------------------------------------------------
 
 pub type ApiResult<T> = Result<T, ApiError>;
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::error::Error as _;
+
+    // -----------------------------------------------------------------------
+    // ApiError construction and Display
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_bad_request_construction() {
+        let err = ApiError::bad_request("invalid input");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::BadJson);
+        assert_eq!(err.message, "invalid input");
+        assert!(err.source.is_none());
+        assert!(err.cause.is_none());
+    }
+
+    #[test]
+    fn test_api_error_unauthorized_construction() {
+        let err = ApiError::unauthorized("bad token");
+        assert_eq!(err.kind, ApiErrorKind::Unauthorized);
+        assert_eq!(err.code, MatrixErrorCode::Unauthorized);
+        assert_eq!(err.message, "bad token");
+    }
+
+    #[test]
+    fn test_api_error_forbidden_construction() {
+        let err = ApiError::forbidden("no access");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::Forbidden);
+    }
+
+    #[test]
+    fn test_api_error_not_found_construction() {
+        let err = ApiError::not_found("missing resource");
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
+        assert_eq!(err.code, MatrixErrorCode::NotFound);
+    }
+
+    #[test]
+    fn test_api_error_internal_construction() {
+        let err = ApiError::internal("bug");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+    }
+
+    #[test]
+    fn test_api_error_not_implemented_construction() {
+        let err = ApiError::not_implemented("not done yet");
+        assert_eq!(err.kind, ApiErrorKind::NotImplemented);
+        assert_eq!(err.code, MatrixErrorCode::Unimplemented);
+    }
+
+    #[test]
+    fn test_api_error_conflict_construction() {
+        let err = ApiError::conflict("duplicate");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::UserInUse);
+    }
+
+    #[test]
+    fn test_api_error_conflict_with_construction() {
+        let err = ApiError::conflict_with(MatrixErrorCode::RoomInUse, "room in use");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::RoomInUse);
+        assert_eq!(err.message, "room in use");
+    }
+
+    #[test]
+    fn test_api_error_rate_limited_construction() {
+        let err = ApiError::rate_limited("too fast");
+        assert_eq!(err.kind, ApiErrorKind::RateLimited);
+        assert_eq!(err.code, MatrixErrorCode::LimitExceeded);
+        assert_eq!(err.message, "Rate limited");
+    }
+
+    #[test]
+    fn test_api_error_rate_limited_with_retry_construction() {
+        let err = ApiError::rate_limited_with_retry(3000);
+        assert_eq!(err.kind, ApiErrorKind::RateLimited);
+        assert_eq!(err.code, MatrixErrorCode::LimitExceeded);
+        assert_eq!(err.message, "Rate limited");
+        assert!(err.cause.is_some());
+    }
+
+    #[test]
+    fn test_api_error_missing_token() {
+        let err = ApiError::missing_token();
+        assert_eq!(err.kind, ApiErrorKind::Unauthorized);
+        assert_eq!(err.code, MatrixErrorCode::MissingToken);
+        assert_eq!(err.message, "Missing access token");
+    }
+
+    #[test]
+    fn test_api_error_not_json() {
+        let err = ApiError::not_json("not json data");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::NotJson);
+        assert_eq!(err.message, "not json data");
+    }
+
+    #[test]
+    fn test_api_error_gone_construction() {
+        let err = ApiError::gone("resource deleted");
+        assert_eq!(err.kind, ApiErrorKind::Gone);
+        assert_eq!(err.code, MatrixErrorCode::NotFound);
+    }
+
+    #[test]
+    fn test_api_error_authentication() {
+        let err = ApiError::authentication("bad credentials");
+        assert_eq!(err.kind, ApiErrorKind::Unauthorized);
+        assert_eq!(err.code, MatrixErrorCode::UnknownToken);
+    }
+
+    #[test]
+    fn test_api_error_validation() {
+        let err = ApiError::validation("invalid field");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_api_error_database() {
+        let err = ApiError::database("db connection failed");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+    }
+
+    #[test]
+    fn test_api_error_cache() {
+        let err = ApiError::cache("redis down");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.message, "Cache error: redis down");
+    }
+
+    #[test]
+    fn test_api_error_domain_specific_constructors() {
+        let err = ApiError::user_deactivated("account disabled");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::UserDeactivated);
+
+        let err = ApiError::invalid_username("bad chars");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::InvalidUsername);
+
+        let err = ApiError::too_large("file too big");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::TooLarge);
+
+        let err = ApiError::request_timeout("timed out");
+        assert_eq!(err.kind, ApiErrorKind::Timeout);
+        assert_eq!(err.code, MatrixErrorCode::RequestTimeout);
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError Display formatting
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_display_without_source() {
+        let err = ApiError::bad_request("test message");
+        assert_eq!(format!("{}", err), "M_BAD_JSON: test message");
+    }
+
+    #[test]
+    fn test_api_error_display_with_source() {
+        let err = ApiError::bad_request("test message")
+            .with_source("storage::room", "get_messages");
+        assert_eq!(
+            format!("{}", err),
+            "[storage::room::get_messages] M_BAD_JSON: test message"
+        );
+    }
+
+    #[test]
+    fn test_api_error_display_internal_message() {
+        let err = ApiError::internal("something went wrong");
+        assert_eq!(format!("{}", err), "M_UNKNOWN: something went wrong");
+    }
+
+    #[test]
+    fn test_api_error_debug_not_empty() {
+        let err = ApiError::forbidden("debug test");
+        assert!(!format!("{:?}", err).is_empty());
+    }
+
+    #[test]
+    fn test_api_error_display_contains_message() {
+        let err = ApiError::not_found("resource not found");
+        assert!(format!("{}", err).contains("resource not found"));
+        assert!(format!("{}", err).contains("M_NOT_FOUND"));
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError PartialEq
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_partial_eq_equal() {
+        let err1 = ApiError::bad_request("msg");
+        let err2 = ApiError::bad_request("msg");
+        assert_eq!(err1, err2);
+    }
+
+    #[test]
+    fn test_api_error_partial_eq_different_kind() {
+        let err1 = ApiError::bad_request("msg");
+        let err2 = ApiError::forbidden("msg");
+        assert_ne!(err1, err2);
+    }
+
+    #[test]
+    fn test_api_error_partial_eq_different_message() {
+        let err1 = ApiError::bad_request("msg one");
+        let err2 = ApiError::bad_request("msg two");
+        assert_ne!(err1, err2);
+    }
+
+    #[test]
+    fn test_api_error_partial_eq_same_source() {
+        let err1 = ApiError::bad_request("msg").with_source("mod", "op");
+        let err2 = ApiError::bad_request("msg").with_source("mod", "op");
+        assert_eq!(err1, err2);
+    }
+
+    #[test]
+    fn test_api_error_partial_eq_different_source() {
+        let err1 = ApiError::bad_request("msg").with_source("mod", "op1");
+        let err2 = ApiError::bad_request("msg").with_source("mod", "op2");
+        assert_ne!(err1, err2);
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError builder methods
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_with_source() {
+        let err = ApiError::bad_request("msg").with_source("my_module", "my_operation");
+        let src = err.source.expect("source should be set");
+        assert_eq!(src.module, "my_module");
+        assert_eq!(src.operation, "my_operation");
+    }
+
+    #[test]
+    fn test_api_error_with_cause() {
+        let cause = std::io::Error::new(std::io::ErrorKind::Other, "underlying cause");
+        let err = ApiError::internal("msg").with_cause(cause);
+        assert!(err.cause.is_some());
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn test_api_error_with_code() {
+        let err = ApiError::bad_request("msg").with_code(MatrixErrorCode::InvalidParam);
+        assert_eq!(err.code, MatrixErrorCode::InvalidParam);
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError predicate methods
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_is_bad_request() {
+        assert!(ApiError::bad_request("msg").is_bad_request());
+        assert!(!ApiError::forbidden("msg").is_bad_request());
+    }
+
+    #[test]
+    fn test_api_error_is_unauthorized() {
+        assert!(ApiError::unauthorized("msg").is_unauthorized());
+        assert!(!ApiError::bad_request("msg").is_unauthorized());
+    }
+
+    #[test]
+    fn test_api_error_is_forbidden() {
+        assert!(ApiError::forbidden("msg").is_forbidden());
+        assert!(!ApiError::bad_request("msg").is_forbidden());
+    }
+
+    #[test]
+    fn test_api_error_is_not_found() {
+        assert!(ApiError::not_found("msg").is_not_found());
+        assert!(!ApiError::bad_request("msg").is_not_found());
+    }
+
+    #[test]
+    fn test_api_error_is_conflict() {
+        assert!(ApiError::conflict("msg").is_conflict());
+        assert!(!ApiError::bad_request("msg").is_conflict());
+    }
+
+    #[test]
+    fn test_api_error_is_gone() {
+        assert!(ApiError::gone("msg").is_gone());
+        assert!(!ApiError::bad_request("msg").is_gone());
+    }
+
+    #[test]
+    fn test_api_error_is_rate_limited() {
+        assert!(ApiError::rate_limited("msg").is_rate_limited());
+        assert!(!ApiError::bad_request("msg").is_rate_limited());
+    }
+
+    #[test]
+    fn test_api_error_is_internal() {
+        assert!(ApiError::internal("msg").is_internal());
+        assert!(!ApiError::bad_request("msg").is_internal());
+    }
+
+    #[test]
+    fn test_api_error_is_not_implemented() {
+        assert!(ApiError::not_implemented("msg").is_not_implemented());
+        assert!(!ApiError::bad_request("msg").is_not_implemented());
+    }
+
+    #[test]
+    fn test_api_error_is_timeout() {
+        assert!(ApiError::request_timeout("msg").is_timeout());
+        assert!(!ApiError::bad_request("msg").is_timeout());
+    }
+
+    #[test]
+    fn test_api_error_code_is() {
+        let err = ApiError::bad_request("msg");
+        assert!(err.code_is(MatrixErrorCode::BadJson));
+        assert!(!err.code_is(MatrixErrorCode::NotFound));
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError accessor methods
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_code_accessor() {
+        let err = ApiError::forbidden("msg");
+        assert_eq!(err.code(), &MatrixErrorCode::Forbidden);
+        assert_eq!(err.matrix_code(), MatrixErrorCode::Forbidden);
+        assert_eq!(err.code_str(), "M_FORBIDDEN");
+    }
+
+    #[test]
+    fn test_api_error_message_for_internal() {
+        let err = ApiError::internal("secret details");
+        // `message()` masks the internal details for clients
+        assert_eq!(err.message(), "An internal error occurred");
+    }
+
+    #[test]
+    fn test_api_error_message_for_non_internal() {
+        let err = ApiError::bad_request("bad input");
+        assert_eq!(err.message(), "bad input");
+    }
+
+    #[test]
+    fn test_api_error_internal_message() {
+        let err = ApiError::internal("secret details");
+        assert_eq!(err.internal_message(), "secret details");
+    }
+
+    #[test]
+    fn test_api_error_http_status() {
+        let err = ApiError::not_found("gone");
+        assert_eq!(err.http_status(), StatusCode::NOT_FOUND);
+
+        let err = ApiError::forbidden("no access");
+        assert_eq!(err.http_status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn test_api_error_retry_after_ms_for_rate_limited_without_cause() {
+        let err = ApiError::rate_limited("slow down");
+        assert_eq!(err.retry_after_ms(), Some(5000));
+    }
+
+    #[test]
+    fn test_api_error_retry_after_ms_for_rate_limited_with_retry() {
+        let err = ApiError::rate_limited_with_retry(3000);
+        assert_eq!(err.retry_after_ms(), Some(3000));
+    }
+
+    #[test]
+    fn test_api_error_retry_after_ms_for_non_rate_limited() {
+        let err = ApiError::bad_request("nope");
+        assert_eq!(err.retry_after_ms(), None);
+    }
+
+    #[test]
+    fn test_api_error_database_construction() {
+        let err = ApiError::database("connection pool exhausted");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+        assert_eq!(err.message, "connection pool exhausted");
+    }
+
+    #[test]
+    fn test_api_error_domain_constructors() {
+        // user_deactivated
+        let err = ApiError::user_deactivated("account disabled");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::UserDeactivated);
+
+        // invalid_username
+        let err = ApiError::invalid_username("bad chars");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::InvalidUsername);
+
+        // user_in_use
+        let err = ApiError::user_in_use("user taken");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::UserInUse);
+
+        // room_in_use
+        let err = ApiError::room_in_use("room in use");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::RoomInUse);
+
+        // invalid_room_state
+        let err = ApiError::invalid_room_state("wrong state");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::InvalidRoomState);
+
+        // threepid_in_use
+        let err = ApiError::threepid_in_use("email in use");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::ThreepidInUse);
+
+        // threepid_not_found
+        let err = ApiError::threepid_not_found("email not found");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::ThreepidNotFound);
+
+        // threepid_auth_failed
+        let err = ApiError::threepid_auth_failed("auth failed");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::ThreepidAuthFailed);
+
+        // threepid_denied
+        let err = ApiError::threepid_denied("denied");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::ThreepidDenied);
+
+        // server_not_trusted
+        let err = ApiError::server_not_trusted("untrusted");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::ServerNotTrusted);
+
+        // unsupported_room_version
+        let err = ApiError::unsupported_room_version("bad version");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::UnsupportedRoomVersion);
+
+        // incompatible_room_version
+        let err = ApiError::incompatible_room_version("wrong version");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::IncompatibleRoomVersion);
+
+        // bad_state
+        let err = ApiError::bad_state("bad state");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::BadState);
+
+        // guest_access_forbidden
+        let err = ApiError::guest_access_forbidden("guest blocked");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::GuestAccessForbidden);
+
+        // captcha_needed
+        let err = ApiError::captcha_needed("captcha required");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::CaptchaNeeded);
+
+        // captcha_invalid
+        let err = ApiError::captcha_invalid("wrong captcha");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::CaptchaInvalid);
+
+        // missing_param
+        let err = ApiError::missing_param("missing field");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::MissingParam);
+
+        // invalid_param
+        let err = ApiError::invalid_param("bad field");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::InvalidParam);
+
+        // too_large
+        let err = ApiError::too_large("too big");
+        assert_eq!(err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(err.code, MatrixErrorCode::TooLarge);
+
+        // exclusive
+        let err = ApiError::exclusive("exclusive");
+        assert_eq!(err.kind, ApiErrorKind::Conflict);
+        assert_eq!(err.code, MatrixErrorCode::Exclusive);
+
+        // resource_limit_exceeded
+        let err = ApiError::resource_limit_exceeded("over limit");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::ResourceLimitExceeded);
+
+        // cannot_leave_server_notice_room
+        let err = ApiError::cannot_leave_server_notice_room("stuck");
+        assert_eq!(err.kind, ApiErrorKind::Forbidden);
+        assert_eq!(err.code, MatrixErrorCode::CannotLeaveServerNoticeRoom);
+
+        // unknown
+        let err = ApiError::unknown("unknown error");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+
+        // unrecognized
+        let err = ApiError::unrecognized("unrecognized");
+        assert_eq!(err.kind, ApiErrorKind::NotFound);
+        assert_eq!(err.code, MatrixErrorCode::Unrecognized);
+
+        // request_timeout
+        let err = ApiError::request_timeout("timed out");
+        assert_eq!(err.kind, ApiErrorKind::Timeout);
+        assert_eq!(err.code, MatrixErrorCode::RequestTimeout);
+
+        // decryption_error
+        let err = ApiError::decryption_error("decrypt failed");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+
+        // encryption_error
+        let err = ApiError::encryption_error("encrypt failed");
+        assert_eq!(err.kind, ApiErrorKind::Internal);
+        assert_eq!(err.code, MatrixErrorCode::Unknown);
+    }
+
+    // -----------------------------------------------------------------------
+    // MatrixErrorCode::as_str()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_matrix_error_code_as_str() {
+        assert_eq!(MatrixErrorCode::Forbidden.as_str(), "M_FORBIDDEN");
+        assert_eq!(MatrixErrorCode::Unknown.as_str(), "M_UNKNOWN");
+        assert_eq!(MatrixErrorCode::NotFound.as_str(), "M_NOT_FOUND");
+        assert_eq!(MatrixErrorCode::BadJson.as_str(), "M_BAD_JSON");
+        assert_eq!(MatrixErrorCode::Unauthorized.as_str(), "M_UNAUTHORIZED");
+        assert_eq!(MatrixErrorCode::Unimplemented.as_str(), "M_UNRECOGNIZED");
+        assert_eq!(MatrixErrorCode::UserDeactivated.as_str(), "M_USER_DEACTIVATED");
+        assert_eq!(MatrixErrorCode::LimitExceeded.as_str(), "M_LIMIT_EXCEEDED");
+        assert_eq!(MatrixErrorCode::RequestTimeout.as_str(), "M_REQUEST_TIMEOUT");
+    }
+
+    #[test]
+    fn test_matrix_error_code_as_str_all_variants() {
+        // Spot-check that every variant returns a non-empty M_ prefixed string
+        let codes = [
+            MatrixErrorCode::Forbidden,
+            MatrixErrorCode::UnknownToken,
+            MatrixErrorCode::MissingToken,
+            MatrixErrorCode::BadJson,
+            MatrixErrorCode::NotJson,
+            MatrixErrorCode::NotFound,
+            MatrixErrorCode::LimitExceeded,
+            MatrixErrorCode::Unknown,
+            MatrixErrorCode::Unrecognized,
+            MatrixErrorCode::Unauthorized,
+            MatrixErrorCode::UserDeactivated,
+            MatrixErrorCode::UserInUse,
+            MatrixErrorCode::InvalidUsername,
+            MatrixErrorCode::RoomInUse,
+            MatrixErrorCode::InvalidRoomState,
+            MatrixErrorCode::ThreepidInUse,
+            MatrixErrorCode::ThreepidNotFound,
+            MatrixErrorCode::ThreepidAuthFailed,
+            MatrixErrorCode::ThreepidDenied,
+            MatrixErrorCode::ServerNotTrusted,
+            MatrixErrorCode::UnsupportedRoomVersion,
+            MatrixErrorCode::IncompatibleRoomVersion,
+            MatrixErrorCode::BadState,
+            MatrixErrorCode::GuestAccessForbidden,
+            MatrixErrorCode::CaptchaNeeded,
+            MatrixErrorCode::CaptchaInvalid,
+            MatrixErrorCode::MissingParam,
+            MatrixErrorCode::InvalidParam,
+            MatrixErrorCode::TooLarge,
+            MatrixErrorCode::Exclusive,
+            MatrixErrorCode::ResourceLimitExceeded,
+            MatrixErrorCode::CannotLeaveServerNoticeRoom,
+            MatrixErrorCode::Unimplemented,
+            MatrixErrorCode::RequestTimeout,
+        ];
+        for code in &codes {
+            let s = code.as_str();
+            assert!(s.starts_with("M_"), "as_str() for {code:?} did not start with M_: got {s}");
+            assert!(!s.is_empty(), "as_str() for {code:?} returned empty string");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // MatrixErrorCode::http_status()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_matrix_error_code_http_status() {
+        assert_eq!(MatrixErrorCode::Forbidden.http_status(), StatusCode::FORBIDDEN);
+        assert_eq!(MatrixErrorCode::NotFound.http_status(), StatusCode::NOT_FOUND);
+        assert_eq!(MatrixErrorCode::BadJson.http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(MatrixErrorCode::LimitExceeded.http_status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(MatrixErrorCode::Unimplemented.http_status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(MatrixErrorCode::Unknown.http_status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(MatrixErrorCode::Unauthorized.http_status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(MatrixErrorCode::ServerNotTrusted.http_status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(MatrixErrorCode::TooLarge.http_status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(MatrixErrorCode::RequestTimeout.http_status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(MatrixErrorCode::UserInUse.http_status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn test_matrix_error_code_http_status_all_variants() {
+        // Verify every variant's http_status matches its expected grouping
+        let auth_codes = [
+            MatrixErrorCode::UnknownToken,
+            MatrixErrorCode::MissingToken,
+            MatrixErrorCode::Unauthorized,
+        ];
+        for code in &auth_codes {
+            assert_eq!(code.http_status(), StatusCode::UNAUTHORIZED, "{code:?} should be UNAUTHORIZED");
+        }
+
+        let bad_request_codes = [
+            MatrixErrorCode::BadJson,
+            MatrixErrorCode::NotJson,
+            MatrixErrorCode::Unrecognized,
+            MatrixErrorCode::InvalidUsername,
+            MatrixErrorCode::InvalidRoomState,
+            MatrixErrorCode::UnsupportedRoomVersion,
+            MatrixErrorCode::IncompatibleRoomVersion,
+            MatrixErrorCode::BadState,
+            MatrixErrorCode::CaptchaNeeded,
+            MatrixErrorCode::CaptchaInvalid,
+            MatrixErrorCode::MissingParam,
+            MatrixErrorCode::InvalidParam,
+            MatrixErrorCode::ThreepidNotFound,
+        ];
+        for code in &bad_request_codes {
+            assert_eq!(code.http_status(), StatusCode::BAD_REQUEST, "{code:?} should be BAD_REQUEST");
+        }
+
+        let forbidden_codes = [
+            MatrixErrorCode::Forbidden,
+            MatrixErrorCode::UserDeactivated,
+            MatrixErrorCode::ThreepidAuthFailed,
+            MatrixErrorCode::ThreepidDenied,
+            MatrixErrorCode::GuestAccessForbidden,
+            MatrixErrorCode::ResourceLimitExceeded,
+            MatrixErrorCode::CannotLeaveServerNoticeRoom,
+        ];
+        for code in &forbidden_codes {
+            assert_eq!(code.http_status(), StatusCode::FORBIDDEN, "{code:?} should be FORBIDDEN");
+        }
+
+        let conflict_codes = [
+            MatrixErrorCode::UserInUse,
+            MatrixErrorCode::RoomInUse,
+            MatrixErrorCode::ThreepidInUse,
+            MatrixErrorCode::Exclusive,
+        ];
+        for code in &conflict_codes {
+            assert_eq!(code.http_status(), StatusCode::CONFLICT, "{code:?} should be CONFLICT");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // MatrixErrorCode Display
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_matrix_error_code_display() {
+        assert_eq!(format!("{}", MatrixErrorCode::Forbidden), "M_FORBIDDEN");
+        assert_eq!(format!("{}", MatrixErrorCode::NotFound), "M_NOT_FOUND");
+        assert_eq!(format!("{}", MatrixErrorCode::Unknown), "M_UNKNOWN");
+    }
+
+    // -----------------------------------------------------------------------
+    // ErrorSource
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_error_source_new() {
+        let source = ErrorSource::new("storage::room", "get_messages");
+        assert_eq!(source.module, "storage::room");
+        assert_eq!(source.operation, "get_messages");
+    }
+
+    #[test]
+    fn test_error_source_new_with_strings() {
+        let source = ErrorSource::new(String::from("module"), String::from("operation"));
+        assert_eq!(source.module, "module");
+        assert_eq!(source.operation, "operation");
+    }
+
+    #[test]
+    fn test_error_source_display() {
+        let source = ErrorSource::new("mod", "op");
+        assert_eq!(format!("{}", source), "[mod::op]");
+    }
+
+    #[test]
+    fn test_error_source_display_with_paths() {
+        let source = ErrorSource::new("storage::room::repository", "find_by_id");
+        assert_eq!(format!("{}", source), "[storage::room::repository::find_by_id]");
+    }
+
+    #[test]
+    fn test_error_source_debug() {
+        let source = ErrorSource::new("a", "b");
+        assert!(!format!("{:?}", source).is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiErrorKind
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_error_kind_default_http_status() {
+        assert_eq!(ApiErrorKind::BadRequest.default_http_status(), StatusCode::BAD_REQUEST);
+        assert_eq!(ApiErrorKind::Unauthorized.default_http_status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(ApiErrorKind::Forbidden.default_http_status(), StatusCode::FORBIDDEN);
+        assert_eq!(ApiErrorKind::NotFound.default_http_status(), StatusCode::NOT_FOUND);
+        assert_eq!(ApiErrorKind::Conflict.default_http_status(), StatusCode::CONFLICT);
+        assert_eq!(ApiErrorKind::Gone.default_http_status(), StatusCode::GONE);
+        assert_eq!(ApiErrorKind::RateLimited.default_http_status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(ApiErrorKind::Internal.default_http_status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(ApiErrorKind::NotImplemented.default_http_status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(ApiErrorKind::Timeout.default_http_status(), StatusCode::REQUEST_TIMEOUT);
+    }
+
+    #[test]
+    fn test_api_error_kind_serde_roundtrip() {
+        let variants = [
+            ApiErrorKind::BadRequest,
+            ApiErrorKind::Unauthorized,
+            ApiErrorKind::Forbidden,
+            ApiErrorKind::NotFound,
+            ApiErrorKind::Conflict,
+            ApiErrorKind::Gone,
+            ApiErrorKind::RateLimited,
+            ApiErrorKind::Internal,
+            ApiErrorKind::NotImplemented,
+            ApiErrorKind::Timeout,
+        ];
+        for variant in &variants {
+            let json = serde_json::to_string(variant).expect("serialize");
+            let deserialized: ApiErrorKind = serde_json::from_str(&json).expect("deserialize");
+            assert_eq!(*variant, deserialized, "roundtrip failed for {variant:?}");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Send + Sync (required by Axum)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_error_types_are_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<ApiError>();
+        assert_send_sync::<MatrixErrorCode>();
+        assert_send_sync::<ApiErrorKind>();
+        assert_send_sync::<ErrorSource>();
+        assert_send_sync::<ApiResponse<String>>();
+    }
+
+    // -----------------------------------------------------------------------
+    // From impls
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_from_serde_json_error() {
+        let serde_err = serde_json::from_str::<i32>("not a number").unwrap_err();
+        let api_err: ApiError = serde_err.into();
+        assert_eq!(api_err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(api_err.code, MatrixErrorCode::NotJson);
+    }
+
+    #[test]
+    fn test_from_parse_int_error() {
+        let parse_err = "abc".parse::<i32>().unwrap_err();
+        let api_err: ApiError = parse_err.into();
+        assert_eq!(api_err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(api_err.code, MatrixErrorCode::InvalidParam);
+    }
+
+    #[test]
+    fn test_from_utf8_error() {
+        let bytes = vec![0xFF, 0xFE, 0x00];
+        let utf8_err = String::from_utf8(bytes).unwrap_err();
+        let api_err: ApiError = utf8_err.into();
+        assert_eq!(api_err.kind, ApiErrorKind::BadRequest);
+        assert_eq!(api_err.code, MatrixErrorCode::InvalidParam);
+        assert_eq!(api_err.message, "Invalid UTF-8 encoding");
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiResponse
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_api_response_success() {
+        let resp: ApiResponse<i32> = ApiResponse::success(42);
+        assert_eq!(resp.status, "ok");
+        assert_eq!(resp.data, Some(42));
+        assert!(resp.error.is_none());
+        assert!(resp.errcode.is_none());
+        assert!(resp.retry_after_ms.is_none());
+    }
+
+    #[test]
+    fn test_api_response_error() {
+        let resp: ApiResponse<()> = ApiResponse::error("bad things".into(), "M_UNKNOWN".into());
+        assert_eq!(resp.status, "error");
+        assert!(resp.data.is_none());
+        assert_eq!(resp.error.as_deref(), Some("bad things"));
+        assert_eq!(resp.errcode.as_deref(), Some("M_UNKNOWN"));
+        assert!(resp.retry_after_ms.is_none());
+    }
+
+    #[test]
+    fn test_api_response_error_with_retry() {
+        let resp: ApiResponse<()> =
+            ApiResponse::error_with_retry("rate limited".into(), "M_LIMIT_EXCEEDED".into(), 5000);
+        assert_eq!(resp.status, "error");
+        assert!(resp.data.is_none());
+        assert_eq!(resp.error.as_deref(), Some("rate limited"));
+        assert_eq!(resp.errcode.as_deref(), Some("M_LIMIT_EXCEEDED"));
+        assert_eq!(resp.retry_after_ms, Some(5000));
+    }
+}
+
