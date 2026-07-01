@@ -523,4 +523,60 @@ mod tests {
         assert_eq!(key_id.len(), 8 + 8);
         assert_eq!(key.len(), 44);
     }
+
+    #[test]
+    fn test_hash_token_deterministic() {
+        let token = "syt_abc123_def456_ghijk789";
+        let h1 = hash_token(token);
+        let h2 = hash_token(token);
+        assert_eq!(h1, h2, "hash_token must be deterministic");
+    }
+
+    #[test]
+    fn test_hash_token_different_inputs_produce_different_hashes() {
+        let h1 = hash_token("token_a");
+        let h2 = hash_token("token_b");
+        assert_ne!(h1, h2, "different inputs must produce different hashes");
+    }
+
+    #[test]
+    fn test_hash_token_non_empty() {
+        let result = hash_token("some_token_value");
+        assert!(!result.is_empty(), "hash must not be empty");
+    }
+
+    #[test]
+    fn test_hash_token_legacy_deterministic() {
+        let token = "MDAxYWxvY2F0aW9uIGV4YW1wbGUuY29t";
+        let h1 = hash_token_legacy(token);
+        let h2 = hash_token_legacy(token);
+        assert_eq!(h1, h2, "hash_token_legacy must be deterministic");
+    }
+
+    #[test]
+    fn test_hash_token_legacy_different_from_current() {
+        let token = "same_token_for_both";
+        let h_cur = hash_token(token);
+        let h_leg = hash_token_legacy(token);
+        // Legacy and current hash algorithms should produce different outputs
+        assert_ne!(h_cur, h_leg, "legacy and current hashes must differ");
+    }
+
+    #[test]
+    fn test_hash_token_legacy_non_empty() {
+        let result = hash_token_legacy("another_token");
+        assert!(!result.is_empty(), "legacy hash must not be empty");
+    }
+
+    #[test]
+    fn test_hash_token_edge_empty_string() {
+        let result = hash_token("");
+        assert!(!result.is_empty(), "hash of empty string must still produce output");
+    }
+
+    #[test]
+    fn test_hash_token_legacy_edge_empty_string() {
+        let result = hash_token_legacy("");
+        assert!(!result.is_empty(), "legacy hash of empty string must still produce output");
+    }
 }
