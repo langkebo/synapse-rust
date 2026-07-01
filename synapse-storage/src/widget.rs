@@ -162,7 +162,7 @@ impl WidgetStorage {
     pub async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            UPDATE widgets SET is_active = FALSE, updated_ts = $2 WHERE widget_id = $1
+            UPDATE widgets SET is_active = FALSE, updated_ts = $2 WHERE widget_id = $1 AND is_active = TRUE
             "#,
         )
         .bind(widget_id)
@@ -308,7 +308,7 @@ impl WidgetStorage {
     pub async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            UPDATE widget_sessions SET is_active = FALSE WHERE session_id = $1
+            UPDATE widget_sessions SET is_active = FALSE WHERE session_id = $1 AND is_active = TRUE
             "#,
         )
         .bind(session_id)
