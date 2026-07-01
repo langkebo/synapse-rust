@@ -656,7 +656,7 @@ impl ServerNotificationStorage {
 
     pub async fn mark_scheduled_sent(&self, scheduled_id: i64) -> Result<bool, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query(r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2"#)
+        let result = sqlx::query(r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2 AND is_sent = FALSE"#)
             .bind(now)
             .bind(scheduled_id)
             .execute(&self.pool)
