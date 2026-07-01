@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE access_tokens SET is_revoked = TRUE WHERE token_hash IN ($1, $2) AND is_revoked = FALSE\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4273469a605f4de0f3b5b2d7b853a95fb66a69d924a834699dcd47c248574584"
+}
