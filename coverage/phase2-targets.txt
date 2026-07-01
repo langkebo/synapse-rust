@@ -1,0 +1,43 @@
+Top 20 remaining coverage gaps (Phase 2 targets):
+Module                                                         Cov%    Lines
+--------------------------------------------------------------------------------
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'worker.rs']
+    0.0%      0/528  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'event', 'mod.rs']
+    0.0%      0/510  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'room', 'mod.rs']
+    0.0%      0/501  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-cache', 'src', 'lib.rs']
+    9.3%     46/496  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'space.rs']
+    0.0%      0/457  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'user.rs']
+    0.0%      0/426  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'device', 'mod.rs']
+   18.2%     66/363  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'sliding_sync.rs']
+    5.8%     21/360  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'room', 'admin.rs']
+    0.0%      0/355  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'application_service.rs']
+    0.0%      0/330  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'room_summary.rs']
+    0.0%      0/318  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'membership', 'mod.rs']
+    0.0%      0/317  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'presence', 'mod.rs']
+    0.0%      0/269  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'thread.rs']
+    0.0%      0/249  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'registration_token.rs']
+    6.6%     15/229  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'push_notification.rs']
+   10.3%     22/214  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-cache', 'src', 'query_cache.rs']
+    0.0%      0/210  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'event_report.rs']
+    0.0%      0/203  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'refresh_token', 'mod.rs']
+    0.0%      0/194  
+  ['/', 'Users', 'ljf', 'Desktop', 'hu_ts', 'synapse-rust', 'synapse-storage', 'src', 'media_quota.rs']
+    0.0%      0/190  
