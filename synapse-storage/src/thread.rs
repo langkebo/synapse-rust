@@ -674,7 +674,7 @@ impl ThreadStorage {
             r"
             UPDATE thread_replies
             SET is_edited = TRUE
-            WHERE room_id = $1 AND event_id = $2
+            WHERE room_id = $1 AND event_id = $2 AND is_edited = FALSE
             ",
         )
         .bind(room_id)
@@ -690,7 +690,7 @@ impl ThreadStorage {
             r"
             UPDATE thread_replies
             SET is_redacted = TRUE, content = '{}'
-            WHERE room_id = $1 AND event_id = $2
+            WHERE room_id = $1 AND event_id = $2 AND is_redacted = FALSE
             ",
         )
         .bind(room_id)
