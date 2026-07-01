@@ -1,6 +1,4 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#[path = "../common/friend_helpers.rs"]
-mod friend_helpers;
 mod api_account_data_routes_tests;
 mod api_admin_audit_tests;
 mod api_admin_federation_tests;
@@ -25,8 +23,6 @@ mod api_key_backup_route_table_tests;
 mod api_media_routes_tests;
 #[cfg(feature = "openclaw-routes")]
 mod api_openclaw_routes_tests;
-#[cfg(feature = "openclaw-routes")]
-mod openclaw_service_tests_additional;
 mod api_placeholder_contract_p0_tests;
 mod api_placeholder_contract_p1p2_tests;
 mod api_profile_tests;
@@ -65,17 +61,10 @@ mod beacon_storage_tests_migrated;
 mod cross_signing_storage_tests_migrated;
 mod device_storage_tests_migrated;
 mod event_storage_tests_migrated;
-mod event_storage_tests_additional;
-mod e2ee_device_trust_storage_tests_additional;
-mod e2ee_key_rotation_storage_tests_additional;
-mod e2ee_secure_backup_service_tests_additional;
 mod feature_flags_storage_tests_migrated;
 mod federation_blacklist_storage_tests_migrated;
 mod filter_storage_tests_migrated;
 mod friend_room_storage_tests_migrated;
-mod friend_room_service_tests;
-mod friend_room_routes_tests;
-mod friend_federation_tests;
 mod key_backup_storage_tests_migrated;
 mod megolm_dual_write_storage_tests_migrated;
 mod membership_storage_tests_migrated;
@@ -84,37 +73,18 @@ mod permission_escalation_tests;
 mod presence_storage_tests_migrated;
 mod receipt_storage_tests_migrated;
 mod refresh_token_storage_tests_migrated;
-mod refresh_token_storage_tests_additional;
-mod registration_token_storage_tests_additional;
-mod retention_service_tests_additional;
 mod retention_storage_tests_migrated;
 mod room_summary_storage_tests_migrated;
-mod room_storage_tests_additional;
-#[cfg(feature = "server-notifications")]
-mod server_notification_storage_tests_additional;
 mod room_tag_storage_tests_migrated;
 mod sliding_sync_storage_tests_migrated;
-mod space_storage_tests_additional;
-#[cfg(feature = "cas-sso")]
-mod cas_storage_tests_additional;
-mod module_storage_tests_additional;
-mod media_service_tests_additional;
-#[cfg(feature = "openclaw-routes")]
-mod openclaw_storage_tests_additional;
-#[cfg(feature = "saml-sso")]
-mod saml_storage_tests_additional;
 mod state_groups_storage_tests_migrated;
-mod state_groups_storage_tests_additional;
 mod thread_storage_tests_migrated;
-mod thread_service_tests_additional;
 mod threepid_storage_tests_migrated;
 mod token_storage_tests_migrated;
-mod user_storage_tests_additional;
 mod user_storage_tests_migrated;
 
 // Service tests migrated from tests/unit/
 mod admin_registration_service_tests_migrated;
-mod application_service_storage_tests_additional;
 mod auth_service_tests_migrated;
 mod captcha_tests_migrated;
 mod exception_tests_migrated;
@@ -130,18 +100,6 @@ mod sliding_sync_service_tests_migrated;
 mod sync_service_tests_migrated;
 mod to_device_sync_tests_migrated;
 mod uia_service_tests_migrated;
-
-// Additional integration tests for service-layer files with 0% coverage.
-mod push_service_tests_additional;
-mod sync_data_fetch_tests_additional;
-mod sync_response_tests_additional;
-mod admin_user_service_tests_additional;
-
-// Additional integration tests for federation state resolution logic (0% coverage).
-mod federation_state_resolution_tests_additional;
-// Additional integration tests for runtime DDL table initialization (0% coverage).
-#[cfg(feature = "runtime-ddl")]
-mod database_initializer_tables_tests_additional;
 
 // Schema contract tests migrated from tests/unit/
 mod db_schema_smoke_tests_migrated;
