@@ -68,7 +68,7 @@ impl DeviceTrustStorage {
         .bind(&status.device_id)
         .bind(status.trust_level.to_string())
         .bind(&status.verified_by_device_id)
-        .bind(status.verified_at.and_then(|ms| chrono::DateTime::from_timestamp_millis(ms)))
+        .bind(status.verified_at)
         .bind(status.created_ts)
         .bind(status.updated_ts)
         .execute(&*self.pool)
@@ -106,7 +106,7 @@ impl DeviceTrustStorage {
         .bind(device_id)
         .bind(level.to_string())
         .bind(verified_by)
-        .bind(if matches!(level, DeviceTrustLevel::Verified) { Some(now) } else { None })
+        .bind(if matches!(level, DeviceTrustLevel::Verified) { Some(now_ts) } else { None })
         .bind(now_ts)
         .bind(now_ts)
         .execute(&*self.pool)
@@ -471,7 +471,7 @@ impl DeviceTrustStorage {
         .bind(user_id)
         .bind(target_user_id)
         .bind(is_trusted)
-        .bind(if is_trusted { Some(chrono::Utc::now()) } else { None })
+        .bind(if is_trusted { Some(chrono::Utc::now().timestamp_millis()) } else { None })
         .bind(now)
         .bind(now)
         .execute(&*self.pool)
@@ -511,7 +511,7 @@ struct SqlxDeviceTrustStatus {
     device_id: String,
     trust_level: String,
     verified_by_device_id: Option<String>,
-    verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    verified_at: Option<i64>,
     created_ts: i64,
     updated_ts: Option<i64>,
 }
@@ -532,7 +532,7 @@ impl From<SqlxDeviceTrustStatus> for DeviceTrustStatus {
             device_id: row.device_id,
             trust_level: row.trust_level.parse().unwrap_or_default(),
             verified_by_device_id: row.verified_by_device_id,
-            verified_at: row.verified_at.map(|dt| dt.timestamp_millis()),
+            verified_at: row.verified_at,
             created_ts: row.created_ts,
             updated_ts: row.updated_ts.unwrap_or(row.created_ts),
         }

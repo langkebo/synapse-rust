@@ -9,13 +9,10 @@ use synapse_rust::common::metrics::MetricsCollector;
 
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
-use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
-use synapse_storage::account_data::AccountDataStorage;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::{CreateEventParams, EventRepository, EventStorage};
 use synapse_storage::membership::RoomMemberStorage;
@@ -385,16 +382,13 @@ async fn test_sync_success() {
     );
 
     let sync_service = SyncService::new(
-        Arc::new(presence_storage.clone()),
+        presence_storage,
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -442,16 +436,13 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
     );
 
     let sync_service = SyncService::new(
-        Arc::new(presence_storage.clone()),
+        presence_storage,
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -488,16 +479,13 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
     let room_storage = Arc::new(RoomStorage::new(&pool));
 
     let sync_service = SyncService::new(
-        Arc::new(presence_storage.clone()),
+        presence_storage.clone(),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -525,16 +513,13 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
     let room_storage = Arc::new(RoomStorage::new(&pool));
 
     let sync_service = SyncService::new(
-        Arc::new(presence_storage.clone()),
+        presence_storage,
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -567,16 +552,13 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -668,16 +650,13 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -785,16 +764,13 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -896,16 +872,13 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -980,16 +953,13 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         create_room_service(&pool, room_storage.clone(), member_storage.clone(), event_storage.clone(), user_storage);
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1154,16 +1124,13 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     );
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1262,16 +1229,13 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     assert!(persisted_count >= 2, "expected persisted lazy-load members for alice and bob");
 
     let restarted_sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1329,16 +1293,13 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     );
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1418,16 +1379,13 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     let restarted_sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1496,16 +1454,13 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     );
 
     let sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage.clone(),
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -1575,16 +1530,13 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     let restarted_sync_service = SyncService::new(
-        Arc::new(PresenceStorage::new(pool.clone(), cache.clone())),
+        PresenceStorage::new(pool.clone(), cache.clone()),
         member_storage,
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
-        DeviceKeyStorage::new(&pool),
-        KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),

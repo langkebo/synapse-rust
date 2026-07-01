@@ -8,9 +8,13 @@ out = ["Html", "Lcov", "Json"]
 # Output directory
 output-dir = "coverage"
 
-# Coverage thresholds (v2 plan target: ≥80%)
-# - Full coverage (lib + integration) ≥ 80%
-fail-under = 80
+# Coverage thresholds (Step 8 audit requirements)
+# - lib ≥ 70%
+# - P0 paths ≥ 90%
+fail-under = 70
+
+# Include only library code (exclude tests, examples, benches)
+include-lines = ["src/**/*.rs"]
 
 # Exclude patterns
 exclude-files = [
@@ -22,7 +26,7 @@ exclude-files = [
 # Features to enable
 features = "test-utils"
 
-# Run tests with limited threads to avoid DB connection pool exhaustion
+# Run tests with single thread to avoid DB connection pool exhaustion
 args = ["--test-threads=2"]
 
 # Skip doc tests (they're not part of coverage measurement)

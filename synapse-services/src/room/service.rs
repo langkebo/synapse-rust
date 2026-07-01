@@ -717,7 +717,6 @@ impl RoomService {
     pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> ApiResult<()> {
         self.messaging.redact_event_content(event_id, redacted_by).await
     }
-    #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,
         event_id: &str,
@@ -1682,7 +1681,6 @@ mod tests {
             user_storage: user_storage.clone(),
             validator: Arc::new(synapse_common::validation::Validator::default()),
             server_name: "example.com".to_string(),
-            room_summary_service: room_summary_service.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 

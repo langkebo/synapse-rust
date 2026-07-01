@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::config::PerformanceConfig;
@@ -321,9 +320,8 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         storage,
         cache,
         event_storage,
-        DeviceKeyStorage::new(pool),
         typing_service,
-        Arc::new(presence_storage.clone()),
+        presence_storage,
         member_storage,
         device_storage,
         to_device_storage,

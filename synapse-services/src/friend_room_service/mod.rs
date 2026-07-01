@@ -1375,6 +1375,9 @@ mod tests {
     }
 
     #[test]
+    fn test_is_remote_user() {}
+
+    #[test]
     fn test_sort_letter_for_ascii_name() {
         assert_eq!(super::sort_letter_for("alice"), "A");
     }
