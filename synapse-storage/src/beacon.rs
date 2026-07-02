@@ -572,3 +572,783 @@ mod tests {
         assert!(params.accuracy.is_some());
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn unique_room_id() -> String {
+        format!("!db_test_{}:example.com", uuid::Uuid::new_v4())
+    }
+
+    fn unique_event_id() -> String {
+        format!("$db_beacon_{}", uuid::Uuid::new_v4())
+    }
+
+    /// Create a beacon_info record with default fields, returning the created record.
+    async fn seed_beacon_info(storage: &BeaconStorage, room_id: &str, event_id: &str, state_key: &str) -> BeaconInfo {
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.to_string(),
+                event_id: event_id.to_string(),
+                state_key: state_key.to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: Some("Seed beacon".to_string()),
+                timeout: 3_600_000,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1700000000000,
+            })
+            .await
+            .expect("seed_beacon_info should succeed")
+    }
+
+    // --- BeaconInfo CRUD tests ---
+
+    #[tokio::test]
+    async fn test_create_and_get_beacon_info() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let event_id = unique_event_id();
+        let created_ts: i64 = 1700000000000;
+        let timeout: i64 = 3_600_000;
+
+        let params = CreateBeaconInfoParams {
+            room_id: room_id.clone(),
+            event_id: event_id.clone(),
+            state_key: "@alice:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            description: Some("Test beacon".to_string()),
+            timeout,
+            is_live: true,
+            asset_type: "m.self".to_string(),
+            created_ts,
+        };
+
+        let created = storage.create_beacon_info(params).await.expect("create_beacon_info should succeed");
+
+        assert_eq!(created.room_id, room_id);
+        assert_eq!(created.event_id, event_id);
+        assert_eq!(created.sender, "@alice:example.com");
+        assert_eq!(created.description.as_deref(), Some("Test beacon"));
+        assert_eq!(created.timeout, timeout);
+        assert!(created.is_live);
+        assert_eq!(created.asset_type, "m.self");
+        assert_eq!(created.created_ts, created_ts);
+        assert_eq!(created.expires_at, Some(created_ts + timeout));
+        assert!(created.id > 0);
+
+        let fetched = storage
+            .get_beacon_info(&room_id, &event_id)
+            .await
+            .expect("get_beacon_info query should succeed")
+            .expect("beacon_info should be found");
+
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.event_id, event_id);
+    }
+
+    #[tokio::test]
+    async fn test_get_beacon_info_not_found() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+
+        let result = storage.get_beacon_info("!nonexistent:example.com", "$nonexistent").await.expect("query should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_beacon_info_by_state_key_ordering() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let state_key = format!("@alice_{}:example.com", uuid::Uuid::new_v4());
+
+        // Create two beacons with same state_key, different created_ts
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$older_{}", uuid::Uuid::new_v4()),
+                state_key: state_key.clone(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 3_600_000,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1000,
+            })
+            .await
+            .unwrap();
+
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$newer_{}", uuid::Uuid::new_v4()),
+                state_key: state_key.clone(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 3_600_000,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 2000,
+            })
+            .await
+            .unwrap();
+
+        let results = storage.get_beacon_info_by_state_key(&room_id, &state_key).await.expect("query should succeed");
+
+        assert_eq!(results.len(), 2);
+        // ORDER BY created_ts DESC — newest first
+        assert_eq!(results[0].created_ts, 2000);
+        assert_eq!(results[1].created_ts, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_get_active_beacons_filters_correctly() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let far_future = chrono::Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+
+        // Active: is_live=true, expires_at in the future
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$active_{}", uuid::Uuid::new_v4()),
+                state_key: "@active:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 86_400_000,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: far_future - 86_400_000,
+            })
+            .await
+            .unwrap();
+
+        // Expired: is_live=true but expires_at in the past
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$expired_{}", uuid::Uuid::new_v4()),
+                state_key: "@expired:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 1,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1000, // expires_at = 1001, well in the past
+            })
+            .await
+            .unwrap();
+
+        // Not live: is_live=false
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$inactive_{}", uuid::Uuid::new_v4()),
+                state_key: "@inactive:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 3_600_000,
+                is_live: false,
+                asset_type: "m.self".to_string(),
+                created_ts: 2000,
+            })
+            .await
+            .unwrap();
+
+        let active = storage.get_active_beacons(&room_id).await.expect("query should succeed");
+        assert_eq!(active.len(), 1);
+        assert!(active[0].event_id.contains("active"));
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_beacons_by_state_key() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let state_key = format!("@bob_{}:example.com", uuid::Uuid::new_v4());
+
+        let info = seed_beacon_info(&storage, &room_id, &format!("$evt_{}", uuid::Uuid::new_v4()), &state_key).await;
+        assert!(info.is_live);
+
+        let deactivated = storage
+            .deactivate_beacons_by_state_key(&room_id, &state_key)
+            .await
+            .expect("deactivate should succeed");
+
+        assert_eq!(deactivated, 1, "should deactivate exactly 1 beacon");
+
+        // Second call should affect 0 rows since it's already deactivated
+        let second = storage
+            .deactivate_beacons_by_state_key(&room_id, &state_key)
+            .await
+            .expect("second deactivate should succeed");
+
+        assert_eq!(second, 0, "already deactivated, should return 0");
+
+        let fetched = storage.get_beacon_info(&room_id, &info.event_id).await.unwrap().unwrap();
+        assert!(!fetched.is_live, "beacon should no longer be live");
+    }
+
+    #[tokio::test]
+    async fn test_update_beacon_info_collesce_behavior() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let event_id = unique_event_id();
+
+        let created = seed_beacon_info(&storage, &room_id, &event_id, "@charlie:example.com").await;
+        assert!(created.is_live);
+        assert_eq!(created.timeout, 3_600_000);
+
+        // Update with new timeout — expires_at should be recalculated
+        let updated = storage
+            .update_beacon_info(&room_id, &event_id, true, Some(7_200_000))
+            .await
+            .expect("update should succeed")
+            .expect("should return a record");
+
+        assert_eq!(updated.timeout, 7_200_000);
+        assert!(updated.is_live);
+        assert!(updated.expires_at.is_some());
+
+        // Update with is_live=false, None timeout — timeout/expires_at should be COALESCEd (keep old values)
+        let updated2 = storage
+            .update_beacon_info(&room_id, &event_id, false, None)
+            .await
+            .expect("update should succeed")
+            .expect("should return a record");
+
+        assert!(!updated2.is_live);
+        assert_eq!(updated2.timeout, 7_200_000, "timeout should be preserved via COALESCE");
+    }
+
+    #[tokio::test]
+    async fn test_delete_beacon_info() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let event_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &event_id, "@dave:example.com").await;
+
+        let deleted = storage
+            .delete_beacon_info(&room_id, &event_id)
+            .await
+            .expect("delete should succeed");
+
+        assert!(deleted, "should return true when row is deleted");
+
+        // Verify it's gone
+        let fetched = storage.get_beacon_info(&room_id, &event_id).await.unwrap();
+        assert!(fetched.is_none());
+
+        // Deleting again should return false
+        let deleted_again = storage
+            .delete_beacon_info(&room_id, &event_id)
+            .await
+            .expect("second delete should succeed");
+
+        assert!(!deleted_again, "should return false when no row exists");
+    }
+
+    // --- BeaconLocation tests ---
+
+    #[tokio::test]
+    async fn test_create_and_get_beacon_locations() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon_event_id = unique_event_id();
+
+        // Need beacon_info first — create_beacon_location calls update_beacon_expiry internally
+        seed_beacon_info(&storage, &room_id, &beacon_event_id, "@alice:example.com").await;
+
+        // Create two locations with different timestamps
+        let loc1 = storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$loc1_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@alice:example.com".to_string(),
+                uri: "geo:51.5008,0.1247;u=35".to_string(),
+                description: Some("London".to_string()),
+                timestamp: 2000,
+                accuracy: Some(35),
+                created_ts: 2000,
+            })
+            .await
+            .expect("first location should be created");
+
+        let loc2 = storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$loc2_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@alice:example.com".to_string(),
+                uri: "geo:48.8566,2.3522;u=50".to_string(),
+                description: Some("Paris".to_string()),
+                timestamp: 3000,
+                accuracy: Some(50),
+                created_ts: 3000,
+            })
+            .await
+            .expect("second location should be created");
+
+        assert_eq!(loc1.uri, "geo:51.5008,0.1247;u=35");
+        assert_eq!(loc2.uri, "geo:48.8566,2.3522;u=50");
+
+        // get_beacon_locations — ORDER BY timestamp DESC
+        let locations = storage.get_beacon_locations(&beacon_event_id, Some(10)).await.expect("query should succeed");
+        assert_eq!(locations.len(), 2);
+        assert_eq!(locations[0].timestamp, 3000, "newest first");
+        assert_eq!(locations[1].timestamp, 2000);
+
+        // Limit
+        let limited = storage.get_beacon_locations(&beacon_event_id, Some(1)).await.expect("query should succeed");
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].timestamp, 3000);
+    }
+
+    #[tokio::test]
+    async fn test_get_latest_location() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon_event_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &beacon_event_id, "@alice:example.com").await;
+
+        storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$loc_old_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@alice:example.com".to_string(),
+                uri: "geo:51.5008,0.1247;u=35".to_string(),
+                description: None,
+                timestamp: 1000,
+                accuracy: None,
+                created_ts: 1000,
+            })
+            .await
+            .unwrap();
+
+        storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$loc_new_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@alice:example.com".to_string(),
+                uri: "geo:40.7128,-74.0060;u=10".to_string(),
+                description: None,
+                timestamp: 5000,
+                accuracy: None,
+                created_ts: 5000,
+            })
+            .await
+            .unwrap();
+
+        let latest = storage.get_latest_location(&beacon_event_id).await.expect("query should succeed").expect("should find a location");
+        assert_eq!(latest.timestamp, 5000);
+        assert_eq!(latest.uri, "geo:40.7128,-74.0060;u=10");
+
+        // Nonexistent beacon_info_id
+        let none = storage.get_latest_location("$nonexistent").await.expect("query should succeed");
+        assert!(none.is_none());
+    }
+
+    // --- Counting tests ---
+
+    #[tokio::test]
+    async fn test_count_locations_in_room_since() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon_event_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &beacon_event_id, "@alice:example.com").await;
+
+        // Create 3 locations
+        for i in 0..3 {
+            storage
+                .create_beacon_location(CreateBeaconLocationParams {
+                    room_id: room_id.clone(),
+                    event_id: format!("$loc_{}_{}", i, uuid::Uuid::new_v4()),
+                    beacon_info_id: beacon_event_id.clone(),
+                    sender: "@alice:example.com".to_string(),
+                    uri: format!("geo:{},{};u=10", 51.0 + i as f64, 0.0),
+                    description: None,
+                    timestamp: (i + 1) * 1000,
+                    accuracy: None,
+                    created_ts: (i + 1) * 1000,
+                })
+                .await
+                .unwrap();
+        }
+
+        // All 3 since ts = 0
+        let count_all = storage.count_locations_in_room_since(&room_id, 0).await.expect("query should succeed");
+        assert_eq!(count_all, 3);
+
+        // Only 2 since ts = 2000
+        let count_since = storage.count_locations_in_room_since(&room_id, 2000).await.expect("query should succeed");
+        assert_eq!(count_since, 2);
+
+        // None since ts = 9999
+        let count_none = storage.count_locations_in_room_since(&room_id, 9999).await.expect("query should succeed");
+        assert_eq!(count_none, 0);
+    }
+
+    #[tokio::test]
+    async fn test_count_locations_in_room_by_sender_since() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon_event_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &beacon_event_id, "@alice:example.com").await;
+
+        // Alice: 2 locations
+        for i in 0..2 {
+            storage
+                .create_beacon_location(CreateBeaconLocationParams {
+                    room_id: room_id.clone(),
+                    event_id: format!("$alice_{}_{}", i, uuid::Uuid::new_v4()),
+                    beacon_info_id: beacon_event_id.clone(),
+                    sender: "@alice:example.com".to_string(),
+                    uri: format!("geo:{},{};u=10", 51.0 + i as f64, 0.0),
+                    description: None,
+                    timestamp: (i + 1) * 1000,
+                    accuracy: None,
+                    created_ts: (i + 1) * 1000,
+                })
+                .await
+                .unwrap();
+        }
+
+        // Bob: 1 location
+        storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$bob_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@bob:example.com".to_string(),
+                uri: "geo:48.8566,2.3522;u=50".to_string(),
+                description: None,
+                timestamp: 1500,
+                accuracy: None,
+                created_ts: 1500,
+            })
+            .await
+            .unwrap();
+
+        let alice_count = storage
+            .count_locations_in_room_by_sender_since(&room_id, "@alice:example.com", 0)
+            .await
+            .expect("query should succeed");
+        assert_eq!(alice_count, 2);
+
+        let bob_count = storage
+            .count_locations_in_room_by_sender_since(&room_id, "@bob:example.com", 0)
+            .await
+            .expect("query should succeed");
+        assert_eq!(bob_count, 1);
+
+        // No locations for unknown sender
+        let unknown_count = storage
+            .count_locations_in_room_by_sender_since(&room_id, "@unknown:example.com", 0)
+            .await
+            .expect("query should succeed");
+        assert_eq!(unknown_count, 0);
+    }
+
+    // --- Combined / aggregate tests ---
+
+    #[tokio::test]
+    async fn test_get_beacon_with_locations() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon_event_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &beacon_event_id, "@alice:example.com").await;
+
+        storage
+            .create_beacon_location(CreateBeaconLocationParams {
+                room_id: room_id.clone(),
+                event_id: format!("$loc_{}", uuid::Uuid::new_v4()),
+                beacon_info_id: beacon_event_id.clone(),
+                sender: "@alice:example.com".to_string(),
+                uri: "geo:51.5008,0.1247;u=35".to_string(),
+                description: None,
+                timestamp: 5000,
+                accuracy: None,
+                created_ts: 5000,
+            })
+            .await
+            .unwrap();
+
+        let combined = storage
+            .get_beacon_with_locations(&room_id, &beacon_event_id)
+            .await
+            .expect("query should succeed")
+            .expect("should find beacon with locations");
+
+        assert_eq!(combined.beacon_info.event_id, beacon_event_id);
+        assert_eq!(combined.locations.len(), 1);
+        assert_eq!(combined.locations[0].timestamp, 5000);
+
+        // Nonexistent
+        let none = storage.get_beacon_with_locations("!nonexistent", "$nonexistent").await.expect("query should succeed");
+        assert!(none.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_beacons() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+
+        // Create an expired beacon: created_ts=1, timeout=1 => expires_at=2 (well in the past)
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$expired_{}", uuid::Uuid::new_v4()),
+                state_key: "@expired:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 1,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1,
+            })
+            .await
+            .unwrap();
+
+        // Create a non-expired beacon: expires_at=null (timeout=0)
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$forever_{}", uuid::Uuid::new_v4()),
+                state_key: "@forever:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 0, // no expiry
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1,
+            })
+            .await
+            .unwrap();
+
+        // Create a non-expired beacon: expires_at far in the future
+        let far_future = chrono::Utc::now().timestamp_millis() + 86_400_000;
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: format!("$future_{}", uuid::Uuid::new_v4()),
+                state_key: "@future:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 86_400_000,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: far_future - 86_400_000,
+            })
+            .await
+            .unwrap();
+
+        // cleanup_expired_beacons is global — delete WHERE expires_at < now
+        let deleted = storage.cleanup_expired_beacons().await.expect("cleanup should succeed");
+        assert!(deleted >= 1, "should delete at least the expired beacon we just created");
+    }
+
+    #[tokio::test]
+    async fn test_get_room_beacons_with_and_without_expired() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let now = chrono::Utc::now().timestamp_millis();
+        let one_day = 86_400_000i64;
+
+        let active_event_id = format!("$active_{}", uuid::Uuid::new_v4());
+        let expired_event_id = format!("$expired_{}", uuid::Uuid::new_v4());
+
+        // Active beacon (expires in 1 day from now)
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: active_event_id.clone(),
+                state_key: "@active:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: one_day,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: now,
+            })
+            .await
+            .unwrap();
+
+        // Expired beacon (expires_at = created_ts + timeout = 1 + 1 = 2, well in the past)
+        storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: expired_event_id.clone(),
+                state_key: "@expired:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 1,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1,
+            })
+            .await
+            .unwrap();
+
+        // Without expired: only active
+        let active_beacons = storage
+            .get_room_beacons(&room_id, false)
+            .await
+            .expect("query should succeed");
+        assert_eq!(active_beacons.len(), 1);
+        assert_eq!(active_beacons[0].beacon_info.event_id, active_event_id);
+
+        // With expired: both
+        let all_beacons = storage
+            .get_room_beacons(&room_id, true)
+            .await
+            .expect("query should succeed");
+        assert_eq!(all_beacons.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_beacon_locations_batch() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let beacon1_id = unique_event_id();
+        let beacon2_id = unique_event_id();
+
+        seed_beacon_info(&storage, &room_id, &beacon1_id, "@alice:example.com").await;
+        seed_beacon_info(&storage, &room_id, &beacon2_id, "@bob:example.com").await;
+
+        // Locations for beacon1
+        for i in 0..2 {
+            storage
+                .create_beacon_location(CreateBeaconLocationParams {
+                    room_id: room_id.clone(),
+                    event_id: format!("$b1_loc_{}_{}", i, uuid::Uuid::new_v4()),
+                    beacon_info_id: beacon1_id.clone(),
+                    sender: "@alice:example.com".to_string(),
+                    uri: format!("geo:{},{};u=10", 51.0 + i as f64, 0.0),
+                    description: None,
+                    timestamp: (i + 1) * 1000,
+                    accuracy: None,
+                    created_ts: (i + 1) * 1000,
+                })
+                .await
+                .unwrap();
+        }
+
+        // Locations for beacon2
+        for i in 0..3 {
+            storage
+                .create_beacon_location(CreateBeaconLocationParams {
+                    room_id: room_id.clone(),
+                    event_id: format!("$b2_loc_{}_{}", i, uuid::Uuid::new_v4()),
+                    beacon_info_id: beacon2_id.clone(),
+                    sender: "@bob:example.com".to_string(),
+                    uri: format!("geo:{},{};u=10", 48.0 + i as f64, 2.0),
+                    description: None,
+                    timestamp: (i + 1) * 500,
+                    accuracy: None,
+                    created_ts: (i + 1) * 500,
+                })
+                .await
+                .unwrap();
+        }
+
+        let ids = vec![beacon1_id.clone(), beacon2_id.clone()];
+        let batch = storage
+            .get_beacon_locations_batch(&ids, Some(5))
+            .await
+            .expect("batch query should succeed");
+
+        assert_eq!(batch.len(), 2, "should return entries for both beacon_info_ids");
+        assert_eq!(batch.get(&beacon1_id).map(|v| v.len()), Some(2));
+        assert_eq!(batch.get(&beacon2_id).map(|v| v.len()), Some(3));
+
+        // Verify limit works
+        let limited = storage
+            .get_beacon_locations_batch(&ids, Some(1))
+            .await
+            .expect("batch with limit should succeed");
+
+        assert_eq!(limited.get(&beacon1_id).map(|v| v.len()), Some(1));
+        assert_eq!(limited.get(&beacon2_id).map(|v| v.len()), Some(1));
+
+        // Empty input returns empty map
+        let empty = storage
+            .get_beacon_locations_batch(&[], Some(10))
+            .await
+            .expect("empty batch should succeed");
+
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_beacon_info_zero_timeout_no_expiry() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+        let room_id = unique_room_id();
+        let event_id = unique_event_id();
+
+        let created = storage
+            .create_beacon_info(CreateBeaconInfoParams {
+                room_id: room_id.clone(),
+                event_id: event_id.clone(),
+                state_key: "@forever:example.com".to_string(),
+                sender: "@alice:example.com".to_string(),
+                description: None,
+                timeout: 0,
+                is_live: true,
+                asset_type: "m.self".to_string(),
+                created_ts: 1700000000000,
+            })
+            .await
+            .expect("create with timeout=0 should succeed");
+
+        assert_eq!(created.timeout, 0);
+        assert!(created.expires_at.is_none(), "expires_at should be None when timeout is 0");
+    }
+
+    #[tokio::test]
+    async fn test_update_beacon_info_nonexistent_returns_none() {
+        let pool = test_pool().await;
+        let storage = BeaconStorage::new(Arc::clone(&pool));
+
+        let result = storage
+            .update_beacon_info("!nonexistent", "$nonexistent", false, None)
+            .await
+            .expect("query should succeed");
+
+        assert!(result.is_none(), "updating nonexistent beacon should return None");
+    }
+}
