@@ -1161,3 +1161,884 @@ mod tests {
         assert!(member.event_id.is_none());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::useless_conversion, clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod db_tests {
+    use super::*;
+    use std::env;
+
+    async fn test_pool() -> Arc<sqlx::Pool<sqlx::Postgres>> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_room(pool: &sqlx::PgPool, room_id: &str) {
+        sqlx::query(
+            "INSERT INTO rooms (room_id, room_version, is_public, creator, created_ts) \
+             VALUES ($1, '1', false, '@test:localhost', (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT) \
+             ON CONFLICT (room_id) DO NOTHING",
+        )
+        .bind(room_id)
+        .execute(pool)
+        .await
+        .expect("failed to create test room");
+    }
+
+    async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) \
+             ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    async fn cleanup_membership_data(pool: &sqlx::PgPool, suffix: &str) {
+        let pattern = format!("%{suffix}%");
+        sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM room_memberships WHERE room_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
+            .bind(&pattern)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
+    // ── 1. add_member ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_add_member_all_membership_types() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_test_types_{suffix}:localhost");
+        let room_id = format!("!room_test_types_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Join
+        let m = storage
+            .add_member(&room_id, &user_id, "join", Some("TN"), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(m.membership, "join");
+        assert_eq!(m.display_name.as_deref(), Some("TN"));
+        assert!(m.joined_ts.is_some());
+
+        // Invite (upsert)
+        let m = storage
+            .add_member(&room_id, &user_id, "invite", None, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(m.membership, "invite");
+
+        // Ban (upsert)
+        let m = storage
+            .add_member(&room_id, &user_id, "ban", None, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(m.membership, "ban");
+
+        // Leave (upsert)
+        let m = storage
+            .add_member(&room_id, &user_id, "leave", None, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(m.membership, "leave");
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_add_member_with_sender() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_sender_{suffix}:localhost");
+        let sender = format!("@mem_inviter_{suffix}:localhost");
+        let room_id = format!("!room_sender_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &sender).await;
+
+        let m = storage
+            .add_member(&room_id, &user_id, "invite", None, None, Some(&sender), None)
+            .await
+            .unwrap();
+        assert_eq!(m.sender.as_deref(), Some(sender.as_str()));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 2. get_member ─────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_member_found_and_not_found() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_found_{suffix}:localhost");
+        let room_id = format!("!room_found_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_member(&room_id, &user_id, "join", None, None, None, None)
+            .await
+            .unwrap();
+
+        // Found
+        let result = storage.get_member(&room_id, &user_id).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().membership, "join");
+
+        // Not found — non-existent user
+        let result = storage.get_member(&room_id, "@nonexistent:localhost").await.unwrap();
+        assert!(result.is_none());
+
+        // Not found — non-existent room
+        let result = storage.get_member("!nonexistent:localhost", &user_id).await.unwrap();
+        assert!(result.is_none());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 3. get_room_members ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_room_members_filtered_by_type() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_filter_a_{suffix}:localhost");
+        let user_b = format!("@mem_filter_b_{suffix}:localhost");
+        let room_id = format!("!room_filter_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "invite", None, None, None, None).await.unwrap();
+
+        let joins = storage.get_room_members(&room_id, "join").await.unwrap();
+        assert_eq!(joins.len(), 1);
+        assert_eq!(joins[0].user_id, user_a);
+
+        let invites = storage.get_room_members(&room_id, "invite").await.unwrap();
+        assert_eq!(invites.len(), 1);
+        assert_eq!(invites[0].user_id, user_b);
+
+        let leaves = storage.get_room_members(&room_id, "leave").await.unwrap();
+        assert!(leaves.is_empty());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 4. has_any_non_banned_member_from_server ──────────────────
+
+    #[tokio::test]
+    async fn test_has_any_non_banned_member_from_server_true() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_srv_true_{suffix}:localhost");
+        let room_id = format!("!room_srv_true_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+
+        let has = storage.has_any_non_banned_member_from_server(&room_id, "localhost").await.unwrap();
+        assert!(has);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_has_any_non_banned_member_from_server_false() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_srv_false_{suffix}:localhost");
+        let room_id = format!("!room_srv_false_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "ban", None, None, None, None).await.unwrap();
+
+        let has = storage.has_any_non_banned_member_from_server(&room_id, "localhost").await.unwrap();
+        assert!(!has);
+
+        // Also false for a server with no members at all
+        let has_other = storage.has_any_non_banned_member_from_server(&room_id, "otherhost").await.unwrap();
+        assert!(!has_other);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 5. get_room_member_count ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_room_member_count() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_count_a_{suffix}:localhost");
+        let user_b = format!("@mem_count_b_{suffix}:localhost");
+        let room_id = format!("!room_count_{suffix}:localhost");
+        let empty_room = format!("!room_count_empty_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_room(&pool, &empty_room).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        // Empty room
+        let count = storage.get_room_member_count(&empty_room).await.unwrap();
+        assert_eq!(count, 0);
+
+        // With join members
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "join", None, None, None, None).await.unwrap();
+        let count = storage.get_room_member_count(&room_id).await.unwrap();
+        assert_eq!(count, 2);
+
+        // Leave member should not count
+        storage.add_member(&room_id, &user_b, "leave", None, None, None, None).await.unwrap();
+        let count = storage.get_room_member_count(&room_id).await.unwrap();
+        assert_eq!(count, 1);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 6. get_room_members_paginated ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_room_members_paginated() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_0 = format!("@mem_page_0_{suffix}:localhost");
+        let user_1 = format!("@mem_page_1_{suffix}:localhost");
+        let user_2 = format!("@mem_page_2_{suffix}:localhost");
+        let room_id = format!("!room_page_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_0).await;
+        ensure_test_user(&pool, &user_1).await;
+        ensure_test_user(&pool, &user_2).await;
+
+        storage.add_member(&room_id, &user_0, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_1, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_2, "join", None, None, None, None).await.unwrap();
+
+        // No cursor, limit=2 — first page
+        let page = storage.get_room_members_paginated(&room_id, "join", 2, None).await.unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].user_id, user_0);
+        assert_eq!(page[1].user_id, user_1);
+
+        // Cursor from user_0, limit=2 — second page
+        let page = storage.get_room_members_paginated(&room_id, "join", 2, Some(&user_0)).await.unwrap();
+        assert_eq!(page.len(), 2);
+        assert_eq!(page[0].user_id, user_1);
+        assert_eq!(page[1].user_id, user_2);
+
+        // Cursor from user_1, limit=5 — remaining
+        let page = storage.get_room_members_paginated(&room_id, "join", 5, Some(&user_1)).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].user_id, user_2);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 7. remove_member ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_remove_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_remove_{suffix}:localhost");
+        let room_id = format!("!room_remove_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+        assert!(storage.is_member(&room_id, &user_id).await.unwrap());
+
+        storage.remove_member(&room_id, &user_id).await.unwrap();
+
+        // Should no longer be a member
+        assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
+        let m = storage.get_member(&room_id, &user_id).await.unwrap();
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().membership, "leave");
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_member_idempotent() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_rm_idem_{suffix}:localhost");
+        let room_id = format!("!room_rm_idem_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "leave", None, None, None, None).await.unwrap();
+        // Removing an already-left member should not panic/error
+        let result = storage.remove_member(&room_id, &user_id).await;
+        assert!(result.is_ok());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 8. forget_member / is_forgotten ────────────────────────────
+
+    #[tokio::test]
+    async fn test_forget_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_forget_{suffix}:localhost");
+        let room_id = format!("!room_forget_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Join then leave, then forget
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+        storage.remove_member(&room_id, &user_id).await.unwrap();
+
+        storage.forget_member(&room_id, &user_id).await.unwrap();
+
+        assert!(storage.is_forgotten(&room_id, &user_id).await.unwrap());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_is_forgotten_returns_false() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_not_fgt_{suffix}:localhost");
+        let room_id = format!("!room_not_fgt_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+
+        // Not forgotten (still join)
+        assert!(!storage.is_forgotten(&room_id, &user_id).await.unwrap());
+
+        // Non-existent member
+        assert!(!storage.is_forgotten(&room_id, "@noone:localhost").await.unwrap());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 9. get_shared_room_users ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_shared_room_users_shared() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_share_a_{suffix}:localhost");
+        let user_b = format!("@mem_share_b_{suffix}:localhost");
+        let room_id = format!("!room_share_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "join", None, None, None, None).await.unwrap();
+
+        let shared = storage.get_shared_room_users(&user_a).await.unwrap();
+        assert_eq!(shared.len(), 1);
+        assert!(shared.contains(&user_b));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_shared_room_users_no_shared() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_noshare_{suffix}:localhost");
+        let room_id = format!("!room_noshare_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+
+        let shared = storage.get_shared_room_users(&user_a).await.unwrap();
+        assert!(shared.is_empty());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 10. remove_all_members ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_remove_all_members() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_clr_a_{suffix}:localhost");
+        let user_b = format!("@mem_clr_b_{suffix}:localhost");
+        let room_id = format!("!room_clr_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "join", None, None, None, None).await.unwrap();
+
+        let count_before = storage.get_room_member_count(&room_id).await.unwrap();
+        assert_eq!(count_before, 2);
+
+        storage.remove_all_members(&room_id).await.unwrap();
+
+        let members = storage.get_room_members(&room_id, "join").await.unwrap();
+        assert!(members.is_empty());
+
+        // Idempotent
+        let result = storage.remove_all_members(&room_id).await;
+        assert!(result.is_ok());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 11. ban_member / unban_member ──────────────────────────────
+
+    #[tokio::test]
+    async fn test_ban_and_unban_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_ban_{suffix}:localhost");
+        let banned_by = format!("@admin_{suffix}:localhost");
+        let room_id = format!("!room_ban_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &banned_by).await;
+
+        // Ban (works even without prior add_member)
+        storage.ban_member(&room_id, &user_id, &banned_by).await.unwrap();
+
+        let m = storage.get_member(&room_id, &user_id).await.unwrap().unwrap();
+        assert_eq!(m.membership, "ban");
+        assert_eq!(m.banned_by.as_deref(), Some(banned_by.as_str()));
+
+        // Unban
+        storage.unban_member(&room_id, &user_id).await.unwrap();
+
+        let m = storage.get_member(&room_id, &user_id).await.unwrap().unwrap();
+        assert_eq!(m.membership, "leave");
+        assert!(m.banned_by.is_none());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_ban_member_idempotent() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_ban2_{suffix}:localhost");
+        let admin = format!("@admin2_{suffix}:localhost");
+        let room_id = format!("!room_ban2_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &admin).await;
+
+        storage.ban_member(&room_id, &user_id, &admin).await.unwrap();
+        // Banning again should not fail
+        let result = storage.ban_member(&room_id, &user_id, &admin).await;
+        assert!(result.is_ok());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 12. get_joined_rooms ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_joined_rooms_multiple() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_jrooms_{suffix}:localhost");
+        let room_1 = format!("!room_jr1_{suffix}:localhost");
+        let room_2 = format!("!room_jr2_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_1).await;
+        ensure_test_room(&pool, &room_2).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_1, &user_id, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_2, &user_id, "join", None, None, None, None).await.unwrap();
+
+        let rooms = storage.get_joined_rooms(&user_id).await.unwrap();
+        assert_eq!(rooms.len(), 2);
+        assert!(rooms.contains(&room_1));
+        assert!(rooms.contains(&room_2));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_joined_rooms_empty() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_nojr_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let rooms = storage.get_joined_rooms(&user_id).await.unwrap();
+        assert!(rooms.is_empty());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 13. get_sync_rooms ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_sync_rooms() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_sync_{suffix}:localhost");
+        let room_1 = format!("!room_sync1_{suffix}:localhost");
+        let room_2 = format!("!room_sync2_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_1).await;
+        ensure_test_room(&pool, &room_2).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_1, &user_id, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_2, &user_id, "join", None, None, None, None).await.unwrap();
+        // Leave room_2
+        storage.remove_member(&room_2, &user_id).await.unwrap();
+
+        // Without leave
+        let rooms = storage.get_sync_rooms(&user_id, false).await.unwrap();
+        assert_eq!(rooms.len(), 1);
+        assert_eq!(rooms[0].membership, "join");
+
+        // With leave
+        let rooms = storage.get_sync_rooms(&user_id, true).await.unwrap();
+        assert_eq!(rooms.len(), 2);
+        let memberships: Vec<&str> = rooms.iter().map(|r| r.membership.as_str()).collect();
+        assert!(memberships.contains(&"join"));
+        assert!(memberships.contains(&"leave"));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 14. get_membership_state ───────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_membership_state() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_state_{suffix}:localhost");
+        let room_id = format!("!room_state_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // No membership
+        let state = storage.get_membership_state(&room_id, &user_id).await.unwrap();
+        assert!(state.is_none());
+
+        // Join
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+        let state = storage.get_membership_state(&room_id, &user_id).await.unwrap();
+        assert_eq!(state.as_deref(), Some("join"));
+
+        // Leave
+        storage.remove_member(&room_id, &user_id).await.unwrap();
+        let state = storage.get_membership_state(&room_id, &user_id).await.unwrap();
+        assert_eq!(state.as_deref(), Some("leave"));
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 15. get_joined_room_count ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_joined_room_count() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_jrcount_{suffix}:localhost");
+        let room_a = format!("!room_jrc_a_{suffix}:localhost");
+        let room_b = format!("!room_jrc_b_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_a).await;
+        ensure_test_room(&pool, &room_b).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Zero
+        let count = storage.get_joined_room_count(&user_id).await.unwrap();
+        assert_eq!(count, 0);
+
+        // With rooms
+        storage.add_member(&room_a, &user_id, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_b, &user_id, "join", None, None, None, None).await.unwrap();
+        let count = storage.get_joined_room_count(&user_id).await.unwrap();
+        assert_eq!(count, 2);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 16. is_member ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_is_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_ismem_{suffix}:localhost");
+        let room_id = format!("!room_ismem_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Not a member yet
+        assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
+
+        // Join
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+        assert!(storage.is_member(&room_id, &user_id).await.unwrap());
+
+        // Leave
+        storage.remove_member(&room_id, &user_id).await.unwrap();
+        assert!(!storage.is_member(&room_id, &user_id).await.unwrap());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 17. get_room_member ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_room_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_rmem_{suffix}:localhost");
+        let room_id = format!("!room_rmem_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Not found
+        let m = storage.get_room_member(&room_id, &user_id).await.unwrap();
+        assert!(m.is_none());
+
+        // Found
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+        let m = storage.get_room_member(&room_id, &user_id).await.unwrap();
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().membership, "join");
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 18. get_joined_members ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_joined_members() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_jm_a_{suffix}:localhost");
+        let user_b = format!("@mem_jm_b_{suffix}:localhost");
+        let room_id = format!("!room_jm_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        // Join only
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        // Invite (should NOT be in joined members)
+        storage.add_member(&room_id, &user_b, "invite", None, None, None, None).await.unwrap();
+
+        let joined = storage.get_joined_members(&room_id).await.unwrap();
+        assert_eq!(joined.len(), 1);
+        assert_eq!(joined[0].user_id, user_a);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 19. get_joined_member ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_joined_member() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@mem_jm_one_{suffix}:localhost");
+        let room_id = format!("!room_jm_one_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
+
+        // Found for join
+        let m = storage.get_joined_member(&room_id, &user_id).await.unwrap();
+        assert!(m.is_some());
+        assert_eq!(m.unwrap().membership, "join");
+
+        // Leave the room
+        storage.remove_member(&room_id, &user_id).await.unwrap();
+
+        // Not found for leave
+        let m = storage.get_joined_member(&room_id, &user_id).await.unwrap();
+        assert!(m.is_none());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 20. share_common_room ──────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_share_common_room() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_scr_a_{suffix}:localhost");
+        let user_b = format!("@mem_scr_b_{suffix}:localhost");
+        let user_c = format!("@mem_scr_c_{suffix}:localhost");
+        let room_id = format!("!room_scr_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+        ensure_test_user(&pool, &user_c).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "join", None, None, None, None).await.unwrap();
+
+        // Shares common room
+        assert!(storage.share_common_room(&user_a, &user_b).await.unwrap());
+
+        // Does not share (user_c not in any room)
+        assert!(!storage.share_common_room(&user_a, &user_c).await.unwrap());
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+
+    // ── 21. get_membership_history ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_membership_history() {
+        let pool = test_pool().await;
+        let storage = RoomMemberStorage::new(&pool, "localhost");
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@mem_hist_a_{suffix}:localhost");
+        let user_b = format!("@mem_hist_b_{suffix}:localhost");
+        let room_id = format!("!room_hist_{suffix}:localhost");
+
+        cleanup_membership_data(&pool, &suffix).await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        storage.add_member(&room_id, &user_a, "join", None, None, None, None).await.unwrap();
+        storage.add_member(&room_id, &user_b, "invite", None, None, None, None).await.unwrap();
+
+        let history = storage.get_membership_history(&room_id, 10).await.unwrap();
+        assert_eq!(history.len(), 2);
+        // Ordered by updated_ts DESC — most recent first
+        assert_eq!(history[0].user_id, user_b);
+        assert_eq!(history[1].user_id, user_a);
+
+        // Limit
+        let limited = storage.get_membership_history(&room_id, 1).await.unwrap();
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0].user_id, user_b);
+
+        cleanup_membership_data(&pool, &suffix).await;
+    }
+}
