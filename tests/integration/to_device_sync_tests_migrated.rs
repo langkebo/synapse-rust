@@ -13,8 +13,10 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::FilterStorage;
+use synapse_storage::{AccountDataStorage, FilterStorage};
 use synapse_storage::PresenceStorage;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::key_rotation::KeyRotationStorage;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
@@ -272,7 +274,7 @@ async fn test_to_device_next_batch_token_respects_limit() {
     setup_test_database(&pool).await;
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
     let member_storage = Arc::new(RoomMemberStorage::new(&pool, "localhost"));
     let event_storage = Arc::new(EventStorage::new(&pool, "localhost".to_string()));
     let room_storage = Arc::new(RoomStorage::new(&pool));
@@ -284,8 +286,11 @@ async fn test_to_device_next_batch_token_respects_limit() {
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
+        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
+        DeviceKeyStorage::new(&pool),
+        KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
@@ -346,13 +351,16 @@ async fn test_to_device_messages_are_deleted_after_ack() {
 
     let to_device_storage = ToDeviceStorage::new(&pool);
     let sync_service = SyncService::new(
-        PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default()))),
+        Arc::new(PresenceStorage::new(pool.clone(), Arc::new(CacheManager::new(&CacheConfig::default())))),
         Arc::new(RoomMemberStorage::new(&pool, "localhost")),
         Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         Arc::new(RoomStorage::new(&pool)),
         RoomAccountDataStorage::new(&pool),
+        AccountDataStorage::new(&pool),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
+        DeviceKeyStorage::new(&pool),
+        KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
