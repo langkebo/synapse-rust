@@ -1568,3 +1568,557 @@ mod tests {
         assert!(event.unsigned.is_some());
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::sync::Arc;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO rooms (room_id, creator, join_rules, room_version, is_public, history_visibility, created_ts, last_activity_ts)
+               VALUES ($1, '@test:example.com', 'invite', '10', false, 'joined', $2, $2)
+               ON CONFLICT (room_id) DO NOTHING"#,
+        )
+        .bind(room_id)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test room");
+    }
+
+    async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    fn test_server_name() -> String {
+        "example.com".to_string()
+    }
+
+    // --- Core CRUD ---
+
+    #[tokio::test]
+    async fn test_create_event_returns_valid_record() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_create_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$evt_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@sender:example.com";
+
+        // Cleanup from previous runs
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "hello", "msgtype": "m.text"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+
+        let event = storage.create_event(params, None).await.expect("create_event should succeed");
+        assert_eq!(event.event_id, event_id);
+        assert_eq!(event.room_id, room_id);
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_event_found() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_get_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$evt_get_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@getter:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "test"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        let found = storage.get_event(&event_id).await.expect("get_event should succeed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().event_id, event_id);
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_event_not_found() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let result = storage
+            .get_event("$nonexistent:example.com")
+            .await
+            .expect("get_event should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_room_events_returns_list() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_list_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@lister:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        for i in 0..3 {
+            let params = CreateEventParams {
+                event_id: format!("$list_{}_{}:example.com", i, uuid::Uuid::new_v4()),
+                room_id: room_id.clone(),
+                user_id: user_id.to_string(),
+                event_type: "m.room.message".to_string(),
+                content: serde_json::json!({"body": format!("msg {}", i)}),
+                state_key: None,
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+                redacts: None,
+            };
+            storage.create_event(params, None).await.unwrap();
+        }
+
+        let events = storage
+            .get_room_events(&room_id, 10)
+            .await
+            .expect("get_room_events should succeed");
+        assert!(events.len() >= 3);
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    // --- Count, Pagination, Delete ---
+
+    #[tokio::test]
+    async fn test_count_room_events() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_count_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@counter:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let before = storage.count_room_events(&room_id).await.expect("count should succeed");
+
+        let params = CreateEventParams {
+            event_id: format!("$count_{}:example.com", uuid::Uuid::new_v4()),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "count me"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        let after = storage.count_room_events(&room_id).await.expect("count should succeed");
+        assert!(after > before);
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_room_events_paginated() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_page_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@pager:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let events = storage
+            .get_room_events_paginated(&room_id, None, 5, "b")
+            .await
+            .expect("paginated should succeed");
+        assert!(events.len() <= 5);
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_room_events() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_del_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@deleter:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: format!("$del_{}:example.com", uuid::Uuid::new_v4()),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "delete me"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        storage
+            .delete_room_events(&room_id)
+            .await
+            .expect("delete_room_events should succeed");
+        let count = storage.count_room_events(&room_id).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_room_message_count() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let count = storage
+            .get_room_message_count("!any:example.com")
+            .await
+            .expect("get_room_message_count should succeed");
+        assert!(count >= 0);
+    }
+
+    // --- Ephemeral events, reporting, redaction, signatures ---
+
+    #[tokio::test]
+    async fn test_ephemeral_event_crud() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!eph_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@epher:example.com";
+
+        // Cleanup from previous runs
+        let _ = sqlx::query("DELETE FROM room_ephemeral WHERE room_id = $1 AND user_id = $2")
+            .bind(&room_id)
+            .bind(user_id)
+            .execute(&*pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        storage
+            .add_ephemeral_event(
+                &room_id,
+                user_id,
+                "m.typing",
+                &serde_json::json!({"typing": true}),
+                1,
+            )
+            .await
+            .expect("add_ephemeral_event should succeed");
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let events = storage
+            .get_ephemeral_events(&room_id, now, 10)
+            .await
+            .expect("get_ephemeral_events should succeed");
+        assert!(!events.is_empty());
+
+        storage
+            .delete_ephemeral_event(&room_id, "m.typing", user_id)
+            .await
+            .expect("delete_ephemeral_event should succeed");
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_report_event() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!report_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$report_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@reporter:example.com";
+
+        // Cleanup from previous runs
+        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1")
+            .bind(&event_id)
+            .execute(&*pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "bad content"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        storage
+            .report_event(&event_id, &room_id, user_id, user_id, Some("spam"), -50)
+            .await
+            .expect("report_event should succeed");
+
+        let reports = storage
+            .get_event_report(&event_id)
+            .await
+            .expect("get_event_report should succeed");
+        assert!(!reports.is_empty());
+
+        // Cleanup: delete reports first (FK constraint with events), then events
+        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1")
+            .bind(&event_id)
+            .execute(&*pool)
+            .await;
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_redact_event_content() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!redact_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$redact_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@redactor:example.com";
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "to be redacted"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        storage
+            .redact_event_content(&event_id, Some(user_id))
+            .await
+            .expect("redact_event_content should succeed");
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_save_and_get_event_signatures() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!sig_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$sig_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = "@signer:example.com";
+
+        // Cleanup from previous runs
+        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1")
+            .bind(&event_id)
+            .execute(&*pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, user_id).await;
+
+        let params = CreateEventParams {
+            event_id: event_id.clone(),
+            room_id: room_id.clone(),
+            user_id: user_id.to_string(),
+            event_type: "m.room.message".to_string(),
+            content: serde_json::json!({"body": "signed"}),
+            state_key: None,
+            origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            redacts: None,
+        };
+        storage.create_event(params, None).await.unwrap();
+
+        let now = chrono::Utc::now().timestamp_millis();
+        storage
+            .save_event_signature(&event_id, user_id, "DEVICE1", "sig_data", "ed25519:1", "ed25519", now)
+            .await
+            .expect("save_event_signature should succeed");
+
+        let sigs = storage
+            .get_event_signatures(&event_id)
+            .await
+            .expect("get_event_signatures should succeed");
+        assert!(!sigs.is_empty());
+        assert_eq!(sigs[0].user_id, user_id);
+
+        // Cleanup: delete signatures first, then events
+        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1")
+            .bind(&event_id)
+            .execute(&*pool)
+            .await;
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    // --- Other queries ---
+
+    #[tokio::test]
+    async fn test_find_missing_event_ids() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let input = vec![format!("$missing_{}:example.com", uuid::Uuid::new_v4())];
+        let missing = storage
+            .find_missing_event_ids(&input)
+            .await
+            .expect("find_missing_event_ids should succeed");
+        assert_eq!(missing.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_total_message_count() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let count = storage
+            .get_total_message_count()
+            .await
+            .expect("get_total_message_count should succeed");
+        assert!(count >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_daily_message_count() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let count = storage
+            .get_daily_message_count()
+            .await
+            .expect("get_daily_message_count should succeed");
+        assert!(count >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_events_before() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let room_id = format!("!evt_old_{}:example.com", uuid::Uuid::new_v4());
+
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
+            .bind(&room_id)
+            .execute(&*pool)
+            .await;
+        ensure_test_room(&pool, &room_id).await;
+
+        // Delete events before a far-future timestamp — should succeed even if 0 rows
+        let _deleted = storage
+            .delete_events_before(&room_id, chrono::Utc::now().timestamp_millis() + 86400000)
+            .await
+            .expect("delete_events_before should succeed");
+
+        let _ = storage.delete_room_events(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_room_create_event_none_for_non_existent() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let result = storage
+            .get_room_create_event("!nonexistent:example.com")
+            .await
+            .expect("get_room_create_event should succeed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_events_batch_empty_input() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let results = storage
+            .get_events_batch(&[])
+            .await
+            .expect("get_events_batch should succeed");
+        assert!(results.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_forward_extremities_count() {
+        let pool = test_pool().await;
+        let storage = EventStorage::new(&pool, test_server_name());
+        let count = storage
+            .get_forward_extremities_count("!any:example.com")
+            .await
+            .expect("get_forward_extremities_count should succeed");
+        assert!(count >= 0);
+    }
+}
