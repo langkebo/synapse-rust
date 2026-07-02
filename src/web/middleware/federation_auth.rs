@@ -1,4 +1,4 @@
-use crate::common::security::check_url_against_blacklist;
+use crate::common::check_url_against_blacklist;
 use crate::common::ApiError;
 use crate::web::routes::AppState;
 use crate::web::utils::encoding::decode_base64_32;

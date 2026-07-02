@@ -1,6 +1,6 @@
 use crate::cache::{CacheManager, FederationSignatureCache, SignatureCacheConfig};
 use crate::common::health::{CacheHealthCheck, DatabaseHealthCheck, HealthChecker};
-use crate::common::rate_limit_config::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
+use crate::common::{RateLimitConfigFile, RateLimitConfigManager, SyncRateLimitConfigFile};
 use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_services::ServiceContainer;

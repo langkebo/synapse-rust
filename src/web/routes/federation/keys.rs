@@ -1,4 +1,4 @@
-use crate::common::security::check_url_against_blacklist;
+use crate::common::check_url_against_blacklist;
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::AppState;

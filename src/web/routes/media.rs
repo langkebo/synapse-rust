@@ -815,7 +815,7 @@ async fn preview_url(
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
     let blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
-    if let Err(e) = crate::common::security::check_url_against_blacklist(url, blacklist) {
+    if let Err(e) = crate::common::check_url_against_blacklist(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
