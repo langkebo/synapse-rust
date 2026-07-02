@@ -1250,6 +1250,7 @@ mod db_tests {
         Arc::new(pool)
     }
 
+    #[allow(dead_code)]
     async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str, creator: &str) {
         let now = chrono::Utc::now().timestamp_millis();
         sqlx::query(
@@ -1573,7 +1574,8 @@ mod db_tests {
             .get_user_rooms("@testuser:example.com")
             .await
             .expect("get_user_rooms should succeed");
-        // Room membership may be empty for a test user — just verify no error
-        assert!(room_ids.is_empty() || !room_ids.is_empty());
+        // Room membership may be empty for a test user — the .expect() above
+        // already verifies the query itself succeeds without error.
+        let _ = room_ids;
     }
 }
