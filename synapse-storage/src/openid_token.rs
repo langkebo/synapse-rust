@@ -187,3 +187,465 @@ mod tests {
         assert!(token.is_valid);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_user(pool: &PgPool, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    #[tokio::test]
+    async fn test_create_token_returns_valid_record() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let user_id = &format!("@openid_test_create:{}", uuid::Uuid::new_v4());
+        let token_str = format!("tok_create_{}", uuid::Uuid::new_v4());
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+
+        ensure_test_user(&pool, user_id).await;
+
+        let request = CreateOpenIdTokenRequest {
+            token: token_str.clone(),
+            user_id: user_id.clone(),
+            device_id: Some("DEVICE_CREATE".to_string()),
+            expires_at: far_future,
+        };
+
+        let result = storage.create_token(request).await.expect("create_token should succeed");
+
+        assert!(result.id > 0);
+        assert_eq!(result.token, token_str);
+        assert_eq!(result.user_id, *user_id);
+        assert_eq!(result.device_id.as_deref(), Some("DEVICE_CREATE"));
+        assert!(result.created_ts > 0);
+        assert_eq!(result.expires_at, far_future);
+        assert!(result.is_valid);
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token = $1")
+            .bind(&token_str)
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_get_token_finds_valid_token() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let user_id = &format!("@openid_test_get:{}", uuid::Uuid::new_v4());
+        let token_str = format!("tok_get_{}", uuid::Uuid::new_v4());
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+
+        ensure_test_user(&pool, user_id).await;
+
+        // Insert directly so we control the state
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(&token_str)
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(far_future)
+        .bind(true)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let found = storage
+            .get_token(&token_str)
+            .await
+            .expect("get_token should succeed")
+            .expect("token should be found");
+
+        assert_eq!(found.token, token_str);
+        assert_eq!(found.user_id, *user_id);
+        assert!(found.is_valid);
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token = $1")
+            .bind(&token_str)
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_get_token_returns_none_for_nonexistent() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+
+        let result = storage
+            .get_token("nonexistent_token_12345_x")
+            .await
+            .expect("query should succeed");
+
+        assert!(result.is_none(), "nonexistent token should return None");
+    }
+
+    #[tokio::test]
+    async fn test_validate_token_returns_token_if_not_expired() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let user_id = &format!("@openid_test_val:{}", uuid::Uuid::new_v4());
+        let token_str = format!("tok_val_{}", uuid::Uuid::new_v4());
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+
+        ensure_test_user(&pool, user_id).await;
+
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&token_str)
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let result = storage
+            .validate_token(&token_str)
+            .await
+            .expect("validate_token should succeed");
+
+        assert!(result.is_some(), "valid non-expired token should be returned");
+        assert_eq!(result.unwrap().token, token_str);
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token = $1")
+            .bind(&token_str)
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_validate_token_returns_none_for_expired_token() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let user_id = &format!("@openid_test_exp:{}", uuid::Uuid::new_v4());
+        let token_str = format!("tok_exp_{}", uuid::Uuid::new_v4());
+        let past = chrono::Utc::now().timestamp_millis() - 3600000; // 1 hour ago
+
+        ensure_test_user(&pool, user_id).await;
+
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&token_str)
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(past)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let result = storage
+            .validate_token(&token_str)
+            .await
+            .expect("validate_token should succeed");
+
+        assert!(result.is_none(), "expired token should return None");
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token = $1")
+            .bind(&token_str)
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_revoke_token_returns_true_and_makes_token_not_found() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let user_id = &format!("@openid_test_revoke:{}", uuid::Uuid::new_v4());
+        let token_str = format!("tok_revoke_{}", uuid::Uuid::new_v4());
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+
+        ensure_test_user(&pool, user_id).await;
+
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&token_str)
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let revoked = storage
+            .revoke_token(&token_str)
+            .await
+            .expect("revoke_token should succeed");
+
+        assert!(revoked, "revoking existing token should return true");
+
+        // Token should no longer be found by get_token (it checks is_valid=TRUE)
+        let found = storage
+            .get_token(&token_str)
+            .await
+            .expect("get_token should succeed");
+
+        assert!(found.is_none(), "revoked token should not be found by get_token");
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token = $1")
+            .bind(&token_str)
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_revoke_token_returns_false_for_nonexistent() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+
+        let revoked = storage
+            .revoke_token("nonexistent_revoke_token_xyz")
+            .await
+            .expect("revoke_token should succeed");
+
+        assert!(!revoked, "revoking nonexistent token should return false");
+    }
+
+    #[tokio::test]
+    async fn test_revoke_user_tokens_revokes_all_for_user() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = &format!("@openid_bulk_revoke_{suffix}:test.com");
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        ensure_test_user(&pool, user_id).await;
+
+        // Create two tokens
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&format!("tok_revu1_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(now)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&format!("tok_revu2_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(now)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let count = storage
+            .revoke_user_tokens(user_id)
+            .await
+            .expect("revoke_user_tokens should succeed");
+
+        assert!(count >= 2, "should revoke at least 2 tokens, got {count}");
+
+        // Both tokens should no longer be found
+        assert!(storage
+            .get_token(&format!("tok_revu1_{suffix}"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(storage
+            .get_token(&format!("tok_revu2_{suffix}"))
+            .await
+            .unwrap()
+            .is_none());
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
+            .bind(&format!("tok_revu%_{suffix}"))
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_tokens_removes_expired_and_invalid() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = &format!("@openid_cleanup_{suffix}:test.com");
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+        let past = chrono::Utc::now().timestamp_millis() - 3600000;
+        let now = chrono::Utc::now().timestamp_millis();
+
+        ensure_test_user(&pool, user_id).await;
+
+        // Insert expired token
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&format!("tok_clean_exp_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(now)
+        .bind(past)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        // Insert invalid token (not expired but invalid)
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, FALSE)",
+        )
+        .bind(&format!("tok_clean_inv_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(now)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        // Insert a valid non-expired token that should survive cleanup
+        let valid_token = format!("tok_clean_valid_{suffix}");
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&valid_token)
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(now)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let count = storage
+            .cleanup_expired_tokens()
+            .await
+            .expect("cleanup_expired_tokens should succeed");
+
+        assert!(count >= 2, "should clean up at least 2 tokens, got {count}");
+
+        // The valid token should still be found
+        let found = storage
+            .get_token(&valid_token)
+            .await
+            .expect("get_token should succeed");
+
+        assert!(found.is_some(), "valid non-expired token should survive cleanup");
+
+        // Cleanup remaining test data
+        sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
+            .bind(&format!("tok_clean%_{suffix}"))
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+
+    #[tokio::test]
+    async fn test_get_tokens_by_user_returns_ordered_desc() {
+        let pool = test_pool().await;
+        let storage = OpenIdTokenStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let user_id = &format!("@openid_list_{suffix}:test.com");
+        let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
+
+        ensure_test_user(&pool, user_id).await;
+
+        // Insert tokens with staggered timestamps
+        let base_ts = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&format!("tok_list_1_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(base_ts)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        sqlx::query(
+            "INSERT INTO openid_tokens (token, user_id, device_id, created_ts, expires_at, is_valid) VALUES ($1, $2, $3, $4, $5, TRUE)",
+        )
+        .bind(&format!("tok_list_2_{suffix}"))
+        .bind(user_id)
+        .bind::<Option<String>>(None)
+        .bind(base_ts + 1000)
+        .bind(far_future)
+        .execute(&*pool)
+        .await
+        .expect("insert failed");
+
+        let tokens = storage
+            .get_tokens_by_user(user_id)
+            .await
+            .expect("get_tokens_by_user should succeed");
+
+        assert!(tokens.len() >= 2, "should return at least 2 tokens, got {}", tokens.len());
+
+        // Verify descending order by created_ts
+        for i in 1..tokens.len() {
+            assert!(
+                tokens[i - 1].created_ts >= tokens[i].created_ts,
+                "tokens should be ordered by created_ts DESC, but {} >= {}",
+                tokens[i - 1].created_ts,
+                tokens[i].created_ts,
+            );
+        }
+
+        // All returned tokens should belong to the requested user
+        assert!(tokens.iter().all(|t| t.user_id == *user_id));
+
+        // Cleanup
+        sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
+            .bind(&format!("tok_list%_{suffix}"))
+            .execute(&*pool)
+            .await
+            .expect("cleanup failed");
+    }
+}
