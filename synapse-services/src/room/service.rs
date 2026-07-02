@@ -1681,6 +1681,7 @@ mod tests {
             user_storage: user_storage.clone(),
             validator: Arc::new(synapse_common::validation::Validator::default()),
             server_name: "example.com".to_string(),
+            room_summary_service: room_summary_service.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 

@@ -642,6 +642,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    #[cfg(not(feature = "cas-sso"))]
     fn test_sso_providers_none_by_default() {
         let g = governance_with_default_config();
         let providers = g.sso_providers();

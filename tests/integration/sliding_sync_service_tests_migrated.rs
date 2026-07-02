@@ -14,6 +14,7 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage};
 use synapse_storage::PresenceStorage;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -310,7 +311,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let storage = SlidingSyncStorage::new(pool.clone());
     let event_storage = Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let typing_service = Arc::new(TypingService::default());
-    let presence_storage = PresenceStorage::new(pool.clone(), cache.clone());
+    let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let device_storage = Arc::new(DeviceStorage::new(pool));
     let to_device_storage = ToDeviceStorage::new(pool);
@@ -320,6 +321,7 @@ fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
         storage,
         cache,
         event_storage,
+        DeviceKeyStorage::new(pool),
         typing_service,
         presence_storage,
         member_storage,
