@@ -148,7 +148,7 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::cache::CacheConfig;
     #[cfg(feature = "test-utils")]
-    use crate::common::rate_limit_config::RateLimitConfigFile;
+    use crate::common::RateLimitConfigFile;
     #[cfg(feature = "test-utils")]
     use crate::web::routes::state::SyncRateLimitOverride;
     #[cfg(feature = "test-utils")]

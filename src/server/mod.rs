@@ -1,5 +1,5 @@
 use crate::common::config::Config;
-use crate::common::rate_limit_config::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
+use crate::common::{start_config_watcher, RateLimitConfigFile, RateLimitConfigManager};
 use crate::tasks::{ScheduledTasks, TaskMetricsCollector};
 use crate::web::middleware::{
     check_cors_security, log_cors_security_report, set_bind_address, set_config_allowed_origins,

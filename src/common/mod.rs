@@ -1,86 +1,70 @@
-pub mod argon2_config;
-pub mod collections;
-pub mod concurrency;
-pub mod constants;
-pub mod crypto;
-pub mod early_exit;
-pub mod error;
-pub mod event_utils;
-pub mod feature_flags;
-pub mod federation_test_keys;
-pub mod health;
-pub mod key_encryption;
-pub mod logging;
-pub mod macros;
-pub mod media_link_signer;
-pub mod media_locator;
-pub mod nonce_cache;
-pub mod password_hash_pool;
-pub mod rate_limit;
-pub mod rate_limit_config;
-pub mod regex_cache;
-pub mod room_versions;
-pub mod sanitizer;
-pub mod security;
-pub mod time;
-pub mod tracing;
-pub mod traits;
-pub mod transaction;
-pub mod types;
-pub mod xml_parser;
+// Direct re-exports from synapse_common (consolidated from 24 single-line facade files)
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::argon2_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::collections::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::concurrency::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::constants::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::early_exit::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::event_utils::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::feature_flags::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::key_encryption::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::media_link_signer::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::media_locator::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::nonce_cache::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::password_hash_pool::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::rate_limit_config::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::regex_cache::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::room_versions::*;
+pub use synapse_common::{
+    impl_api_error, map_bad_request, map_forbidden, map_internal, map_not_found, map_unauthorized,
+};
+// HTML/text sanitizer: ammonia-based whitelist implementation (the only implementation).
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::sanitizer::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::security::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::time::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::tracing::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::traits::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::transaction::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::types::*;
+#[allow(ambiguous_glob_reexports)]
+pub use synapse_common::xml_parser::*;
 
+// Re-export entire modules from synapse_common
 pub use synapse_common::metrics;
 pub use synapse_common::server_metrics;
 
+// Local genuine modules (non-facade, kept as files)
 pub mod config;
-
-// HTML/text sanitizer: ammonia-based whitelist implementation (the only implementation).
-#[allow(ambiguous_glob_reexports)]
-pub use sanitizer::*;
-
-#[allow(ambiguous_glob_reexports)]
-pub use argon2_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use collections::*;
-#[allow(ambiguous_glob_reexports)]
-pub use concurrency::*;
-#[allow(ambiguous_glob_reexports)]
-pub use config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use constants::*;
-#[allow(ambiguous_glob_reexports)]
-pub use crypto::*;
-#[allow(ambiguous_glob_reexports)]
-pub use early_exit::*;
-#[allow(ambiguous_glob_reexports)]
-pub use error::*;
-#[allow(ambiguous_glob_reexports)]
-pub use event_utils::*;
-#[allow(ambiguous_glob_reexports)]
-pub use feature_flags::*;
+pub mod crypto;
+pub mod error;
 #[cfg(any(test, feature = "test-utils"))]
-#[allow(ambiguous_glob_reexports)]
-pub use federation_test_keys::*;
-#[allow(ambiguous_glob_reexports)]
-pub use health::*;
-#[allow(ambiguous_glob_reexports)]
-pub use key_encryption::*;
-#[allow(ambiguous_glob_reexports)]
-pub use logging::*;
-#[allow(ambiguous_glob_reexports)]
-pub use metrics::*;
-#[allow(ambiguous_glob_reexports)]
-pub use password_hash_pool::*;
-#[allow(ambiguous_glob_reexports)]
-pub use rate_limit::*;
-#[allow(ambiguous_glob_reexports)]
-pub use rate_limit_config::*;
-#[allow(ambiguous_glob_reexports)]
-pub use regex_cache::*;
-#[allow(ambiguous_glob_reexports)]
-pub use room_versions::*;
-#[allow(ambiguous_glob_reexports)]
-pub use security::*;
+pub mod federation_test_keys;
+pub mod health;
+pub mod logging;
+pub mod rate_limit;
+
+// Additional re-exports from synapse_common (no local facade existed)
 #[allow(ambiguous_glob_reexports)]
 pub use synapse_common::background_job::*;
 #[allow(ambiguous_glob_reexports)]
@@ -89,11 +73,22 @@ pub use synapse_common::task_queue::*;
 pub use synapse_common::telemetry_config::*;
 #[allow(ambiguous_glob_reexports)]
 pub use synapse_common::validation::*;
+
+// Re-exports from local genuine modules
 #[allow(ambiguous_glob_reexports)]
-pub use time::*;
+pub use config::*;
 #[allow(ambiguous_glob_reexports)]
-pub use tracing::*;
+pub use crypto::*;
 #[allow(ambiguous_glob_reexports)]
-pub use types::*;
+pub use error::*;
+#[cfg(any(test, feature = "test-utils"))]
 #[allow(ambiguous_glob_reexports)]
-pub use xml_parser::*;
+pub use federation_test_keys::*;
+#[allow(ambiguous_glob_reexports)]
+pub use health::*;
+#[allow(ambiguous_glob_reexports)]
+pub use logging::*;
+#[allow(ambiguous_glob_reexports)]
+pub use metrics::*;
+#[allow(ambiguous_glob_reexports)]
+pub use rate_limit::*;

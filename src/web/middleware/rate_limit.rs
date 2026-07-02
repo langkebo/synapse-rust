@@ -1,6 +1,6 @@
 use crate::cache::*;
 use crate::common::error::ApiError;
-use crate::common::rate_limit_config::RateLimitBackend;
+use crate::common::RateLimitBackend;
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
@@ -44,11 +44,11 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 
     let (endpoint_id, per_second, burst_size) = match &file_config {
         Some(fc) => {
-            let (id, r) = crate::common::rate_limit_config::select_endpoint_rule(fc, path);
+            let (id, r) = crate::common::select_endpoint_rule(fc, path);
             (id, r.per_second, r.burst_size)
         }
         None => {
-            let (id, r) = crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, path);
+            let (id, r) = crate::common::select_endpoint_rule_runtime(&config, path);
             (id, r.per_second, r.burst_size)
         }
     };
@@ -204,24 +204,19 @@ mod tests {
             rule: RateLimitRule { per_second: 20, burst_size: 40 },
         });
 
-        let (id, rule) =
-            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/login");
         assert_eq!(id, "/_matrix/client/r0/login");
         assert_eq!(rule.per_second, 5);
 
-        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(
-            &config,
-            "/_matrix/client/r0/sync?since=123",
-        );
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/r0/sync?since=123");
         assert_eq!(id, "/_matrix/client/r0/sync");
         assert_eq!(rule.per_second, 20);
 
-        let (id, rule) =
-            crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/_matrix/client/versions");
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/_matrix/client/versions");
         assert_eq!(id, "/_matrix/client");
         assert_eq!(rule.per_second, 50);
 
-        let (id, rule) = crate::common::rate_limit_config::select_endpoint_rule_runtime(&config, "/other/path");
+        let (id, rule) = crate::common::select_endpoint_rule_runtime(&config, "/other/path");
         assert_eq!(id, "/other/path");
         assert_eq!(rule.per_second, config.default.per_second);
     }

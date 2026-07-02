@@ -408,7 +408,7 @@ async fn oidc_userinfo(
     let name: Option<String> = profile.get("displayname").and_then(|v| v.as_str()).map(String::from);
 
     let picture: Option<String> = profile.get("avatar_url").and_then(|v| v.as_str()).map(|s| {
-        if let Ok(loc) = crate::common::media_locator::MediaLocator::parse(s) {
+        if let Ok(loc) = crate::common::MediaLocator::parse(s) {
             loc.to_mxc_url()
         } else if s.starts_with("mxc://") {
             s.to_string()
