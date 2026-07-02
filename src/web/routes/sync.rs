@@ -22,7 +22,7 @@ async fn sync_route_owner_header_middleware(
 ) -> Response {
     let mut response = next.run(request).await;
     let route_owner =
-        crate::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+        synapse_services::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
     response.headers_mut().insert(ROUTE_OWNER_HEADER, HeaderValue::from_static(route_owner.as_str()));
     response
 }
