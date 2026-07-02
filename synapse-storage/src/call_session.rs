@@ -199,3 +199,380 @@ impl CallSessionStorage {
         Ok(result.rows_affected())
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    /// Clean up test call sessions and candidates matching a UUID suffix.
+    async fn cleanup_test_data(pool: &Pool<Postgres>, suffix: &str) {
+        let _ = sqlx::query(
+            "DELETE FROM call_candidates WHERE call_id LIKE $1",
+        )
+        .bind(format!("%{suffix}"))
+        .execute(pool)
+        .await;
+        let _ = sqlx::query(
+            "DELETE FROM call_sessions WHERE call_id LIKE $1",
+        )
+        .bind(format!("%{suffix}"))
+        .execute(pool)
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_create_session_returns_valid_record() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+
+        let params = CreateCallSessionParams {
+            call_id: format!("create_session_{suffix}"),
+            room_id: format!("!room_{suffix}:example.com"),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: Some(format!("@callee_{suffix}:example.com")),
+            offer_sdp: Some("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=test".to_string()),
+            lifetime: Some(120_000),
+        };
+
+        let session = storage
+            .create_session(params)
+            .await
+            .expect("create_session should succeed");
+
+        assert!(session.id > 0);
+        assert_eq!(session.call_id, format!("create_session_{suffix}"));
+        assert_eq!(session.room_id, format!("!room_{suffix}:example.com"));
+        assert_eq!(session.caller_id, format!("@caller_{suffix}:example.com"));
+        assert_eq!(
+            session.callee_id,
+            Some(format!("@callee_{suffix}:example.com"))
+        );
+        assert_eq!(session.state, "ringing");
+        assert!(session.offer_sdp.is_some());
+        assert_eq!(session.lifetime, 120_000);
+        assert!(session.created_ts > 0);
+        assert!(session.updated_ts.is_some());
+        assert_eq!(session.updated_ts, Some(session.created_ts));
+        assert!(session.ended_ts.is_none());
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_session_default_lifetime() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+
+        let params = CreateCallSessionParams {
+            call_id: format!("default_lifetime_{suffix}"),
+            room_id: format!("!room_{suffix}:example.com"),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+
+        let session = storage
+            .create_session(params)
+            .await
+            .expect("create_session should succeed");
+
+        assert_eq!(session.lifetime, 60_000, "default lifetime should be 60000ms");
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_session_found() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("get_found_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@alice_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+        storage.create_session(params).await.unwrap();
+
+        let found = storage
+            .get_session(&call_id, &room_id)
+            .await
+            .expect("get_session should succeed")
+            .expect("session should be found");
+
+        assert_eq!(found.call_id, call_id);
+        assert_eq!(found.room_id, room_id);
+        assert_eq!(found.state, "ringing");
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_session_not_found() {
+        let pool = test_pool().await;
+        let storage = CallSessionStorage::new(pool.clone());
+
+        let result = storage
+            .get_session("nonexistent_call", "!nonexistent:example.com")
+            .await
+            .expect("get_session query should succeed");
+
+        assert!(result.is_none(), "nonexistent session should return None");
+    }
+
+    #[tokio::test]
+    async fn test_update_state() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("update_state_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+        storage.create_session(params).await.unwrap();
+
+        // Update state to "connected"
+        storage
+            .update_state(&call_id, &room_id, "connected")
+            .await
+            .expect("update_state should succeed");
+
+        let updated = storage
+            .get_session(&call_id, &room_id)
+            .await
+            .unwrap()
+            .expect("session should exist");
+
+        assert_eq!(updated.state, "connected");
+        assert!(updated.updated_ts.unwrap() > updated.created_ts);
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_answer_and_verify_connected() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("set_answer_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+        storage.create_session(params).await.unwrap();
+
+        let answer = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=answer";
+        storage
+            .set_answer(&call_id, &room_id, answer)
+            .await
+            .expect("set_answer should succeed");
+
+        let updated = storage
+            .get_session(&call_id, &room_id)
+            .await
+            .unwrap()
+            .expect("session should exist");
+
+        assert_eq!(updated.state, "connected");
+        assert_eq!(updated.answer_sdp.unwrap(), answer);
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_end_session() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("end_session_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+        storage.create_session(params).await.unwrap();
+
+        storage
+            .end_session(&call_id, &room_id)
+            .await
+            .expect("end_session should succeed");
+
+        let ended = storage
+            .get_session(&call_id, &room_id)
+            .await
+            .unwrap()
+            .expect("session should exist");
+
+        assert_eq!(ended.state, "ended");
+        assert!(ended.ended_ts.is_some(), "ended_ts should be set when session ends");
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("cleanup_expired_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        // Create a session with lifetime of 1 millisecond
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: Some(1),
+        };
+        storage.create_session(params).await.unwrap();
+
+        // Wait for the session to expire
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let affected = storage
+            .cleanup_expired()
+            .await
+            .expect("cleanup_expired should succeed");
+
+        assert!(affected >= 1, "should have cleaned up at least 1 expired session");
+
+        let cleaned = storage
+            .get_session(&call_id, &room_id)
+            .await
+            .unwrap()
+            .expect("session should exist");
+
+        assert_eq!(cleaned.state, "ended");
+        assert!(cleaned.ended_ts.is_some());
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_candidates_round_trip() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+        let call_id = format!("candidates_{suffix}");
+        let room_id = format!("!room_{suffix}:example.com");
+
+        // Need a session first since candidates are associated with a call
+        let params = CreateCallSessionParams {
+            call_id: call_id.clone(),
+            room_id: room_id.clone(),
+            caller_id: format!("@caller_{suffix}:example.com"),
+            callee_id: None,
+            offer_sdp: None,
+            lifetime: None,
+        };
+        storage.create_session(params).await.unwrap();
+
+        let candidate1 = serde_json::json!({
+            "candidate": "candidate:1 1 UDP 2122252543 192.168.1.1 12345 typ host",
+            "sdpMid": "0",
+            "sdpMLineIndex": 0
+        });
+        let candidate2 = serde_json::json!({
+            "candidate": "candidate:2 1 UDP 2122252543 10.0.0.1 54321 typ host",
+            "sdpMid": "0",
+            "sdpMLineIndex": 0
+        });
+
+        storage
+            .add_candidate(&call_id, &room_id, &format!("@alice_{suffix}:example.com"), candidate1.clone())
+            .await
+            .expect("add_candidate should succeed");
+
+        storage
+            .add_candidate(&call_id, &room_id, &format!("@bob_{suffix}:example.com"), candidate2.clone())
+            .await
+            .expect("add_candidate should succeed");
+
+        let candidates = storage
+            .get_candidates(&call_id, &room_id)
+            .await
+            .expect("get_candidates should succeed");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].sender_id, format!("@alice_{suffix}:example.com"));
+        assert_eq!(candidates[0].candidate, candidate1);
+        assert_eq!(candidates[1].sender_id, format!("@bob_{suffix}:example.com"));
+        assert_eq!(candidates[1].candidate, candidate2);
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_candidates_empty_when_none_added() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string();
+        cleanup_test_data(&pool, &suffix).await;
+
+        let storage = CallSessionStorage::new(pool.clone());
+
+        let candidates = storage
+            .get_candidates("no_candidates", "!nonexistent:example.com")
+            .await
+            .expect("get_candidates should succeed");
+
+        assert!(candidates.is_empty());
+
+        cleanup_test_data(&pool, &suffix).await;
+    }
+}
