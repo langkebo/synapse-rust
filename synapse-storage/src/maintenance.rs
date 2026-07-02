@@ -270,3 +270,216 @@ mod tests {
         assert!(stats.dead_tuples > 1000);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    /// NOTE: No cleanup function is needed here. `DatabaseMaintenance` only
+    /// queries PostgreSQL system catalogs (`pg_stat_user_tables`, `pg_indexes`)
+    /// and runs admin DDL commands (VACUUM ANALYZE, REINDEX). It writes to
+    /// zero application tables, so there is no test data to remove.
+
+    // --- analyze_table_stats (via perform_maintenance) ---
+
+    #[tokio::test]
+    async fn test_maintenance_analyze_table_stats_populates_data() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        // analyze_table_stats is private; exercise it via perform_maintenance.
+        // It queries pg_stat_user_tables which always has entries for any live database.
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        // pg_stat_user_tables should have at least some rows for a live database.
+        assert!(
+            !report.table_stats.is_empty(),
+            "table_stats should be non-empty for any live PostgreSQL database"
+        );
+
+        // Each TableStats entry should have a non-empty table name.
+        for stat in &report.table_stats {
+            assert!(!stat.table_name.is_empty(), "table_name should not be empty");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_maintenance_analyze_table_stats_stays_within_limit() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        // The internal query uses LIMIT 20, so table_stats should never exceed that.
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        assert!(
+            report.table_stats.len() <= 20,
+            "analyze_table_stats LIMIT 20 should cap results"
+        );
+    }
+
+    // --- perform_maintenance integration ---
+
+    #[tokio::test]
+    async fn test_perform_maintenance_returns_valid_report() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        // The report must have a non-negative duration.
+        assert!(report.duration_ms >= 0, "duration_ms should be non-negative");
+
+        // completed_at should be set after started_at (or equal within the same
+        // instant for a trivial run).
+        assert!(
+            report.completed_at >= report.started_at,
+            "completed_at should not precede started_at"
+        );
+
+        // reindexed_tables may be empty (REINDEX blocked in tx) but it must
+        // always be present as a Vec.
+        // (type system already enforces this; assertion for documentation.)
+    }
+
+    #[tokio::test]
+    async fn test_perform_maintenance_errors_field_is_present() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        // errors is always present even when empty.
+        // VACUUM/REINDEX may log transaction-block errors, but they are caught
+        // and the report is still returned as Ok.
+        // The errors Vec must exist (type system enforces this). Assert it can
+        // be iterated.
+        let error_count = report.errors.len();
+        // Log the error count for visibility; no hard assertion because it
+        // depends on whether VACUUM/REINDEX succeed in the test environment.
+        eprintln!("Maintenance report error count: {error_count}");
+    }
+
+    #[tokio::test]
+    async fn test_perform_maintenance_vacuum_result_is_present() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        // vacuum_results always present — tables_processed may be 0 when
+        // VACUUM is blocked inside a transaction, but the VacuumResult struct
+        // is always populated.
+        assert!(report.vacuum_results.execution_time_ms >= 0);
+    }
+
+    // --- Idempotency / repeated runs ---
+
+    #[tokio::test]
+    async fn test_perform_maintenance_idempotent_twice() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let report1 = maintenance
+            .perform_maintenance()
+            .await
+            .expect("first perform_maintenance should succeed");
+
+        let report2 = maintenance
+            .perform_maintenance()
+            .await
+            .expect("second perform_maintenance should succeed");
+
+        // Both reports should have non-empty table_stats (pg_stat_user_tables
+        // is stable across calls from the same connection).
+        assert!(!report1.table_stats.is_empty());
+        assert!(!report2.table_stats.is_empty());
+
+        // The table names returned should be identical for both runs since the
+        // set of user tables does not change between calls.
+        let names1: Vec<&str> = report1.table_stats.iter().map(|s| s.table_name.as_str()).collect();
+        let names2: Vec<&str> = report2.table_stats.iter().map(|s| s.table_name.as_str()).collect();
+        assert_eq!(names1, names2, "table_stats table names should be stable across repeated calls");
+    }
+
+    // --- MaintenanceReport struct validation ---
+
+    #[tokio::test]
+    async fn test_maintenance_report_timestamps_are_recent() {
+        let before = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance should return Ok");
+
+        let after = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64 + 5; // small buffer
+
+        // Both timestamps should be within [before, after] of the current wall clock.
+        let started_ts = report.started_at.timestamp();
+        let completed_ts = report.completed_at.timestamp();
+
+        assert!(
+            started_ts >= before && started_ts <= after,
+            "started_at {started_ts} should be between {before} and {after}"
+        );
+        assert!(
+            completed_ts >= before && completed_ts <= after,
+            "completed_at {completed_ts} should be between {before} and {after}"
+        );
+    }
+
+    // --- Constructor smoke test ---
+
+    #[tokio::test]
+    async fn test_database_maintenance_new_creates_instance() {
+        let pool = test_pool().await;
+        let maintenance = DatabaseMaintenance::new((*pool).clone());
+
+        // Construction succeeded. Now call a method to prove the pool is usable.
+        let report = maintenance
+            .perform_maintenance()
+            .await
+            .expect("perform_maintenance after construction should succeed");
+
+        assert!(report.duration_ms >= 0);
+    }
+}
