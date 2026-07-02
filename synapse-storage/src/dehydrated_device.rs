@@ -575,7 +575,7 @@ mod db_tests {
         };
         storage.upsert_for_user(params).await.expect("upsert should succeed");
 
-        let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+        let past: i64 = 1;
         sqlx::query("UPDATE dehydrated_devices SET expires_at = $1 WHERE user_id = $2")
             .bind(past)
             .bind(&user_id)
