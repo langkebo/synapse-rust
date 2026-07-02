@@ -5,8 +5,8 @@ use self::models::{
 };
 pub use models::{
     decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
-    EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
-    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
+    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
+    FriendRoomCreateRoomConfig, FriendRoomService,
 };
 
 use crate::RoomService;
@@ -24,47 +24,6 @@ use synapse_storage::{CreateEventParams, FriendRoomStorage, UserStore};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
-
-#[async_trait::async_trait]
-impl FriendRoomRoomOps for RoomService {
-    async fn create_room(&self, user_id: &str, config: FriendRoomCreateRoomConfig) -> ApiResult<serde_json::Value> {
-        self.create_room(
-            user_id,
-            crate::room_service::CreateRoomConfig {
-                visibility: config.visibility,
-                room_alias_name: config.room_alias_name,
-                name: config.name,
-                topic: config.topic,
-                invite_list: config.invite_list,
-                preset: config.preset,
-                encryption: config.encryption,
-                history_visibility: config.history_visibility,
-                is_direct: config.is_direct,
-                room_type: config.room_type,
-                initial_state: config.initial_state,
-                creation_content: config.creation_content,
-                room_version: config.room_version,
-                power_level_content_override: config.power_level_content_override,
-            },
-        )
-        .await
-    }
-
-    async fn create_event(&self, params: CreateEventParams) -> ApiResult<synapse_storage::RoomEvent> {
-        self.create_event(params, None).await
-    }
-}
-
-#[async_trait::async_trait]
-impl FriendFederationSender for FriendFederationClient {
-    async fn send_invite(&self, destination: &str, room_id: &str, content: &Value) -> ApiResult<()> {
-        self.send_invite(destination, room_id, content).await
-    }
-
-    async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>> {
-        self.query_remote_friends(destination, user_id).await
-    }
-}
 
 impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
@@ -94,13 +53,13 @@ impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
         friend_storage: FriendRoomStorage,
-        room_service: Arc<dyn FriendRoomRoomOps>,
+        room_service: Arc<RoomService>,
         user_storage: Arc<dyn UserStore>,
         presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
         account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
         cache: Arc<CacheManager>,
         server_name: String,
-        federation_client: Arc<dyn FriendFederationSender>,
+        federation_client: Arc<FriendFederationClient>,
     ) -> Self {
         Self {
             friend_storage,
@@ -144,7 +103,7 @@ impl FriendRoomService {
             ..Default::default()
         };
 
-        let response = self.room_service.create_room(user_id, config).await?;
+        let response = self.room_service.create_room(user_id, config.into()).await?;
         let room_id = response
             .get("room_id")
             .and_then(|v| v.as_str())
@@ -773,7 +732,7 @@ impl FriendRoomService {
 
         let result = self
             .room_service
-            .create_room(owner_user_id, config)
+            .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
 
@@ -809,7 +768,7 @@ impl FriendRoomService {
 
         let response = self
             .room_service
-            .create_room(owner_user_id, config)
+            .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
 
@@ -1023,16 +982,19 @@ impl FriendRoomService {
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
         self.room_service
-            .create_event(CreateEventParams {
-                event_id: generate_event_id(&self.server_name),
-                room_id: room_id.to_string(),
-                user_id: user_id.to_string(),
-                event_type: event_type.to_string(),
-                content,
-                state_key: Some(state_key.to_string()),
-                origin_server_ts: now,
-                redacts: None,
-            })
+            .create_event(
+                CreateEventParams {
+                    event_id: generate_event_id(&self.server_name),
+                    room_id: room_id.to_string(),
+                    user_id: user_id.to_string(),
+                    event_type: event_type.to_string(),
+                    content,
+                    state_key: Some(state_key.to_string()),
+                    origin_server_ts: now,
+                    redacts: None,
+                },
+                None,
+            )
             .await
             .map_err(|e| {
                 let error_msg = e.to_string();

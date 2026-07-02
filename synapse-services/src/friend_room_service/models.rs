@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_common::ApiResult;
-use synapse_storage::{CreateEventParams, FriendRoomStorage, RoomEvent, UserStore};
+use synapse_federation::friend::FriendFederationClient;
+use synapse_storage::{FriendRoomStorage, UserStore};
+
+use crate::RoomService;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendListRequest {
@@ -184,25 +186,13 @@ pub(crate) fn sort_letter_for(value: &str) -> String {
     )
 }
 
-#[async_trait::async_trait]
-pub trait FriendRoomRoomOps: Send + Sync {
-    async fn create_room(&self, user_id: &str, config: FriendRoomCreateRoomConfig) -> ApiResult<serde_json::Value>;
-    async fn create_event(&self, params: CreateEventParams) -> ApiResult<RoomEvent>;
-}
-
-#[async_trait::async_trait]
-pub trait FriendFederationSender: Send + Sync {
-    async fn send_invite(&self, destination: &str, room_id: &str, content: &Value) -> ApiResult<()>;
-    async fn query_remote_friends(&self, destination: &str, user_id: &str) -> ApiResult<Vec<String>>;
-}
-
 pub struct FriendRoomService {
     pub(crate) friend_storage: FriendRoomStorage,
-    pub(crate) room_service: Arc<dyn FriendRoomRoomOps>,
+    pub(crate) room_service: Arc<RoomService>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) presence_storage: std::sync::Arc<synapse_storage::presence::PresenceStorage>,
     pub(crate) account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
     pub(crate) cache: Arc<CacheManager>,
     pub(crate) server_name: String,
-    pub(crate) federation_client: Arc<dyn FriendFederationSender>,
+    pub(crate) federation_client: Arc<FriendFederationClient>,
 }
