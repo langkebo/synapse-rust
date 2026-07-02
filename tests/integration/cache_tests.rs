@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod cache_integration_tests {
-    use synapse_rust::auth::Claims;
     use synapse_rust::cache::{
         CacheConfig, CacheInvalidationConfig, CacheInvalidationMessage, CacheManager, InvalidationType,
         CACHE_INVALIDATION_CHANNEL, DEFAULT_LOCAL_CACHE_TTL_SECS, DEFAULT_REDIS_CACHE_TTL_SECS,
     };
     use synapse_rust::common::config::{CircuitBreakerConfig, RedisConfig};
+    use synapse_services::auth::Claims;
     use tokio::runtime::Runtime;
 
     fn create_test_claims() -> Claims {

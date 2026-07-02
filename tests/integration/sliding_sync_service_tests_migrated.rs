@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::config::PerformanceConfig;
@@ -14,7 +15,6 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRequest, SlidingSyncStorage};
 use synapse_storage::PresenceStorage;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

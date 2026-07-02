@@ -3,11 +3,11 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::{AdminRegistrationConfig, SecurityConfig};
 use synapse_rust::common::metrics::MetricsCollector;
 use synapse_services::admin_registration_service::{AdminRegisterRequest, AdminRegistrationService};
+use synapse_services::auth::AuthService;
 use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 

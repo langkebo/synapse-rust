@@ -4,12 +4,12 @@ use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::crypto::is_legacy_hash;
 use synapse_rust::common::error::MatrixErrorCode;
 use synapse_rust::common::metrics::MetricsCollector;
+use synapse_services::auth::AuthService;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 

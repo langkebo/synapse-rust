@@ -4,6 +4,8 @@ use std::sync::Arc;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
 
+use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::e2ee::to_device::storage::ToDeviceMessage;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
@@ -13,10 +15,8 @@ use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::{AccountDataStorage, FilterStorage};
 use synapse_storage::PresenceStorage;
-use synapse_e2ee::device_keys::DeviceKeyStorage;
-use synapse_e2ee::key_rotation::KeyRotationStorage;
+use synapse_storage::{AccountDataStorage, FilterStorage};
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(

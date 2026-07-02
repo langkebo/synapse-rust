@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
-use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
+use synapse_services::auth::AuthService;
 use synapse_services::uia_service::{UiaFlow, UiaService, UiaSession};
 
 fn create_service() -> UiaService {
@@ -11,7 +11,7 @@ fn create_service() -> UiaService {
     UiaService::new(cache, 3600)
 }
 
-fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_rust::auth::Auth> {
+fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_services::auth::Auth> {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let metrics = Arc::new(MetricsCollector::new());
     let security = SecurityConfig {
@@ -34,7 +34,7 @@ fn create_auth_service(pool: &Arc<sqlx::PgPool>) -> Arc<dyn synapse_rust::auth::
     Arc::new(AuthService::new(pool, cache, metrics, &security, "localhost"))
 }
 
-fn create_lazy_auth_service() -> Arc<dyn synapse_rust::auth::Auth> {
+fn create_lazy_auth_service() -> Arc<dyn synapse_services::auth::Auth> {
     let pool = Arc::new(
         sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse_test")
