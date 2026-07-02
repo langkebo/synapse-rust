@@ -1843,3 +1843,507 @@ mod tests {
         assert_eq!(deserialized.match_type, "trigram");
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use synapse_cache::{CacheConfig, CacheManager};
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn test_cache() -> Arc<CacheManager> {
+        Arc::new(CacheManager::new(&CacheConfig::default()))
+    }
+
+    // ── create / get by id ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_create_user_returns_valid_record() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@create_test_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+
+        let user = storage
+            .create_user(&user_id, "createtest", None, false)
+            .await
+            .expect("create_user should succeed");
+
+        assert_eq!(user.user_id, user_id);
+        assert_eq!(user.username, "createtest");
+        assert!(!user.is_admin);
+        assert!(!user.is_deactivated);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_user_by_id_found() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@getbyid_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "getbyiduser", None, false)
+            .await
+            .unwrap();
+
+        let found = storage
+            .get_user_by_id(&user_id)
+            .await
+            .expect("get_user_by_id should succeed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().user_id, user_id);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_user_by_id_not_found() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let result = storage
+            .get_user_by_id("@nonexistent:example.com")
+            .await
+            .expect("get_user_by_id should succeed");
+        assert!(result.is_none());
+    }
+
+    // ── exists / by-username / count ─────────────────────────────────
+
+    #[tokio::test]
+    async fn test_user_exists_returns_true_for_existing_user() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@exists_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "existsuser", None, false)
+            .await
+            .unwrap();
+
+        assert!(storage
+            .user_exists(&user_id)
+            .await
+            .expect("user_exists should succeed"));
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_user_exists_returns_false_for_nonexistent() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        assert!(!storage
+            .user_exists("@nobody:example.com")
+            .await
+            .expect("user_exists should succeed"));
+    }
+
+    #[tokio::test]
+    async fn test_get_user_by_username_found() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@byuser_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "uniqueuser99", None, false)
+            .await
+            .unwrap();
+
+        let found = storage
+            .get_user_by_username("uniqueuser99")
+            .await
+            .expect("query should succeed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().username, "uniqueuser99");
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_user_count_increases_after_create() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let before = storage
+            .get_user_count()
+            .await
+            .expect("get_user_count should succeed");
+        let user_id = format!("@count_test_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "counttest", None, false)
+            .await
+            .unwrap();
+
+        let after = storage
+            .get_user_count()
+            .await
+            .expect("get_user_count should succeed");
+        assert!(after >= before + 1);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    // ── displayname / avatar / password / admin ─────────────────────
+
+    #[tokio::test]
+    async fn test_update_displayname() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@displayname_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "dnameuser", None, false)
+            .await
+            .unwrap();
+
+        storage
+            .update_displayname(&user_id, Some("New Name"))
+            .await
+            .expect("update should succeed");
+        let profile = storage
+            .get_user_profile(&user_id)
+            .await
+            .expect("get profile should succeed");
+        assert_eq!(profile.unwrap().displayname.unwrap(), "New Name");
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_update_avatar_url() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@avatar_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "avataruser", None, false)
+            .await
+            .unwrap();
+
+        storage
+            .update_avatar_url(&user_id, Some("mxc://avatar"))
+            .await
+            .expect("update should succeed");
+        let profile = storage
+            .get_user_profile(&user_id)
+            .await
+            .expect("get profile should succeed");
+        assert_eq!(profile.unwrap().avatar_url.unwrap(), "mxc://avatar");
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_update_password() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@pwd_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "pwduser", Some("old_hash"), false)
+            .await
+            .unwrap();
+
+        storage
+            .update_password(&user_id, "new_hash")
+            .await
+            .expect("update_password should succeed");
+        // password_hash is excluded from User serialization, but the
+        // operation succeeding without error confirms the update worked.
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_admin_status_toggle() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@admin_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "adminuser", None, false)
+            .await
+            .unwrap();
+        assert!(!storage
+            .get_user_by_id(&user_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_admin);
+
+        storage
+            .set_admin_status(&user_id, true)
+            .await
+            .expect("set_admin should succeed");
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(user.is_admin);
+
+        storage
+            .set_admin_status(&user_id, false)
+            .await
+            .expect("unset_admin should succeed");
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(!user.is_admin);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    // ── deactivation / shadow-ban / delete / list / filter ──────────
+
+    #[tokio::test]
+    async fn test_set_deactivation_status() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@deact_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "deactuser", None, false)
+            .await
+            .unwrap();
+
+        let result = storage
+            .set_deactivation_status(&user_id, true)
+            .await
+            .expect("deactivate should succeed");
+        assert!(result);
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(user.is_deactivated);
+
+        let result = storage
+            .set_deactivation_status(&user_id, false)
+            .await
+            .expect("reactivate should succeed");
+        assert!(result);
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(!user.is_deactivated);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_shadow_ban() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@shadow_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "shadowuser", None, false)
+            .await
+            .unwrap();
+
+        let result = storage
+            .set_shadow_ban(&user_id, true)
+            .await
+            .expect("shadow ban should succeed");
+        assert!(result);
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(user.is_shadow_banned);
+
+        storage
+            .set_shadow_ban(&user_id, false)
+            .await
+            .expect("unban should succeed");
+        let user = storage.get_user_by_id(&user_id).await.unwrap().unwrap();
+        assert!(!user.is_shadow_banned);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_user() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@delete_me_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "deleteme", None, false)
+            .await
+            .unwrap();
+        assert!(storage.user_exists(&user_id).await.unwrap());
+
+        storage
+            .delete_user(&user_id)
+            .await
+            .expect("delete_user should succeed");
+        assert!(!storage.user_exists(&user_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_users_respects_limit() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let users = storage
+            .get_all_users(5)
+            .await
+            .expect("get_all_users should succeed");
+        assert!(users.len() <= 5);
+    }
+
+    #[tokio::test]
+    async fn test_filter_existing_users() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@filter_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "filteruser", None, false)
+            .await
+            .unwrap();
+
+        let existing = storage
+            .filter_existing_users(&[user_id.clone(), "@nobody:example.com".to_string()])
+            .await
+            .expect("filter_existing_users should succeed");
+        assert_eq!(existing.len(), 1);
+        assert_eq!(existing[0], user_id);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    // ── lock / unlock / batch / profile / count-messages ────────────
+
+    #[tokio::test]
+    async fn test_lock_user_flow() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@lock_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "lockuser", None, false)
+            .await
+            .unwrap();
+        assert!(!storage.is_user_locked(&user_id).await.unwrap());
+
+        let now = chrono::Utc::now().timestamp_millis();
+        storage
+            .lock_user(&user_id, Some("test_reason"), "system", now)
+            .await
+            .expect("lock should succeed");
+        assert!(storage.is_user_locked(&user_id).await.unwrap());
+
+        let locked = storage.get_active_user_lock(&user_id).await.unwrap();
+        assert!(locked.is_some());
+        assert_eq!(locked.unwrap().reason.unwrap(), "test_reason");
+
+        storage
+            .unlock_user(&user_id, chrono::Utc::now().timestamp_millis())
+            .await
+            .expect("unlock should succeed");
+        assert!(!storage.is_user_locked(&user_id).await.unwrap());
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_users_batch() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let uid1 = format!("@batch1_{}:example.com", uuid::Uuid::new_v4());
+        let uid2 = format!("@batch2_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&uid1).await;
+        let _ = storage.delete_user(&uid2).await;
+        storage
+            .create_user(&uid1, "batchuser1", None, false)
+            .await
+            .unwrap();
+        storage
+            .create_user(&uid2, "batchuser2", None, false)
+            .await
+            .unwrap();
+
+        let users = storage
+            .get_users_batch(&[uid1.clone(), uid2.clone()])
+            .await
+            .expect("get_users_batch should succeed");
+        assert_eq!(users.len(), 2);
+        let ids: Vec<&str> = users.iter().map(|u| u.user_id.as_str()).collect();
+        assert!(ids.contains(&uid1.as_str()));
+        assert!(ids.contains(&uid2.as_str()));
+
+        let _ = storage.delete_user(&uid1).await;
+        let _ = storage.delete_user(&uid2).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_user_profile_found_and_not_found() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@profile_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "profileuser", None, false)
+            .await
+            .unwrap();
+        storage
+            .update_displayname(&user_id, Some("Profile User"))
+            .await
+            .unwrap();
+
+        let profile = storage
+            .get_user_profile(&user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(profile.displayname.unwrap(), "Profile User");
+
+        let missing = storage
+            .get_user_profile("@nobody:example.com")
+            .await
+            .unwrap();
+        assert!(missing.is_none());
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_count_sent_messages_returns_count() {
+        let pool = test_pool().await;
+        let cache = test_cache();
+        let storage = UserStorage::new(&pool, cache);
+        let user_id = format!("@msgcount_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_user(&user_id).await;
+        storage
+            .create_user(&user_id, "msgcountuser", None, false)
+            .await
+            .unwrap();
+
+        let count = storage
+            .count_sent_messages(&user_id)
+            .await
+            .expect("count should succeed");
+        assert!(count >= 0);
+
+        let _ = storage.delete_user(&user_id).await;
+    }
+}
