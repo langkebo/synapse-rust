@@ -1986,10 +1986,11 @@ mod db_tests {
             .get_user_count()
             .await
             .expect("get_user_count should succeed");
-        let user_id = format!("@count_test_{}:example.com", uuid::Uuid::new_v4());
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@ct_{uuid}:example.com");
         let _ = storage.delete_user(&user_id).await;
         storage
-            .create_user(&user_id, "counttest", None, false)
+            .create_user(&user_id, &format!("ct_{uuid}"), None, false)
             .await
             .unwrap();
 
@@ -1997,7 +1998,7 @@ mod db_tests {
             .get_user_count()
             .await
             .expect("get_user_count should succeed");
-        assert!(after >= before + 1);
+        assert!(after > before, "user count should increase after create");
 
         let _ = storage.delete_user(&user_id).await;
     }
