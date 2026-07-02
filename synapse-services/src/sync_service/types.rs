@@ -9,7 +9,6 @@ use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::account_data::AccountDataStorage;
-use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
@@ -120,7 +119,7 @@ pub struct SyncServiceDeps {
     pub room_account_data_storage: RoomAccountDataStorage,
     pub account_data_storage: AccountDataStorage,
     pub filter_storage: FilterStorage,
-    pub device_storage: Arc<dyn DeviceRepository>,
+    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub device_key_storage: DeviceKeyStorage,
     pub key_rotation_storage: KeyRotationStorage,
     pub to_device_storage: ToDeviceStorage,

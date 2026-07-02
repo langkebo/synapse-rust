@@ -156,7 +156,7 @@ impl AuthService {
 
         let rows = self
             .device_storage
-            .delete_devices_batch(user_id, device_ids)
+            .delete_user_devices_batch(user_id, device_ids)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to delete devices", &e))?;
 

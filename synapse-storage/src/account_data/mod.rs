@@ -1,5 +1,3 @@
-pub mod repository;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -72,31 +70,6 @@ impl AccountDataStorage {
     }
 }
 
-use repository::AccountDataRepository;
-
-#[async_trait::async_trait]
-impl AccountDataRepository for AccountDataStorage {
-    fn pool(&self) -> &Arc<sqlx::PgPool> {
-        &self.pool
-    }
-
-    async fn get_account_data_content(&self, user_id: &str, data_type: &str) -> Result<Option<Value>, sqlx::Error> {
-        self.get_account_data_content(user_id, data_type).await.map_err(|e| sqlx::Error::Protocol(e.to_string()))
-    }
-
-    async fn list_account_data(&self, user_id: &str) -> Result<Vec<AccountDataRecord>, sqlx::Error> {
-        self.list_account_data(user_id).await.map_err(|e| sqlx::Error::Protocol(e.to_string()))
-    }
-
-    async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, sqlx::Error> {
-        self.delete_account_data(user_id, data_type).await.map_err(|e| sqlx::Error::Protocol(e.to_string()))
-    }
-
-    async fn upsert_account_data(&self, user_id: &str, data_type: &str, content: Value) -> Result<(), sqlx::Error> {
-        self.upsert_account_data(user_id, data_type, content).await.map_err(|e| sqlx::Error::Protocol(e.to_string()))
-    }
-}
-
 #[cfg(test)]
 mod db_tests {
     use super::*;
@@ -107,11 +80,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -124,10 +94,7 @@ mod db_tests {
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -159,15 +126,9 @@ mod db_tests {
         let data_type = "im.vector.test.type";
         let content = json!({"hello": "world", "number": 42});
 
-        storage
-            .upsert_account_data(&user_id, data_type, content.clone())
-            .await
-            .expect("upsert should succeed");
+        storage.upsert_account_data(&user_id, data_type, content.clone()).await.expect("upsert should succeed");
 
-        let result = storage
-            .get_account_data_content(&user_id, data_type)
-            .await
-            .expect("get should succeed");
+        let result = storage.get_account_data_content(&user_id, data_type).await.expect("get should succeed");
 
         assert_eq!(result, Some(content));
 
@@ -204,23 +165,11 @@ mod db_tests {
 
         let storage = AccountDataStorage::new(&pool);
 
-        storage
-            .upsert_account_data(&user_id, "type.a", json!({"val": 1}))
-            .await
-            .expect("upsert a");
-        storage
-            .upsert_account_data(&user_id, "type.b", json!({"val": 2}))
-            .await
-            .expect("upsert b");
-        storage
-            .upsert_account_data(&user_id, "type.c", json!({"val": 3}))
-            .await
-            .expect("upsert c");
+        storage.upsert_account_data(&user_id, "type.a", json!({"val": 1})).await.expect("upsert a");
+        storage.upsert_account_data(&user_id, "type.b", json!({"val": 2})).await.expect("upsert b");
+        storage.upsert_account_data(&user_id, "type.c", json!({"val": 3})).await.expect("upsert c");
 
-        let records = storage
-            .list_account_data(&user_id)
-            .await
-            .expect("list should succeed");
+        let records = storage.list_account_data(&user_id).await.expect("list should succeed");
 
         assert_eq!(records.len(), 3, "should have 3 account data records");
         assert_eq!(records[0].data_type, "type.a");
@@ -243,10 +192,7 @@ mod db_tests {
 
         let storage = AccountDataStorage::new(&pool);
 
-        let records = storage
-            .list_account_data(&user_id)
-            .await
-            .expect("list should succeed for user with no data");
+        let records = storage.list_account_data(&user_id).await.expect("list should succeed for user with no data");
 
         assert!(records.is_empty(), "list should return empty vec");
 
@@ -269,17 +215,11 @@ mod db_tests {
             .await
             .expect("upsert should succeed");
 
-        let deleted = storage
-            .delete_account_data(&user_id, data_type)
-            .await
-            .expect("delete should succeed");
+        let deleted = storage.delete_account_data(&user_id, data_type).await.expect("delete should succeed");
 
         assert!(deleted, "delete should return true when row exists");
 
-        let result = storage
-            .get_account_data_content(&user_id, data_type)
-            .await
-            .expect("get should succeed");
+        let result = storage.get_account_data_content(&user_id, data_type).await.expect("get should succeed");
 
         assert_eq!(result, None, "data should be gone after delete");
 
@@ -296,10 +236,8 @@ mod db_tests {
 
         let storage = AccountDataStorage::new(&pool);
 
-        let deleted = storage
-            .delete_account_data(&user_id, "never.inserted.type")
-            .await
-            .expect("delete should succeed");
+        let deleted =
+            storage.delete_account_data(&user_id, "never.inserted.type").await.expect("delete should succeed");
 
         assert!(!deleted, "delete should return false when no row exists");
 
@@ -317,10 +255,7 @@ mod db_tests {
         let storage = AccountDataStorage::new(&pool);
         let data_type = "im.vector.test.overwrite";
 
-        storage
-            .upsert_account_data(&user_id, data_type, json!({"version": 1}))
-            .await
-            .expect("first upsert");
+        storage.upsert_account_data(&user_id, data_type, json!({"version": 1})).await.expect("first upsert");
 
         storage
             .upsert_account_data(&user_id, data_type, json!({"version": 2, "updated": true}))
@@ -351,14 +286,8 @@ mod db_tests {
         let storage = AccountDataStorage::new(&pool);
         let data_type = "im.vector.test.shared_type";
 
-        storage
-            .upsert_account_data(&user_a, data_type, json!({"owner": "a"}))
-            .await
-            .expect("upsert for user_a");
-        storage
-            .upsert_account_data(&user_b, data_type, json!({"owner": "b"}))
-            .await
-            .expect("upsert for user_b");
+        storage.upsert_account_data(&user_a, data_type, json!({"owner": "a"})).await.expect("upsert for user_a");
+        storage.upsert_account_data(&user_b, data_type, json!({"owner": "b"})).await.expect("upsert for user_b");
 
         let a_content = storage
             .get_account_data_content(&user_a, data_type)
@@ -374,14 +303,8 @@ mod db_tests {
         assert_eq!(a_content, json!({"owner": "a"}));
         assert_eq!(b_content, json!({"owner": "b"}));
 
-        let a_records = storage
-            .list_account_data(&user_a)
-            .await
-            .expect("list for user_a");
-        let b_records = storage
-            .list_account_data(&user_b)
-            .await
-            .expect("list for user_b");
+        let a_records = storage.list_account_data(&user_a).await.expect("list for user_a");
+        let b_records = storage.list_account_data(&user_b).await.expect("list for user_b");
 
         assert_eq!(a_records.len(), 1);
         assert_eq!(b_records.len(), 1);
@@ -412,10 +335,7 @@ mod db_tests {
             }
         });
 
-        storage
-            .upsert_account_data(&user_id, data_type, complex.clone())
-            .await
-            .expect("upsert complex json");
+        storage.upsert_account_data(&user_id, data_type, complex.clone()).await.expect("upsert complex json");
 
         let result = storage
             .get_account_data_content(&user_id, data_type)

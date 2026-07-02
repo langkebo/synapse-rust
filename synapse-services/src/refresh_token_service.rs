@@ -1,16 +1,15 @@
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::refresh_token::*;
-use synapse_storage::RefreshTokenRepository;
 use tracing::{info, instrument, warn};
 
 pub struct RefreshTokenService {
-    storage: Arc<dyn RefreshTokenRepository>,
+    storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
     default_expiry_ms: i64,
 }
 
 impl RefreshTokenService {
-    pub fn new(storage: Arc<dyn RefreshTokenRepository>, default_expiry_ms: i64) -> Self {
+    pub fn new(storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>, default_expiry_ms: i64) -> Self {
         Self { storage, default_expiry_ms }
     }
 

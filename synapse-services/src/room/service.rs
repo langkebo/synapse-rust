@@ -55,7 +55,7 @@ pub struct RoomServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
+    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager, used to sign locally-produced PDUs before
@@ -97,7 +97,7 @@ pub struct RoomService {
     #[allow(dead_code)]
     pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
     #[allow(dead_code)]
-    pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
+    pub(crate) relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
     #[cfg(feature = "beacons")]

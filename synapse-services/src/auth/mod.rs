@@ -18,7 +18,6 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_common::validation::Validator;
 use synapse_common::{ApiError, ApiResult};
 use synapse_storage::event::EventRepository;
-use synapse_storage::refresh_token::repository::RefreshTokenRepository;
 use synapse_storage::*;
 
 pub use r#trait::Auth;
@@ -36,9 +35,9 @@ const DEFAULT_POWER_LEVEL: i64 = 50;
 #[derive(Clone)]
 pub struct AuthService {
     pub user_storage: Arc<dyn UserStore>,
-    pub device_storage: Arc<dyn DeviceRepository>,
+    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub token_storage: AccessTokenStorage,
-    pub refresh_token_storage: Arc<dyn RefreshTokenRepository>,
+    pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
     pub room_storage: RoomStorage,
     pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,

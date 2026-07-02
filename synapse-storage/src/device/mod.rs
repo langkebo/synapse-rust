@@ -4,9 +4,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-mod repository;
-pub use repository::DeviceRepository;
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Device {
     pub device_id: String,
@@ -948,164 +945,20 @@ impl DeviceStorage {
     }
 }
 
-// ---------------------------------------------------------------------------
-// DeviceRepository delegation
-// ---------------------------------------------------------------------------
-
-#[async_trait]
-impl DeviceRepository for DeviceStorage {
-    fn pool(&self) -> &Arc<Pool<Postgres>> {
-        &self.pool
-    }
-
-    async fn create_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        display_name: Option<&str>,
-    ) -> Result<Device, sqlx::Error> {
-        // CONCERN: Inherent DeviceStorage::create_device takes (device_id, user_id)
-        // order -- swap arguments to match the actual storage method signature.
-        self.create_device(device_id, user_id, display_name).await
-    }
-
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
-        // CONCERN: Inherent DeviceStorage::get_device only accepts device_id.
-        // Delegating to get_user_device(user_id, device_id) instead.
-        self.get_user_device(user_id, device_id).await
-    }
-
-    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+impl DeviceStorage {
+    /// Adapter: trait `get_device_by_id(device_id)` → inherent `get_device(device_id)`
+    pub async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
         self.get_device(device_id).await
     }
 
-    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
-        self.get_user_devices(user_id).await
-    }
-
-    async fn update_device_display_name(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        display_name: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        let name = display_name.unwrap_or("");
-        self.update_user_device_display_name(user_id, device_id, name).await.map(|_| ())
-    }
-
-    async fn update_device_last_seen(
-        &self,
-        device_id: &str,
-        last_seen_ip: Option<&str>,
-        user_agent: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        if last_seen_ip.is_some() {
-            tracing::warn!("last_seen_ip parameter not yet supported by DeviceStorage; value discarded");
-        }
-        if user_agent.is_some() {
-            tracing::warn!("user_agent parameter not yet supported by DeviceStorage; value discarded");
-        }
-        // CONCERN: DeviceStorage::update_device_last_seen only accepts
-        // device_id; last_seen_ip and user_agent are not yet persisted by the
-        // underlying storage.  When DeviceStorage is extended, these params
-        // should be threaded through.
-        self.update_device_last_seen(device_id).await
-    }
-
-    async fn delete_device(&self, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
-        // CONCERN: Inherent DeviceStorage::delete_device only takes device_id.
-        // Delegating to delete_user_device(user_id, device_id) instead and
-        // discarding the row-count return value to match the trait signature.
-        self.delete_user_device(user_id, device_id).await.map(|_| ())
-    }
-
-    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
+    /// Adapter: trait `delete_device_returning_count(user_id, device_id)` → inherent `delete_user_device`
+    pub async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
         self.delete_user_device(user_id, device_id).await
     }
 
-    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+    /// Adapter: trait `delete_all_devices(user_id)` → inherent `delete_user_devices`
+    pub async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_user_devices(user_id).await
-    }
-
-    async fn delete_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
-        self.delete_user_devices_batch(user_id, device_ids).await
-    }
-
-    async fn get_device_keys_for_users(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, Vec<Device>>, sqlx::Error> {
-        // CONCERN: Inherent DeviceStorage::get_device_keys_for_users returns
-        // HashMap<String, HashMap<String, Device>> (user_id -> device_id -> Device).
-        // Converting to the trait's expected HashMap<String, Vec<Device>>.
-        let result = self.get_device_keys_for_users(user_ids).await?;
-        Ok(result.into_iter().map(|(k, v)| (k, v.into_values().collect())).collect())
-    }
-
-    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        self.get_device_count(user_id).await
-    }
-
-    async fn record_device_list_change(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        change_type: &str,
-    ) -> Result<i64, sqlx::Error> {
-        self.record_device_list_change(user_id, device_id, change_type).await
-    }
-
-    async fn insert_device_list_change(
-        &self,
-        user_id: &str,
-        device_id: Option<&str>,
-        change_type: &str,
-        stream_id: i64,
-    ) -> Result<(), sqlx::Error> {
-        self.insert_device_list_change(user_id, device_id, change_type, stream_id).await
-    }
-
-    // -- device list stream --
-
-    async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
-        self.get_max_device_list_stream_id().await
-    }
-
-    async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        self.get_max_device_list_stream_id_for_user(user_id).await
-    }
-
-    async fn get_device_lists_since_with_shared_rooms(
-        &self,
-        since_stream_id: i64,
-        exclude_user_id: &str,
-    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
-        self.get_device_lists_since_with_shared_rooms(since_stream_id, exclude_user_id).await
-    }
-
-    async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
-        self.has_device_list_updates_since(since_stream_id).await
-    }
-
-    // -- lazy-loaded members --
-
-    async fn get_lazy_loaded_members(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-        self.get_lazy_loaded_members(user_id, device_id, room_id).await
-    }
-
-    async fn upsert_lazy_loaded_members(
-        &self,
-        user_id: &str,
-        device_id: &str,
-        room_id: &str,
-        member_user_ids: &std::collections::HashSet<String>,
-    ) -> Result<u64, sqlx::Error> {
-        self.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
     }
 }
 
@@ -1445,20 +1298,14 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -1497,10 +1344,8 @@ mod db_tests {
 
         ensure_test_user(&pool, user_id).await;
 
-        let device = storage
-            .create_device(device_id, user_id, Some("Test Phone"))
-            .await
-            .expect("create_device should succeed");
+        let device =
+            storage.create_device(device_id, user_id, Some("Test Phone")).await.expect("create_device should succeed");
 
         assert_eq!(device.device_id, device_id.as_str());
         assert_eq!(device.user_id, user_id);
@@ -1535,15 +1380,9 @@ mod db_tests {
         let user_id = "@getuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, Some("Find Me"))
-            .await
-            .expect("create_device should succeed");
+        storage.create_device(device_id, user_id, Some("Find Me")).await.expect("create_device should succeed");
 
-        let found = storage
-            .get_device(device_id)
-            .await
-            .expect("get_device should succeed");
+        let found = storage.get_device(device_id).await.expect("get_device should succeed");
 
         assert!(found.is_some());
         let found = found.unwrap();
@@ -1557,10 +1396,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
-        let result = storage
-            .get_device("nonexistent_device_id_12345")
-            .await
-            .expect("get_device should succeed");
+        let result = storage.get_device("nonexistent_device_id_12345").await.expect("get_device should succeed");
 
         assert!(result.is_none());
     }
@@ -1580,10 +1416,7 @@ mod db_tests {
         storage.create_device(&d1, &user_id, Some("Phone")).await.expect("create d1");
         storage.create_device(&d2, &user_id, Some("Tablet")).await.expect("create d2");
 
-        let devices = storage
-            .get_user_devices(&user_id)
-            .await
-            .expect("get_user_devices should succeed");
+        let devices = storage.get_user_devices(&user_id).await.expect("get_user_devices should succeed");
 
         assert_eq!(devices.len(), 2);
         let ids: Vec<&str> = devices.iter().map(|d| d.device_id.as_str()).collect();
@@ -1599,10 +1432,7 @@ mod db_tests {
 
         ensure_test_user(&pool, user_id).await;
 
-        let devices = storage
-            .get_user_devices(user_id)
-            .await
-            .expect("get_user_devices should succeed");
+        let devices = storage.get_user_devices(user_id).await.expect("get_user_devices should succeed");
 
         assert!(devices.is_empty());
     }
@@ -1615,10 +1445,7 @@ mod db_tests {
         let user_id = "@updatename:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, Some("Old Name"))
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, Some("Old Name")).await.expect("create_device");
 
         storage
             .update_device_display_name(device_id, "New Name")
@@ -1637,10 +1464,7 @@ mod db_tests {
         let user_id = "@upduser:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
         let rows = storage
             .update_user_device_display_name(user_id, device_id, "Updated")
@@ -1658,10 +1482,7 @@ mod db_tests {
         let user_id = "@rightuser:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
         let rows = storage
             .update_user_device_display_name("@wronguser:example.com", device_id, "Nope")
@@ -1679,15 +1500,9 @@ mod db_tests {
         let user_id = "@seen:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
-        storage
-            .update_device_last_seen(device_id)
-            .await
-            .expect("update_device_last_seen should succeed");
+        storage.update_device_last_seen(device_id).await.expect("update_device_last_seen should succeed");
 
         let updated = storage.get_device(device_id).await.expect("get_device").unwrap();
         assert!(updated.last_seen_ts.is_some());
@@ -1702,15 +1517,9 @@ mod db_tests {
         let user_id = "@deleteusr:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
-        let rows = storage
-            .delete_user_device(user_id, device_id)
-            .await
-            .expect("delete_user_device should succeed");
+        let rows = storage.delete_user_device(user_id, device_id).await.expect("delete_user_device should succeed");
 
         assert_eq!(rows, 1);
 
@@ -1739,10 +1548,7 @@ mod db_tests {
         let user_id = &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().split_at(8).0);
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
         assert!(storage.device_exists(device_id).await.expect("device_exists should succeed"));
     }
@@ -1752,10 +1558,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
-        assert!(!storage
-            .device_exists("no_such_device_xyz")
-            .await
-            .expect("device_exists should succeed"));
+        assert!(!storage.device_exists("no_such_device_xyz").await.expect("device_exists should succeed"));
     }
 
     #[tokio::test]
@@ -1768,20 +1571,14 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         let _ = storage.delete_user_devices(&user_id).await;
 
-        assert_eq!(
-            storage.get_device_count(&user_id).await.expect("get_device_count"),
-            0
-        );
+        assert_eq!(storage.get_device_count(&user_id).await.expect("get_device_count"), 0);
 
         let d1 = format!("cnt_1_{}", suffix);
         let d2 = format!("cnt_2_{}", suffix);
         storage.create_device(&d1, &user_id, None).await.expect("create d1");
         storage.create_device(&d2, &user_id, None).await.expect("create d2");
 
-        assert_eq!(
-            storage.get_device_count(&user_id).await.expect("get_device_count"),
-            2
-        );
+        assert_eq!(storage.get_device_count(&user_id).await.expect("get_device_count"), 2);
     }
 
     #[tokio::test]
@@ -1796,15 +1593,9 @@ mod db_tests {
         storage.create_device(d1, user_id, None).await.expect("create d1");
         storage.create_device(d2, user_id, None).await.expect("create d2");
 
-        storage
-            .delete_user_devices(user_id)
-            .await
-            .expect("delete_user_devices should succeed");
+        storage.delete_user_devices(user_id).await.expect("delete_user_devices should succeed");
 
-        assert_eq!(
-            storage.get_device_count(user_id).await.expect("get_device_count"),
-            0
-        );
+        assert_eq!(storage.get_device_count(user_id).await.expect("get_device_count"), 0);
     }
 
     #[tokio::test]
@@ -1815,15 +1606,9 @@ mod db_tests {
         let user_id = "@userdev:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, Some("Specific"))
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, Some("Specific")).await.expect("create_device");
 
-        let found = storage
-            .get_user_device(user_id, device_id)
-            .await
-            .expect("get_user_device should succeed");
+        let found = storage.get_user_device(user_id, device_id).await.expect("get_user_device should succeed");
 
         assert!(found.is_some());
         assert_eq!(found.unwrap().device_id, device_id.as_str());
@@ -1838,15 +1623,10 @@ mod db_tests {
 
         ensure_test_user(&pool, user_id).await;
         ensure_test_user(&pool, "@other:example.com").await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
-        let found = storage
-            .get_user_device("@other:example.com", device_id)
-            .await
-            .expect("get_user_device should succeed");
+        let found =
+            storage.get_user_device("@other:example.com", device_id).await.expect("get_user_device should succeed");
 
         assert!(found.is_none());
     }
@@ -1876,10 +1656,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
-        let devices = storage
-            .get_devices_batch(&[])
-            .await
-            .expect("get_devices_batch with empty input should succeed");
+        let devices = storage.get_devices_batch(&[]).await.expect("get_devices_batch with empty input should succeed");
 
         assert!(devices.is_empty());
     }
@@ -1896,10 +1673,7 @@ mod db_tests {
         ensure_test_user(&pool, &no_device_user).await;
         let _ = storage.delete_user_devices(&user_id).await;
 
-        storage
-            .create_device(&format!("filter_dev_{}", suffix), &user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(&format!("filter_dev_{}", suffix), &user_id, None).await.expect("create_device");
 
         let result = storage
             .filter_existing_users(&[user_id.clone(), no_device_user.clone()])
@@ -1915,10 +1689,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
-        let result = storage
-            .filter_existing_users(&[])
-            .await
-            .expect("filter_existing_users with empty input should succeed");
+        let result =
+            storage.filter_existing_users(&[]).await.expect("filter_existing_users with empty input should succeed");
 
         assert!(result.is_empty());
     }
@@ -1928,10 +1700,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = DeviceStorage::new(&pool);
 
-        let max_id = storage
-            .get_max_device_list_stream_id()
-            .await
-            .expect("get_max_device_list_stream_id should succeed");
+        let max_id =
+            storage.get_max_device_list_stream_id().await.expect("get_max_device_list_stream_id should succeed");
 
         assert!(max_id >= 0);
     }
@@ -1947,10 +1717,7 @@ mod db_tests {
 
         let before = storage.get_max_device_list_stream_id().await.expect("get max before");
 
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
         let after = storage.get_max_device_list_stream_id().await.expect("get max after");
         assert!(after > before);
@@ -1964,15 +1731,9 @@ mod db_tests {
         let user_id = "@delbyid:example.com";
 
         ensure_test_user(&pool, user_id).await;
-        storage
-            .create_device(device_id, user_id, None)
-            .await
-            .expect("create_device");
+        storage.create_device(device_id, user_id, None).await.expect("create_device");
 
-        storage
-            .delete_device(device_id)
-            .await
-            .expect("delete_device should succeed");
+        storage.delete_device(device_id).await.expect("delete_device should succeed");
 
         assert!(storage.get_device(device_id).await.expect("get_device").is_none());
     }

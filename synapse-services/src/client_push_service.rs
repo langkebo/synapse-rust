@@ -3,7 +3,6 @@ use sqlx::{PgPool, Row};
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::push::PushStorage;
-use synapse_storage::AccountDataRepository;
 
 #[derive(Debug, Clone)]
 pub struct UpsertPusherRequest {
@@ -31,7 +30,7 @@ pub struct UpsertPushRuleRequest {
 }
 
 pub struct ClientPushService {
-    account_data_storage: Arc<dyn AccountDataRepository>,
+    account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
     push_storage: PushStorage,
 }
 

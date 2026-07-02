@@ -25,7 +25,6 @@ use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_storage::account_data::AccountDataStorage;
-use synapse_storage::device::DeviceRepository;
 use synapse_storage::event::EventRepository;
 use synapse_storage::room::RoomRepository;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
@@ -41,7 +40,7 @@ pub struct SyncService {
     pub(crate) room_account_data_storage: RoomAccountDataStorage,
     pub(crate) account_data_storage: AccountDataStorage,
     pub(crate) filter_storage: FilterStorage,
-    pub(crate) device_storage: Arc<dyn DeviceRepository>,
+    pub(crate) device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub(crate) device_key_storage: DeviceKeyStorage,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
@@ -88,7 +87,7 @@ impl SyncService {
         room_account_data_storage: RoomAccountDataStorage,
         account_data_storage: AccountDataStorage,
         filter_storage: FilterStorage,
-        device_storage: Arc<dyn DeviceRepository>,
+        device_storage: Arc<synapse_storage::device::DeviceStorage>,
         device_key_storage: DeviceKeyStorage,
         key_rotation_storage: KeyRotationStorage,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,

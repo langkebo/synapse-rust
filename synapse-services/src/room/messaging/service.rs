@@ -30,7 +30,7 @@ pub struct MessagingService {
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
-    pub(crate) relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
+    pub(crate) relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     /// Application service manager for dispatching events to bridges.
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     /// Server signing key manager for signing locally-produced PDUs.
@@ -50,7 +50,7 @@ pub struct MessagingServiceConfig {
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
+    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     pub key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
