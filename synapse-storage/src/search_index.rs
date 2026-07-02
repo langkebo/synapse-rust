@@ -246,7 +246,10 @@ impl SearchIndexStorage {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_search_index_cursor, encode_search_index_cursor, SearchIndexCursor, SearchIndexEntry, SearchResult, SearchQuery, SearchIndexStats};
+    use super::{
+        decode_search_index_cursor, encode_search_index_cursor, SearchIndexCursor, SearchIndexEntry, SearchIndexStats,
+        SearchQuery, SearchResult,
+    };
 
     #[test]
     fn search_index_cursor_round_trip() {
@@ -386,20 +389,14 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn cleanup_search_index(pool: &PgPool, suffix: &str) {
         let pattern = format!("%{suffix}");
-        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     fn make_suffix() -> String {
@@ -550,8 +547,12 @@ mod db_tests {
         // Search for "xray" should find it
         let q = SearchQuery {
             search_term: "xray".to_string(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (r, _) = storage.search_events(&q).await.unwrap();
         // At least one result with content "xray yankee zulu"
@@ -561,8 +562,12 @@ mod db_tests {
         // Search for "alpha" should NOT find this event (since content was replaced)
         let q2 = SearchQuery {
             search_term: "alpha".to_string(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (r2, _) = storage.search_events(&q2).await.unwrap();
         let found_alpha = r2.iter().any(|sr| sr.event_id == event_id);
@@ -580,9 +585,8 @@ mod db_tests {
         cleanup_search_index(&pool, &suffix).await;
 
         let storage = SearchIndexStorage::new((*pool).clone());
-        let entries: Vec<SearchIndexEntry> = (1..=5)
-            .map(|i| make_entry(&suffix, i, &format!("Batch message {i}")))
-            .collect();
+        let entries: Vec<SearchIndexEntry> =
+            (1..=5).map(|i| make_entry(&suffix, i, &format!("Batch message {i}"))).collect();
 
         let count = storage.index_events(&entries).await.expect("index_events should succeed");
         assert_eq!(count, 5);
@@ -590,8 +594,12 @@ mod db_tests {
         // Search for unique suffix should find all 5
         let query = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(20), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(20),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.expect("search should succeed");
         assert_eq!(results.len(), 5);
@@ -614,8 +622,12 @@ mod db_tests {
         // Search for the unique suffix (exact match via ILIKE)
         let query = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 1);
@@ -637,8 +649,12 @@ mod db_tests {
         // Lowercase search for the unique suffix (ILIKE is case-insensitive)
         let query = SearchQuery {
             search_term: suffix.to_lowercase(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 1, "ILIKE should be case-insensitive");
@@ -661,8 +677,12 @@ mod db_tests {
         let prefix = &suffix[..8];
         let query = SearchQuery {
             search_term: prefix.to_string(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 1, "prefix match should work");
@@ -671,8 +691,12 @@ mod db_tests {
         let mid = &suffix[4..12];
         let query2 = SearchQuery {
             search_term: mid.to_string(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results2, _) = storage.search_events(&query2).await.unwrap();
         assert_eq!(results2.len(), 1, "contains match should work");
@@ -693,8 +717,12 @@ mod db_tests {
         // Search for something not in the content
         let query = SearchQuery {
             search_term: "xyznonexistent12345".to_string(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 0);
@@ -717,8 +745,12 @@ mod db_tests {
         // Search for the unique suffix, request limit 3
         let query = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(3), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(3),
+            from: None,
         };
         let (results, next_batch) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 3);
@@ -742,8 +774,12 @@ mod db_tests {
         // First page: limit 2
         let query = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(2), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(2),
+            from: None,
         };
         let (page1, cursor1) = storage.search_events(&query).await.unwrap();
         assert_eq!(page1.len(), 2);
@@ -752,8 +788,12 @@ mod db_tests {
         // Second page: use cursor
         let query2 = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(2), from: cursor1,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(2),
+            from: cursor1,
         };
         let (page2, cursor2) = storage.search_events(&query2).await.unwrap();
         assert_eq!(page2.len(), 2);
@@ -762,19 +802,20 @@ mod db_tests {
         // Third page: should have remaining 1
         let query3 = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(2), from: cursor2,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(2),
+            from: cursor2,
         };
         let (page3, cursor3) = storage.search_events(&query3).await.unwrap();
         assert_eq!(page3.len(), 1);
         assert!(cursor3.is_none(), "no more pages, cursor should be None");
 
         // Ensure no duplicate event_ids across pages
-        let all_ids: Vec<String> = page1.iter()
-            .chain(page2.iter())
-            .chain(page3.iter())
-            .map(|r| r.event_id.clone())
-            .collect();
+        let all_ids: Vec<String> =
+            page1.iter().chain(page2.iter()).chain(page3.iter()).map(|r| r.event_id.clone()).collect();
         let unique_ids: std::collections::HashSet<_> = all_ids.iter().collect();
         assert_eq!(all_ids.len(), unique_ids.len(), "all event_ids should be unique across pages");
 
@@ -805,16 +846,23 @@ mod db_tests {
 
         let query = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&query).await.unwrap();
         assert_eq!(results.len(), 3);
         // Results should be in DESC order by created_ts (newest first)
         for window in results.windows(2) {
-            assert!(window[0].origin_server_ts >= window[1].origin_server_ts,
+            assert!(
+                window[0].origin_server_ts >= window[1].origin_server_ts,
                 "results should be in desc order: {} >= {}",
-                window[0].origin_server_ts, window[1].origin_server_ts);
+                window[0].origin_server_ts,
+                window[1].origin_server_ts
+            );
         }
 
         cleanup_search_index(&pool, &suffix).await;
@@ -835,8 +883,12 @@ mod db_tests {
         // Verify it exists via unique suffix
         let q = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (r1, _) = storage.search_events(&q).await.unwrap();
         assert_eq!(r1.len(), 1);
@@ -914,8 +966,12 @@ mod db_tests {
         // Verify the room's events are gone (search for suffix)
         let q = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&q).await.unwrap();
         assert_eq!(results.len(), 0, "room events should be deleted");
@@ -923,8 +979,12 @@ mod db_tests {
         // Verify the other room's event survived (search for other_suffix)
         let q2 = SearchQuery {
             search_term: other_suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (r2, _) = storage.search_events(&q2).await.unwrap();
         assert_eq!(r2.len(), 1);
@@ -933,8 +993,7 @@ mod db_tests {
         // Clean up both rooms' entries
         cleanup_search_index(&pool, &suffix).await;
         let pattern = format!("%{other_suffix}");
-        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1")
-            .bind(&pattern).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1").bind(&pattern).execute(&*pool).await;
     }
 
     #[tokio::test]
@@ -975,8 +1034,7 @@ mod db_tests {
 
         let stats = storage.get_stats().await.expect("get_stats should succeed");
         assert!(stats.total_count >= 1, "total_count should be at least 1");
-        assert!(stats.by_event_type.contains_key("m.room.message"),
-            "by_event_type should contain m.room.message");
+        assert!(stats.by_event_type.contains_key("m.room.message"), "by_event_type should contain m.room.message");
 
         cleanup_search_index(&pool, &suffix).await;
     }
@@ -997,12 +1055,9 @@ mod db_tests {
 
     async fn cleanup_room_and_events(pool: &PgPool, suffix: &str) {
         let pattern = format!("%{suffix}");
-        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1")
-            .bind(&pattern).execute(pool).await;
-        let _ = sqlx::query("DELETE FROM events WHERE event_id LIKE $1")
-            .bind(&pattern).execute(pool).await;
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
-            .bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM search_index WHERE event_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE event_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     #[tokio::test]
@@ -1017,8 +1072,16 @@ mod db_tests {
 
         // Insert events into the events table with suffix-based content
         let events_data = vec![
-            ("$ev_rb_1_{suffix}:localhost", "m.room.message", format!("{{\"body\":\"First {suffix} message\",\"msgtype\":\"m.text\"}}")),
-            ("$ev_rb_2_{suffix}:localhost", "m.room.message", format!("{{\"body\":\"Second {suffix} message\",\"msgtype\":\"m.text\"}}")),
+            (
+                "$ev_rb_1_{suffix}:localhost",
+                "m.room.message",
+                format!("{{\"body\":\"First {suffix} message\",\"msgtype\":\"m.text\"}}"),
+            ),
+            (
+                "$ev_rb_2_{suffix}:localhost",
+                "m.room.message",
+                format!("{{\"body\":\"Second {suffix} message\",\"msgtype\":\"m.text\"}}"),
+            ),
             ("$ev_rb_3_{suffix}:localhost", "m.room.name", "{\"name\":\"Rebuild Test Room\"}".to_string()),
         ];
 
@@ -1045,8 +1108,12 @@ mod db_tests {
         // Verify via search using unique suffix
         let q = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (results, _) = storage.search_events(&q).await.unwrap();
         assert_eq!(results.len(), 2, "should find both m.room.message events with unique suffix");
@@ -1115,8 +1182,12 @@ mod db_tests {
         // Search for suffix should find the fresh content (not stale)
         let q = SearchQuery {
             search_term: suffix.clone(),
-            room_ids: None, not_room_ids: None, sender: None, event_types: None,
-            limit: Some(10), from: None,
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(10),
+            from: None,
         };
         let (r, _) = storage.search_events(&q).await.unwrap();
         assert_eq!(r.len(), 1, "fresh content from events table should be indexed, stale entry deleted");

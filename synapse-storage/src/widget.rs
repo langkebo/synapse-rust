@@ -435,20 +435,14 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -479,20 +473,12 @@ mod db_tests {
     /// Hard-delete a widget and everything that cascades from it
     /// (widget_permissions, widget_sessions). Idempotent.
     async fn cleanup_widget(pool: &PgPool, widget_id: &str) {
-        sqlx::query("DELETE FROM widgets WHERE widget_id = $1")
-            .bind(widget_id)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM widgets WHERE widget_id = $1").bind(widget_id).execute(pool).await.ok();
     }
 
     /// Hard-delete a specific session. Idempotent.
     async fn cleanup_session(pool: &PgPool, session_id: &str) {
-        sqlx::query("DELETE FROM widget_sessions WHERE session_id = $1")
-            .bind(session_id)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM widget_sessions WHERE session_id = $1").bind(session_id).execute(pool).await.ok();
     }
 
     // ——— Widget CRUD ————————————————————————————————————————————————
@@ -535,11 +521,8 @@ mod db_tests {
         assert!(created.updated_ts.is_none());
         assert!(created.is_active);
 
-        let found = storage
-            .get_widget(&widget_id)
-            .await
-            .expect("get_widget should succeed")
-            .expect("widget should be found");
+        let found =
+            storage.get_widget(&widget_id).await.expect("get_widget should succeed").expect("widget should be found");
         assert_eq!(found.id, created.id);
         assert_eq!(found.widget_id, widget_id);
 
@@ -551,10 +534,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
 
-        let result = storage
-            .get_widget("nonexistent_widget_12345")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_widget("nonexistent_widget_12345").await.expect("query should succeed");
         assert!(result.is_none(), "non-existent widget should return None");
     }
 
@@ -591,19 +571,13 @@ mod db_tests {
         storage.create_widget(base_params(&w2, &room_a)).await.unwrap();
         storage.create_widget(base_params(&w3, &room_b)).await.unwrap();
 
-        let room_a_widgets = storage
-            .get_room_widgets(&room_a)
-            .await
-            .expect("get_room_widgets should succeed");
+        let room_a_widgets = storage.get_room_widgets(&room_a).await.expect("get_room_widgets should succeed");
         assert_eq!(room_a_widgets.len(), 2);
         for w in &room_a_widgets {
             assert_eq!(w.room_id.as_deref(), Some(room_a.as_str()));
         }
 
-        let room_b_widgets = storage
-            .get_room_widgets(&room_b)
-            .await
-            .expect("get_room_widgets should succeed");
+        let room_b_widgets = storage.get_room_widgets(&room_b).await.expect("get_room_widgets should succeed");
         assert_eq!(room_b_widgets.len(), 1);
 
         for wid in &[&w1, &w2, &w3] {
@@ -642,10 +616,7 @@ mod db_tests {
         storage.create_widget(base_params(&w2, &user_a)).await.unwrap();
         storage.create_widget(base_params(&w3, &user_b)).await.unwrap();
 
-        let user_a_widgets = storage
-            .get_user_widgets(&user_a)
-            .await
-            .expect("get_user_widgets should succeed");
+        let user_a_widgets = storage.get_user_widgets(&user_a).await.expect("get_user_widgets should succeed");
         assert_eq!(user_a_widgets.len(), 2);
         for w in &user_a_widgets {
             assert_eq!(w.user_id, user_a);
@@ -741,16 +712,10 @@ mod db_tests {
             .await
             .unwrap();
 
-        let deleted = storage
-            .delete_widget(&widget_id)
-            .await
-            .expect("delete should succeed");
+        let deleted = storage.delete_widget(&widget_id).await.expect("delete should succeed");
         assert!(deleted, "delete should return true for existing widget");
 
-        let found = storage
-            .get_widget(&widget_id)
-            .await
-            .expect("get should succeed");
+        let found = storage.get_widget(&widget_id).await.expect("get should succeed");
         assert!(found.is_none(), "soft-deleted widget should not appear in get");
 
         // Deleting again should return false
@@ -765,10 +730,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = WidgetStorage::new(pool.clone());
 
-        let result = storage
-            .delete_widget("nonexistent_widget")
-            .await
-            .expect("query should succeed");
+        let result = storage.delete_widget("nonexistent_widget").await.expect("query should succeed");
         assert!(!result, "delete non-existent should return false");
     }
 
@@ -818,10 +780,8 @@ mod db_tests {
         assert_eq!(perm2.id, perm.id); // same row, updated in place
 
         // Get all permissions for widget
-        let all_perms = storage
-            .get_widget_permissions(&widget_id)
-            .await
-            .expect("get_widget_permissions should succeed");
+        let all_perms =
+            storage.get_widget_permissions(&widget_id).await.expect("get_widget_permissions should succeed");
         assert_eq!(all_perms.len(), 1);
 
         // Get specific user permission
@@ -833,10 +793,8 @@ mod db_tests {
         assert_eq!(user_perm.permissions, serde_json::json!(["admin"]));
 
         // Get non-existent user permission
-        let none_perm = storage
-            .get_user_widget_permission(&widget_id, &other_user)
-            .await
-            .expect("query should succeed");
+        let none_perm =
+            storage.get_user_widget_permission(&widget_id, &other_user).await.expect("query should succeed");
         assert!(none_perm.is_none(), "no permission for other user");
 
         cleanup_widget(&pool, &widget_id).await;
@@ -866,27 +824,16 @@ mod db_tests {
             .await
             .unwrap();
 
-        storage
-            .set_widget_permission(&widget_id, &user_id, serde_json::json!(["read"]))
-            .await
-            .unwrap();
+        storage.set_widget_permission(&widget_id, &user_id, serde_json::json!(["read"])).await.unwrap();
 
-        let deleted = storage
-            .delete_widget_permission(&widget_id, &user_id)
-            .await
-            .expect("delete should succeed");
+        let deleted = storage.delete_widget_permission(&widget_id, &user_id).await.expect("delete should succeed");
         assert!(deleted, "first delete should return true");
 
-        let deleted_again = storage
-            .delete_widget_permission(&widget_id, &user_id)
-            .await
-            .expect("second delete should succeed");
+        let deleted_again =
+            storage.delete_widget_permission(&widget_id, &user_id).await.expect("second delete should succeed");
         assert!(!deleted_again, "second delete should return false");
 
-        let perm = storage
-            .get_user_widget_permission(&widget_id, &user_id)
-            .await
-            .unwrap();
+        let perm = storage.get_user_widget_permission(&widget_id, &user_id).await.unwrap();
         assert!(perm.is_none());
 
         cleanup_widget(&pool, &widget_id).await;
@@ -971,32 +918,21 @@ mod db_tests {
             .await
             .unwrap();
 
-        storage
-            .create_session(&session_id, &widget_id, &user_id, None, None)
-            .await
-            .unwrap();
+        storage.create_session(&session_id, &widget_id, &user_id, None, None).await.unwrap();
 
         let original = storage.get_session(&session_id).await.unwrap().unwrap();
         let original_activity = original.last_active_ts;
 
         // Update activity
-        let updated = storage
-            .update_session_activity(&session_id)
-            .await
-            .expect("update_session_activity should succeed");
+        let updated =
+            storage.update_session_activity(&session_id).await.expect("update_session_activity should succeed");
         assert!(updated);
 
         let after_update = storage.get_session(&session_id).await.unwrap().unwrap();
-        assert!(
-            after_update.last_active_ts >= original_activity,
-            "last_active_ts should be updated"
-        );
+        assert!(after_update.last_active_ts >= original_activity, "last_active_ts should be updated");
 
         // Terminate session
-        let terminated = storage
-            .terminate_session(&session_id)
-            .await
-            .expect("terminate_session should succeed");
+        let terminated = storage.terminate_session(&session_id).await.expect("terminate_session should succeed");
         assert!(terminated);
 
         let after_term = storage.get_session(&session_id).await.unwrap();
@@ -1041,10 +977,7 @@ mod db_tests {
         storage.create_session(&s1, &widget_id, &user_id, None, Some(3_600_000)).await.unwrap();
         storage.create_session(&s2, &widget_id, &user_id, None, None).await.unwrap();
 
-        let sessions = storage
-            .get_widget_sessions(&widget_id)
-            .await
-            .expect("get_widget_sessions should succeed");
+        let sessions = storage.get_widget_sessions(&widget_id).await.expect("get_widget_sessions should succeed");
         assert_eq!(sessions.len(), 2);
         assert!(sessions.iter().all(|s| s.is_active));
         assert!(sessions.iter().all(|s| s.widget_id == widget_id));
@@ -1093,10 +1026,7 @@ mod db_tests {
             .await
             .unwrap();
 
-        let count = storage
-            .cleanup_expired_sessions()
-            .await
-            .expect("cleanup_expired_sessions should succeed");
+        let count = storage.cleanup_expired_sessions().await.expect("cleanup_expired_sessions should succeed");
         assert!(count >= 1, "should have cleaned up at least one expired session");
 
         let expired = storage.get_session(&expired_sid).await.unwrap();

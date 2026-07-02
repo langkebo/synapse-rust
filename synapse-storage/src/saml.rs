@@ -855,19 +855,13 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -1022,10 +1016,7 @@ mod db_tests {
         // truncates to second precision, so the "updated" timestamp may
         // appear less than the Rust timestamp. We just verify the call
         // succeeds and the session is still retrievable.
-        storage
-            .update_session_last_used(&session_id)
-            .await
-            .expect("update should succeed");
+        storage.update_session_last_used(&session_id).await.expect("update should succeed");
 
         let updated = storage
             .get_session(&session_id)
@@ -1065,10 +1056,7 @@ mod db_tests {
         let before = storage.get_session(&session_id).await.expect("query should succeed");
         assert!(before.is_some(), "session should exist before invalidation");
 
-        storage
-            .invalidate_session(&session_id)
-            .await
-            .expect("invalidate should succeed");
+        storage.invalidate_session(&session_id).await.expect("invalidate should succeed");
 
         let after = storage.get_session(&session_id).await.expect("query should succeed");
         assert!(after.is_none(), "invalidated session should not be returned by get_session");
@@ -1322,23 +1310,14 @@ mod db_tests {
         storage.create_user_mapping(req).await.expect("create should succeed");
 
         // Delete
-        storage
-            .delete_user_mapping(&name_id, &issuer)
-            .await
-            .expect("delete should succeed");
+        storage.delete_user_mapping(&name_id, &issuer).await.expect("delete should succeed");
 
         // Verify gone
-        let after = storage
-            .get_user_mapping_by_name_id(&name_id, &issuer)
-            .await
-            .expect("query should succeed");
+        let after = storage.get_user_mapping_by_name_id(&name_id, &issuer).await.expect("query should succeed");
         assert!(after.is_none(), "mapping should be deleted");
 
         // Delete again (idempotent)
-        storage
-            .delete_user_mapping(&name_id, &issuer)
-            .await
-            .expect("idempotent delete should succeed");
+        storage.delete_user_mapping(&name_id, &issuer).await.expect("idempotent delete should succeed");
 
         cleanup_saml_test_data(&pool, &suffix).await;
     }
@@ -1366,10 +1345,7 @@ mod db_tests {
             storage.create_user_mapping(req).await.expect("create should succeed");
         }
 
-        let mappings = storage
-            .list_user_mappings(10, None)
-            .await
-            .expect("list should succeed");
+        let mappings = storage.list_user_mappings(10, None).await.expect("list should succeed");
         assert!(mappings.len() >= 2, "should return at least 2 mappings");
 
         // Should be ordered by name_id ASC
@@ -1408,35 +1384,18 @@ mod db_tests {
         }
 
         // Fetch all rows (large limit) and filter to only our test records
-        let all = storage
-            .list_user_mappings(10000, None)
-            .await
-            .expect("list all should succeed");
-        let my_names: Vec<&str> = all
-            .iter()
-            .map(|m| m.name_id.as_str())
-            .filter(|n| n.contains(&suffix))
-            .collect();
+        let all = storage.list_user_mappings(10000, None).await.expect("list all should succeed");
+        let my_names: Vec<&str> = all.iter().map(|m| m.name_id.as_str()).filter(|n| n.contains(&suffix)).collect();
         assert_eq!(my_names.len(), 3, "should find all 3 test mappings");
         assert_eq!(my_names[0], name_a);
         assert_eq!(my_names[1], name_b);
         assert_eq!(my_names[2], name_c);
 
         // Cursor pagination: after name_b, only name_c should remain (within our records)
-        let after_b = storage
-            .list_user_mappings(10000, Some(&name_b))
-            .await
-            .expect("after_b should succeed");
-        let after_b_names: Vec<&str> = after_b
-            .iter()
-            .map(|m| m.name_id.as_str())
-            .filter(|n| n.contains(&suffix))
-            .collect();
-        assert_eq!(
-            after_b_names.len(),
-            1,
-            "only the remaining test record should be after name_b"
-        );
+        let after_b = storage.list_user_mappings(10000, Some(&name_b)).await.expect("after_b should succeed");
+        let after_b_names: Vec<&str> =
+            after_b.iter().map(|m| m.name_id.as_str()).filter(|n| n.contains(&suffix)).collect();
+        assert_eq!(after_b_names.len(), 1, "only the remaining test record should be after name_b");
         assert_eq!(after_b_names[0], name_c);
 
         cleanup_saml_test_data(&pool, &suffix).await;
@@ -1472,10 +1431,8 @@ mod db_tests {
         assert_eq!(found.user_id, user_id);
 
         // Not found
-        let not_found = storage
-            .get_user_mapping_any_issuer(&format!("nonexistent_{suffix}"))
-            .await
-            .expect("query should succeed");
+        let not_found =
+            storage.get_user_mapping_any_issuer(&format!("nonexistent_{suffix}")).await.expect("query should succeed");
         assert!(not_found.is_none());
 
         cleanup_saml_test_data(&pool, &suffix).await;
@@ -1555,26 +1512,17 @@ mod db_tests {
         }
 
         // Delete by name_id should remove ALL matching rows
-        let count = storage
-            .delete_user_mapping_by_name_id(&name_id)
-            .await
-            .expect("delete should succeed");
+        let count = storage.delete_user_mapping_by_name_id(&name_id).await.expect("delete should succeed");
         assert_eq!(count, 2, "should delete both mappings with the same name_id");
 
         // Verify both are gone
         for iss in [&issuer_a, &issuer_b] {
-            let result = storage
-                .get_user_mapping_by_name_id(&name_id, iss)
-                .await
-                .expect("query should succeed");
+            let result = storage.get_user_mapping_by_name_id(&name_id, iss).await.expect("query should succeed");
             assert!(result.is_none(), "mapping for issuer {iss} should be deleted");
         }
 
         // Idempotent: deleting again returns 0
-        let count2 = storage
-            .delete_user_mapping_by_name_id(&name_id)
-            .await
-            .expect("second delete should succeed");
+        let count2 = storage.delete_user_mapping_by_name_id(&name_id).await.expect("second delete should succeed");
         assert_eq!(count2, 0);
 
         cleanup_saml_test_data(&pool, &suffix).await;
@@ -1604,10 +1552,7 @@ mod db_tests {
             attribute_mapping: Some(serde_json::json!({"uid": "name_id", "mail": "email"})),
         };
 
-        let idp = storage
-            .create_identity_provider(req)
-            .await
-            .expect("create_identity_provider should succeed");
+        let idp = storage.create_identity_provider(req).await.expect("create_identity_provider should succeed");
 
         assert!(idp.id > 0);
         assert_eq!(idp.entity_id, entity_id);
@@ -1639,10 +1584,7 @@ mod db_tests {
             priority: None,
             attribute_mapping: None,
         };
-        storage
-            .create_identity_provider(req)
-            .await
-            .expect("create should succeed");
+        storage.create_identity_provider(req).await.expect("create should succeed");
 
         // Found
         let found = storage
@@ -1738,10 +1680,7 @@ mod db_tests {
         };
         storage.create_identity_provider(req_off).await.expect("create disabled should succeed");
 
-        let enabled = storage
-            .get_enabled_identity_providers()
-            .await
-            .expect("query should succeed");
+        let enabled = storage.get_enabled_identity_providers().await.expect("query should succeed");
 
         // Only enabled IdPs should be returned
         let has_enabled = enabled.iter().any(|p| p.entity_id == entity_enabled);
@@ -1779,21 +1718,15 @@ mod db_tests {
             .await
             .expect("update_idp_metadata should succeed");
 
-        let updated = storage
-            .get_identity_provider(&entity_id)
-            .await
-            .expect("query should succeed")
-            .expect("idp should exist");
+        let updated =
+            storage.get_identity_provider(&entity_id).await.expect("query should succeed").expect("idp should exist");
 
         assert_eq!(
             updated.metadata_xml.as_deref(),
             Some("<xml>updated metadata</xml>"),
             "metadata_xml should be updated"
         );
-        assert!(
-            updated.last_metadata_refresh_ts.is_some(),
-            "last_metadata_refresh_ts should be set"
-        );
+        assert!(updated.last_metadata_refresh_ts.is_some(), "last_metadata_refresh_ts should be set");
 
         cleanup_saml_test_data(&pool, &suffix).await;
     }

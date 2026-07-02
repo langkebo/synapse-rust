@@ -1300,65 +1300,44 @@ mod tests {
 
     #[test]
     fn test_push_room_filters_is_dm_true() {
-        let filters = SlidingSyncFilters {
-            is_dm: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_dm: Some(true), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND is_dm = $1"), "expected is_dm filter in SQL: {sql}");
     }
 
     #[test]
     fn test_push_room_filters_is_dm_false() {
-        let filters = SlidingSyncFilters {
-            is_dm: Some(false),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_dm: Some(false), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND is_dm = $1"), "expected is_dm filter in SQL: {sql}");
     }
 
     #[test]
     fn test_push_room_filters_is_encrypted() {
-        let filters = SlidingSyncFilters {
-            is_encrypted: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_encrypted: Some(true), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND is_encrypted = $1"), "expected is_encrypted filter in SQL: {sql}");
     }
 
     #[test]
     fn test_push_room_filters_is_invite() {
-        let filters = SlidingSyncFilters {
-            is_invite: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_invite: Some(true), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND invited = $1"), "expected invited filter in SQL: {sql}");
     }
 
     #[test]
     fn test_push_room_filters_is_tombstoned() {
-        let filters = SlidingSyncFilters {
-            is_tombstoned: Some(true),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { is_tombstoned: Some(true), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND is_tombstoned = $1"), "expected is_tombstoned filter in SQL: {sql}");
     }
 
     #[test]
     fn test_push_room_filters_room_name_like() {
-        let filters = SlidingSyncFilters {
-            room_name_like: Some("test".to_string()),
-            ..Default::default()
-        };
+        let filters = SlidingSyncFilters { room_name_like: Some("test".to_string()), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
-        assert!(
-            sql.contains("AND COALESCE(name, '') ILIKE $1"),
-            "expected room_name_like filter in SQL: {sql}"
-        );
+        assert!(sql.contains("AND COALESCE(name, '') ILIKE $1"), "expected room_name_like filter in SQL: {sql}");
     }
 
     #[test]
@@ -1383,11 +1362,8 @@ mod tests {
     #[test]
     fn test_push_room_filters_partial() {
         // Only set is_dm and room_name_like; all others remain None → not pushed
-        let filters = SlidingSyncFilters {
-            is_dm: Some(true),
-            room_name_like: Some("office".to_string()),
-            ..Default::default()
-        };
+        let filters =
+            SlidingSyncFilters { is_dm: Some(true), room_name_like: Some("office".to_string()), ..Default::default() };
         let sql = build_filtered_sql(Some(&filters));
         assert!(sql.contains("AND is_dm = $1"), "missing is_dm: {sql}");
         assert!(sql.contains("AND COALESCE(name, '') ILIKE $2"), "missing room_name_like: {sql}");

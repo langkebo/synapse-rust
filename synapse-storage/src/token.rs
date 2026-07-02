@@ -445,11 +445,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -458,10 +455,7 @@ mod db_tests {
     /// so the same user can safely be referenced by multiple tests.
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -502,9 +496,7 @@ mod db_tests {
 
         ensure_test_user(&pool, user_id).await;
 
-        let token = storage.create_token(token_str, user_id, None, None)
-            .await
-            .expect("create_token should succeed");
+        let token = storage.create_token(token_str, user_id, None, None).await.expect("create_token should succeed");
 
         assert!(token.id > 0);
         assert!(!token.token_hash.is_empty());
@@ -524,7 +516,8 @@ mod db_tests {
         ensure_test_user(&pool, "@alice:test.com").await;
         ensure_test_device(&pool, "@alice:test.com", device_id).await;
 
-        let token = storage.create_token(token_str, "@alice:test.com", Some(device_id), None)
+        let token = storage
+            .create_token(token_str, "@alice:test.com", Some(device_id), None)
             .await
             .expect("create_token with device should succeed");
 
@@ -540,7 +533,8 @@ mod db_tests {
 
         ensure_test_user(&pool, "@bob:test.com").await;
 
-        let token = storage.create_token(token_str, "@bob:test.com", None, Some(expires_at))
+        let token = storage
+            .create_token(token_str, "@bob:test.com", None, Some(expires_at))
             .await
             .expect("create_token with expiry should succeed");
 
@@ -555,14 +549,10 @@ mod db_tests {
 
         ensure_test_user(&pool, "@charlie:test.com").await;
 
-        storage.create_token(token_str, "@charlie:test.com", None, None)
-            .await
-            .expect("create should succeed");
+        storage.create_token(token_str, "@charlie:test.com", None, None).await.expect("create should succeed");
 
-        let found = storage.get_token(token_str)
-            .await
-            .expect("get_token should succeed")
-            .expect("token should be found");
+        let found =
+            storage.get_token(token_str).await.expect("get_token should succeed").expect("token should be found");
 
         assert_eq!(found.user_id, "@charlie:test.com");
     }
@@ -572,9 +562,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = AccessTokenStorage::new(&pool);
 
-        let result = storage.get_token("nonexistent_token_12345")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_token("nonexistent_token_12345").await.expect("query should succeed");
 
         assert!(result.is_none(), "nonexistent token should return None");
     }

@@ -371,34 +371,25 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     /// Clean up test data in all three matrixRTC tables for a given room_id suffix.
     async fn cleanup_matrixrtc_data(pool: &Pool<Postgres>, suffix: &str) {
-        let _ = sqlx::query(
-            "DELETE FROM matrixrtc_encryption_keys WHERE room_id LIKE $1",
-        )
-        .bind(format!("%{suffix}"))
-        .execute(pool)
-        .await;
-        let _ = sqlx::query(
-            "DELETE FROM matrixrtc_memberships WHERE room_id LIKE $1",
-        )
-        .bind(format!("%{suffix}"))
-        .execute(pool)
-        .await;
-        let _ = sqlx::query(
-            "DELETE FROM matrixrtc_sessions WHERE room_id LIKE $1",
-        )
-        .bind(format!("%{suffix}"))
-        .execute(pool)
-        .await;
+        let _ = sqlx::query("DELETE FROM matrixrtc_encryption_keys WHERE room_id LIKE $1")
+            .bind(format!("%{suffix}"))
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM matrixrtc_memberships WHERE room_id LIKE $1")
+            .bind(format!("%{suffix}"))
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM matrixrtc_sessions WHERE room_id LIKE $1")
+            .bind(format!("%{suffix}"))
+            .execute(pool)
+            .await;
     }
 
     // --- Session tests ---
@@ -422,10 +413,7 @@ mod db_tests {
             config: json!({"offer": "sdp", "type": "offer"}),
         };
 
-        let session = storage
-            .create_session(params)
-            .await
-            .expect("create_session should succeed");
+        let session = storage.create_session(params).await.expect("create_session should succeed");
 
         assert!(session.id > 0);
         assert_eq!(session.room_id, room_id);
@@ -568,10 +556,8 @@ mod db_tests {
             .await
             .unwrap();
 
-        let sessions = storage
-            .get_active_sessions_for_room(&room_id)
-            .await
-            .expect("get_active_sessions_for_room should succeed");
+        let sessions =
+            storage.get_active_sessions_for_room(&room_id).await.expect("get_active_sessions_for_room should succeed");
 
         assert_eq!(sessions.len(), 2);
         // Second created should come first (ORDER BY created_ts DESC)
@@ -580,15 +566,10 @@ mod db_tests {
         assert!(sessions.iter().all(|s| s.is_active));
 
         // End one session and verify it is excluded
-        storage
-            .end_session(&room_id, &session_id1)
-            .await
-            .expect("end_session should succeed");
+        storage.end_session(&room_id, &session_id1).await.expect("end_session should succeed");
 
-        let sessions_after = storage
-            .get_active_sessions_for_room(&room_id)
-            .await
-            .expect("get_active_sessions_for_room should succeed");
+        let sessions_after =
+            storage.get_active_sessions_for_room(&room_id).await.expect("get_active_sessions_for_room should succeed");
 
         assert_eq!(sessions_after.len(), 1);
         assert_eq!(sessions_after[0].session_id, session_id2);
@@ -618,16 +599,10 @@ mod db_tests {
             .await
             .unwrap();
 
-        storage
-            .end_session(&room_id, &session_id)
-            .await
-            .expect("end_session should succeed");
+        storage.end_session(&room_id, &session_id).await.expect("end_session should succeed");
 
         // After ending, get_session should return None (filters on is_active=true)
-        let result = storage
-            .get_session(&room_id, &session_id)
-            .await
-            .expect("get_session query should succeed");
+        let result = storage.get_session(&room_id, &session_id).await.expect("get_session query should succeed");
 
         assert!(result.is_none(), "ended session should not be returned by get_session");
 
@@ -674,10 +649,7 @@ mod db_tests {
             application_data: Some(json!({"audio": true})),
         };
 
-        let membership = storage
-            .create_membership(params)
-            .await
-            .expect("create_membership should succeed");
+        let membership = storage.create_membership(params).await.expect("create_membership should succeed");
 
         assert!(membership.id > 0);
         assert_eq!(membership.room_id, room_id);
@@ -1039,10 +1011,7 @@ mod db_tests {
         .expect("direct insert of expired membership should succeed");
 
         // Call cleanup — the expired membership should be deactivated
-        let affected = storage
-            .cleanup_expired_memberships()
-            .await
-            .expect("cleanup_expired_memberships should succeed");
+        let affected = storage.cleanup_expired_memberships().await.expect("cleanup_expired_memberships should succeed");
 
         assert!(affected >= 1, "should have cleaned up at least 1 expired membership");
 
@@ -1123,10 +1092,8 @@ mod db_tests {
             .expect("store second key");
 
         // Retrieve all keys
-        let keys = storage
-            .get_encryption_keys(&room_id, &session_id)
-            .await
-            .expect("get_encryption_keys should succeed");
+        let keys =
+            storage.get_encryption_keys(&room_id, &session_id).await.expect("get_encryption_keys should succeed");
 
         assert_eq!(keys.len(), 2);
         assert_eq!(keys[0].key_index, 0);

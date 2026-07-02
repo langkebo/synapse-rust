@@ -581,11 +581,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -666,7 +663,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = BeaconStorage::new(Arc::clone(&pool));
 
-        let result = storage.get_beacon_info("!nonexistent:example.com", "$nonexistent").await.expect("query should succeed");
+        let result =
+            storage.get_beacon_info("!nonexistent:example.com", "$nonexistent").await.expect("query should succeed");
         assert!(result.is_none());
     }
 
@@ -786,10 +784,8 @@ mod db_tests {
         let info = seed_beacon_info(&storage, &room_id, &format!("$evt_{}", uuid::Uuid::new_v4()), &state_key).await;
         assert!(info.is_live);
 
-        let deactivated = storage
-            .deactivate_beacons_by_state_key(&room_id, &state_key)
-            .await
-            .expect("deactivate should succeed");
+        let deactivated =
+            storage.deactivate_beacons_by_state_key(&room_id, &state_key).await.expect("deactivate should succeed");
 
         assert_eq!(deactivated, 1, "should deactivate exactly 1 beacon");
 
@@ -847,10 +843,7 @@ mod db_tests {
 
         seed_beacon_info(&storage, &room_id, &event_id, "@dave:example.com").await;
 
-        let deleted = storage
-            .delete_beacon_info(&room_id, &event_id)
-            .await
-            .expect("delete should succeed");
+        let deleted = storage.delete_beacon_info(&room_id, &event_id).await.expect("delete should succeed");
 
         assert!(deleted, "should return true when row is deleted");
 
@@ -859,10 +852,8 @@ mod db_tests {
         assert!(fetched.is_none());
 
         // Deleting again should return false
-        let deleted_again = storage
-            .delete_beacon_info(&room_id, &event_id)
-            .await
-            .expect("second delete should succeed");
+        let deleted_again =
+            storage.delete_beacon_info(&room_id, &event_id).await.expect("second delete should succeed");
 
         assert!(!deleted_again, "should return false when no row exists");
     }
@@ -964,7 +955,11 @@ mod db_tests {
             .await
             .unwrap();
 
-        let latest = storage.get_latest_location(&beacon_event_id).await.expect("query should succeed").expect("should find a location");
+        let latest = storage
+            .get_latest_location(&beacon_event_id)
+            .await
+            .expect("query should succeed")
+            .expect("should find a location");
         assert_eq!(latest.timestamp, 5000);
         assert_eq!(latest.uri, "geo:40.7128,-74.0060;u=10");
 
@@ -1115,7 +1110,8 @@ mod db_tests {
         assert_eq!(combined.locations[0].timestamp, 5000);
 
         // Nonexistent
-        let none = storage.get_beacon_with_locations("!nonexistent", "$nonexistent").await.expect("query should succeed");
+        let none =
+            storage.get_beacon_with_locations("!nonexistent", "$nonexistent").await.expect("query should succeed");
         assert!(none.is_none());
     }
 
@@ -1223,18 +1219,12 @@ mod db_tests {
             .unwrap();
 
         // Without expired: only active
-        let active_beacons = storage
-            .get_room_beacons(&room_id, false)
-            .await
-            .expect("query should succeed");
+        let active_beacons = storage.get_room_beacons(&room_id, false).await.expect("query should succeed");
         assert_eq!(active_beacons.len(), 1);
         assert_eq!(active_beacons[0].beacon_info.event_id, active_event_id);
 
         // With expired: both
-        let all_beacons = storage
-            .get_room_beacons(&room_id, true)
-            .await
-            .expect("query should succeed");
+        let all_beacons = storage.get_room_beacons(&room_id, true).await.expect("query should succeed");
         assert_eq!(all_beacons.len(), 2);
     }
 
@@ -1286,29 +1276,20 @@ mod db_tests {
         }
 
         let ids = vec![beacon1_id.clone(), beacon2_id.clone()];
-        let batch = storage
-            .get_beacon_locations_batch(&ids, Some(5))
-            .await
-            .expect("batch query should succeed");
+        let batch = storage.get_beacon_locations_batch(&ids, Some(5)).await.expect("batch query should succeed");
 
         assert_eq!(batch.len(), 2, "should return entries for both beacon_info_ids");
         assert_eq!(batch.get(&beacon1_id).map(|v| v.len()), Some(2));
         assert_eq!(batch.get(&beacon2_id).map(|v| v.len()), Some(3));
 
         // Verify limit works
-        let limited = storage
-            .get_beacon_locations_batch(&ids, Some(1))
-            .await
-            .expect("batch with limit should succeed");
+        let limited = storage.get_beacon_locations_batch(&ids, Some(1)).await.expect("batch with limit should succeed");
 
         assert_eq!(limited.get(&beacon1_id).map(|v| v.len()), Some(1));
         assert_eq!(limited.get(&beacon2_id).map(|v| v.len()), Some(1));
 
         // Empty input returns empty map
-        let empty = storage
-            .get_beacon_locations_batch(&[], Some(10))
-            .await
-            .expect("empty batch should succeed");
+        let empty = storage.get_beacon_locations_batch(&[], Some(10)).await.expect("empty batch should succeed");
 
         assert!(empty.is_empty());
     }

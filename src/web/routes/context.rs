@@ -110,7 +110,7 @@ impl FromRef<AppState> for SyncContext {
 /// Context for device-related handlers.
 #[derive(Clone)]
 pub struct DeviceContext {
-    pub device_storage: Arc<dyn synapse_storage::DeviceRepository>,
+    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,

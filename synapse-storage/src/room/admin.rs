@@ -797,11 +797,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -822,19 +819,14 @@ mod db_tests {
     #[tokio::test]
     async fn test_check_rooms_exist_batch() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!check_batch_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let existing = storage
-            .check_rooms_exist_batch(&[room_id.clone()])
-            .await
-            .expect("should succeed");
+        let existing = storage.check_rooms_exist_batch(&[room_id.clone()]).await.expect("should succeed");
         assert!(existing.contains(&room_id), "batch should contain the room");
 
         // Clean up at end
@@ -844,23 +836,16 @@ mod db_tests {
     #[tokio::test]
     async fn test_check_rooms_exist_batch_empty() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
 
-        let existing = storage
-            .check_rooms_exist_batch(&[])
-            .await
-            .expect("should succeed");
+        let existing = storage.check_rooms_exist_batch(&[]).await.expect("should succeed");
         assert!(existing.is_empty(), "empty input should return empty set");
     }
 
     #[tokio::test]
     async fn test_block_room_and_get_status() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!block_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
@@ -873,10 +858,7 @@ mod db_tests {
             .await
             .expect("block should succeed");
 
-        let status = storage
-            .get_room_block_status(&room_id)
-            .await
-            .expect("get status should succeed");
+        let status = storage.get_room_block_status(&room_id).await.expect("get status should succeed");
         assert_eq!(status, Some(blocked_at));
 
         // Clean up at end
@@ -887,19 +869,14 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_block_status_not_blocked() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!notblocked_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let status = storage
-            .get_room_block_status(&room_id)
-            .await
-            .expect("get status should succeed");
+        let status = storage.get_room_block_status(&room_id).await.expect("get status should succeed");
         assert!(status.is_none(), "unblocked room should return None");
 
         // Clean up at end
@@ -909,9 +886,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_unblock_room() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!unblock_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
@@ -919,20 +894,11 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
 
         let blocked_at = chrono::Utc::now().timestamp_millis();
-        storage
-            .block_room(&room_id, blocked_at, "@admin:example.com", None)
-            .await
-            .expect("block should succeed");
+        storage.block_room(&room_id, blocked_at, "@admin:example.com", None).await.expect("block should succeed");
 
-        storage
-            .unblock_room(&room_id)
-            .await
-            .expect("unblock should succeed");
+        storage.unblock_room(&room_id).await.expect("unblock should succeed");
 
-        let status = storage
-            .get_room_block_status(&room_id)
-            .await
-            .expect("get status should succeed");
+        let status = storage.get_room_block_status(&room_id).await.expect("get status should succeed");
         assert!(status.is_none(), "unblocked room should return None");
 
         // Clean up at end
@@ -942,19 +908,14 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_version_only_found() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!version_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let version = storage
-            .get_room_version_only(&room_id)
-            .await
-            .expect("should succeed");
+        let version = storage.get_room_version_only(&room_id).await.expect("should succeed");
         assert_eq!(version, Some("10".to_string()));
 
         // Clean up at end
@@ -964,43 +925,31 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_version_only_not_found() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
 
-        let version = storage
-            .get_room_version_only("!nonexistent:example.com")
-            .await
-            .expect("should succeed");
+        let version = storage.get_room_version_only("!nonexistent:example.com").await.expect("should succeed");
         assert!(version.is_none());
     }
 
     #[tokio::test]
     async fn test_set_room_public_with_directory() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!pubdir_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let result = storage
-            .set_room_public_with_directory(&room_id)
-            .await
-            .expect("should succeed");
+        let result = storage.set_room_public_with_directory(&room_id).await.expect("should succeed");
         assert!(result, "should return true on success");
 
         // Verify room is in directory
-        let in_dir: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)",
-        )
-        .bind(&room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("should query directory");
+        let in_dir: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("should query directory");
         assert!(in_dir, "room should be in directory");
 
         // Clean up at end
@@ -1010,9 +959,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_set_room_private_with_directory() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!privdir_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
@@ -1020,26 +967,18 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
 
         // First make it public
-        storage
-            .set_room_public_with_directory(&room_id)
-            .await
-            .expect("set public should succeed");
+        storage.set_room_public_with_directory(&room_id).await.expect("set public should succeed");
 
         // Then make it private
-        let result = storage
-            .set_room_private_with_directory(&room_id)
-            .await
-            .expect("should succeed");
+        let result = storage.set_room_private_with_directory(&room_id).await.expect("should succeed");
         assert!(result, "should return true on success");
 
         // Verify room is NOT in directory
-        let in_dir: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)",
-        )
-        .bind(&room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("should query directory");
+        let in_dir: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM room_directory WHERE room_id = $1)")
+            .bind(&room_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("should query directory");
         assert!(!in_dir, "room should NOT be in directory");
 
         // Clean up at end
@@ -1049,20 +988,15 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_listings_status() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!listing_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let (is_public, in_directory) = storage
-            .get_room_listings_status(&room_id)
-            .await
-            .expect("should succeed")
-            .expect("room should exist");
+        let (is_public, in_directory) =
+            storage.get_room_listings_status(&room_id).await.expect("should succeed").expect("room should exist");
         assert!(!is_public, "new room should not be public");
         assert!(!in_directory, "new room should not be in directory");
 
@@ -1073,20 +1007,14 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_single_room_stats() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!stats_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let stats = storage
-            .get_single_room_stats(&room_id)
-            .await
-            .expect("should succeed")
-            .expect("room should exist");
+        let stats = storage.get_single_room_stats(&room_id).await.expect("should succeed").expect("room should exist");
         assert_eq!(stats["room_id"].as_str().unwrap(), room_id);
         assert!(stats["member_count"].as_i64().is_some());
         assert!(stats["message_count"].as_i64().is_some());
@@ -1098,19 +1026,14 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_stats_overview() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let room_id = format!("!overview_test_{}:example.com", uuid::Uuid::new_v4());
 
         // Clean up at start
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        let overview = storage
-            .get_room_stats_overview()
-            .await
-            .expect("should succeed");
+        let overview = storage.get_room_stats_overview().await.expect("should succeed");
         assert!(overview["total_rooms"].as_i64().is_some());
         assert!(overview["public_rooms"].as_i64().is_some());
         assert!(overview["total_messages"].as_i64().is_some());
@@ -1123,9 +1046,7 @@ mod db_tests {
     #[tokio::test]
     async fn test_get_room_aliases_batch() {
         let pool = test_pool().await;
-        let storage = RoomStorage {
-            pool: pool.clone(),
-        };
+        let storage = RoomStorage { pool: pool.clone() };
         let suffix = uuid::Uuid::new_v4();
         let room_id = format!("!aliasbt_{}:example.com", suffix);
         let alias = format!("#mytest_{}:example.com", suffix);
@@ -1134,23 +1055,11 @@ mod db_tests {
         let _ = storage.delete_room(&room_id).await;
         ensure_test_room(&pool, &room_id).await;
 
-        storage
-            .set_room_alias(&room_id, &alias, "@test:example.com")
-            .await
-            .expect("set alias should succeed");
+        storage.set_room_alias(&room_id, &alias, "@test:example.com").await.expect("set alias should succeed");
 
-        let aliases = storage
-            .get_room_aliases_batch(&[room_id.clone()])
-            .await
-            .expect("should succeed");
-        assert!(
-            aliases.contains_key(&room_id),
-            "should contain room key in batch result"
-        );
-        assert!(
-            aliases[&room_id].contains(&alias),
-            "should contain the alias for room"
-        );
+        let aliases = storage.get_room_aliases_batch(&[room_id.clone()]).await.expect("should succeed");
+        assert!(aliases.contains_key(&room_id), "should contain room key in batch result");
+        assert!(aliases[&room_id].contains(&alias), "should contain the alias for room");
 
         // Clean up at end
         let _ = storage.remove_room_alias(&room_id).await;

@@ -416,17 +416,14 @@ mod tests {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use sqlx::PgPool;
     use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
 
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -448,13 +445,7 @@ mod db_tests {
     }
 
     /// Insert a minimal event row for testing `delete_events_before`.
-    async fn ensure_test_event(
-        pool: &PgPool,
-        event_id: &str,
-        room_id: &str,
-        sender: &str,
-        origin_server_ts: i64,
-    ) {
+    async fn ensure_test_event(pool: &PgPool, event_id: &str, room_id: &str, sender: &str, origin_server_ts: i64) {
         sqlx::query(
             r#"INSERT INTO events (event_id, room_id, sender, event_type, content, origin_server_ts)
                VALUES ($1, $2, $3, 'm.room.message', '{}'::jsonb, $4)
@@ -471,18 +462,9 @@ mod db_tests {
 
     /// Remove a test room and all dependent rows (events, retention policies).
     async fn cleanup_room(pool: &PgPool, room_id: &str) {
-        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM room_retention_policies WHERE room_id = $1").bind(room_id).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(room_id).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id = $1").bind(room_id).execute(pool).await;
     }
 
     // ------------------------------------------------------------------
@@ -504,10 +486,7 @@ mod db_tests {
             is_expire_on_clients: Some(true),
         };
 
-        let policy = storage
-            .create_room_policy(request)
-            .await
-            .expect("create_room_policy should succeed");
+        let policy = storage.create_room_policy(request).await.expect("create_room_policy should succeed");
 
         assert!(policy.id > 0);
         assert_eq!(policy.room_id, *room_id);
@@ -561,10 +540,7 @@ mod db_tests {
         let storage = RetentionStorage::new(&pool);
         let room_id = &format!("!ret_nonexist_{}:test.com", uuid::Uuid::new_v4());
 
-        let result = storage
-            .get_room_policy(room_id)
-            .await
-            .expect("get_room_policy should succeed");
+        let result = storage.get_room_policy(room_id).await.expect("get_room_policy should succeed");
 
         assert!(result.is_none(), "non-existent room should return None");
     }
@@ -642,10 +618,7 @@ mod db_tests {
 
         storage.delete_room_policy(room_id).await.expect("delete should succeed");
 
-        assert!(
-            storage.get_room_policy(room_id).await.unwrap().is_none(),
-            "policy should be gone after delete"
-        );
+        assert!(storage.get_room_policy(room_id).await.unwrap().is_none(), "policy should be gone after delete");
 
         cleanup_room(&pool, room_id).await;
     }
@@ -685,10 +658,7 @@ mod db_tests {
             .await
             .unwrap();
 
-        let policies = storage
-            .get_rooms_with_policies()
-            .await
-            .expect("get_rooms_with_policies should succeed");
+        let policies = storage.get_rooms_with_policies().await.expect("get_rooms_with_policies should succeed");
 
         let room_ids: Vec<_> = policies.iter().map(|p| p.room_id.as_str()).collect();
         assert!(room_ids.contains(&room_a.as_str()), "should contain room A");
@@ -731,10 +701,7 @@ mod db_tests {
             .await
             .unwrap();
 
-        let effective = storage
-            .get_effective_policy(room_id)
-            .await
-            .expect("get_effective_policy should succeed");
+        let effective = storage.get_effective_policy(room_id).await.expect("get_effective_policy should succeed");
 
         // Room values take precedence
         assert_eq!(effective.max_lifetime, Some(50_000_000));
@@ -802,10 +769,7 @@ mod db_tests {
             .await
             .unwrap();
 
-        let count = storage
-            .count_room_policies()
-            .await
-            .expect("count_room_policies should succeed");
+        let count = storage.count_room_policies().await.expect("count_room_policies should succeed");
 
         assert!(count >= 1, "should count at least our newly-inserted policy");
 
@@ -827,14 +791,8 @@ mod db_tests {
         let old_ts = chrono::Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
         let recent_ts = chrono::Utc::now().timestamp_millis() - 3_600_000; // 1 hour ago
 
-        ensure_test_event(
-            &pool,
-            &format!("evt_old_{}", uuid::Uuid::new_v4()),
-            room_id,
-            "@sender:test.com",
-            old_ts,
-        )
-        .await;
+        ensure_test_event(&pool, &format!("evt_old_{}", uuid::Uuid::new_v4()), room_id, "@sender:test.com", old_ts)
+            .await;
         ensure_test_event(
             &pool,
             &format!("evt_recent_{}", uuid::Uuid::new_v4()),
@@ -846,10 +804,7 @@ mod db_tests {
 
         // Cutoff at 12 hours ago — only the 1-day-old event is before it
         let cutoff = chrono::Utc::now().timestamp_millis() - 43_200_000;
-        let deleted = storage
-            .delete_events_before(room_id, cutoff)
-            .await
-            .expect("delete_events_before should succeed");
+        let deleted = storage.delete_events_before(room_id, cutoff).await.expect("delete_events_before should succeed");
 
         assert!(deleted >= 1, "should delete at least the old event");
 

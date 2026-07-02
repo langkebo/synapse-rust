@@ -170,26 +170,20 @@ impl RoomAccountDataStorage {
 #[cfg(test)]
 mod db_tests {
     use super::*;
-    use sqlx::{Pool, Postgres};
     use sqlx::postgres::PgPoolOptions;
+    use sqlx::{Pool, Postgres};
 
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -275,10 +269,7 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
         let data = serde_json::json!({"tag": "m.favourite"});
 
-        storage
-            .upsert_room_account_data(&user_id, &room_id, "m.tag", &data, now)
-            .await
-            .expect("upsert should succeed");
+        storage.upsert_room_account_data(&user_id, &room_id, "m.tag", &data, now).await.expect("upsert should succeed");
 
         let content = storage
             .get_room_account_data_content(&user_id, &room_id, "m.tag")
@@ -350,10 +341,7 @@ mod db_tests {
         assert_eq!(content, data_v2, "content should reflect the updated value");
 
         // Verify only one record exists (no duplicate)
-        let all = storage
-            .list_room_account_data(&user_id, &room_id)
-            .await
-            .expect("list should succeed");
+        let all = storage.list_room_account_data(&user_id, &room_id).await.expect("list should succeed");
         assert_eq!(all.len(), 1, "should have exactly one record after update");
 
         cleanup_room_account_data(&pool, &user_id, &room_id).await;
@@ -380,10 +368,8 @@ mod db_tests {
             .await
             .expect("upsert should succeed");
 
-        let deleted = storage
-            .delete_room_account_data(&user_id, &room_id, "test.delete")
-            .await
-            .expect("delete should succeed");
+        let deleted =
+            storage.delete_room_account_data(&user_id, &room_id, "test.delete").await.expect("delete should succeed");
         assert!(deleted, "first delete should return true");
 
         let content = storage
@@ -431,10 +417,7 @@ mod db_tests {
             .await
             .expect("upsert custom type should succeed");
 
-        let records = storage
-            .list_room_account_data(&user_id, &room_id)
-            .await
-            .expect("list should succeed");
+        let records = storage.list_room_account_data(&user_id, &room_id).await.expect("list should succeed");
 
         assert_eq!(records.len(), 3, "should have 3 records");
         assert!(records.iter().all(|r| r.room_id == room_id), "all records should have correct room_id");
@@ -482,10 +465,8 @@ mod db_tests {
             .expect("upsert room_b second");
 
         let room_ids = vec![room_a.clone(), room_b.clone()];
-        let records = storage
-            .list_room_account_data_batch(&user_id, &room_ids)
-            .await
-            .expect("batch list should succeed");
+        let records =
+            storage.list_room_account_data_batch(&user_id, &room_ids).await.expect("batch list should succeed");
 
         assert_eq!(records.len(), 3, "should return records from all rooms");
 
@@ -494,10 +475,8 @@ mod db_tests {
 
         // Empty room_ids list returns empty vec
         let empty: Vec<String> = vec![];
-        let no_records = storage
-            .list_room_account_data_batch(&user_id, &empty)
-            .await
-            .expect("empty batch should succeed");
+        let no_records =
+            storage.list_room_account_data_batch(&user_id, &empty).await.expect("empty batch should succeed");
         assert!(no_records.is_empty(), "empty room_ids should return empty vec");
 
         cleanup_room_account_data(&pool, &user_id, &room_a).await;

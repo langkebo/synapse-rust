@@ -738,11 +738,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -752,39 +749,22 @@ mod db_tests {
 
     async fn cleanup_with_suffix(pool: &sqlx::PgPool, suffix: &str) {
         let pattern = format!("%{suffix}%");
-        let _ = sqlx::query("DELETE FROM cas_tickets WHERE ticket_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM cas_tickets WHERE ticket_id LIKE $1").bind(&pattern).execute(pool).await;
         let _ = sqlx::query("DELETE FROM cas_proxy_tickets WHERE proxy_ticket_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query(
-            "DELETE FROM cas_proxy_granting_tickets WHERE pgt_id LIKE $1",
-        )
-        .bind(&pattern)
-        .execute(pool)
-        .await;
-        let _ = sqlx::query("DELETE FROM cas_services WHERE service_id LIKE $1")
+        let _ = sqlx::query("DELETE FROM cas_proxy_granting_tickets WHERE pgt_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM cas_user_attributes WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM cas_slo_sessions WHERE session_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM cas_services WHERE service_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM cas_user_attributes WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM cas_slo_sessions WHERE session_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         let _ = sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -847,9 +827,7 @@ mod db_tests {
         };
 
         // First creation should succeed.
-        cas.create_ticket(req.clone())
-            .await
-            .expect("should succeed");
+        cas.create_ticket(req.clone()).await.expect("should succeed");
 
         // Second creation with same ticket_id should fail (unique constraint).
         let result = cas.create_ticket(req).await;
@@ -880,21 +858,15 @@ mod db_tests {
         .expect("should succeed");
 
         // Validate the ticket — should succeed and mark consumed.
-        let validated = cas
-            .validate_ticket(&ticket_id, &service_url)
-            .await
-            .expect("should succeed")
-            .expect("should return Some");
+        let validated =
+            cas.validate_ticket(&ticket_id, &service_url).await.expect("should succeed").expect("should return Some");
 
         assert_eq!(validated.ticket_id, ticket_id);
         assert_eq!(validated.user_id, user_id);
         assert!(!validated.is_valid, "should be marked invalid after consumption");
 
         // Validating the same ticket again should return None.
-        let second = cas
-            .validate_ticket(&ticket_id, &service_url)
-            .await
-            .expect("should succeed");
+        let second = cas.validate_ticket(&ticket_id, &service_url).await.expect("should succeed");
         assert!(second.is_none(), "already-consumed ticket should return None");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -922,10 +894,7 @@ mod db_tests {
         .await
         .expect("should succeed");
 
-        let result = cas
-            .validate_ticket(&ticket_id, &service_url)
-            .await
-            .expect("should succeed");
+        let result = cas.validate_ticket(&ticket_id, &service_url).await.expect("should succeed");
         assert!(result.is_none(), "expired ticket should return None");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -953,10 +922,7 @@ mod db_tests {
         .expect("should succeed");
 
         // Validate with wrong service_url.
-        let result = cas
-            .validate_ticket(&ticket_id, "https://wrong.example.com")
-            .await
-            .expect("should succeed");
+        let result = cas.validate_ticket(&ticket_id, "https://wrong.example.com").await.expect("should succeed");
         assert!(result.is_none(), "wrong service_url should return None");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -984,18 +950,11 @@ mod db_tests {
         .expect("should succeed");
 
         // Get existing ticket.
-        let found = cas
-            .get_ticket(&ticket_id)
-            .await
-            .expect("should succeed")
-            .expect("should find ticket");
+        let found = cas.get_ticket(&ticket_id).await.expect("should succeed").expect("should find ticket");
         assert_eq!(found.ticket_id, ticket_id);
 
         // Get non-existent ticket.
-        let not_found = cas
-            .get_ticket("nonexistent_ticket_id")
-            .await
-            .expect("should succeed");
+        let not_found = cas.get_ticket("nonexistent_ticket_id").await.expect("should succeed");
         assert!(not_found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1023,10 +982,7 @@ mod db_tests {
         .expect("should succeed");
 
         // Delete existing ticket.
-        let deleted = cas
-            .delete_ticket(&ticket_id)
-            .await
-            .expect("should succeed");
+        let deleted = cas.delete_ticket(&ticket_id).await.expect("should succeed");
         assert!(deleted, "should return true when ticket is deleted");
 
         // Verify it's gone.
@@ -1034,17 +990,11 @@ mod db_tests {
         assert!(after.is_none(), "ticket should be gone after delete");
 
         // Delete already-deleted ticket — should return false.
-        let again = cas
-            .delete_ticket(&ticket_id)
-            .await
-            .expect("should succeed");
+        let again = cas.delete_ticket(&ticket_id).await.expect("should succeed");
         assert!(!again, "should return false for already-deleted ticket");
 
         // Delete non-existent ticket.
-        let never_existed = cas
-            .delete_ticket("nonexistent_ticket_id")
-            .await
-            .expect("should succeed");
+        let never_existed = cas.delete_ticket("nonexistent_ticket_id").await.expect("should succeed");
         assert!(!never_existed);
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1085,10 +1035,7 @@ mod db_tests {
         .expect("should succeed");
 
         // Cleanup should remove the expired one.
-        let removed = cas
-            .cleanup_expired_tickets()
-            .await
-            .expect("should succeed");
+        let removed = cas.cleanup_expired_tickets().await.expect("should succeed");
         assert!(removed >= 1, "should remove at least 1 expired ticket");
 
         // Expired ticket should be gone.
@@ -1096,11 +1043,8 @@ mod db_tests {
         assert!(expired_after.is_none(), "expired ticket should be removed");
 
         // Valid ticket should still exist.
-        let valid_after = cas
-            .get_ticket(&valid_id)
-            .await
-            .expect("should succeed")
-            .expect("valid ticket should still exist");
+        let valid_after =
+            cas.get_ticket(&valid_id).await.expect("should succeed").expect("valid ticket should still exist");
         assert_eq!(valid_after.ticket_id, valid_id);
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1186,17 +1130,12 @@ mod db_tests {
         assert!(!validated.is_valid, "should be consumed after validation");
 
         // Validate expired ticket.
-        let expired = cas
-            .validate_proxy_ticket(&expired_pt_id, &service_url)
-            .await
-            .expect("should succeed");
+        let expired = cas.validate_proxy_ticket(&expired_pt_id, &service_url).await.expect("should succeed");
         assert!(expired.is_none(), "expired proxy ticket should return None");
 
         // Validate with wrong service_url.
-        let wrong_url = cas
-            .validate_proxy_ticket(&valid_pt_id, "https://wrong.example.com")
-            .await
-            .expect("should succeed");
+        let wrong_url =
+            cas.validate_proxy_ticket(&valid_pt_id, "https://wrong.example.com").await.expect("should succeed");
         assert!(wrong_url.is_none(), "wrong service_url should return None");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1232,18 +1171,11 @@ mod db_tests {
         assert!(pgt.is_valid);
 
         // Retrieve by pgt_id.
-        let found = cas
-            .get_pgt(&pgt_id)
-            .await
-            .expect("should succeed")
-            .expect("should find PGT");
+        let found = cas.get_pgt(&pgt_id).await.expect("should succeed").expect("should find PGT");
         assert_eq!(found.pgt_id, pgt_id);
 
         // Non-existent PGT should return None.
-        let not_found = cas
-            .get_pgt("nonexistent_pgt_id")
-            .await
-            .expect("should succeed");
+        let not_found = cas.get_pgt("nonexistent_pgt_id").await.expect("should succeed");
         assert!(not_found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1273,19 +1205,12 @@ mod db_tests {
         .expect("should succeed");
 
         // Retrieve by IOU.
-        let found = cas
-            .get_pgt_by_iou(&iou)
-            .await
-            .expect("should succeed")
-            .expect("should find PGT by IOU");
+        let found = cas.get_pgt_by_iou(&iou).await.expect("should succeed").expect("should find PGT by IOU");
         assert_eq!(found.pgt_id, pgt_id);
         assert_eq!(found.iou.unwrap(), iou);
 
         // Non-existent IOU should return None.
-        let not_found = cas
-            .get_pgt_by_iou("nonexistent_iou")
-            .await
-            .expect("should succeed");
+        let not_found = cas.get_pgt_by_iou("nonexistent_iou").await.expect("should succeed");
         assert!(not_found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1348,18 +1273,11 @@ mod db_tests {
         .expect("should succeed");
 
         // Get by service_id.
-        let found = cas
-            .get_service(&service_id)
-            .await
-            .expect("should succeed")
-            .expect("should find service");
+        let found = cas.get_service(&service_id).await.expect("should succeed").expect("should find service");
         assert_eq!(found.service_id, service_id);
 
         // Non-existent service.
-        let not_found = cas
-            .get_service("nonexistent_svc_id")
-            .await
-            .expect("should succeed");
+        let not_found = cas.get_service("nonexistent_svc_id").await.expect("should succeed");
         assert!(not_found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1398,10 +1316,7 @@ mod db_tests {
         assert_eq!(found.service_id, service_id);
 
         // Non-matching URL.
-        let not_found = cas
-            .get_service_by_url("https://unrelated.example.com")
-            .await
-            .expect("should succeed");
+        let not_found = cas.get_service_by_url("https://unrelated.example.com").await.expect("should succeed");
         assert!(not_found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1431,10 +1346,7 @@ mod db_tests {
 
         let services = cas.list_services().await.expect("should succeed");
         // The list contains all services (including pre-existing); verify ours is present.
-        assert!(
-            services.iter().any(|s| s.service_id == service_id),
-            "registered service should appear in list"
-        );
+        assert!(services.iter().any(|s| s.service_id == service_id), "registered service should appear in list");
 
         cleanup_with_suffix(&pool, &suffix).await;
     }
@@ -1462,10 +1374,7 @@ mod db_tests {
         .expect("should succeed");
 
         // Delete it.
-        let deleted = cas
-            .delete_service(&service_id)
-            .await
-            .expect("should succeed");
+        let deleted = cas.delete_service(&service_id).await.expect("should succeed");
         assert!(deleted, "should return true when service is deleted");
 
         // Verify it's gone.
@@ -1473,17 +1382,11 @@ mod db_tests {
         assert!(after.is_none(), "service should be gone after delete");
 
         // Delete again — should return false.
-        let again = cas
-            .delete_service(&service_id)
-            .await
-            .expect("should succeed");
+        let again = cas.delete_service(&service_id).await.expect("should succeed");
         assert!(!again, "should return false for already-deleted service");
 
         // Delete non-existent.
-        let never = cas
-            .delete_service("nonexistent_svc")
-            .await
-            .expect("should succeed");
+        let never = cas.delete_service("nonexistent_svc").await.expect("should succeed");
         assert!(!never);
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1503,54 +1406,35 @@ mod db_tests {
         let cas = storage(&pool);
 
         // Set an attribute.
-        let attr = cas
-            .set_user_attribute(&user_id, "email", "test@example.com")
-            .await
-            .expect("should succeed");
+        let attr = cas.set_user_attribute(&user_id, "email", "test@example.com").await.expect("should succeed");
         assert_eq!(attr.user_id, user_id);
         assert_eq!(attr.attribute_name, "email");
         assert_eq!(attr.attribute_value, "test@example.com");
 
         // Set another attribute.
-        cas.set_user_attribute(&user_id, "display_name", "Test User")
-            .await
-            .expect("should succeed");
+        cas.set_user_attribute(&user_id, "display_name", "Test User").await.expect("should succeed");
 
         // Get all attributes.
-        let attrs = cas
-            .get_user_attributes(&user_id)
-            .await
-            .expect("should succeed");
+        let attrs = cas.get_user_attributes(&user_id).await.expect("should succeed");
         assert_eq!(attrs.len(), 2);
         assert!(attrs.iter().any(|a| a.attribute_name == "email"));
         assert!(attrs.iter().any(|a| a.attribute_name == "display_name"));
 
         // Upsert existing attribute (update value).
-        let updated = cas
-            .set_user_attribute(&user_id, "email", "updated@example.com")
-            .await
-            .expect("should succeed");
+        let updated = cas.set_user_attribute(&user_id, "email", "updated@example.com").await.expect("should succeed");
         assert_eq!(updated.attribute_value, "updated@example.com");
 
         // Verify update persisted.
-        let attrs_after = cas
-            .get_user_attributes(&user_id)
-            .await
-            .expect("should succeed");
-        let email_attr = attrs_after
-            .iter()
-            .find(|a| a.attribute_name == "email")
-            .expect("email attribute should exist");
+        let attrs_after = cas.get_user_attributes(&user_id).await.expect("should succeed");
+        let email_attr =
+            attrs_after.iter().find(|a| a.attribute_name == "email").expect("email attribute should exist");
         assert_eq!(email_attr.attribute_value, "updated@example.com");
 
         // Still only 2 attributes after upsert (not a new row).
         assert_eq!(attrs_after.len(), 2);
 
         // Get attributes for user with no attributes.
-        let empty = cas
-            .get_user_attributes("@noattr:example.com")
-            .await
-            .expect("should succeed");
+        let empty = cas.get_user_attributes("@noattr:example.com").await.expect("should succeed");
         assert!(empty.is_empty());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1611,39 +1495,24 @@ mod db_tests {
         let cas = storage(&pool);
 
         // Create two SLO sessions.
-        cas.create_slo_session(&session_id_1, &user_id, &service_url, None)
-            .await
-            .expect("should succeed");
-        cas.create_slo_session(&session_id_2, &user_id, &service_url, None)
-            .await
-            .expect("should succeed");
+        cas.create_slo_session(&session_id_1, &user_id, &service_url, None).await.expect("should succeed");
+        cas.create_slo_session(&session_id_2, &user_id, &service_url, None).await.expect("should succeed");
 
         // Both should appear as active.
-        let active = cas
-            .get_active_slo_sessions(&user_id)
-            .await
-            .expect("should succeed");
+        let active = cas.get_active_slo_sessions(&user_id).await.expect("should succeed");
         assert_eq!(active.len(), 2);
         assert!(active.iter().any(|s| s.session_id == session_id_1));
         assert!(active.iter().any(|s| s.session_id == session_id_2));
 
         // Mark one as sent — it should no longer be active.
-        cas.mark_slo_sent(&session_id_1)
-            .await
-            .expect("should succeed");
+        cas.mark_slo_sent(&session_id_1).await.expect("should succeed");
 
-        let active_after = cas
-            .get_active_slo_sessions(&user_id)
-            .await
-            .expect("should succeed");
+        let active_after = cas.get_active_slo_sessions(&user_id).await.expect("should succeed");
         assert_eq!(active_after.len(), 1);
         assert_eq!(active_after[0].session_id, session_id_2);
 
         // User with no sessions.
-        let empty = cas
-            .get_active_slo_sessions("@nosessions:example.com")
-            .await
-            .expect("should succeed");
+        let empty = cas.get_active_slo_sessions("@nosessions:example.com").await.expect("should succeed");
         assert!(empty.is_empty());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1677,25 +1546,16 @@ mod db_tests {
         assert!(created.is_valid);
 
         // Get — verify it exists.
-        cas.get_ticket(&ticket_id)
-            .await
-            .expect("should succeed")
-            .expect("should exist");
+        cas.get_ticket(&ticket_id).await.expect("should succeed").expect("should exist");
 
         // Validate — consume it.
-        let validated = cas
-            .validate_ticket(&ticket_id, &service_url)
-            .await
-            .expect("should succeed")
-            .expect("should validate");
+        let validated =
+            cas.validate_ticket(&ticket_id, &service_url).await.expect("should succeed").expect("should validate");
         assert!(!validated.is_valid);
 
         // Get — still exists in DB but is_valid = false.
-        let after_validate = cas
-            .get_ticket(&ticket_id)
-            .await
-            .expect("should succeed")
-            .expect("should still exist in DB");
+        let after_validate =
+            cas.get_ticket(&ticket_id).await.expect("should succeed").expect("should still exist in DB");
         assert!(!after_validate.is_valid);
 
         // Delete — remove it.
@@ -1736,35 +1596,22 @@ mod db_tests {
         assert_eq!(registered.service_id, service_id);
 
         // Get by id.
-        cas.get_service(&service_id)
-            .await
-            .expect("should succeed")
-            .expect("should find by id");
+        cas.get_service(&service_id).await.expect("should succeed").expect("should find by id");
 
         // Get by URL.
         let service_url = format!("https://lifecycle-{suffix}.example.com");
-        cas.get_service_by_url(&service_url)
-            .await
-            .expect("should succeed")
-            .expect("should find by URL");
+        cas.get_service_by_url(&service_url).await.expect("should succeed").expect("should find by URL");
 
         // List — should include this service.
         let list = cas.list_services().await.expect("should succeed");
         assert!(list.iter().any(|s| s.service_id == service_id));
 
         // Delete.
-        let deleted = cas
-            .delete_service(&service_id)
-            .await
-            .expect("should succeed");
+        let deleted = cas.delete_service(&service_id).await.expect("should succeed");
         assert!(deleted);
 
         // Verify gone.
-        assert!(cas
-            .get_service(&service_id)
-            .await
-            .expect("should succeed")
-            .is_none());
+        assert!(cas.get_service(&service_id).await.expect("should succeed").is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
     }
@@ -1783,19 +1630,13 @@ mod db_tests {
         let cas = storage(&pool);
 
         // Create without optional ticket_id.
-        let created = cas
-            .create_slo_session(&session_id, &user_id, &service_url, None)
-            .await
-            .expect("should succeed");
+        let created = cas.create_slo_session(&session_id, &user_id, &service_url, None).await.expect("should succeed");
         assert_eq!(created.session_id, session_id);
         assert!(created.logout_sent_ts.is_none());
         assert!(created.ticket_id.is_none());
 
         // Should appear in active sessions.
-        let active = cas
-            .get_active_slo_sessions(&user_id)
-            .await
-            .expect("should succeed");
+        let active = cas.get_active_slo_sessions(&user_id).await.expect("should succeed");
         assert!(active.iter().any(|s| s.session_id == session_id));
 
         // Mark as sent.
@@ -1803,10 +1644,7 @@ mod db_tests {
         assert!(marked);
 
         // Should no longer be active.
-        let active_after = cas
-            .get_active_slo_sessions(&user_id)
-            .await
-            .expect("should succeed");
+        let active_after = cas.get_active_slo_sessions(&user_id).await.expect("should succeed");
         assert!(!active_after.iter().any(|s| s.session_id == session_id));
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1842,19 +1680,11 @@ mod db_tests {
         assert!(created.is_valid);
 
         // Retrieve by pgt_id.
-        let by_id = cas
-            .get_pgt(&pgt_id)
-            .await
-            .expect("should succeed")
-            .expect("should find by pgt_id");
+        let by_id = cas.get_pgt(&pgt_id).await.expect("should succeed").expect("should find by pgt_id");
         assert_eq!(by_id.pgt_id, pgt_id);
 
         // Retrieve by IOU.
-        let by_iou = cas
-            .get_pgt_by_iou(&iou)
-            .await
-            .expect("should succeed")
-            .expect("should find by IOU");
+        let by_iou = cas.get_pgt_by_iou(&iou).await.expect("should succeed").expect("should find by IOU");
         assert_eq!(by_iou.pgt_id, pgt_id);
 
         // Create a proxy ticket using the PGT (common CAS flow).

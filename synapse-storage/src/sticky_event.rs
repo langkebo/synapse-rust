@@ -205,21 +205,15 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     /// Insert a minimal user row to satisfy the FK from room_sticky_events.user_id.
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -275,10 +269,7 @@ mod db_tests {
         ensure_test_user(&pool, user_id).await;
         ensure_test_room(&pool, room_id).await;
 
-        storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
-            .await
-            .expect("set should succeed");
+        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set should succeed");
 
         let found = storage
             .get_is_sticky_event(room_id, user_id, event_type)
@@ -309,10 +300,7 @@ mod db_tests {
         ensure_test_user(&pool, user_id).await;
         ensure_test_room(&pool, room_id).await;
 
-        let result = storage
-            .get_is_sticky_event(room_id, user_id, "m.room.topic")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_is_sticky_event(room_id, user_id, "m.room.topic").await.expect("query should succeed");
 
         assert!(result.is_none(), "non-existent event should return None");
 
@@ -372,27 +360,14 @@ mod db_tests {
         ensure_test_room(&pool, room_id).await;
 
         // Set and verify
-        storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
-            .await
-            .expect("set should succeed");
-        assert!(storage
-            .get_is_sticky_event(room_id, user_id, event_type)
-            .await
-            .unwrap()
-            .is_some());
+        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set should succeed");
+        assert!(storage.get_is_sticky_event(room_id, user_id, event_type).await.unwrap().is_some());
 
         // Clear it
-        storage
-            .clear_is_sticky_event(room_id, user_id, event_type)
-            .await
-            .expect("clear should succeed");
+        storage.clear_is_sticky_event(room_id, user_id, event_type).await.expect("clear should succeed");
 
         // Should no longer be returned (is_sticky = false)
-        let result = storage
-            .get_is_sticky_event(room_id, user_id, event_type)
-            .await
-            .expect("query should succeed");
+        let result = storage.get_is_sticky_event(room_id, user_id, event_type).await.expect("query should succeed");
         assert!(result.is_none(), "cleared event should not be returned");
 
         cleanup_sticky(&pool, room_id, user_id).await;
@@ -421,10 +396,7 @@ mod db_tests {
             .await
             .expect("set 2 should succeed");
 
-        let all = storage
-            .get_all_is_sticky_events(room_id, user_id)
-            .await
-            .expect("get_all should succeed");
+        let all = storage.get_all_is_sticky_events(room_id, user_id).await.expect("get_all should succeed");
 
         assert_eq!(all.len(), 2, "should return both sticky events");
         assert!(all.iter().any(|e| e.event_type == "m.room.message"));
@@ -461,10 +433,7 @@ mod db_tests {
             .await
             .expect("set room_b should succeed");
 
-        let rooms = storage
-            .get_rooms_with_is_sticky_events(user_id)
-            .await
-            .expect("get_rooms should succeed");
+        let rooms = storage.get_rooms_with_is_sticky_events(user_id).await.expect("get_rooms should succeed");
 
         assert_eq!(rooms.len(), 2, "should return both rooms");
         assert!(rooms.contains(&room_a.to_string()));
@@ -489,10 +458,7 @@ mod db_tests {
         ensure_test_room(&pool, room_id).await;
 
         // Set -> Get -> Clear -> Get (should be gone) -> Set again -> Get (should be back)
-        storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
-            .await
-            .expect("set 1 should succeed");
+        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set 1 should succeed");
 
         let found = storage
             .get_is_sticky_event(room_id, user_id, event_type)
@@ -501,22 +467,13 @@ mod db_tests {
             .expect("should be found after set 1");
         assert_eq!(found.event_id, *event_id);
 
-        storage
-            .clear_is_sticky_event(room_id, user_id, event_type)
-            .await
-            .expect("clear should succeed");
+        storage.clear_is_sticky_event(room_id, user_id, event_type).await.expect("clear should succeed");
 
-        let after_clear = storage
-            .get_is_sticky_event(room_id, user_id, event_type)
-            .await
-            .unwrap();
+        let after_clear = storage.get_is_sticky_event(room_id, user_id, event_type).await.unwrap();
         assert!(after_clear.is_none(), "should be gone after clear");
 
         // Re-set (same room/user/type — row still exists with is_sticky=false, ON CONFLICT DO UPDATE flips it back)
-        storage
-            .set_is_sticky_event(room_id, user_id, event_id, event_type, true)
-            .await
-            .expect("set 2 should succeed");
+        storage.set_is_sticky_event(room_id, user_id, event_id, event_type, true).await.expect("set 2 should succeed");
 
         let found_again = storage
             .get_is_sticky_event(room_id, user_id, event_type)

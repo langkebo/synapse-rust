@@ -224,11 +224,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -250,20 +247,12 @@ mod db_tests {
 
     /// Cleanup blocklist rows for a given room (idempotent, skips errors).
     async fn cleanup_blocklist(pool: &PgPool, room_id: &str) {
-        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM room_invite_blocklist WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
     }
 
     /// Cleanup allowlist rows for a given room (idempotent, skips errors).
     async fn cleanup_allowlist(pool: &PgPool, room_id: &str) {
-        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1")
-            .bind(room_id)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM room_invite_allowlist WHERE room_id = $1").bind(room_id).execute(pool).await.ok();
     }
 
     #[tokio::test]
@@ -283,10 +272,7 @@ mod db_tests {
             .await
             .expect("set_invite_blocklist should succeed");
 
-        let blocklist = storage
-            .get_invite_blocklist(&room_id)
-            .await
-            .expect("get_invite_blocklist should succeed");
+        let blocklist = storage.get_invite_blocklist(&room_id).await.expect("get_invite_blocklist should succeed");
 
         assert_eq!(blocklist.len(), 2);
         assert!(blocklist.contains(&user_a), "blocklist should contain user_a");
@@ -313,18 +299,12 @@ mod db_tests {
             .expect("set_invite_blocklist should succeed");
 
         assert!(
-            storage
-                .is_user_blocked(&room_id, &blocked_user)
-                .await
-                .expect("is_user_blocked should succeed"),
+            storage.is_user_blocked(&room_id, &blocked_user).await.expect("is_user_blocked should succeed"),
             "blocked user should be reported as blocked"
         );
 
         assert!(
-            !storage
-                .is_user_blocked(&room_id, &free_user)
-                .await
-                .expect("is_user_blocked should succeed"),
+            !storage.is_user_blocked(&room_id, &free_user).await.expect("is_user_blocked should succeed"),
             "non-blocked user should not be reported as blocked"
         );
 
@@ -351,15 +331,9 @@ mod db_tests {
             .expect("first set should succeed");
 
         // Overwrite with only C
-        storage
-            .set_invite_blocklist(&room_id, vec![user_c.clone()])
-            .await
-            .expect("second set should succeed");
+        storage.set_invite_blocklist(&room_id, vec![user_c.clone()]).await.expect("second set should succeed");
 
-        let blocklist = storage
-            .get_invite_blocklist(&room_id)
-            .await
-            .expect("get_invite_blocklist should succeed");
+        let blocklist = storage.get_invite_blocklist(&room_id).await.expect("get_invite_blocklist should succeed");
 
         assert_eq!(blocklist.len(), 1, "blocklist should have exactly 1 entry after overwrite");
         assert!(blocklist.contains(&user_c), "blocklist should contain only user_c");
@@ -386,10 +360,7 @@ mod db_tests {
             .await
             .expect("set_invite_allowlist should succeed");
 
-        let allowlist = storage
-            .get_invite_allowlist(&room_id)
-            .await
-            .expect("get_invite_allowlist should succeed");
+        let allowlist = storage.get_invite_allowlist(&room_id).await.expect("get_invite_allowlist should succeed");
 
         assert_eq!(allowlist.len(), 2);
         assert!(allowlist.contains(&user_a), "allowlist should contain user_a");
@@ -416,18 +387,12 @@ mod db_tests {
             .expect("set_invite_allowlist should succeed");
 
         assert!(
-            storage
-                .is_user_allowed(&room_id, &allowed_user)
-                .await
-                .expect("is_user_allowed should succeed"),
+            storage.is_user_allowed(&room_id, &allowed_user).await.expect("is_user_allowed should succeed"),
             "allowed user should be reported as allowed"
         );
 
         assert!(
-            !storage
-                .is_user_allowed(&room_id, &not_allowed_user)
-                .await
-                .expect("is_user_allowed should succeed"),
+            !storage.is_user_allowed(&room_id, &not_allowed_user).await.expect("is_user_allowed should succeed"),
             "non-allowed user should not be reported as allowed"
         );
 
@@ -467,10 +432,7 @@ mod db_tests {
             .await
             .expect("set_invite_blocklist should succeed");
         assert!(
-            storage
-                .has_any_invite_restriction(&room_block)
-                .await
-                .expect("has_any_invite_restriction should succeed"),
+            storage.has_any_invite_restriction(&room_block).await.expect("has_any_invite_restriction should succeed"),
             "room with blocklist should have restrictions"
         );
 
@@ -480,10 +442,7 @@ mod db_tests {
             .await
             .expect("set_invite_allowlist should succeed");
         assert!(
-            storage
-                .has_any_invite_restriction(&room_allow)
-                .await
-                .expect("has_any_invite_restriction should succeed"),
+            storage.has_any_invite_restriction(&room_allow).await.expect("has_any_invite_restriction should succeed"),
             "room with allowlist should have restrictions"
         );
 
@@ -497,10 +456,7 @@ mod db_tests {
             .await
             .expect("set_invite_allowlist for both should succeed");
         assert!(
-            storage
-                .has_any_invite_restriction(&room_both)
-                .await
-                .expect("has_any_invite_restriction should succeed"),
+            storage.has_any_invite_restriction(&room_both).await.expect("has_any_invite_restriction should succeed"),
             "room with both lists should have restrictions"
         );
 
@@ -535,24 +491,15 @@ mod db_tests {
             .await
             .expect("set blocklist for room_b should succeed");
 
-        let global = storage
-            .get_global_invite_blocklist()
-            .await
-            .expect("get_global_invite_blocklist should succeed");
+        let global = storage.get_global_invite_blocklist().await.expect("get_global_invite_blocklist should succeed");
 
         assert!(global.len() >= 2, "global blocklist should have at least 2 entries across 2 rooms");
 
-        let room_ids: Vec<&str> = global
-            .iter()
-            .map(|v| v["room_id"].as_str().unwrap())
-            .collect();
+        let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
         assert!(room_ids.contains(&room_a.as_str()), "global should contain room_a");
         assert!(room_ids.contains(&room_b.as_str()), "global should contain room_b");
 
-        let user_ids: Vec<&str> = global
-            .iter()
-            .map(|v| v["user_id"].as_str().unwrap())
-            .collect();
+        let user_ids: Vec<&str> = global.iter().map(|v| v["user_id"].as_str().unwrap()).collect();
         assert!(user_ids.contains(&user_a.as_str()), "global should contain user_a");
         assert!(user_ids.contains(&user_b.as_str()), "global should contain user_b");
 
@@ -584,24 +531,15 @@ mod db_tests {
             .await
             .expect("set allowlist for room_b should succeed");
 
-        let global = storage
-            .get_global_invite_allowlist()
-            .await
-            .expect("get_global_invite_allowlist should succeed");
+        let global = storage.get_global_invite_allowlist().await.expect("get_global_invite_allowlist should succeed");
 
         assert_eq!(global.len(), 2, "global allowlist should have 2 entries across 2 rooms");
 
-        let room_ids: Vec<&str> = global
-            .iter()
-            .map(|v| v["room_id"].as_str().unwrap())
-            .collect();
+        let room_ids: Vec<&str> = global.iter().map(|v| v["room_id"].as_str().unwrap()).collect();
         assert!(room_ids.contains(&room_a.as_str()));
         assert!(room_ids.contains(&room_b.as_str()));
 
-        let user_ids: Vec<&str> = global
-            .iter()
-            .map(|v| v["user_id"].as_str().unwrap())
-            .collect();
+        let user_ids: Vec<&str> = global.iter().map(|v| v["user_id"].as_str().unwrap()).collect();
         assert!(user_ids.contains(&user_a.as_str()));
         assert!(user_ids.contains(&user_b.as_str()));
 
@@ -621,15 +559,9 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
 
         // Set blocklist
-        storage
-            .set_invite_blocklist(&room_id, vec![user.clone()])
-            .await
-            .expect("set_invite_blocklist should succeed");
+        storage.set_invite_blocklist(&room_id, vec![user.clone()]).await.expect("set_invite_blocklist should succeed");
 
-        let blocklist = storage
-            .get_invite_blocklist(&room_id)
-            .await
-            .expect("get_invite_blocklist should succeed");
+        let blocklist = storage.get_invite_blocklist(&room_id).await.expect("get_invite_blocklist should succeed");
         assert_eq!(blocklist.len(), 1, "blocklist should have 1 entry after set");
 
         // Clear by setting empty vec
@@ -638,14 +570,8 @@ mod db_tests {
             .await
             .expect("set_invite_blocklist with empty vec should succeed");
 
-        let cleared = storage
-            .get_invite_blocklist(&room_id)
-            .await
-            .expect("get_invite_blocklist should succeed");
-        assert!(
-            cleared.is_empty(),
-            "blocklist should be empty after setting empty vec"
-        );
+        let cleared = storage.get_invite_blocklist(&room_id).await.expect("get_invite_blocklist should succeed");
+        assert!(cleared.is_empty(), "blocklist should be empty after setting empty vec");
 
         cleanup_blocklist(&pool, &room_id).await;
     }

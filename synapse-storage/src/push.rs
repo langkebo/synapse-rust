@@ -257,11 +257,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -272,24 +269,15 @@ mod db_tests {
     // ── helpers ─────────────────────────────────────────────────────────
 
     async fn cleanup_pushers(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM pushers WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM pushers WHERE user_id = $1").bind(user_id).execute(pool).await;
     }
 
     async fn cleanup_push_rules(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM push_rules WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM push_rules WHERE user_id = $1").bind(user_id).execute(pool).await;
     }
 
     async fn cleanup_notifications(pool: &sqlx::PgPool, user_id: &str) {
-        let _ = sqlx::query("DELETE FROM notifications WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM notifications WHERE user_id = $1").bind(user_id).execute(pool).await;
     }
 
     async fn insert_notification(
@@ -348,10 +336,7 @@ mod db_tests {
             .await
             .expect("upsert_pusher should succeed");
 
-        let rows = storage
-            .get_pushers(&user_id, Some(device_id))
-            .await
-            .expect("get_pushers should succeed");
+        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
         assert!(!rows.is_empty(), "should return at least one pusher");
 
         let row = &rows[0];
@@ -380,17 +365,13 @@ mod db_tests {
             .expect("upsert d2 should succeed");
 
         // Filtering by a specific device_id should return only that pusher
-        let rows_d1 = storage
-            .get_pushers(&user_id, Some("d1"))
-            .await
-            .expect("get_pushers with Some(d1) should succeed");
+        let rows_d1 =
+            storage.get_pushers(&user_id, Some("d1")).await.expect("get_pushers with Some(d1) should succeed");
         assert_eq!(rows_d1.len(), 1, "should return exactly one pusher for d1");
         assert_eq!(rows_d1[0].get::<String, _>("device_id"), "d1");
 
-        let rows_d2 = storage
-            .get_pushers(&user_id, Some("d2"))
-            .await
-            .expect("get_pushers with Some(d2) should succeed");
+        let rows_d2 =
+            storage.get_pushers(&user_id, Some("d2")).await.expect("get_pushers with Some(d2) should succeed");
         assert_eq!(rows_d2.len(), 1, "should return exactly one pusher for d2");
         assert_eq!(rows_d2[0].get::<String, _>("device_id"), "d2");
 
@@ -415,10 +396,7 @@ mod db_tests {
         // `device_id IS NOT DISTINCT FROM NULL` only matches rows
         // where device_id IS NULL. Since the column is NOT NULL,
         // this currently returns zero rows.
-        let rows = storage
-            .get_pushers(&user_id, None)
-            .await
-            .expect("get_pushers with None should succeed");
+        let rows = storage.get_pushers(&user_id, None).await.expect("get_pushers with None should succeed");
         assert!(rows.is_empty(), "None device_id currently returns empty result set");
 
         cleanup_pushers(&pool, &user_id).await;
@@ -430,10 +408,7 @@ mod db_tests {
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@unknown");
 
-        let rows = storage
-            .get_pushers(&user_id, None)
-            .await
-            .expect("get_pushers should succeed");
+        let rows = storage.get_pushers(&user_id, None).await.expect("get_pushers should succeed");
         assert!(rows.is_empty(), "unknown user should have no pushers");
     }
 
@@ -461,10 +436,7 @@ mod db_tests {
             .await
             .expect("second upsert should succeed");
 
-        let rows = storage
-            .get_pushers(&user_id, Some(device_id))
-            .await
-            .expect("get_pushers should succeed");
+        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
         assert_eq!(rows.len(), 1, "should still have exactly one pusher after upsert");
         assert_eq!(rows[0].get::<String, _>("app_display_name"), "App2");
 
@@ -487,15 +459,9 @@ mod db_tests {
             .await
             .expect("upsert should succeed");
 
-        storage
-            .delete_pusher(&user_id, device_id, pushkey)
-            .await
-            .expect("delete_pusher should succeed");
+        storage.delete_pusher(&user_id, device_id, pushkey).await.expect("delete_pusher should succeed");
 
-        let rows = storage
-            .get_pushers(&user_id, Some(device_id))
-            .await
-            .expect("get_pushers should succeed");
+        let rows = storage.get_pushers(&user_id, Some(device_id)).await.expect("get_pushers should succeed");
         assert!(rows.is_empty(), "pusher should be deleted");
 
         cleanup_pushers(&pool, &user_id).await;
@@ -525,16 +491,7 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule1",
-                &None,
-                &None,
-                &json!(["notify"]),
-                now,
-            )
+            .upsert_push_rule(&user_id, "global", "override", "rule1", &None, &None, &json!(["notify"]), now)
             .await
             .expect("upsert_push_rule should succeed");
 
@@ -623,16 +580,7 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_actions",
-                &None,
-                &None,
-                &json!(["notify"]),
-                now,
-            )
+            .upsert_push_rule(&user_id, "global", "override", "rule_actions", &None, &None, &json!(["notify"]), now)
             .await
             .expect("upsert should succeed");
 
@@ -668,16 +616,7 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_del",
-                &None,
-                &None,
-                &json!(["notify"]),
-                now,
-            )
+            .upsert_push_rule(&user_id, "global", "override", "rule_del", &None, &None, &json!(["notify"]), now)
             .await
             .expect("upsert should succeed");
 
@@ -719,16 +658,7 @@ mod db_tests {
         cleanup_push_rules(&pool, &user_id).await;
 
         storage
-            .upsert_push_rule(
-                &user_id,
-                "global",
-                "override",
-                "rule_toggle",
-                &None,
-                &None,
-                &json!(["notify"]),
-                now,
-            )
+            .upsert_push_rule(&user_id, "global", "override", "rule_toggle", &None, &None, &json!(["notify"]), now)
             .await
             .expect("upsert should succeed");
 
@@ -780,24 +710,18 @@ mod db_tests {
             .await
             .expect("upsert r3");
 
-        let global_override = storage
-            .get_user_push_rules(&user_id, "global", "override")
-            .await
-            .expect("get global override");
+        let global_override =
+            storage.get_user_push_rules(&user_id, "global", "override").await.expect("get global override");
         assert_eq!(global_override.len(), 1, "should return only global/override rules");
         assert_eq!(global_override[0].get::<String, _>("rule_id"), "r1");
 
-        let global_content = storage
-            .get_user_push_rules(&user_id, "global", "content")
-            .await
-            .expect("get global content");
+        let global_content =
+            storage.get_user_push_rules(&user_id, "global", "content").await.expect("get global content");
         assert_eq!(global_content.len(), 1);
         assert_eq!(global_content[0].get::<String, _>("rule_id"), "r2");
 
-        let device_override = storage
-            .get_user_push_rules(&user_id, "devices/DEV1", "override")
-            .await
-            .expect("get device override");
+        let device_override =
+            storage.get_user_push_rules(&user_id, "devices/DEV1", "override").await.expect("get device override");
         assert_eq!(device_override.len(), 1);
         assert_eq!(device_override[0].get::<String, _>("rule_id"), "r3");
 
@@ -818,10 +742,7 @@ mod db_tests {
         insert_notification(&pool, &user_id, "$ev1", "!room1:test.com", now, "message", false, now).await;
         insert_notification(&pool, &user_id, "$ev2", "!room1:test.com", now + 1, "invite", false, now).await;
 
-        let rows = storage
-            .get_notifications(&user_id, 10)
-            .await
-            .expect("get_notifications should succeed");
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
         assert_eq!(rows.len(), 2, "should return both notifications");
         // Results ordered by ts DESC, so newest (ev2) first
         assert_eq!(rows[0].get::<String, _>("event_id"), "$ev2");
@@ -839,13 +760,11 @@ mod db_tests {
         cleanup_notifications(&pool, &user_id).await;
 
         for i in 0..5 {
-            insert_notification(&pool, &user_id, &format!("$ev{i}"), "!room1:test.com", now + i, "message", false, now).await;
+            insert_notification(&pool, &user_id, &format!("$ev{i}"), "!room1:test.com", now + i, "message", false, now)
+                .await;
         }
 
-        let rows = storage
-            .get_notifications(&user_id, 3)
-            .await
-            .expect("get_notifications should succeed");
+        let rows = storage.get_notifications(&user_id, 3).await.expect("get_notifications should succeed");
         assert_eq!(rows.len(), 3, "should respect limit");
 
         cleanup_notifications(&pool, &user_id).await;
@@ -857,10 +776,7 @@ mod db_tests {
         let storage = PushStorage::new(Arc::clone(&pool));
         let user_id = unique_user_id("@unknown");
 
-        let rows = storage
-            .get_notifications(&user_id, 10)
-            .await
-            .expect("get_notifications should succeed");
+        let rows = storage.get_notifications(&user_id, 10).await.expect("get_notifications should succeed");
         assert!(rows.is_empty(), "unknown user should have no notifications");
     }
 
@@ -875,10 +791,8 @@ mod db_tests {
 
         let nid = insert_notification(&pool, &user_id, "$ev_ack", "!room1:test.com", now, "message", false, now).await;
 
-        let result = storage
-            .ack_notification(nid, &user_id, now + 1000)
-            .await
-            .expect("ack_notification should succeed");
+        let result =
+            storage.ack_notification(nid, &user_id, now + 1000).await.expect("ack_notification should succeed");
         assert!(result.is_some(), "should return the acknowledged row");
         assert_eq!(result.unwrap().get::<i64, _>("id"), nid);
 
@@ -896,12 +810,11 @@ mod db_tests {
         cleanup_notifications(&pool, &user_id).await;
         cleanup_notifications(&pool, &other_user).await;
 
-        let nid = insert_notification(&pool, &user_id, "$ev_wrong", "!room1:test.com", now, "message", false, now).await;
+        let nid =
+            insert_notification(&pool, &user_id, "$ev_wrong", "!room1:test.com", now, "message", false, now).await;
 
-        let result = storage
-            .ack_notification(nid, &other_user, now + 1000)
-            .await
-            .expect("ack_notification should succeed");
+        let result =
+            storage.ack_notification(nid, &other_user, now + 1000).await.expect("ack_notification should succeed");
         assert!(result.is_none(), "other user should not be able to ack this notification");
 
         cleanup_notifications(&pool, &user_id).await;

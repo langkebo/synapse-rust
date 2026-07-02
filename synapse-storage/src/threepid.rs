@@ -512,19 +512,12 @@ mod db_tests {
     async fn test_pool() -> PgPool {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database")
+        PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database")
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -559,10 +552,7 @@ mod db_tests {
             verification_expires_at: None,
         };
 
-        let result = storage
-            .add_threepid(request)
-            .await
-            .expect("add_threepid should succeed");
+        let result = storage.add_threepid(request).await.expect("add_threepid should succeed");
 
         assert!(result.id > 0);
         assert_eq!(result.user_id, user_id);
@@ -597,10 +587,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let found = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .expect("get_threepid should succeed");
+        let found = storage.get_threepid(&user_id, "email", &address).await.expect("get_threepid should succeed");
 
         assert!(found.is_some(), "threepid should be found");
         let threepid = found.unwrap();
@@ -664,16 +651,9 @@ mod db_tests {
             .await
             .expect("add 2 should succeed");
 
-        let threepids = storage
-            .get_threepids_by_user(&user_id)
-            .await
-            .expect("get_threepids_by_user should succeed");
+        let threepids = storage.get_threepids_by_user(&user_id).await.expect("get_threepids_by_user should succeed");
 
-        assert!(
-            threepids.len() >= 2,
-            "expected at least 2 threepids, got {}",
-            threepids.len()
-        );
+        assert!(threepids.len() >= 2, "expected at least 2 threepids, got {}", threepids.len());
         for t in &threepids {
             assert_eq!(t.user_id, user_id);
         }
@@ -704,10 +684,8 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let found = storage
-            .get_threepid_by_address("email", &address)
-            .await
-            .expect("get_threepid_by_address should succeed");
+        let found =
+            storage.get_threepid_by_address("email", &address).await.expect("get_threepid_by_address should succeed");
 
         assert!(found.is_some(), "threepid should be found by address");
         assert_eq!(found.unwrap().address, address);
@@ -737,10 +715,8 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let verified = storage
-            .verify_threepid(&user_id, "email", &address)
-            .await
-            .expect("verify_threepid should succeed");
+        let verified =
+            storage.verify_threepid(&user_id, "email", &address).await.expect("verify_threepid should succeed");
 
         assert!(verified, "verify should return true");
 
@@ -777,17 +753,12 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let removed = storage
-            .remove_threepid(&user_id, "email", &address)
-            .await
-            .expect("remove_threepid should succeed");
+        let removed =
+            storage.remove_threepid(&user_id, "email", &address).await.expect("remove_threepid should succeed");
 
         assert!(removed, "remove should return true");
 
-        let found = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .expect("get should succeed");
+        let found = storage.get_threepid(&user_id, "email", &address).await.expect("get should succeed");
 
         assert!(found.is_none(), "threepid should be gone after removal");
     }
@@ -863,10 +834,7 @@ mod db_tests {
             .await
             .expect("get verified should succeed");
 
-        assert!(
-            verified.is_some(),
-            "verified threepid should be found by get_verified_threepid_by_address"
-        );
+        assert!(verified.is_some(), "verified threepid should be found by get_verified_threepid_by_address");
 
         // Unverified should not be found by verified-only query
         let not_found = storage
@@ -874,10 +842,7 @@ mod db_tests {
             .await
             .expect("get verified should succeed");
 
-        assert!(
-            not_found.is_none(),
-            "unverified threepid should not be found by get_verified_threepid_by_address"
-        );
+        assert!(not_found.is_none(), "unverified threepid should not be found by get_verified_threepid_by_address");
 
         let _ = storage.remove_threepid(&user_id, "email", &verified_addr).await;
         let _ = storage.remove_threepid(&user_id, "email", &unverified_addr).await;
@@ -916,10 +881,7 @@ mod db_tests {
         assert!(id > 0, "should return a valid session id");
 
         // Cleanup
-        let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE id = $1")
-            .bind(id)
-            .execute(&pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE id = $1").bind(id).execute(&pool).await;
     }
 
     #[tokio::test]
@@ -937,21 +899,11 @@ mod db_tests {
         // that matches the get_pending_threepids WHERE validated_at < added_ts filter.
         // Note: the query does not filter on is_verified, so a "verified" threepid
         // with validated_at < added_ts will appear in pending results.
-        storage
-            .add_verified_threepid(&user_id, "email", &address, 1, 1000)
-            .await
-            .expect("add should succeed");
+        storage.add_verified_threepid(&user_id, "email", &address, 1, 1000).await.expect("add should succeed");
 
-        let pending = storage
-            .get_pending_threepids(10)
-            .await
-            .expect("get_pending_threepids should succeed");
+        let pending = storage.get_pending_threepids(10).await.expect("get_pending_threepids should succeed");
 
-        assert!(
-            pending.len() >= 1,
-            "expected at least 1 pending threepid, got {}",
-            pending.len()
-        );
+        assert!(pending.len() >= 1, "expected at least 1 pending threepid, got {}", pending.len());
 
         let _ = storage.remove_threepid(&user_id, "email", &address).await;
     }
@@ -980,27 +932,15 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let cleaned = storage
-            .cleanup_expired_verifications()
-            .await
-            .expect("cleanup_expired_verifications should succeed");
+        let cleaned =
+            storage.cleanup_expired_verifications().await.expect("cleanup_expired_verifications should succeed");
 
-        assert!(
-            cleaned >= 1,
-            "should clean at least 1 expired verification, got {}",
-            cleaned
-        );
+        assert!(cleaned >= 1, "should clean at least 1 expired verification, got {}", cleaned);
 
         // Verify threepid was removed
-        let found = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .expect("get should succeed");
+        let found = storage.get_threepid(&user_id, "email", &address).await.expect("get should succeed");
 
-        assert!(
-            found.is_none(),
-            "expired threepid should be cleaned up"
-        );
+        assert!(found.is_none(), "expired threepid should be cleaned up");
     }
 
     #[tokio::test]
@@ -1028,15 +968,9 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let verified = storage
-            .verify_threepid_by_token(&token)
-            .await
-            .expect("verify_threepid_by_token should succeed");
+        let verified = storage.verify_threepid_by_token(&token).await.expect("verify_threepid_by_token should succeed");
 
-        assert!(
-            verified.is_some(),
-            "verify_threepid_by_token should return the threepid"
-        );
+        assert!(verified.is_some(), "verify_threepid_by_token should return the threepid");
 
         let threepid = verified.unwrap();
         assert!(threepid.is_verified, "threepid should now be verified");
@@ -1083,10 +1017,7 @@ mod db_tests {
         assert_eq!(found.user_id, user_id);
 
         // 3. Verify
-        let verified = storage
-            .verify_threepid(&user_id, "email", &address)
-            .await
-            .expect("verify should succeed");
+        let verified = storage.verify_threepid(&user_id, "email", &address).await.expect("verify should succeed");
 
         assert!(verified);
 
@@ -1100,21 +1031,12 @@ mod db_tests {
         assert!(after_verify.validated_at.is_some());
 
         // 4. Remove
-        let removed = storage
-            .remove_threepid(&user_id, "email", &address)
-            .await
-            .expect("remove should succeed");
+        let removed = storage.remove_threepid(&user_id, "email", &address).await.expect("remove should succeed");
 
         assert!(removed);
 
-        let after_remove = storage
-            .get_threepid(&user_id, "email", &address)
-            .await
-            .expect("get should succeed");
+        let after_remove = storage.get_threepid(&user_id, "email", &address).await.expect("get should succeed");
 
-        assert!(
-            after_remove.is_none(),
-            "threepid should be removed after full lifecycle"
-        );
+        assert!(after_remove.is_none(), "threepid should be removed after full lifecycle");
     }
 }

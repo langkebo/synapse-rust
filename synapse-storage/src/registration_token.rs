@@ -1170,11 +1170,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1203,10 +1200,7 @@ mod db_tests {
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -1307,10 +1301,7 @@ mod db_tests {
         assert!(missing.is_none(), "token should not exist yet");
 
         // Create and find
-        let request = CreateRegistrationTokenRequest {
-            token: Some(token_str.clone()),
-            ..empty_token_request()
-        };
+        let request = CreateRegistrationTokenRequest { token: Some(token_str.clone()), ..empty_token_request() };
         let created = storage.create_token(request).await.expect("create_token should succeed");
         assert_eq!(created.token, token_str);
 
@@ -1341,10 +1332,7 @@ mod db_tests {
         assert!(missing.is_none());
 
         // Create and find by id
-        let request = CreateRegistrationTokenRequest {
-            token: Some(token_str.clone()),
-            ..empty_token_request()
-        };
+        let request = CreateRegistrationTokenRequest { token: Some(token_str.clone()), ..empty_token_request() };
         let created = storage.create_token(request).await.expect("create_token should succeed");
 
         let found = storage.get_token_by_id(created.id).await.expect("get_token_by_id should not error");
@@ -1392,9 +1380,7 @@ mod db_tests {
         assert_eq!(updated.id, created.id);
 
         // Not found — update on non-existent id should error
-        let result = storage
-            .update_token(-999, UpdateRegistrationTokenRequest::default())
-            .await;
+        let result = storage.update_token(-999, UpdateRegistrationTokenRequest::default()).await;
         assert!(result.is_err(), "update_token on non-existent id should fail");
 
         cleanup_test_data(&pool, &suffix).await;
@@ -1414,10 +1400,7 @@ mod db_tests {
         let token_str = make_full_token(&suffix);
 
         let created = storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(token_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(token_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
 
@@ -1528,10 +1511,8 @@ mod db_tests {
         assert_eq!(created.uses_count, 0);
 
         // Use the token once — should succeed and exhaust
-        let used = storage
-            .use_token(&token_str, &user_id, None, None, None, None)
-            .await
-            .expect("use_token should not error");
+        let used =
+            storage.use_token(&token_str, &user_id, None, None, None, None).await.expect("use_token should not error");
         assert!(used, "first use should succeed");
 
         // Now validate — should be exhausted
@@ -1556,10 +1537,7 @@ mod db_tests {
         let token_str = make_full_token(&suffix);
 
         let created = storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(token_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(token_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
 
@@ -1672,19 +1650,15 @@ mod db_tests {
             .expect("create_token should succeed");
 
         // First use — succeeds
-        let first = storage
-            .use_token(&token_str, &user_id, None, None, None, None)
-            .await
-            .expect("use_token should not error");
+        let first =
+            storage.use_token(&token_str, &user_id, None, None, None, None).await.expect("use_token should not error");
         assert!(first);
 
         // Second use — fails (token exhausted)
         let user_id2 = format!("@exhaust2_{}:test.local", suffix);
         ensure_test_user(&pool, &user_id2).await;
-        let second = storage
-            .use_token(&token_str, &user_id2, None, None, None, None)
-            .await
-            .expect("use_token should not error");
+        let second =
+            storage.use_token(&token_str, &user_id2, None, None, None, None).await.expect("use_token should not error");
         assert!(!second, "second use on exhausted token should return false");
 
         cleanup_test_data(&pool, &suffix).await;
@@ -1708,20 +1682,14 @@ mod db_tests {
         for i in 0..4 {
             let token_str = format!("{}_id{}", prefix, i);
             let created = storage
-                .create_token(CreateRegistrationTokenRequest {
-                    token: Some(token_str),
-                    ..empty_token_request()
-                })
+                .create_token(CreateRegistrationTokenRequest { token: Some(token_str), ..empty_token_request() })
                 .await
                 .expect("create_token should succeed");
             created_ids.insert(created.id);
         }
 
         // Fetch first page (limit 2) — results are global; just verify pagination works
-        let (page1, cursor1) = storage
-            .get_all_tokens(2, None)
-            .await
-            .expect("get_all_tokens should succeed");
+        let (page1, cursor1) = storage.get_all_tokens(2, None).await.expect("get_all_tokens should succeed");
         assert!(page1.len() <= 2, "should respect limit of 2, got {}", page1.len());
         assert!(cursor1.is_some(), "should have a next cursor (global data)");
 
@@ -1729,10 +1697,7 @@ mod db_tests {
         let decoded = decode_registration_token_cursor(cursor1.as_deref());
         assert!(decoded.is_some(), "cursor should decode");
 
-        let (page2, _cursor2) = storage
-            .get_all_tokens(2, decoded)
-            .await
-            .expect("get_all_tokens page 2 should succeed");
+        let (page2, _cursor2) = storage.get_all_tokens(2, decoded).await.expect("get_all_tokens page 2 should succeed");
         assert!(page2.len() <= 2, "page 2 should respect limit of 2, got {}", page2.len());
 
         // Verify no overlap between pages
@@ -1756,10 +1721,7 @@ mod db_tests {
 
         let storage = RegistrationTokenStorage::new(&pool);
 
-        let (rows, _cursor) = storage
-            .get_all_tokens(10, None)
-            .await
-            .expect("get_all_tokens should succeed");
+        let (rows, _cursor) = storage.get_all_tokens(10, None).await.expect("get_all_tokens should succeed");
         // get_all_tokens is global — can't assert empty in shared test DB
         assert!(rows.len() <= 10, "should respect limit");
 
@@ -1781,20 +1743,14 @@ mod db_tests {
         // Create an active token
         let active_str = format!("active_{}", suffix);
         storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(active_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(active_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
 
         // Create a disabled token
         let disabled_str = format!("disabled_{}", suffix);
         let disabled = storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(disabled_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(disabled_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
         storage.deactivate_token(disabled.id).await.expect("deactivate should succeed");
@@ -1859,7 +1815,14 @@ mod db_tests {
 
         // Use token
         storage
-            .use_token(&token_str, &user_id, Some("testuser"), Some("test@test.local"), Some("127.0.0.1"), Some("TestAgent/1.0"))
+            .use_token(
+                &token_str,
+                &user_id,
+                Some("testuser"),
+                Some("test@test.local"),
+                Some("127.0.0.1"),
+                Some("TestAgent/1.0"),
+            )
             .await
             .expect("use_token should succeed");
 
@@ -1887,10 +1850,7 @@ mod db_tests {
         let token_str = make_full_token(&suffix);
 
         let created = storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(token_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(token_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
         assert!(created.is_enabled);
@@ -1926,10 +1886,7 @@ mod db_tests {
         // Create a valid token (no expiry)
         let valid_str = format!("valid_{}", suffix);
         let valid = storage
-            .create_token(CreateRegistrationTokenRequest {
-                token: Some(valid_str.clone()),
-                ..empty_token_request()
-            })
+            .create_token(CreateRegistrationTokenRequest { token: Some(valid_str.clone()), ..empty_token_request() })
             .await
             .expect("create_token should succeed");
         assert!(valid.is_enabled);
@@ -1948,10 +1905,7 @@ mod db_tests {
         assert!(expired.is_enabled);
 
         // Run cleanup
-        let affected = storage
-            .cleanup_expired_tokens()
-            .await
-            .expect("cleanup_expired_tokens should succeed");
+        let affected = storage.cleanup_expired_tokens().await.expect("cleanup_expired_tokens should succeed");
         assert!(affected >= 1, "should have affected at least 1 expired token");
 
         // Valid token should still be enabled
@@ -1963,10 +1917,7 @@ mod db_tests {
         assert!(!expired_after.is_enabled, "expired token should be disabled");
 
         // Second cleanup should return 0 (no more expired + enabled tokens)
-        let affected2 = storage
-            .cleanup_expired_tokens()
-            .await
-            .expect("cleanup should succeed");
+        let affected2 = storage.cleanup_expired_tokens().await.expect("cleanup should succeed");
         assert_eq!(affected2, 0, "second cleanup should affect 0 rows");
 
         cleanup_test_data(&pool, &suffix).await;

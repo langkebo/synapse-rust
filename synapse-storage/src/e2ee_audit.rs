@@ -178,11 +178,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -270,18 +267,27 @@ mod db_tests {
         let op_cross = format!("cross_sign_{}", suffix);
 
         // Insert events with different operations
-        storage.log_key_operation(&make_test_event(&user_id, &op_upload, "DEV_A")).await.expect("upload log should succeed");
-        storage.log_key_operation(&make_test_event(&user_id, &op_cross, "DEV_A")).await.expect("cross log should succeed");
-        storage.log_key_operation(&make_test_event(&user_id, &op_upload, "DEV_A")).await.expect("upload2 log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, &op_upload, "DEV_A"))
+            .await
+            .expect("upload log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, &op_cross, "DEV_A"))
+            .await
+            .expect("cross log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, &op_upload, "DEV_A"))
+            .await
+            .expect("upload2 log should succeed");
 
         // Query by operation type
-        let uploads = storage.get_operations_by_type(&op_upload, 100).await
-            .expect("get_operations_by_type should succeed");
+        let uploads =
+            storage.get_operations_by_type(&op_upload, 100).await.expect("get_operations_by_type should succeed");
         assert_eq!(uploads.len(), 2, "should find 2 upload events");
         assert!(uploads.iter().all(|e| e.operation == op_upload));
 
-        let crosses = storage.get_operations_by_type(&op_cross, 100).await
-            .expect("get_operations_by_type should succeed");
+        let crosses =
+            storage.get_operations_by_type(&op_cross, 100).await.expect("get_operations_by_type should succeed");
         assert_eq!(crosses.len(), 1, "should find 1 cross_sign event");
         assert_eq!(crosses[0].operation, op_cross);
     }
@@ -303,10 +309,7 @@ mod db_tests {
         }
 
         // Page 1: get first 2 entries (most recent)
-        let page1 = storage
-            .get_key_history_paginated(&user_id, 2, None, None)
-            .await
-            .expect("page1 should succeed");
+        let page1 = storage.get_key_history_paginated(&user_id, 2, None, None).await.expect("page1 should succeed");
         assert_eq!(page1.len(), 2, "page1 should have 2 entries");
 
         // Page 2: cursor from last entry of page1
@@ -347,26 +350,41 @@ mod db_tests {
         let user_id = format!("@devhist_{}:example.com", suffix);
 
         // Insert events for device A
-        storage.log_key_operation(&make_test_event(&user_id, "upload_device_keys", "DEVICE_A")).await.expect("a1 log should succeed");
-        storage.log_key_operation(&make_test_event(&user_id, "update_device_keys", "DEVICE_A")).await.expect("a2 log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, "upload_device_keys", "DEVICE_A"))
+            .await
+            .expect("a1 log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, "update_device_keys", "DEVICE_A"))
+            .await
+            .expect("a2 log should succeed");
 
         // Insert event for device B
-        storage.log_key_operation(&make_test_event(&user_id, "upload_device_keys", "DEVICE_B")).await.expect("b log should succeed");
+        storage
+            .log_key_operation(&make_test_event(&user_id, "upload_device_keys", "DEVICE_B"))
+            .await
+            .expect("b log should succeed");
 
         // Query device A history
-        let dev_a = storage.get_user_device_history(&user_id, "DEVICE_A").await
+        let dev_a = storage
+            .get_user_device_history(&user_id, "DEVICE_A")
+            .await
             .expect("get_user_device_history A should succeed");
         assert_eq!(dev_a.len(), 2, "should find 2 entries for DEVICE_A");
         assert!(dev_a.iter().all(|e| e.device_id.as_deref() == Some("DEVICE_A")));
 
         // Query device B history
-        let dev_b = storage.get_user_device_history(&user_id, "DEVICE_B").await
+        let dev_b = storage
+            .get_user_device_history(&user_id, "DEVICE_B")
+            .await
             .expect("get_user_device_history B should succeed");
         assert_eq!(dev_b.len(), 1, "should find 1 entry for DEVICE_B");
         assert_eq!(dev_b[0].device_id.as_deref(), Some("DEVICE_B"));
 
         // Query non-existent device
-        let dev_x = storage.get_user_device_history(&user_id, "NONEXISTENT").await
+        let dev_x = storage
+            .get_user_device_history(&user_id, "NONEXISTENT")
+            .await
             .expect("get_user_device_history X should succeed");
         assert!(dev_x.is_empty(), "nonexistent device should return empty");
     }

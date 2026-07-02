@@ -658,11 +658,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -681,10 +678,7 @@ mod db_tests {
     }
 
     async fn cleanup_users(pool: &PgPool, prefix: &str) {
-        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
-            .bind(format!("{prefix}%"))
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(format!("{prefix}%")).execute(pool).await;
     }
 
     async fn cleanup_all(pool: &PgPool, prefix: &str) {
@@ -730,10 +724,7 @@ mod db_tests {
 
         let storage = EventReportStorage::new(&pool);
         let request = make_request(&prefix, "a");
-        let report = storage
-            .create_report(request)
-            .await
-            .expect("create_report should succeed");
+        let report = storage.create_report(request).await.expect("create_report should succeed");
 
         assert!(report.id > 0, "id should be assigned");
         assert_eq!(report.status, "open", "status should default to open");
@@ -755,10 +746,7 @@ mod db_tests {
         let storage = EventReportStorage::new(&pool);
         let mut request = make_request(&prefix, "b");
         request.score = Some(42);
-        let report = storage
-            .create_report(request)
-            .await
-            .expect("create_report should succeed");
+        let report = storage.create_report(request).await.expect("create_report should succeed");
 
         assert_eq!(report.score, 42, "explicit score should be preserved");
 
@@ -775,16 +763,10 @@ mod db_tests {
         cleanup_all(&pool, &prefix).await;
 
         let storage = EventReportStorage::new(&pool);
-        let created = storage
-            .create_report(make_request(&prefix, "x"))
-            .await
-            .expect("create_report should succeed");
+        let created = storage.create_report(make_request(&prefix, "x")).await.expect("create_report should succeed");
 
-        let fetched = storage
-            .get_report(created.id)
-            .await
-            .expect("get_report should succeed")
-            .expect("report should exist");
+        let fetched =
+            storage.get_report(created.id).await.expect("get_report should succeed").expect("report should exist");
 
         assert_eq!(fetched.id, created.id);
         assert_eq!(fetched.event_id, created.event_id);
@@ -799,10 +781,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = EventReportStorage::new(&pool);
 
-        let result = storage
-            .get_report(-99999)
-            .await
-            .expect("get_report should succeed");
+        let result = storage.get_report(-99999).await.expect("get_report should succeed");
 
         assert!(result.is_none(), "non-existent id should return None");
     }
@@ -823,31 +802,19 @@ mod db_tests {
         for i in 0..3 {
             let mut req = make_request(&prefix, &format!("ev_{i}"));
             req.event_id = event_id.clone();
-            storage
-                .create_report(req)
-                .await
-                .expect("create_report should succeed");
+            storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let reports = storage
-            .get_reports_by_event(&event_id)
-            .await
-            .expect("get_reports_by_event should succeed");
+        let reports = storage.get_reports_by_event(&event_id).await.expect("get_reports_by_event should succeed");
 
         assert_eq!(reports.len(), 3, "should return all 3 reports");
 
         // Verify ordering: received_ts DESC, id DESC
         for i in 1..reports.len() {
             if reports[i - 1].received_ts == reports[i].received_ts {
-                assert!(
-                    reports[i - 1].id > reports[i].id,
-                    "same received_ts should sort by id DESC"
-                );
+                assert!(reports[i - 1].id > reports[i].id, "same received_ts should sort by id DESC");
             } else {
-                assert!(
-                    reports[i - 1].received_ts > reports[i].received_ts,
-                    "should sort by received_ts DESC"
-                );
+                assert!(reports[i - 1].received_ts > reports[i].received_ts, "should sort by received_ts DESC");
             }
         }
 
@@ -896,20 +863,16 @@ mod db_tests {
             storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let room_a_reports = storage
-            .get_reports_by_room(&room_a, 20, None, None)
-            .await
-            .expect("get_reports_by_room should succeed");
+        let room_a_reports =
+            storage.get_reports_by_room(&room_a, 20, None, None).await.expect("get_reports_by_room should succeed");
 
         assert_eq!(room_a_reports.len(), 2, "should return only room A reports");
         for r in &room_a_reports {
             assert_eq!(r.room_id, room_a, "all reports should belong to room A");
         }
 
-        let room_b_reports = storage
-            .get_reports_by_room(&room_b, 20, None, None)
-            .await
-            .expect("get_reports_by_room should succeed");
+        let room_b_reports =
+            storage.get_reports_by_room(&room_b, 20, None, None).await.expect("get_reports_by_room should succeed");
 
         assert_eq!(room_b_reports.len(), 3);
 
@@ -933,10 +896,8 @@ mod db_tests {
             storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let reports = storage
-            .get_reports_by_room(&room_id, 2, None, None)
-            .await
-            .expect("get_reports_by_room should succeed");
+        let reports =
+            storage.get_reports_by_room(&room_id, 2, None, None).await.expect("get_reports_by_room should succeed");
 
         assert_eq!(reports.len(), 2, "should respect limit");
 
@@ -1017,10 +978,7 @@ mod db_tests {
             .await
             .expect("cursor pagination should succeed");
 
-        assert!(
-            next_page.is_empty(),
-            "cursor on last item should return empty page"
-        );
+        assert!(next_page.is_empty(), "cursor on last item should return empty page");
 
         cleanup_all(&pool, &prefix).await;
     }
@@ -1038,15 +996,22 @@ mod db_tests {
 
         // Create 2 open reports
         for i in 0..2 {
-            storage.create_report(make_request(&prefix, &format!("s_open_{i}"))).await.expect("create_report should succeed");
+            storage
+                .create_report(make_request(&prefix, &format!("s_open_{i}")))
+                .await
+                .expect("create_report should succeed");
         }
 
         // Create 1 resolved report and update its status
-        let resolved = storage.create_report(make_request(&prefix, "s_resolved")).await.expect("create_report should succeed");
-        storage.update_report(resolved.id, UpdateEventReportRequest {
-            status: Some("resolved".to_string()),
-            ..Default::default()
-        }).await.expect("update_report should succeed");
+        let resolved =
+            storage.create_report(make_request(&prefix, "s_resolved")).await.expect("create_report should succeed");
+        storage
+            .update_report(
+                resolved.id,
+                UpdateEventReportRequest { status: Some("resolved".to_string()), ..Default::default() },
+            )
+            .await
+            .expect("update_report should succeed");
 
         let open_reports = storage
             .get_reports_by_status("open", 20, None, None, None)
@@ -1127,10 +1092,7 @@ mod db_tests {
             storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let reports = storage
-            .get_all_reports(20, None, None, None)
-            .await
-            .expect("get_all_reports should succeed");
+        let reports = storage.get_all_reports(20, None, None, None).await.expect("get_all_reports should succeed");
 
         let ours: Vec<_> = reports.iter().filter(|r| r.event_id.starts_with(&prefix)).collect();
         assert_eq!(ours.len(), 3, "should return all 3 reports");
@@ -1164,10 +1126,7 @@ mod db_tests {
             storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let page = storage
-            .get_all_reports(2, None, None, None)
-            .await
-            .expect("get_all_reports should succeed");
+        let page = storage.get_all_reports(2, None, None, None).await.expect("get_all_reports should succeed");
 
         // Our reports have score 20, 15, 10, 5 — first page should have top 2
         let ours_page1: Vec<_> = page.iter().filter(|r| r.event_id.starts_with(&prefix)).collect();
@@ -1216,12 +1175,15 @@ mod db_tests {
 
         // Partial update: only change status, leave score as None
         let updated = storage
-            .update_report(created.id, UpdateEventReportRequest {
-                status: Some("resolved".to_string()),
-                score: None,
-                resolved_by: Some(format!("{prefix}_admin")),
-                resolution_reason: None,
-            })
+            .update_report(
+                created.id,
+                UpdateEventReportRequest {
+                    status: Some("resolved".to_string()),
+                    score: None,
+                    resolved_by: Some(format!("{prefix}_admin")),
+                    resolution_reason: None,
+                },
+            )
             .await
             .expect("update_report should succeed");
 
@@ -1234,12 +1196,15 @@ mod db_tests {
 
         // Partial update: only change score
         let updated2 = storage
-            .update_report(created.id, UpdateEventReportRequest {
-                status: None,
-                score: Some(99),
-                resolved_by: None,
-                resolution_reason: Some("Updated reason".to_string()),
-            })
+            .update_report(
+                created.id,
+                UpdateEventReportRequest {
+                    status: None,
+                    score: Some(99),
+                    resolved_by: None,
+                    resolution_reason: Some("Updated reason".to_string()),
+                },
+            )
             .await
             .expect("second update should succeed");
 
@@ -1260,31 +1225,19 @@ mod db_tests {
         cleanup_all(&pool, &prefix).await;
 
         let storage = EventReportStorage::new(&pool);
-        let created = storage
-            .create_report(make_request(&prefix, "del"))
-            .await
-            .expect("create_report should succeed");
+        let created = storage.create_report(make_request(&prefix, "del")).await.expect("create_report should succeed");
 
         // Verify it exists
         assert!(storage.get_report(created.id).await.unwrap().is_some());
 
         // Delete it
-        storage
-            .delete_report(created.id)
-            .await
-            .expect("delete_report should succeed");
+        storage.delete_report(created.id).await.expect("delete_report should succeed");
 
         // Verify it is gone
-        assert!(
-            storage.get_report(created.id).await.unwrap().is_none(),
-            "report should be gone after delete"
-        );
+        assert!(storage.get_report(created.id).await.unwrap().is_none(), "report should be gone after delete");
 
         // Deleting again should not error (no-op)
-        storage
-            .delete_report(created.id)
-            .await
-            .expect("deleting non-existent report should succeed");
+        storage.delete_report(created.id).await.expect("deleting non-existent report should succeed");
 
         cleanup_all(&pool, &prefix).await;
     }
@@ -1299,10 +1252,7 @@ mod db_tests {
         cleanup_rate_limits(&pool, &user_id).await;
 
         let storage = EventReportStorage::new(&pool);
-        let check = storage
-            .check_rate_limit(&user_id)
-            .await
-            .expect("check_rate_limit should succeed");
+        let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
 
         assert!(check.is_allowed, "new user should be allowed");
         assert_eq!(check.remaining_reports, 50, "new user should have max remaining");
@@ -1326,10 +1276,7 @@ mod db_tests {
             .await
             .expect("block_user_reports should succeed");
 
-        let check = storage
-            .check_rate_limit(&user_id)
-            .await
-            .expect("check_rate_limit should succeed");
+        let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
 
         assert!(!check.is_allowed, "blocked user should not be allowed");
         assert_eq!(check.remaining_reports, 0, "blocked user should have 0 remaining");
@@ -1348,15 +1295,9 @@ mod db_tests {
         ensure_user(&pool, &user_id).await;
         let storage = EventReportStorage::new(&pool);
         let past = Utc::now().timestamp_millis() - 1000; // 1 second ago
-        storage
-            .block_user_reports(&user_id, past, "Old block")
-            .await
-            .expect("block_user_reports should succeed");
+        storage.block_user_reports(&user_id, past, "Old block").await.expect("block_user_reports should succeed");
 
-        let check = storage
-            .check_rate_limit(&user_id)
-            .await
-            .expect("check_rate_limit should succeed");
+        let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
 
         assert!(check.is_allowed, "expired block should auto-unblock");
         assert_eq!(check.remaining_reports, 50, "unblocked user should have max remaining");
@@ -1388,10 +1329,7 @@ mod db_tests {
         .expect("direct insert should succeed");
 
         let storage = EventReportStorage::new(&pool);
-        let check = storage
-            .check_rate_limit(&user_id)
-            .await
-            .expect("check_rate_limit should succeed");
+        let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
 
         assert!(!check.is_allowed, "user at daily limit should not be allowed");
         assert_eq!(check.remaining_reports, 0, "should have 0 remaining");
@@ -1415,16 +1353,10 @@ mod db_tests {
         let storage = EventReportStorage::new(&pool);
         // Record 10 reports
         for _ in 0..10 {
-            storage
-                .record_report(&user_id)
-                .await
-                .expect("record_report should succeed");
+            storage.record_report(&user_id).await.expect("record_report should succeed");
         }
 
-        let check = storage
-            .check_rate_limit(&user_id)
-            .await
-            .expect("check_rate_limit should succeed");
+        let check = storage.check_rate_limit(&user_id).await.expect("check_rate_limit should succeed");
 
         assert!(check.is_allowed, "under limit user should be allowed");
         assert_eq!(check.remaining_reports, 40, "50 - 10 = 40 remaining");
@@ -1443,10 +1375,7 @@ mod db_tests {
 
         ensure_user(&pool, &user_id).await;
         let storage = EventReportStorage::new(&pool);
-        storage
-            .record_report(&user_id)
-            .await
-            .expect("record_report should succeed");
+        storage.record_report(&user_id).await.expect("record_report should succeed");
 
         // Verify the row was inserted
         let row = sqlx::query_as::<_, ReportRateLimit>(
@@ -1506,10 +1435,7 @@ mod db_tests {
         let until = Utc::now().timestamp_millis() + 86_400_000;
 
         // First block
-        storage
-            .block_user_reports(&user_id, until, "First reason")
-            .await
-            .expect("first block should succeed");
+        storage.block_user_reports(&user_id, until, "First reason").await.expect("first block should succeed");
 
         // Second block (upsert via ON CONFLICT)
         storage
@@ -1544,26 +1470,14 @@ mod db_tests {
         let until = Utc::now().timestamp_millis() + 86_400_000;
 
         // Block first
-        storage
-            .block_user_reports(&user_id, until, "Test block")
-            .await
-            .expect("block should succeed");
+        storage.block_user_reports(&user_id, until, "Test block").await.expect("block should succeed");
 
-        assert!(
-            !storage.check_rate_limit(&user_id).await.unwrap().is_allowed,
-            "should be blocked"
-        );
+        assert!(!storage.check_rate_limit(&user_id).await.unwrap().is_allowed, "should be blocked");
 
         // Unblock
-        storage
-            .unblock_user_reports(&user_id)
-            .await
-            .expect("unblock should succeed");
+        storage.unblock_user_reports(&user_id).await.expect("unblock should succeed");
 
-        assert!(
-            storage.check_rate_limit(&user_id).await.unwrap().is_allowed,
-            "should be unblocked after unblock"
-        );
+        assert!(storage.check_rate_limit(&user_id).await.unwrap().is_allowed, "should be unblocked after unblock");
 
         cleanup_all(&pool, &user_id).await;
     }
@@ -1574,10 +1488,7 @@ mod db_tests {
         let user_id = "unblk_nonexistent_noop_user";
 
         let storage = EventReportStorage::new(&pool);
-        storage
-            .unblock_user_reports(user_id)
-            .await
-            .expect("unblock on non-existent user should not error");
+        storage.unblock_user_reports(user_id).await.expect("unblock on non-existent user should not error");
     }
 
     // --- count_reports_by_status ---
@@ -1608,10 +1519,13 @@ mod db_tests {
 
         // Resolve one and verify individual status changed
         let report = storage.create_report(make_request(&prefix, "cnt_c")).await.expect("create_report should succeed");
-        storage.update_report(report.id, UpdateEventReportRequest {
-            status: Some("resolved".to_string()),
-            ..Default::default()
-        }).await.expect("update_report should succeed");
+        storage
+            .update_report(
+                report.id,
+                UpdateEventReportRequest { status: Some("resolved".to_string()), ..Default::default() },
+            )
+            .await
+            .expect("update_report should succeed");
 
         let updated = storage.get_report(report.id).await.expect("get_report should succeed");
         assert_eq!(updated.unwrap().status, "resolved");
@@ -1630,10 +1544,7 @@ mod db_tests {
 
         let storage = EventReportStorage::new(&pool);
 
-        let before = storage
-            .count_all_reports()
-            .await
-            .expect("count_all_reports should succeed");
+        let before = storage.count_all_reports().await.expect("count_all_reports should succeed");
 
         // Create 3 reports
         for i in 0..3 {
@@ -1642,15 +1553,9 @@ mod db_tests {
             storage.create_report(req).await.expect("create_report should succeed");
         }
 
-        let after = storage
-            .count_all_reports()
-            .await
-            .expect("count_all_reports should succeed");
+        let after = storage.count_all_reports().await.expect("count_all_reports should succeed");
 
-        assert!(
-            after >= before + 3,
-            "global count should increase by at least 3 (before={before}, after={after})"
-        );
+        assert!(after >= before + 3, "global count should increase by at least 3 (before={before}, after={after})");
 
         cleanup_all(&pool, &prefix).await;
     }

@@ -193,11 +193,12 @@ impl MediaQuotaStorage {
     }
 
     pub async fn delete_config(&self, config_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
-            .bind(config_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete quota config", &e))?;
+        let result =
+            sqlx::query(r"UPDATE media_quota_config SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE")
+                .bind(config_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to delete quota config", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -697,19 +698,13 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -733,26 +728,10 @@ mod db_tests {
 
     async fn cleanup_test_data(pool: &PgPool, suffix: &str) {
         let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM media_quota_alerts WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM media_usage_log WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM user_media_quota WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM media_quota_config WHERE config_name LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM media_quota_alerts WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM media_usage_log WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM user_media_quota WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM media_quota_config WHERE config_name LIKE $1").bind(&pattern).execute(pool).await.ok();
     }
 
     // —— get_default_config ——
@@ -776,10 +755,7 @@ mod db_tests {
         .await
         .expect("should insert default config");
 
-        let result = storage
-            .get_default_config()
-            .await
-            .expect("should succeed");
+        let result = storage.get_default_config().await.expect("should succeed");
         assert!(result.is_some(), "default config should be found");
         let config = result.unwrap();
         assert_eq!(config.name, config_name);
@@ -796,10 +772,7 @@ mod db_tests {
         let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
         cleanup_test_data(&pool, &suffix).await;
 
-        let result = storage
-            .get_default_config()
-            .await
-            .expect("should succeed");
+        let result = storage.get_default_config().await.expect("should succeed");
         assert!(result.is_none(), "should be None when no default config exists");
 
         cleanup_test_data(&pool, &suffix).await;
@@ -827,10 +800,7 @@ mod db_tests {
             is_default: Some(false),
         };
 
-        let config = storage
-            .create_config(request)
-            .await
-            .expect("should create config");
+        let config = storage.create_config(request).await.expect("should create config");
 
         assert_eq!(config.name, config_name);
         assert_eq!(config.max_storage_bytes, 5_000_000);
@@ -862,15 +832,9 @@ mod db_tests {
             blocked_mime_types: None,
             is_default: Some(false),
         };
-        let created = storage
-            .create_config(request)
-            .await
-            .expect("should create config");
+        let created = storage.create_config(request).await.expect("should create config");
 
-        let fetched = storage
-            .get_config(created.id)
-            .await
-            .expect("should succeed");
+        let fetched = storage.get_config(created.id).await.expect("should succeed");
         assert!(fetched.is_some());
         let fetched = fetched.unwrap();
         assert_eq!(fetched.id, created.id);
@@ -878,10 +842,7 @@ mod db_tests {
         assert_eq!(fetched.max_storage_bytes, 10_000_000);
 
         // get_config for non-existent id
-        let missing = storage
-            .get_config(99999999)
-            .await
-            .expect("should succeed");
+        let missing = storage.get_config(99999999).await.expect("should succeed");
         assert!(missing.is_none());
 
         cleanup_test_data(&pool, &suffix).await;
@@ -926,14 +887,8 @@ mod db_tests {
             .expect("should create config B");
 
         let configs = storage.list_configs().await.expect("should list configs");
-        assert!(
-            configs.iter().any(|c| c.name == name_a),
-            "should contain config A"
-        );
-        assert!(
-            configs.iter().any(|c| c.name == name_b),
-            "should contain config B"
-        );
+        assert!(configs.iter().any(|c| c.name == name_a), "should contain config A");
+        assert!(configs.iter().any(|c| c.name == name_b), "should contain config B");
 
         cleanup_test_data(&pool, &suffix).await;
     }
@@ -961,24 +916,15 @@ mod db_tests {
             .await
             .expect("should create config");
 
-        let deleted = storage
-            .delete_config(created.id)
-            .await
-            .expect("should succeed");
+        let deleted = storage.delete_config(created.id).await.expect("should succeed");
         assert!(deleted, "delete should return true for existing config");
 
         // Double-delete should return false (already disabled).
-        let deleted_again = storage
-            .delete_config(created.id)
-            .await
-            .expect("should succeed");
+        let deleted_again = storage.delete_config(created.id).await.expect("should succeed");
         assert!(!deleted_again, "second delete should return false");
 
         // get_config still returns the row (it only filters by id, not by is_enabled).
-        let fetched = storage
-            .get_config(created.id)
-            .await
-            .expect("should succeed");
+        let fetched = storage.get_config(created.id).await.expect("should succeed");
         assert!(fetched.is_some(), "row still exists but is_enabled=false");
         assert!(!fetched.unwrap().is_enabled);
 
@@ -1009,10 +955,7 @@ mod db_tests {
             .await
             .expect("should set user quota");
 
-        let quota = storage
-            .get_user_quota(&user_id)
-            .await
-            .expect("should succeed");
+        let quota = storage.get_user_quota(&user_id).await.expect("should succeed");
         assert!(quota.is_some(), "user quota should be found");
         let quota = quota.unwrap();
         assert_eq!(quota.user_id, user_id);
@@ -1030,10 +973,7 @@ mod db_tests {
 
         cleanup_test_data(&pool, &suffix).await;
 
-        let result = storage
-            .get_user_quota(&user_id)
-            .await
-            .expect("should succeed");
+        let result = storage.get_user_quota(&user_id).await.expect("should succeed");
         assert!(result.is_none(), "should be None for unknown user");
 
         cleanup_test_data(&pool, &suffix).await;
@@ -1051,10 +991,7 @@ mod db_tests {
         cleanup_test_data(&pool, &suffix).await;
         ensure_test_user(&pool, &user_id).await;
 
-        let quota = storage
-            .get_or_create_user_quota(&user_id)
-            .await
-            .expect("should succeed");
+        let quota = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
         assert_eq!(quota.user_id, user_id);
         assert!(quota.id > 0);
         // No default config exists, so quota_config_id should be None.
@@ -1074,17 +1011,11 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // First call creates.
-        let first = storage
-            .get_or_create_user_quota(&user_id)
-            .await
-            .expect("should succeed");
+        let first = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
         let first_id = first.id;
 
         // Second call returns existing.
-        let second = storage
-            .get_or_create_user_quota(&user_id)
-            .await
-            .expect("should succeed");
+        let second = storage.get_or_create_user_quota(&user_id).await.expect("should succeed");
         assert_eq!(second.id, first_id, "should return the same row");
         assert_eq!(second.user_id, first.user_id);
 
@@ -1190,11 +1121,7 @@ mod db_tests {
             .await
             .expect("should log upload");
 
-        let quota = storage
-            .get_user_quota(&user_id)
-            .await
-            .expect("should succeed")
-            .expect("user quota should exist");
+        let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
         assert_eq!(quota.current_storage_bytes, 500_000);
         assert_eq!(quota.current_files_count, 1);
 
@@ -1238,11 +1165,7 @@ mod db_tests {
             .await
             .expect("should log second upload");
 
-        let quota = storage
-            .get_user_quota(&user_id)
-            .await
-            .expect("should succeed")
-            .expect("user quota should exist");
+        let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
         assert_eq!(quota.current_storage_bytes, 500_000);
         assert_eq!(quota.current_files_count, 2);
 
@@ -1285,11 +1208,7 @@ mod db_tests {
             .await
             .expect("should log delete");
 
-        let quota = storage
-            .get_user_quota(&user_id)
-            .await
-            .expect("should succeed")
-            .expect("user quota should exist");
+        let quota = storage.get_user_quota(&user_id).await.expect("should succeed").expect("user quota should exist");
         assert_eq!(quota.current_storage_bytes, 400_000);
         assert_eq!(quota.current_files_count, 0);
 
@@ -1321,10 +1240,7 @@ mod db_tests {
             .expect("should set quota");
 
         // Current usage is 0 (default), check a 50_000-byte file.
-        let result = storage
-            .check_quota(&user_id, 50_000)
-            .await
-            .expect("should check quota");
+        let result = storage.check_quota(&user_id, 50_000).await.expect("should check quota");
         assert!(result.is_allowed, "should be allowed under limit");
         assert_eq!(result.quota_limit, 100_000);
         assert_eq!(result.current_usage, 0);
@@ -1368,10 +1284,7 @@ mod db_tests {
             .expect("should log upload");
 
         // Check with 200 more bytes -> 1100 > 1000.
-        let result = storage
-            .check_quota(&user_id, 200)
-            .await
-            .expect("should check quota");
+        let result = storage.check_quota(&user_id, 200).await.expect("should check quota");
         assert!(!result.is_allowed, "should be exceeded");
         assert!(result.reason.is_some());
         assert_eq!(result.quota_limit, 1_000);
@@ -1391,10 +1304,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // No quota config, no custom limits — max_storage = 0 — always allowed.
-        let result = storage
-            .check_quota(&user_id, 9_999_999_999)
-            .await
-            .expect("should check quota");
+        let result = storage.check_quota(&user_id, 9_999_999_999).await.expect("should check quota");
         assert!(result.is_allowed, "should always be allowed when limit is 0");
         assert_eq!(result.quota_limit, 0);
         assert!(result.reason.is_none());
@@ -1411,10 +1321,7 @@ mod db_tests {
 
         ensure_server_quota_row(&pool).await;
 
-        let quota = storage
-            .get_server_quota()
-            .await
-            .expect("should succeed");
+        let quota = storage.get_server_quota().await.expect("should succeed");
         assert_eq!(quota.id, 1);
         // alert_threshold_percent may differ from the insert default if a
         // pre-existing row was already present (ON CONFLICT DO NOTHING).
@@ -1429,12 +1336,7 @@ mod db_tests {
         ensure_server_quota_row(&pool).await;
 
         let updated = storage
-            .update_server_quota(
-                Some(500_000_000_000_i64),
-                Some(100_000_000_i64),
-                Some(50000_i32),
-                Some(95_i32),
-            )
+            .update_server_quota(Some(500_000_000_000_i64), Some(100_000_000_i64), Some(50000_i32), Some(95_i32))
             .await
             .expect("should update server quota");
 
@@ -1444,10 +1346,7 @@ mod db_tests {
         assert_eq!(updated.alert_threshold_percent, 95);
 
         // Verify persisted.
-        let fetched = storage
-            .get_server_quota()
-            .await
-            .expect("should succeed");
+        let fetched = storage.get_server_quota().await.expect("should succeed");
         assert_eq!(fetched.max_storage_bytes, Some(500_000_000_000_i64));
         assert_eq!(fetched.alert_threshold_percent, 95);
     }
@@ -1465,14 +1364,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         let alert = storage
-            .create_alert(
-                &user_id,
-                "warning",
-                80,
-                800_000,
-                1_000_000,
-                Some("Storage at 80%"),
-            )
+            .create_alert(&user_id, "warning", 80, 800_000, 1_000_000, Some("Storage at 80%"))
             .await
             .expect("should create alert");
 
@@ -1483,10 +1375,7 @@ mod db_tests {
         assert!(alert.id > 0);
 
         // Retrieve all alerts for the user.
-        let alerts = storage
-            .get_user_alerts(&user_id, false)
-            .await
-            .expect("should get alerts");
+        let alerts = storage.get_user_alerts(&user_id, false).await.expect("should get alerts");
         assert!(!alerts.is_empty());
         assert!(alerts.iter().any(|a| a.id == alert.id));
 
@@ -1515,26 +1404,17 @@ mod db_tests {
             .expect("should create alert2");
 
         // Mark alert2 as read.
-        let marked = storage
-            .mark_alert_read(alert2.id)
-            .await
-            .expect("should mark alert read");
+        let marked = storage.mark_alert_read(alert2.id).await.expect("should mark alert read");
         assert!(marked);
 
         // unread_only = true should only return alert1.
-        let unread = storage
-            .get_user_alerts(&user_id, true)
-            .await
-            .expect("should get unread alerts");
+        let unread = storage.get_user_alerts(&user_id, true).await.expect("should get unread alerts");
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].id, alert1.id);
         assert!(!unread[0].is_read);
 
         // unread_only = false should return both.
-        let all = storage
-            .get_user_alerts(&user_id, false)
-            .await
-            .expect("should get all alerts");
+        let all = storage.get_user_alerts(&user_id, false).await.expect("should get all alerts");
         assert_eq!(all.len(), 2);
 
         cleanup_test_data(&pool, &suffix).await;
@@ -1552,23 +1432,15 @@ mod db_tests {
         cleanup_test_data(&pool, &suffix).await;
         ensure_test_user(&pool, &user_id).await;
 
-        let alert = storage
-            .create_alert(&user_id, "info", 30, 300_000, 1_000_000, None)
-            .await
-            .expect("should create alert");
+        let alert =
+            storage.create_alert(&user_id, "info", 30, 300_000, 1_000_000, None).await.expect("should create alert");
 
         // First mark works.
-        let first = storage
-            .mark_alert_read(alert.id)
-            .await
-            .expect("should succeed");
+        let first = storage.mark_alert_read(alert.id).await.expect("should succeed");
         assert!(first);
 
         // Second mark on already-read alert returns false.
-        let second = storage
-            .mark_alert_read(alert.id)
-            .await
-            .expect("should succeed");
+        let second = storage.mark_alert_read(alert.id).await.expect("should succeed");
         assert!(!second);
 
         cleanup_test_data(&pool, &suffix).await;
@@ -1598,10 +1470,7 @@ mod db_tests {
             .await
             .expect("should log upload");
 
-        let stats = storage
-            .get_usage_stats(&user_id)
-            .await
-            .expect("should get usage stats");
+        let stats = storage.get_usage_stats(&user_id).await.expect("should get usage stats");
 
         assert_eq!(stats["current_storage_bytes"], 200_000);
         assert_eq!(stats["current_files_count"], 1);

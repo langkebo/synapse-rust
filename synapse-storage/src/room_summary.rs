@@ -1314,19 +1314,13 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -1351,39 +1345,22 @@ mod db_tests {
     async fn cleanup_summary_data(pool: &PgPool, suffix: &str) {
         let pattern = format!("%{suffix}");
         // state depends on rooms
-        let _ = sqlx::query("DELETE FROM room_summary_state WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM room_summary_state WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
         // members depends on rooms + users
-        let _ = sqlx::query("DELETE FROM room_summary_members WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM room_summary_members WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
         // stats depends on rooms
-        let _ = sqlx::query("DELETE FROM room_summary_stats WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM room_summary_stats WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
         // queue depends on rooms
         let _ = sqlx::query("DELETE FROM room_summary_update_queue WHERE room_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
             .await;
         // summaries depends on rooms
-        let _ = sqlx::query("DELETE FROM room_summaries WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM room_summaries WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
         // FK-parents: clean test rooms and users last
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     fn make_suffix() -> String {
@@ -1604,10 +1581,7 @@ mod db_tests {
         let updated = storage
             .update_summary(
                 &room_id,
-                UpdateRoomSummaryRequest {
-                    name: Some("New Name".to_string()),
-                    ..Default::default()
-                },
+                UpdateRoomSummaryRequest { name: Some("New Name".to_string()), ..Default::default() },
             )
             .await
             .unwrap();
@@ -1631,10 +1605,7 @@ mod db_tests {
         let result = storage
             .update_summary(
                 &room_id,
-                UpdateRoomSummaryRequest {
-                    name: Some("Ghost".to_string()),
-                    ..Default::default()
-                },
+                UpdateRoomSummaryRequest { name: Some("Ghost".to_string()), ..Default::default() },
             )
             .await;
 
@@ -1672,17 +1643,11 @@ mod db_tests {
             .unwrap();
 
         // Set alias
-        let summary = storage
-            .set_canonical_alias(&room_id, Some("#testalias:localhost"))
-            .await
-            .unwrap();
+        let summary = storage.set_canonical_alias(&room_id, Some("#testalias:localhost")).await.unwrap();
         assert_eq!(summary.canonical_alias.as_deref(), Some("#testalias:localhost"));
 
         // Clear alias
-        let summary = storage
-            .set_canonical_alias(&room_id, None)
-            .await
-            .unwrap();
+        let summary = storage.set_canonical_alias(&room_id, None).await.unwrap();
         assert!(summary.canonical_alias.is_none());
 
         cleanup_summary_data(&pool, &suffix).await;
@@ -1763,10 +1728,7 @@ mod db_tests {
         assert_eq!(results.len(), 3);
 
         // Partial — one matching
-        let partial = storage
-            .get_summaries_by_ids(&[room_a.clone()])
-            .await
-            .unwrap();
+        let partial = storage.get_summaries_by_ids(&[room_a.clone()]).await.unwrap();
         assert_eq!(partial.len(), 1);
         assert_eq!(partial[0].room_id, room_a);
 
@@ -2045,10 +2007,7 @@ mod db_tests {
         cleanup_summary_data(&pool, &suffix).await;
 
         let storage = RoomSummaryStorage::new(&pool);
-        let affected = storage
-            .add_members_batch(&room_id, vec![])
-            .await
-            .unwrap();
+        let affected = storage.add_members_batch(&room_id, vec![]).await.unwrap();
         assert_eq!(affected, 0);
 
         cleanup_summary_data(&pool, &suffix).await;
@@ -2408,20 +2367,14 @@ mod db_tests {
             .await
             .unwrap();
 
-        let result = storage
-            .get_heroes_batch(&[room_a.clone(), room_b.clone()], 10)
-            .await
-            .unwrap();
+        let result = storage.get_heroes_batch(&[room_a.clone(), room_b.clone()], 10).await.unwrap();
         assert_eq!(result.len(), 2);
         assert_eq!(result[&room_a].len(), 1);
         assert_eq!(result[&room_a][0].user_id, u1);
         assert!(result[&room_b].is_empty());
 
         // Empty input
-        let empty_result = storage
-            .get_heroes_batch(&[], 10)
-            .await
-            .unwrap();
+        let empty_result = storage.get_heroes_batch(&[], 10).await.unwrap();
         assert!(empty_result.is_empty());
 
         cleanup_summary_data(&pool, &suffix).await;
@@ -2583,10 +2536,7 @@ mod db_tests {
             .unwrap();
 
         // Set only u2 and u3 as heroes (u1 gets removed)
-        storage
-            .set_hero_members(&room_id, &[u2.clone(), u3.clone()])
-            .await
-            .unwrap();
+        storage.set_hero_members(&room_id, &[u2.clone(), u3.clone()]).await.unwrap();
 
         let members = storage.get_members(&room_id).await.unwrap();
         let hero_count = members.iter().filter(|m| m.is_hero).count();
@@ -2615,28 +2565,19 @@ mod db_tests {
         let content = json!({"creator": "@admin:localhost", "room_version": "1"});
 
         // Create state
-        let state = storage
-            .set_state(&room_id, "m.room.create", "", None, content.clone())
-            .await
-            .unwrap();
+        let state = storage.set_state(&room_id, "m.room.create", "", None, content.clone()).await.unwrap();
         assert_eq!(state.room_id, room_id);
         assert_eq!(state.event_type, "m.room.create");
         assert_eq!(state.state_key, "");
         assert_eq!(state.content, content);
 
         // Fetch it back
-        let fetched = storage
-            .get_state(&room_id, "m.room.create", "")
-            .await
-            .unwrap();
+        let fetched = storage.get_state(&room_id, "m.room.create", "").await.unwrap();
         assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().content, content);
 
         // Fetch nonexistent
-        let nonexistent = storage
-            .get_state(&room_id, "m.room.name", "")
-            .await
-            .unwrap();
+        let nonexistent = storage.get_state(&room_id, "m.room.name", "").await.unwrap();
         assert!(nonexistent.is_none());
 
         cleanup_summary_data(&pool, &suffix).await;
@@ -2653,13 +2594,7 @@ mod db_tests {
         let storage = RoomSummaryStorage::new(&pool);
 
         let s1 = storage
-            .set_state(
-                &room_id,
-                "m.room.name",
-                "",
-                Some("$ev1:localhost"),
-                json!({"name": "First"}),
-            )
+            .set_state(&room_id, "m.room.name", "", Some("$ev1:localhost"), json!({"name": "First"}))
             .await
             .unwrap();
         assert_eq!(s1.event_id.as_deref(), Some("$ev1:localhost"));
@@ -2667,13 +2602,7 @@ mod db_tests {
 
         // Upsert same type+key with different data
         let s2 = storage
-            .set_state(
-                &room_id,
-                "m.room.name",
-                "",
-                Some("$ev2:localhost"),
-                json!({"name": "Second"}),
-            )
+            .set_state(&room_id, "m.room.name", "", Some("$ev2:localhost"), json!({"name": "Second"}))
             .await
             .unwrap();
         assert_eq!(s2.event_id.as_deref(), Some("$ev2:localhost"));
@@ -2724,10 +2653,7 @@ mod db_tests {
         assert_eq!(all.len(), 3);
 
         // Empty batch
-        let zero = storage
-            .set_states_batch(&room_id, &[])
-            .await
-            .unwrap();
+        let zero = storage.set_states_batch(&room_id, &[]).await.unwrap();
         assert_eq!(zero, 0);
 
         cleanup_summary_data(&pool, &suffix).await;
@@ -2791,10 +2717,7 @@ mod db_tests {
         assert!(initial.is_none());
 
         // Insert stats
-        let stats = storage
-            .update_stats(&room_id, 100, 20, 80, 5, 1048576)
-            .await
-            .unwrap();
+        let stats = storage.update_stats(&room_id, 100, 20, 80, 5, 1048576).await.unwrap();
         assert_eq!(stats.total_events, 100);
         assert_eq!(stats.total_state_events, 20);
         assert_eq!(stats.total_messages, 80);
@@ -2806,10 +2729,7 @@ mod db_tests {
         assert_eq!(fetched.total_events, 100);
 
         // Update — upsert
-        let updated = storage
-            .update_stats(&room_id, 200, 40, 160, 10, 2097152)
-            .await
-            .unwrap();
+        let updated = storage.update_stats(&room_id, 200, 40, 160, 10, 2097152).await.unwrap();
         assert_eq!(updated.total_events, 200);
         assert_eq!(updated.storage_size, 2097152);
 
@@ -2829,18 +2749,9 @@ mod db_tests {
         let storage = RoomSummaryStorage::new(&pool);
 
         // Queue some updates
-        storage
-            .queue_update(&room_id, "$ev1", "m.room.message", None, 10)
-            .await
-            .unwrap();
-        storage
-            .queue_update(&room_id, "$ev2", "m.room.member", Some("@alice:localhost"), 5)
-            .await
-            .unwrap();
-        storage
-            .queue_update(&room_id, "$ev3", "m.room.name", Some(""), 1)
-            .await
-            .unwrap();
+        storage.queue_update(&room_id, "$ev1", "m.room.message", None, 10).await.unwrap();
+        storage.queue_update(&room_id, "$ev2", "m.room.member", Some("@alice:localhost"), 5).await.unwrap();
+        storage.queue_update(&room_id, "$ev3", "m.room.name", Some(""), 1).await.unwrap();
 
         // Get pending (ordered by priority DESC) — may contain entries from other tests
         let pending = storage.get_pending_updates(100).await.unwrap();
@@ -2866,10 +2777,7 @@ mod db_tests {
         assert_eq!(ours_after.len(), 2, "should have 2 pending after marking one processed");
 
         // Mark another of ours as failed
-        storage
-            .mark_update_failed(ours_after[0].id, "test error")
-            .await
-            .unwrap();
+        storage.mark_update_failed(ours_after[0].id, "test error").await.unwrap();
 
         cleanup_summary_data(&pool, &suffix).await;
     }
@@ -2903,19 +2811,13 @@ mod db_tests {
             .unwrap();
 
         // Increment regular
-        storage
-            .increment_unread_notifications(&room_id, false)
-            .await
-            .unwrap();
+        storage.increment_unread_notifications(&room_id, false).await.unwrap();
         let s = storage.get_summary(&room_id).await.unwrap().unwrap();
         assert_eq!(s.unread_notifications, 1);
         assert_eq!(s.unread_highlight, 0);
 
         // Increment highlight
-        storage
-            .increment_unread_notifications(&room_id, true)
-            .await
-            .unwrap();
+        storage.increment_unread_notifications(&room_id, true).await.unwrap();
         let s = storage.get_summary(&room_id).await.unwrap().unwrap();
         assert_eq!(s.unread_notifications, 2);
         assert_eq!(s.unread_highlight, 1);

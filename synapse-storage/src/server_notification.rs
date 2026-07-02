@@ -308,11 +308,12 @@ impl ServerNotificationStorage {
     }
 
     pub async fn deactivate_notification(&self, notification_id: i64) -> Result<bool, ApiError> {
-        let result = sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE"#)
-            .bind(notification_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to deactivate notification", &e))?;
+        let result =
+            sqlx::query(r#"UPDATE server_notifications SET is_enabled = FALSE WHERE id = $1 AND is_enabled = TRUE"#)
+                .bind(notification_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to deactivate notification", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -578,11 +579,13 @@ impl ServerNotificationStorage {
     }
 
     pub async fn delete_template(&self, name: &str) -> Result<bool, ApiError> {
-        let result = sqlx::query(r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1 AND is_enabled = TRUE"#)
-            .bind(name)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to delete template", &e))?;
+        let result = sqlx::query(
+            r#"UPDATE notification_templates SET is_enabled = FALSE WHERE name = $1 AND is_enabled = TRUE"#,
+        )
+        .bind(name)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to delete template", &e))?;
 
         Ok(result.rows_affected() > 0)
     }
@@ -656,12 +659,14 @@ impl ServerNotificationStorage {
 
     pub async fn mark_scheduled_sent(&self, scheduled_id: i64) -> Result<bool, ApiError> {
         let now = Utc::now().timestamp_millis();
-        let result = sqlx::query(r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2 AND is_sent = FALSE"#)
-            .bind(now)
-            .bind(scheduled_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to mark scheduled as sent", &e))?;
+        let result = sqlx::query(
+            r#"UPDATE scheduled_notifications SET is_sent = TRUE, sent_ts = $1 WHERE id = $2 AND is_sent = FALSE"#,
+        )
+        .bind(now)
+        .bind(scheduled_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to mark scheduled as sent", &e))?;
 
         Ok(result.rows_affected() > 0)
     }

@@ -1435,12 +1435,8 @@ mod tests {
 
     #[test]
     fn test_api_error_display_with_source() {
-        let err = ApiError::bad_request("test message")
-            .with_source("storage::room", "get_messages");
-        assert_eq!(
-            format!("{}", err),
-            "[storage::room::get_messages] M_BAD_JSON: test message"
-        );
+        let err = ApiError::bad_request("test message").with_source("storage::room", "get_messages");
+        assert_eq!(format!("{}", err), "[storage::room::get_messages] M_BAD_JSON: test message");
     }
 
     #[test]
@@ -1879,11 +1875,7 @@ mod tests {
     #[test]
     fn test_matrix_error_code_http_status_all_variants() {
         // Verify every variant's http_status matches its expected grouping
-        let auth_codes = [
-            MatrixErrorCode::UnknownToken,
-            MatrixErrorCode::MissingToken,
-            MatrixErrorCode::Unauthorized,
-        ];
+        let auth_codes = [MatrixErrorCode::UnknownToken, MatrixErrorCode::MissingToken, MatrixErrorCode::Unauthorized];
         for code in &auth_codes {
             assert_eq!(code.http_status(), StatusCode::UNAUTHORIZED, "{code:?} should be UNAUTHORIZED");
         }
@@ -2096,4 +2088,3 @@ mod tests {
         assert_eq!(resp.retry_after_ms, Some(5000));
     }
 }
-
