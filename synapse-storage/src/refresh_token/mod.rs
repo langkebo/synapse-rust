@@ -926,3 +926,205 @@ impl RefreshTokenRepository for RefreshTokenStorage {
         self.get_usage_history(user_id, limit).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_usage_request_new() {
+        let req = RecordUsageRequest::new(1, "@alice:example.com", "acc_token_123", true);
+
+        assert_eq!(req.refresh_token_id, 1);
+        assert_eq!(req.user_id, "@alice:example.com");
+        assert_eq!(req.new_access_token_id, "acc_token_123");
+        assert!(req.is_success);
+        assert!(req.old_access_token_id.is_none());
+        assert!(req.ip_address.is_none());
+        assert!(req.user_agent.is_none());
+        assert!(req.error_message.is_none());
+    }
+
+    #[test]
+    fn test_record_usage_request_builder_chain() {
+        let req = RecordUsageRequest::new(2, "@bob:example.com", "acc_token_456", false)
+            .old_access_token_id("old_token")
+            .ip_address("192.168.1.1")
+            .user_agent("Mozilla/5.0")
+            .error_message("Token expired");
+
+        assert_eq!(req.refresh_token_id, 2);
+        assert!(!req.is_success);
+        assert_eq!(req.old_access_token_id.as_deref(), Some("old_token"));
+        assert_eq!(req.ip_address.as_deref(), Some("192.168.1.1"));
+        assert_eq!(req.user_agent.as_deref(), Some("Mozilla/5.0"));
+        assert_eq!(req.error_message.as_deref(), Some("Token expired"));
+    }
+
+    #[test]
+    fn test_refresh_token_struct() {
+        let token = RefreshToken {
+            id: 1,
+            token_hash: "hash123".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            device_id: Some("DEVICE123".to_string()),
+            access_token_id: Some("acc123".to_string()),
+            scope: None,
+            created_ts: 1700000000000,
+            expires_at: None,
+            last_used_ts: Some(1700000001000),
+            use_count: 5,
+            is_revoked: false,
+            revoked_reason: None,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        };
+        assert_eq!(token.id, 1);
+        assert_eq!(token.user_id, "@alice:example.com");
+        assert!(!token.is_revoked);
+        assert_eq!(token.device_id.as_deref(), Some("DEVICE123"));
+        assert_eq!(token.use_count, 5);
+    }
+
+    #[test]
+    fn test_refresh_token_serde() {
+        let token = RefreshToken {
+            id: 2,
+            token_hash: "hash456".to_string(),
+            user_id: "@charlie:example.com".to_string(),
+            device_id: None,
+            access_token_id: None,
+            scope: Some("read".to_string()),
+            created_ts: 1700000000000,
+            expires_at: Some(1800000000000),
+            last_used_ts: None,
+            use_count: 0,
+            is_revoked: true,
+            revoked_reason: Some("logout".to_string()),
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        };
+
+        let json = serde_json::to_string(&token).unwrap();
+        let deserialized: RefreshToken = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.id, token.id);
+        assert_eq!(deserialized.is_revoked, token.is_revoked);
+        assert_eq!(deserialized.use_count, token.use_count);
+    }
+
+    #[test]
+    fn test_token_blacklist_entry() {
+        let entry = TokenBlacklistEntry {
+            id: 1,
+            token_hash: "hash_blacklisted".to_string(),
+            token_type: Some("refresh".to_string()),
+            user_id: Some("@dave:example.com".to_string()),
+            is_revoked: true,
+            expires_at: None,
+            reason: Some("security".to_string()),
+        };
+        assert_eq!(entry.token_hash, "hash_blacklisted");
+        assert_eq!(entry.reason.as_deref(), Some("security"));
+    }
+
+    #[test]
+    fn test_refresh_token_stats() {
+        let stats = RefreshTokenStats {
+            user_id: "@alice:example.com".to_string(),
+            total_tokens: 100,
+            active_tokens: 80,
+            revoked_tokens: 15,
+            expired_tokens: 5,
+            total_uses: 200,
+        };
+        assert_eq!(stats.total_tokens, 100);
+        assert_eq!(stats.active_tokens, 80);
+    }
+
+    #[test]
+    fn test_create_refresh_token_request() {
+        let req = CreateRefreshTokenRequest {
+            token_hash: "hash_new".to_string(),
+            user_id: "@eve:example.com".to_string(),
+            device_id: Some("DEVICE999".to_string()),
+            access_token_id: None,
+            scope: None,
+            expires_at: 1800000000000,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        };
+        assert_eq!(req.token_hash, "hash_new");
+        assert_eq!(req.user_id, "@eve:example.com");
+        assert_eq!(req.expires_at, 1800000000000);
+    }
+
+    #[test]
+    fn test_rotate_refresh_token_request() {
+        let req = RotateRefreshTokenRequest {
+            old_token_hash: "old_hash".to_string(),
+            new_token_hash: "new_hash".to_string(),
+            user_id: "@frank:example.com".to_string(),
+            device_id: None,
+            family_id: Some("family_abc".to_string()),
+            expires_at: 1800000000000,
+            ip_address: None,
+            user_agent: None,
+        };
+        assert_eq!(req.old_token_hash, "old_hash");
+        assert_eq!(req.new_token_hash, "new_hash");
+        assert_eq!(req.family_id.as_deref(), Some("family_abc"));
+    }
+
+    #[test]
+    fn test_refresh_token_usage() {
+        let usage = RefreshTokenUsage {
+            id: 1,
+            refresh_token_id: 5,
+            user_id: "@grace:example.com".to_string(),
+            old_access_token_id: Some("old_acc".to_string()),
+            new_access_token_id: Some("new_acc".to_string()),
+            used_ts: 1700000000000,
+            ip_address: Some("10.0.0.1".to_string()),
+            user_agent: Some("App/1.0".to_string()),
+            is_success: true,
+            error_message: None,
+        };
+        assert_eq!(usage.refresh_token_id, 5);
+        assert!(usage.is_success);
+    }
+
+    #[test]
+    fn test_refresh_token_family() {
+        let family = RefreshTokenFamily {
+            id: 1,
+            family_id: "family_abc".to_string(),
+            user_id: "@henry:example.com".to_string(),
+            device_id: Some("DEV123".to_string()),
+            created_ts: 1700000000000,
+            last_refresh_ts: Some(1700000001000),
+            refresh_count: 3,
+            is_compromised: false,
+            compromised_ts: None,
+        };
+        assert_eq!(family.family_id, "family_abc");
+        assert_eq!(family.refresh_count, 3);
+        assert!(!family.is_compromised);
+    }
+
+    #[test]
+    fn test_refresh_token_rotation() {
+        let rotation = RefreshTokenRotation {
+            id: 1,
+            family_id: "family_abc".to_string(),
+            old_token_hash: Some("old_hash".to_string()),
+            new_token_hash: "new_hash".to_string(),
+            rotated_ts: 1700000000000,
+            rotation_reason: Some("refresh".to_string()),
+        };
+        assert_eq!(rotation.family_id, "family_abc");
+        assert_eq!(rotation.new_token_hash, "new_hash");
+    }
+}

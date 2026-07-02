@@ -246,7 +246,7 @@ impl SearchIndexStorage {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_search_index_cursor, encode_search_index_cursor, SearchIndexCursor};
+    use super::{decode_search_index_cursor, encode_search_index_cursor, SearchIndexCursor, SearchIndexEntry, SearchResult, SearchQuery, SearchIndexStats};
 
     #[test]
     fn search_index_cursor_round_trip() {
@@ -258,6 +258,115 @@ mod cursor_tests {
     #[test]
     fn search_index_cursor_rejects_invalid_value() {
         assert_eq!(decode_search_index_cursor(Some("bad")), None);
+    }
+
+    #[test]
+    fn search_index_cursor_rejects_none() {
+        assert_eq!(decode_search_index_cursor(None), None);
+    }
+
+    #[test]
+    fn search_index_cursor_rejects_empty() {
+        assert_eq!(decode_search_index_cursor(Some("")), None);
+    }
+
+    #[test]
+    fn search_index_cursor_edge_values() {
+        let cursor = SearchIndexCursor { created_ts: 0, id: 0 };
+        let encoded = encode_search_index_cursor(&cursor);
+        let decoded = decode_search_index_cursor(Some(&encoded));
+        assert_eq!(decoded, Some(SearchIndexCursor { created_ts: 0, id: 0 }));
+    }
+
+    #[test]
+    fn search_index_cursor_max_values() {
+        let cursor = SearchIndexCursor { created_ts: i64::MAX, id: i64::MAX };
+        let encoded = encode_search_index_cursor(&cursor);
+        let decoded = decode_search_index_cursor(Some(&encoded));
+        assert_eq!(decoded, Some(cursor));
+    }
+
+    #[test]
+    fn search_index_cursor_rejects_corrupted_values() {
+        assert_eq!(decode_search_index_cursor(Some("not_a_number|123")), None);
+        assert_eq!(decode_search_index_cursor(Some("123|not_a_number")), None);
+        assert_eq!(decode_search_index_cursor(Some("123")), None);
+    }
+
+    #[test]
+    fn test_search_index_entry_fields() {
+        let entry = SearchIndexEntry {
+            id: 1,
+            event_id: "$event1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            user_id: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content_type: "text/plain".to_string(),
+            content: "Hello world".to_string(),
+            created_ts: 1700000000000,
+            updated_ts: None,
+        };
+        assert_eq!(entry.event_id, "$event1:example.com");
+        assert_eq!(entry.content, "Hello world");
+        assert_eq!(entry.content_type, "text/plain");
+    }
+
+    #[test]
+    fn test_search_result_fields() {
+        let result = SearchResult {
+            event_id: "$event1:example.com".to_string(),
+            room_id: "!room:example.com".to_string(),
+            sender: "@alice:example.com".to_string(),
+            event_type: "m.room.message".to_string(),
+            content: "search result".to_string(),
+            origin_server_ts: 1700000000000,
+        };
+        assert_eq!(result.event_id, "$event1:example.com");
+        assert_eq!(result.sender, "@alice:example.com");
+    }
+
+    #[test]
+    fn test_search_query_fields() {
+        let query = SearchQuery {
+            search_term: "hello".to_string(),
+            room_ids: Some(vec!["!room1:example.com".to_string()]),
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: Some(50),
+            from: None,
+        };
+        assert_eq!(query.search_term, "hello");
+        assert_eq!(query.limit, Some(50));
+        assert_eq!(query.room_ids.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_search_query_minimal() {
+        let query = SearchQuery {
+            search_term: "test".to_string(),
+            room_ids: None,
+            not_room_ids: None,
+            sender: None,
+            event_types: None,
+            limit: None,
+            from: None,
+        };
+        assert_eq!(query.search_term, "test");
+        assert!(query.room_ids.is_none());
+    }
+
+    #[test]
+    fn test_search_index_stats_fields() {
+        let stats = SearchIndexStats {
+            total_count: 1000,
+            by_event_type: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("m.room.message".to_string(), 800);
+                m
+            },
+        };
+        assert_eq!(stats.total_count, 1000);
     }
 }
 
