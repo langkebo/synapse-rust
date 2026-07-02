@@ -1032,15 +1032,11 @@ impl IntoResponse for ApiError {
 }
 
 // ---------------------------------------------------------------------------
-// ErrorContext — backward-compatible context enrichment
+// with_context — backward-compatible context enrichment
 // ---------------------------------------------------------------------------
 
-pub trait ErrorContext {
-    fn with_context(self, module: &str, operation: &str) -> Self;
-}
-
-impl ErrorContext for ApiError {
-    fn with_context(self, module: &str, operation: &str) -> Self {
+impl ApiError {
+    pub fn with_context(self, module: &str, operation: &str) -> Self {
         if self.kind == ApiErrorKind::Internal || self.kind == ApiErrorKind::BadRequest {
             let src = self.source.map_or_else(
                 || ErrorSource::new(module, operation),
