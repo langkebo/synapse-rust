@@ -503,16 +503,6 @@ impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
     }
 }
 
-pub trait AuthExtractor {
-    fn extract_token(&self, uri: &str) -> Result<String, ApiError>;
-}
-
-impl AuthExtractor for HeaderMap {
-    fn extract_token(&self, uri: &str) -> Result<String, ApiError> {
-        crate::web::utils::auth::extract_token(self, uri)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{AdminUser, OptionalAuthenticatedUser};
