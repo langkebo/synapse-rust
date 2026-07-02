@@ -564,18 +564,24 @@ mod db_tests {
 
         cleanup_user(&pool, &user_id).await;
 
-        let past = chrono::Utc::now().timestamp_millis() - 100_000;
-
-        // Create an expired device
+        // Create a device, then set expires_at to the past via raw SQL
         let params = UpsertDehydratedDeviceParams {
             user_id: user_id.clone(),
             device_id: "DEV_SWEEP".to_string(),
             device_data: json!({"test": true}),
             algorithm: "m.dehydrated_device_v1".to_string(),
             account: None,
-            expires_at: Some(past),
+            expires_at: None,
         };
         storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+        sqlx::query("UPDATE dehydrated_devices SET expires_at = $1 WHERE user_id = $2")
+            .bind(past)
+            .bind(&user_id)
+            .execute(&*pool)
+            .await
+            .expect("update expires_at");
 
         // Verify it exists (expired, so get_by_user won't return it, but it's in the DB)
         let count_before: (i64,) =
