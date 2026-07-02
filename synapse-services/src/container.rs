@@ -183,7 +183,7 @@ pub struct AccountServices {
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
     pub user_storage: Arc<dyn UserStore>,
     pub threepid_storage: ThreepidStorage,
-    pub device_storage: Arc<dyn DeviceRepository>,
+    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub token_storage: AccessTokenStorage,
     pub presence_storage: Arc<dyn PresenceRepository>,
     pub presence_service: Arc<crate::presence_service::PresenceService>,
@@ -196,7 +196,7 @@ impl AccountServices {
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         user_storage: Arc<dyn UserStore>,
-        device_storage: &Arc<dyn DeviceRepository>,
+        device_storage: &Arc<synapse_storage::device::DeviceStorage>,
         threepid_storage: ThreepidStorage,
         presence_storage: Arc<dyn PresenceRepository>,
         presence_service: &Arc<crate::presence_service::PresenceService>,
@@ -388,7 +388,7 @@ impl ExtensionServices {
         #[cfg(feature = "friends")]
         let friend_storage = FriendRoomStorage::new(pool.clone());
         #[cfg(feature = "friends")]
-        let account_data_storage: Arc<dyn synapse_storage::AccountDataRepository> =
+        let account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
@@ -640,7 +640,7 @@ pub struct RoomSyncServices {
     pub member_storage: Arc<dyn RoomMemberRepository>,
     pub event_storage: Arc<dyn EventRepository>,
     pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
-    pub relations_storage: Arc<dyn synapse_storage::RelationsRepository>,
+    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
@@ -675,8 +675,8 @@ impl RoomSyncServices {
         let room_storage: Arc<dyn RoomRepository> = room_storage_concrete.clone();
         let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
         let event_storage: Arc<dyn EventRepository> = event_storage_concrete.clone();
-        let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
-        let relations_storage: Arc<dyn synapse_storage::RelationsRepository> =
+        let device_storage: Arc<synapse_storage::device::DeviceStorage> = Arc::new(DeviceStorage::new(pool));
+        let relations_storage: Arc<synapse_storage::relations::RelationsStorage> =
             Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
         let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
         let room_tag_storage = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
@@ -859,7 +859,7 @@ pub struct AdminUserServices {
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub email_verification_storage: EmailVerificationStorage,
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    pub refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository>,
+    pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
     pub registration_token_storage: synapse_storage::registration_token::RegistrationTokenStorage,
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
@@ -979,7 +979,7 @@ impl AdminServices {
             Arc::new(audit_storage.clone()),
         ));
 
-        let refresh_token_storage: Arc<dyn synapse_storage::RefreshTokenRepository> =
+        let refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage> =
             Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
             refresh_token_storage.clone(),
@@ -1012,7 +1012,7 @@ impl AdminServices {
         ));
 
         let push_notification_storage = synapse_storage::push_notification::PushNotificationStorage::new(pool);
-        let account_data_storage_for_push: Arc<dyn synapse_storage::AccountDataRepository> =
+        let account_data_storage_for_push: Arc<synapse_storage::account_data::AccountDataStorage> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service = Arc::new(
             crate::push_notification_service::PushNotificationService::new(Arc::new(push_notification_storage.clone()))
@@ -1173,7 +1173,7 @@ impl ServiceContainer {
 
         // Core storage
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
-        let device_storage: Arc<dyn DeviceRepository> = Arc::new(DeviceStorage::new(pool));
+        let device_storage: Arc<synapse_storage::device::DeviceStorage> = Arc::new(DeviceStorage::new(pool));
         let threepid_storage = ThreepidStorage::new(pool);
         let presence_storage: Arc<dyn PresenceRepository> = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));

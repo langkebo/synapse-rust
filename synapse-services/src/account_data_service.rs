@@ -6,13 +6,12 @@ use synapse_storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::user::UserStore;
-use synapse_storage::AccountDataRepository;
 use tracing::instrument;
 
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
-    account_data_storage: Arc<dyn AccountDataRepository>,
+    account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
     user_storage: Arc<dyn UserStore>,
     room_storage: Arc<dyn synapse_storage::RoomRepository>,
     room_account_data_storage: RoomAccountDataStorage,

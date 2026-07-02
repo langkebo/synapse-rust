@@ -21,7 +21,7 @@ pub struct PushNotificationService {
     queue: Option<Arc<PushQueue>>,
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
-    account_data_storage: Option<Arc<dyn synapse_storage::AccountDataRepository>>,
+    account_data_storage: Option<Arc<synapse_storage::account_data::AccountDataStorage>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -104,7 +104,7 @@ impl PushNotificationService {
     /// sender is in that list (matching Synapse's behavior).
     pub fn with_account_data_storage(
         mut self,
-        account_data_storage: Arc<dyn synapse_storage::AccountDataRepository>,
+        account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
     ) -> Self {
         self.account_data_storage = Some(account_data_storage);
         self

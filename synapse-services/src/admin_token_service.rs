@@ -5,7 +5,6 @@ use synapse_storage::registration_token::{
     CreateRegistrationTokenRequest, RegistrationToken, UpdateRegistrationTokenRequest,
 };
 use synapse_storage::token::AccessTokenStorage;
-use synapse_storage::RefreshTokenRepository;
 use tracing::instrument;
 
 #[derive(Debug, Clone)]
@@ -28,14 +27,14 @@ pub struct AdminRefreshTokenInfo {
 
 pub struct AdminTokenService {
     token_storage: AccessTokenStorage,
-    refresh_token_storage: Arc<dyn RefreshTokenRepository>,
+    refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
     registration_token_service: Arc<RegistrationTokenService>,
 }
 
 impl AdminTokenService {
     pub fn new(
         token_storage: AccessTokenStorage,
-        refresh_token_storage: Arc<dyn RefreshTokenRepository>,
+        refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
         registration_token_service: Arc<RegistrationTokenService>,
     ) -> Self {
         Self { token_storage, refresh_token_storage, registration_token_service }

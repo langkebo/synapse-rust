@@ -162,13 +162,9 @@ pub use self::token::*;
 pub use self::worker::*;
 
 // Storage repository traits (explicit re-exports for service-layer consumption)
-pub use account_data::repository::AccountDataRepository;
-pub use device::DeviceRepository;
 pub use event::EventRepository;
 pub use membership::repository::RoomMemberRepository;
 pub use presence::repository::PresenceRepository;
-pub use refresh_token::repository::RefreshTokenRepository;
-pub use relations::repository::RelationsRepository;
 pub use room::RoomRepository;
 
 // Feature-gated re-exports

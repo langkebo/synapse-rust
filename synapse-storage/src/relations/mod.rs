@@ -1,6 +1,3 @@
-pub mod repository;
-
-use repository::RelationsRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -390,87 +387,6 @@ impl RelationsStorage {
     }
 }
 
-#[async_trait::async_trait]
-impl RelationsRepository for RelationsStorage {
-    fn pool(&self) -> &Arc<sqlx::PgPool> {
-        &self.pool
-    }
-
-    async fn create_relation(&self, params: CreateRelationParams) -> Result<EventRelation, sqlx::Error> {
-        self.create_relation(params).await
-    }
-
-    async fn get_relation(&self, room_id: &str, event_id: &str) -> Result<Option<EventRelation>, sqlx::Error> {
-        self.get_relation(room_id, event_id).await
-    }
-
-    async fn count_relations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        relation_type: Option<&str>,
-    ) -> Result<i64, sqlx::Error> {
-        self.count_relations(room_id, relates_to_event_id, relation_type).await
-    }
-
-    async fn get_relations(&self, params: RelationQueryParams) -> Result<Vec<EventRelation>, sqlx::Error> {
-        self.get_relations(params).await
-    }
-
-    async fn get_annotations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<EventRelation>, sqlx::Error> {
-        self.get_annotations(room_id, relates_to_event_id, limit).await
-    }
-
-    async fn get_references(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        limit: Option<i32>,
-    ) -> Result<Vec<EventRelation>, sqlx::Error> {
-        self.get_references(room_id, relates_to_event_id, limit).await
-    }
-
-    async fn get_replacement(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        sender: &str,
-    ) -> Result<Option<EventRelation>, sqlx::Error> {
-        self.get_replacement(room_id, relates_to_event_id, sender).await
-    }
-
-    async fn aggregate_annotations(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-    ) -> Result<Vec<AggregationResult>, sqlx::Error> {
-        self.aggregate_annotations(room_id, relates_to_event_id).await
-    }
-
-    async fn redact_relation(&self, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
-        self.redact_relation(room_id, event_id).await
-    }
-
-    async fn delete_relation(&self, room_id: &str, event_id: &str, sender: &str) -> Result<bool, sqlx::Error> {
-        self.delete_relation(room_id, event_id, sender).await
-    }
-
-    async fn relation_exists(
-        &self,
-        room_id: &str,
-        relates_to_event_id: &str,
-        relation_type: &str,
-        sender: &str,
-    ) -> Result<bool, sqlx::Error> {
-        self.relation_exists(room_id, relates_to_event_id, relation_type, sender).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -536,11 +452,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -561,10 +474,7 @@ mod db_tests {
             .bind(format!("%{suffix}"))
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
-            .bind(format!("%{suffix}"))
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(format!("%{suffix}")).execute(pool).await;
     }
 
     fn make_params(suffix: &str) -> CreateRelationParams {
@@ -591,10 +501,7 @@ mod db_tests {
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
 
-        let rel = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let rel = storage.create_relation(params).await.expect("create_relation should succeed");
 
         assert!(rel.id > 0);
         assert_eq!(rel.room_id, format!("!room_{suffix}:example.com"));
@@ -619,10 +526,7 @@ mod db_tests {
         let storage = RelationsStorage::new(&pool);
 
         let params1 = make_params(&suffix);
-        let rel1 = storage
-            .create_relation(params1)
-            .await
-            .expect("first create_relation should succeed");
+        let rel1 = storage.create_relation(params1).await.expect("first create_relation should succeed");
 
         // Upsert with same (event_id, relation_type, sender) but different content
         let params2 = CreateRelationParams {
@@ -635,10 +539,7 @@ mod db_tests {
             content: json!({"body": "👎", "extra": true}),
         };
 
-        let rel2 = storage
-            .create_relation(params2)
-            .await
-            .expect("upsert create_relation should succeed");
+        let rel2 = storage.create_relation(params2).await.expect("upsert create_relation should succeed");
 
         // Same row id, but updated content and origin_server_ts
         assert_eq!(rel2.id, rel1.id);
@@ -661,10 +562,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let created = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let created = storage.create_relation(params).await.expect("create_relation should succeed");
 
         let found = storage
             .get_relation(&format!("!room_{suffix}:example.com"), &format!("$event_{suffix}"))
@@ -709,10 +607,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let _ = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let _ = storage.create_relation(params).await.expect("create_relation should succeed");
 
         // Redact it
         storage
@@ -755,10 +650,7 @@ mod db_tests {
                 origin_server_ts: chrono::Utc::now().timestamp_millis(),
                 content: json!({"body": "👍"}),
             };
-            storage
-                .create_relation(params)
-                .await
-                .expect("create_relation should succeed");
+            storage.create_relation(params).await.expect("create_relation should succeed");
         }
 
         let count = storage
@@ -809,22 +701,14 @@ mod db_tests {
         storage.create_relation(ref_params).await.unwrap();
 
         let annot_count = storage
-            .count_relations(
-                &format!("!room_{suffix}:example.com"),
-                &relates_to,
-                Some("m.annotation"),
-            )
+            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.annotation"))
             .await
             .expect("count_relations with filter should succeed");
 
         assert_eq!(annot_count, 2);
 
         let ref_count = storage
-            .count_relations(
-                &format!("!room_{suffix}:example.com"),
-                &relates_to,
-                Some("m.reference"),
-            )
+            .count_relations(&format!("!room_{suffix}:example.com"), &relates_to, Some("m.reference"))
             .await
             .expect("count_relations with filter should succeed");
 
@@ -872,10 +756,7 @@ mod db_tests {
             direction: Some("f".to_string()),
         };
 
-        let results = storage
-            .get_relations(params)
-            .await
-            .expect("get_relations forward should succeed");
+        let results = storage.get_relations(params).await.expect("get_relations forward should succeed");
 
         assert_eq!(results.len(), 5);
         // Forward: ORDER BY origin_server_ts ASC, event_id ASC
@@ -918,10 +799,7 @@ mod db_tests {
             direction: Some("b".to_string()),
         };
 
-        let results = storage
-            .get_relations(params)
-            .await
-            .expect("get_relations backward should succeed");
+        let results = storage.get_relations(params).await.expect("get_relations backward should succeed");
 
         assert_eq!(results.len(), 5);
         // Backward: ORDER BY origin_server_ts DESC, event_id DESC
@@ -1251,11 +1129,7 @@ mod db_tests {
         storage.create_relation(params).await.unwrap();
 
         let replacement = storage
-            .get_replacement(
-                &format!("!room_{suffix}:example.com"),
-                &relates_to,
-                &format!("@bob_{suffix}:example.com"),
-            )
+            .get_replacement(&format!("!room_{suffix}:example.com"), &relates_to, &format!("@bob_{suffix}:example.com"))
             .await
             .expect("get_replacement should succeed");
 
@@ -1382,10 +1256,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let created = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let created = storage.create_relation(params).await.expect("create_relation should succeed");
 
         assert!(!created.is_redacted);
         assert!(created.content != json!({}));
@@ -1396,14 +1267,13 @@ mod db_tests {
             .expect("redact_relation should succeed");
 
         // Verify by querying directly (bypassing is_redacted filter)
-        let row: (bool, serde_json::Value) = sqlx::query_as(
-            "SELECT is_redacted, content FROM event_relations WHERE room_id = $1 AND event_id = $2",
-        )
-        .bind(format!("!room_{suffix}:example.com"))
-        .bind(format!("$event_{suffix}"))
-        .fetch_one(&*pool)
-        .await
-        .expect("direct query should succeed");
+        let row: (bool, serde_json::Value) =
+            sqlx::query_as("SELECT is_redacted, content FROM event_relations WHERE room_id = $1 AND event_id = $2")
+                .bind(format!("!room_{suffix}:example.com"))
+                .bind(format!("$event_{suffix}"))
+                .fetch_one(&*pool)
+                .await
+                .expect("direct query should succeed");
 
         assert!(row.0, "is_redacted should be TRUE");
         assert_eq!(row.1, json!({}), "content should be empty object");
@@ -1423,10 +1293,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let _ = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let _ = storage.create_relation(params).await.expect("create_relation should succeed");
 
         let deleted = storage
             .delete_relation(
@@ -1440,14 +1307,12 @@ mod db_tests {
         assert!(deleted, "delete should return true when a row is removed");
 
         // Verify it's gone
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2",
-        )
-        .bind(format!("!room_{suffix}:example.com"))
-        .bind(format!("$event_{suffix}"))
-        .fetch_optional(&*pool)
-        .await
-        .expect("direct query should succeed");
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2")
+            .bind(format!("!room_{suffix}:example.com"))
+            .bind(format!("$event_{suffix}"))
+            .fetch_optional(&*pool)
+            .await
+            .expect("direct query should succeed");
 
         assert!(row.is_none(), "row should be deleted");
 
@@ -1488,10 +1353,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let _ = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let _ = storage.create_relation(params).await.expect("create_relation should succeed");
 
         // Try to delete with a different sender
         let deleted = storage
@@ -1506,14 +1368,12 @@ mod db_tests {
         assert!(!deleted, "delete should return false when sender does not match");
 
         // Row should still exist
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2",
-        )
-        .bind(format!("!room_{suffix}:example.com"))
-        .bind(format!("$event_{suffix}"))
-        .fetch_optional(&*pool)
-        .await
-        .expect("direct query should succeed");
+        let row: Option<(i64,)> = sqlx::query_as("SELECT id FROM event_relations WHERE room_id = $1 AND event_id = $2")
+            .bind(format!("!room_{suffix}:example.com"))
+            .bind(format!("$event_{suffix}"))
+            .fetch_optional(&*pool)
+            .await
+            .expect("direct query should succeed");
 
         assert!(row.is_some(), "row should still exist");
 
@@ -1532,10 +1392,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let _ = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let _ = storage.create_relation(params).await.expect("create_relation should succeed");
 
         let exists = storage
             .relation_exists(
@@ -1587,10 +1444,7 @@ mod db_tests {
 
         let storage = RelationsStorage::new(&pool);
         let params = make_params(&suffix);
-        let _ = storage
-            .create_relation(params)
-            .await
-            .expect("create_relation should succeed");
+        let _ = storage.create_relation(params).await.expect("create_relation should succeed");
 
         // Redact it
         storage
