@@ -653,7 +653,7 @@ pub struct RoomSyncServices {
     pub relations_service: Arc<crate::relations_service::RelationsService>,
     pub thread_storage: synapse_storage::thread::ThreadStorage,
     pub thread_service: Arc<crate::thread_service::ThreadService>,
-    pub room_tag_storage: Arc<dyn RoomTagRepository>,
+    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
 }
 
 impl RoomSyncServices {
@@ -679,8 +679,7 @@ impl RoomSyncServices {
         let relations_storage: Arc<dyn synapse_storage::RelationsRepository> =
             Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
         let room_summary_storage = synapse_storage::room_summary::RoomSummaryStorage::new(pool);
-        let room_tag_storage: Arc<dyn RoomTagRepository> =
-            Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
+        let room_tag_storage = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone()));
 
         let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
             Arc::new(room_summary_storage.clone()),

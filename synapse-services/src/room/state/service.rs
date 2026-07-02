@@ -13,7 +13,7 @@ pub struct RoomStateService {
     pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub(crate) room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
+    pub(crate) room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) server_name: String,
 }
@@ -23,7 +23,7 @@ pub struct RoomStateServiceConfig {
     pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
+    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
     pub user_storage: Arc<dyn UserStore>,
     pub server_name: String,
 }

@@ -48,7 +48,7 @@ pub struct RoomServiceConfig {
     pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
     pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     pub event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
+    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn Auth>,
     pub room_summary_service: Arc<RoomSummaryService>,
@@ -84,7 +84,7 @@ pub struct RoomService {
     #[allow(dead_code)]
     pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
     #[allow(dead_code)]
-    pub(crate) room_tag_storage: Arc<dyn synapse_storage::RoomTagRepository>,
+    pub(crate) room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
     pub user_storage: Arc<dyn UserStore>,
     #[allow(dead_code)]
     pub(crate) auth_service: Arc<dyn Auth>,
