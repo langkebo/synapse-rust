@@ -1385,7 +1385,6 @@ mod db_tests {
 
         // No expired pending captchas we control — cleanup is global so other tests
         // may leave expired rows; just verify the call succeeds without error.
-        let deleted = storage.cleanup_expired_captchas().await.expect("cleanup should succeed");
-        assert!(deleted >= 0);
+        let _deleted = storage.cleanup_expired_captchas().await.expect("cleanup should succeed");
     }
 }
