@@ -158,8 +158,8 @@ pub mod friend_room_service;
 #[cfg(feature = "friends")]
 pub use friend_room_service::{
     decode_friend_list_cursor, encode_friend_list_cursor, DirectMapUpdateAction, DirectRoomSnapshot, DmPartnerInfo,
-    EnsureDirectRoomResult, FriendFederationSender, FriendListCursor, FriendListEntry, FriendListPage,
-    FriendListRequest, FriendRoomCreateRoomConfig, FriendRoomRoomOps, FriendRoomService,
+    EnsureDirectRoomResult, FriendListCursor, FriendListEntry, FriendListPage, FriendListRequest,
+    FriendRoomCreateRoomConfig, FriendRoomService,
 };
 
 #[cfg(feature = "voice-extended")]
@@ -239,14 +239,17 @@ pub mod test_config;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 
+// Pre-positioned Mock adapters (TDD workflow — see .claude/skills/tdd-rust/SKILL.md)
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_mocks;
+
 // Internal bridge imports of sibling crates.
 //
 // `common` and `storage` still expose broad internal namespaces so existing
 // `crate::...` references inside `synapse-services` remain stable while the
 // public root API stays explicit.
 pub use auth::{
-    Auth, AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService,
-    PasswordValidationResult,
+    Auth, AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService, PasswordValidationResult,
 };
 pub use cache::{
     circuit_breaker, compression, federation_signature_cache, invalidation, query_cache, strategy, CacheConfig,
