@@ -1,6 +1,3 @@
-pub mod repository;
-
-use repository::PresenceRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;
@@ -654,77 +651,6 @@ impl PresenceStorage {
     }
 }
 
-#[async_trait::async_trait]
-impl PresenceRepository for PresenceStorage {
-    fn pool(&self) -> &Arc<sqlx::PgPool> {
-        &self.pool
-    }
-
-    async fn set_presence(&self, user_id: &str, presence: &str, status_msg: Option<&str>) -> Result<(), sqlx::Error> {
-        self.set_presence(user_id, presence, status_msg).await
-    }
-
-    async fn get_presence(&self, user_id: &str) -> Result<Option<(String, Option<String>)>, sqlx::Error> {
-        self.get_presence(user_id).await
-    }
-
-    async fn get_presence_with_meta(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<(String, Option<String>, Option<i64>)>, sqlx::Error> {
-        self.get_presence_with_meta(user_id).await
-    }
-
-    async fn get_presences(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, (String, Option<String>)>, sqlx::Error> {
-        self.get_presences(user_ids).await
-    }
-
-    async fn set_typing(&self, room_id: &str, user_id: &str, typing: bool) -> Result<(), sqlx::Error> {
-        self.set_typing(room_id, user_id, typing).await
-    }
-
-    async fn add_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
-        self.add_subscription(subscriber_id, target_id).await
-    }
-
-    async fn remove_subscription(&self, subscriber_id: &str, target_id: &str) -> Result<(), sqlx::Error> {
-        self.remove_subscription(subscriber_id, target_id).await
-    }
-
-    async fn get_subscriptions(&self, subscriber_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.get_subscriptions(subscriber_id).await
-    }
-
-    async fn get_subscribers(&self, target_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.get_subscribers(target_id).await
-    }
-
-    async fn get_presence_batch(
-        &self,
-        user_ids: &[String],
-    ) -> Result<Vec<(String, String, Option<String>)>, sqlx::Error> {
-        self.get_presence_batch(user_ids).await
-    }
-
-    async fn get_presence_batch_with_meta(
-        &self,
-        user_ids: &[String],
-    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
-        self.get_presence_batch_with_meta(user_ids).await
-    }
-
-    async fn get_presence_snapshots(
-        &self,
-        user_ids: &[String],
-    ) -> Result<HashMap<String, PresenceSnapshot>, sqlx::Error> {
-        self.get_presence_snapshots(user_ids).await
-    }
-}
-
-#[cfg(test)]
 mod db_tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;
@@ -736,11 +662,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -761,20 +684,13 @@ mod db_tests {
     }
 
     async fn cleanup_presence_data(pool: &sqlx::PgPool, suffix: &str) {
-        let _ = sqlx::query("DELETE FROM presence WHERE user_id LIKE $1")
+        let _ =
+            sqlx::query("DELETE FROM presence WHERE user_id LIKE $1").bind(format!("%{suffix}%")).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM presence_subscriptions WHERE subscriber_id LIKE $1 OR target_id LIKE $1")
             .bind(format!("%{suffix}%"))
             .execute(pool)
             .await;
-        let _ = sqlx::query(
-            "DELETE FROM presence_subscriptions WHERE subscriber_id LIKE $1 OR target_id LIKE $1",
-        )
-        .bind(format!("%{suffix}%"))
-        .execute(pool)
-        .await;
-        let _ = sqlx::query("DELETE FROM typing WHERE user_id LIKE $1")
-            .bind(format!("%{suffix}%"))
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM typing WHERE user_id LIKE $1").bind(format!("%{suffix}%")).execute(pool).await;
     }
 
     // ================================================================
@@ -790,10 +706,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_id, "online", None)
-            .await
-            .expect("set_presence should succeed");
+        storage.set_presence(&user_id, "online", None).await.expect("set_presence should succeed");
 
         let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
             "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
@@ -819,10 +732,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_id, "offline", None)
-            .await
-            .expect("set_presence should succeed");
+        storage.set_presence(&user_id, "offline", None).await.expect("set_presence should succeed");
 
         let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
             "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
@@ -879,15 +789,9 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_id, "online", Some("Hello"))
-            .await
-            .expect("set_presence should succeed");
+        storage.set_presence(&user_id, "online", Some("Hello")).await.expect("set_presence should succeed");
 
-        let result = storage
-            .get_presence(&user_id)
-            .await
-            .expect("get_presence should succeed");
+        let result = storage.get_presence(&user_id).await.expect("get_presence should succeed");
 
         assert!(result.is_some());
         let (presence, status_msg) = result.unwrap();
@@ -906,17 +810,12 @@ mod db_tests {
         // Note: intentionally NOT creating the user so presence is truly missing
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        let result = storage
-            .get_presence(&user_id)
-            .await
-            .expect("get_presence should succeed");
+        let result = storage.get_presence(&user_id).await.expect("get_presence should succeed");
         assert!(result.is_none());
 
         // get_presence_with_meta should also return None for unknown user
-        let meta_result = storage
-            .get_presence_with_meta(&user_id)
-            .await
-            .expect("get_presence_with_meta should succeed");
+        let meta_result =
+            storage.get_presence_with_meta(&user_id).await.expect("get_presence_with_meta should succeed");
         assert!(meta_result.is_none());
 
         cleanup_presence_data(&pool, &suffix).await;
@@ -935,15 +834,9 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_id, "online", Some("Working"))
-            .await
-            .expect("set_presence should succeed");
+        storage.set_presence(&user_id, "online", Some("Working")).await.expect("set_presence should succeed");
 
-        let result = storage
-            .get_presence_with_meta(&user_id)
-            .await
-            .expect("get_presence_with_meta should succeed");
+        let result = storage.get_presence_with_meta(&user_id).await.expect("get_presence_with_meta should succeed");
 
         assert!(result.is_some());
         let (presence, status_msg, last_active_ts) = result.unwrap();
@@ -970,27 +863,15 @@ mod db_tests {
         ensure_test_user(&pool, &user_b).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_a, "online", None)
-            .await
-            .expect("set_presence a");
-        storage
-            .set_presence(&user_b, "offline", Some("Busy"))
-            .await
-            .expect("set_presence b");
+        storage.set_presence(&user_a, "online", None).await.expect("set_presence a");
+        storage.set_presence(&user_b, "offline", Some("Busy")).await.expect("set_presence b");
 
-        let map = storage
-            .get_presences(&[user_a.clone(), user_b.clone()])
-            .await
-            .expect("get_presences should succeed");
+        let map = storage.get_presences(&[user_a.clone(), user_b.clone()]).await.expect("get_presences should succeed");
 
         assert_eq!(map.len(), 2);
         assert_eq!(map.get(&user_a).map(|p| &*p.0), Some("online"));
         assert_eq!(map.get(&user_b).map(|p| &*p.0), Some("offline"));
-        assert_eq!(
-            map.get(&user_b).and_then(|p| p.1.as_deref()),
-            Some("Busy")
-        );
+        assert_eq!(map.get(&user_b).and_then(|p| p.1.as_deref()), Some("Busy"));
 
         cleanup_presence_data(&pool, &suffix).await;
     }
@@ -1000,10 +881,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PresenceStorage::new(pool.clone(), test_cache());
 
-        let map = storage
-            .get_presences(&[])
-            .await
-            .expect("get_presences should succeed");
+        let map = storage.get_presences(&[]).await.expect("get_presences should succeed");
         assert!(map.is_empty());
     }
 
@@ -1020,10 +898,7 @@ mod db_tests {
         cleanup_presence_data(&pool, &suffix).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_typing(&room_id, &user_id, true)
-            .await
-            .expect("set_typing should succeed");
+        storage.set_typing(&room_id, &user_id, true).await.expect("set_typing should succeed");
 
         let row = sqlx::query_as::<_, (bool, i64)>(
             "SELECT is_typing, last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
@@ -1049,23 +924,15 @@ mod db_tests {
         cleanup_presence_data(&pool, &suffix).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_typing(&room_id, &user_id, true)
-            .await
-            .expect("set_typing true");
-        storage
-            .set_typing(&room_id, &user_id, false)
-            .await
-            .expect("set_typing false");
+        storage.set_typing(&room_id, &user_id, true).await.expect("set_typing true");
+        storage.set_typing(&room_id, &user_id, false).await.expect("set_typing false");
 
-        let row = sqlx::query_as::<_, (bool,)>(
-            "SELECT is_typing FROM typing WHERE user_id = $1 AND room_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&room_id)
-        .fetch_optional(&*pool)
-        .await
-        .expect("query should succeed");
+        let row = sqlx::query_as::<_, (bool,)>("SELECT is_typing FROM typing WHERE user_id = $1 AND room_id = $2")
+            .bind(&user_id)
+            .bind(&room_id)
+            .fetch_optional(&*pool)
+            .await
+            .expect("query should succeed");
 
         assert!(row.is_none(), "typing row should be deleted");
 
@@ -1081,45 +948,32 @@ mod db_tests {
         cleanup_presence_data(&pool, &suffix).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_typing(&room_id, &user_id, true)
-            .await
-            .expect("first set_typing");
+        storage.set_typing(&room_id, &user_id, true).await.expect("first set_typing");
 
-        let first_ts = sqlx::query_as::<_, (i64,)>(
-            "SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("query first ts")
-        .0;
+        let first_ts =
+            sqlx::query_as::<_, (i64,)>("SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2")
+                .bind(&user_id)
+                .bind(&room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("query first ts")
+                .0;
 
         // Small sleep to ensure different timestamps
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        storage
-            .set_typing(&room_id, &user_id, true)
-            .await
-            .expect("second set_typing");
+        storage.set_typing(&room_id, &user_id, true).await.expect("second set_typing");
 
-        let second_ts = sqlx::query_as::<_, (i64,)>(
-            "SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&room_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("query second ts")
-        .0;
+        let second_ts =
+            sqlx::query_as::<_, (i64,)>("SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2")
+                .bind(&user_id)
+                .bind(&room_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("query second ts")
+                .0;
 
-        assert!(
-            second_ts >= first_ts,
-            "timestamp should be updated ({} >= {})",
-            second_ts,
-            first_ts
-        );
+        assert!(second_ts >= first_ts, "timestamp should be updated ({} >= {})", second_ts, first_ts);
 
         cleanup_presence_data(&pool, &suffix).await;
     }
@@ -1139,22 +993,13 @@ mod db_tests {
         ensure_test_user(&pool, &target).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .expect("add_subscription should succeed");
+        storage.add_subscription(&subscriber, &target).await.expect("add_subscription should succeed");
 
-        let subs = storage
-            .get_subscriptions(&subscriber)
-            .await
-            .expect("get_subscriptions should succeed");
+        let subs = storage.get_subscriptions(&subscriber).await.expect("get_subscriptions should succeed");
         assert_eq!(subs.len(), 1);
         assert_eq!(subs[0], target);
 
-        let followers = storage
-            .get_subscribers(&target)
-            .await
-            .expect("get_subscribers should succeed");
+        let followers = storage.get_subscribers(&target).await.expect("get_subscribers should succeed");
         assert_eq!(followers.len(), 1);
         assert_eq!(followers[0], subscriber);
 
@@ -1172,19 +1017,10 @@ mod db_tests {
         ensure_test_user(&pool, &target).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .expect("first add_subscription");
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .expect("second add_subscription should also succeed");
+        storage.add_subscription(&subscriber, &target).await.expect("first add_subscription");
+        storage.add_subscription(&subscriber, &target).await.expect("second add_subscription should also succeed");
 
-        let subs = storage
-            .get_subscriptions(&subscriber)
-            .await
-            .expect("get_subscriptions should succeed");
+        let subs = storage.get_subscriptions(&subscriber).await.expect("get_subscriptions should succeed");
         assert_eq!(subs.len(), 1, "should only have one subscription");
 
         cleanup_presence_data(&pool, &suffix).await;
@@ -1201,19 +1037,10 @@ mod db_tests {
         ensure_test_user(&pool, &target).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .add_subscription(&subscriber, &target)
-            .await
-            .expect("add_subscription");
-        storage
-            .remove_subscription(&subscriber, &target)
-            .await
-            .expect("remove_subscription should succeed");
+        storage.add_subscription(&subscriber, &target).await.expect("add_subscription");
+        storage.remove_subscription(&subscriber, &target).await.expect("remove_subscription should succeed");
 
-        let subs = storage
-            .get_subscriptions(&subscriber)
-            .await
-            .expect("get_subscriptions should succeed");
+        let subs = storage.get_subscriptions(&subscriber).await.expect("get_subscriptions should succeed");
         assert!(subs.is_empty(), "subscriptions should be empty after removal");
 
         cleanup_presence_data(&pool, &suffix).await;
@@ -1254,19 +1081,10 @@ mod db_tests {
         ensure_test_user(&pool, &target_b).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .add_subscription(&subscriber, &target_a)
-            .await
-            .expect("add sub a");
-        storage
-            .add_subscription(&subscriber, &target_b)
-            .await
-            .expect("add sub b");
+        storage.add_subscription(&subscriber, &target_a).await.expect("add sub a");
+        storage.add_subscription(&subscriber, &target_b).await.expect("add sub b");
 
-        let subs = storage
-            .get_subscriptions(&subscriber)
-            .await
-            .expect("get_subscriptions should succeed");
+        let subs = storage.get_subscriptions(&subscriber).await.expect("get_subscriptions should succeed");
         assert_eq!(subs.len(), 2);
         assert!(subs.contains(&target_a));
         assert!(subs.contains(&target_b));
@@ -1283,10 +1101,7 @@ mod db_tests {
         ensure_test_user(&pool, &subscriber).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        let subs = storage
-            .get_subscriptions(&subscriber)
-            .await
-            .expect("get_subscriptions should succeed");
+        let subs = storage.get_subscriptions(&subscriber).await.expect("get_subscriptions should succeed");
         assert!(subs.is_empty());
 
         cleanup_presence_data(&pool, &suffix).await;
@@ -1309,19 +1124,10 @@ mod db_tests {
         ensure_test_user(&pool, &follower_b).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .add_subscription(&follower_a, &target)
-            .await
-            .expect("add sub a");
-        storage
-            .add_subscription(&follower_b, &target)
-            .await
-            .expect("add sub b");
+        storage.add_subscription(&follower_a, &target).await.expect("add sub a");
+        storage.add_subscription(&follower_b, &target).await.expect("add sub b");
 
-        let followers = storage
-            .get_subscribers(&target)
-            .await
-            .expect("get_subscribers should succeed");
+        let followers = storage.get_subscribers(&target).await.expect("get_subscribers should succeed");
         assert_eq!(followers.len(), 2);
         assert!(followers.contains(&follower_a));
         assert!(followers.contains(&follower_b));
@@ -1338,10 +1144,7 @@ mod db_tests {
         ensure_test_user(&pool, &target).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        let followers = storage
-            .get_subscribers(&target)
-            .await
-            .expect("get_subscribers should succeed");
+        let followers = storage.get_subscribers(&target).await.expect("get_subscribers should succeed");
         assert!(followers.is_empty());
 
         cleanup_presence_data(&pool, &suffix).await;
@@ -1363,14 +1166,8 @@ mod db_tests {
         ensure_test_user(&pool, &user_b).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_a, "online", None)
-            .await
-            .expect("set_presence a");
-        storage
-            .set_presence(&user_b, "offline", Some("Sleeping"))
-            .await
-            .expect("set_presence b");
+        storage.set_presence(&user_a, "online", None).await.expect("set_presence a");
+        storage.set_presence(&user_b, "offline", Some("Sleeping")).await.expect("set_presence b");
         // user_c has no presence — should be silently omitted
 
         let results = storage
@@ -1398,10 +1195,7 @@ mod db_tests {
         ensure_test_user(&pool, &user).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user, "online", Some("At desk"))
-            .await
-            .expect("set_presence");
+        storage.set_presence(&user, "online", Some("At desk")).await.expect("set_presence");
 
         let results = storage
             .get_presence_batch_with_meta(&[user.clone()])
@@ -1434,14 +1228,8 @@ mod db_tests {
         ensure_test_user(&pool, &user_b).await;
 
         let storage = PresenceStorage::new(pool.clone(), test_cache());
-        storage
-            .set_presence(&user_a, "online", Some("Available"))
-            .await
-            .expect("set_presence a");
-        storage
-            .set_presence(&user_b, "unavailable", None)
-            .await
-            .expect("set_presence b");
+        storage.set_presence(&user_a, "online", Some("Available")).await.expect("set_presence a");
+        storage.set_presence(&user_b, "unavailable", None).await.expect("set_presence b");
 
         let snapshots = storage
             .get_presence_snapshots(&[user_a.clone(), user_b.clone()])
@@ -1464,10 +1252,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = PresenceStorage::new(pool.clone(), test_cache());
 
-        let snapshots = storage
-            .get_presence_snapshots(&[])
-            .await
-            .expect("get_presence_snapshots should succeed");
+        let snapshots = storage.get_presence_snapshots(&[]).await.expect("get_presence_snapshots should succeed");
         assert!(snapshots.is_empty());
     }
 }

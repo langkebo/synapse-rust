@@ -11,9 +11,9 @@ use synapse_storage::UserStore;
 /// migration.
 #[derive(Clone)]
 pub struct LifecycleService {
-    pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
-    pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
+    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) validator: Arc<Validator>,
     pub(crate) server_name: String,
@@ -24,9 +24,9 @@ pub struct LifecycleService {
 
 /// Configuration for constructing a [`LifecycleService`].
 pub struct LifecycleServiceConfig {
-    pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
-    pub event_storage: Arc<dyn synapse_storage::EventRepository>,
+    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
     pub user_storage: Arc<dyn UserStore>,
     pub validator: Arc<Validator>,
     pub server_name: String,

@@ -9,22 +9,20 @@ pub use crate::storage::room_summary::{
     CreateRoomSummaryRequest, CreateSummaryMemberRequest, RoomSummaryMember, RoomSummaryResponse, RoomSummaryState,
     RoomSummaryStats, UpdateRoomSummaryRequest, UpdateSummaryMemberRequest,
 };
-use crate::RoomMemberRepository;
 use std::sync::Arc;
-use synapse_storage::EventRepository;
 use tracing::{debug, info, instrument};
 
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<RoomSummaryStorage>,
-    pub(crate) event_storage: Arc<dyn EventRepository>,
-    pub(crate) member_storage: Option<Arc<dyn RoomMemberRepository>>,
+    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) member_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
 }
 
 impl RoomSummaryService {
     pub fn new(
         storage: Arc<RoomSummaryStorage>,
-        event_storage: Arc<dyn EventRepository>,
-        member_storage: Option<Arc<dyn RoomMemberRepository>>,
+        event_storage: Arc<synapse_storage::event::EventStorage>,
+        member_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
     ) -> Self {
         Self { storage, event_storage, member_storage }
     }

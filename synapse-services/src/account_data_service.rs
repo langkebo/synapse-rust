@@ -13,7 +13,7 @@ type AccountDataWithTimestamp = (Value, Option<i64>);
 pub struct AccountDataService {
     account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
     user_storage: Arc<dyn UserStore>,
-    room_storage: Arc<dyn synapse_storage::RoomRepository>,
+    room_storage: Arc<synapse_storage::room::RoomStorage>,
     room_account_data_storage: RoomAccountDataStorage,
     filter_storage: FilterStorage,
     openid_token_storage: OpenIdTokenStorage,
@@ -23,7 +23,7 @@ impl AccountDataService {
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         user_storage: Arc<dyn UserStore>,
-        room_storage: Arc<dyn synapse_storage::RoomRepository>,
+        room_storage: Arc<synapse_storage::room::RoomStorage>,
         room_account_data_storage: RoomAccountDataStorage,
         filter_storage: FilterStorage,
         openid_token_storage: OpenIdTokenStorage,

@@ -25,18 +25,15 @@ use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_storage::account_data::AccountDataStorage;
-use synapse_storage::event::EventRepository;
-use synapse_storage::room::RoomRepository;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::PresenceRepository;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
 
 pub struct SyncService {
-    pub(crate) presence_storage: Arc<dyn PresenceRepository>,
-    pub(crate) member_storage: Arc<dyn RoomMemberRepository>,
-    pub(crate) event_storage: Arc<dyn EventRepository>,
-    pub(crate) room_storage: Arc<dyn RoomRepository>,
+    pub(crate) presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
+    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
     pub(crate) room_account_data_storage: RoomAccountDataStorage,
     pub(crate) account_data_storage: AccountDataStorage,
     pub(crate) filter_storage: FilterStorage,
@@ -80,10 +77,10 @@ impl SyncService {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        presence_storage: Arc<dyn PresenceRepository>,
-        member_storage: Arc<dyn RoomMemberRepository>,
-        event_storage: Arc<dyn EventRepository>,
-        room_storage: Arc<dyn RoomRepository>,
+        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
+        member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+        event_storage: Arc<synapse_storage::event::EventStorage>,
+        room_storage: Arc<synapse_storage::room::RoomStorage>,
         room_account_data_storage: RoomAccountDataStorage,
         account_data_storage: AccountDataStorage,
         filter_storage: FilterStorage,

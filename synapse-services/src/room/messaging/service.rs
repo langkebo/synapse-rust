@@ -18,9 +18,9 @@ use crate::room::summary::RoomSummaryService;
 /// read markers, burn-after-read, and federation broadcast.
 #[derive(Clone)]
 pub struct MessagingService {
-    pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
+    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
     pub(crate) server_name: String,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
@@ -41,9 +41,9 @@ pub struct MessagingService {
 
 /// Configuration for constructing a [`MessagingService`].
 pub struct MessagingServiceConfig {
-    pub event_storage: Arc<dyn synapse_storage::EventRepository>,
-    pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
     pub server_name: String,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,

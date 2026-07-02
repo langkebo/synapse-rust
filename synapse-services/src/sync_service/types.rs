@@ -9,10 +9,7 @@ use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
 use synapse_storage::account_data::AccountDataStorage;
-use synapse_storage::event::EventRepository;
-use synapse_storage::room::RoomRepository;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
-use synapse_storage::PresenceRepository;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncToken {
@@ -112,10 +109,10 @@ pub struct RoomSyncCounts {
 }
 
 pub struct SyncServiceDeps {
-    pub presence_storage: std::sync::Arc<dyn PresenceRepository>,
-    pub member_storage: Arc<dyn RoomMemberRepository>,
-    pub event_storage: Arc<dyn EventRepository>,
-    pub room_storage: Arc<dyn RoomRepository>,
+    pub presence_storage: std::sync::Arc<synapse_storage::presence::PresenceStorage>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
     pub room_account_data_storage: RoomAccountDataStorage,
     pub account_data_storage: AccountDataStorage,
     pub filter_storage: FilterStorage,

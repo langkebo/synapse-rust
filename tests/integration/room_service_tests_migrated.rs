@@ -11,7 +11,7 @@ use synapse_services::application_service::{ApplicationServiceManager, Applicati
 use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
-use synapse_storage::event::{EventRepository, EventStorage};
+use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
 use synapse_storage::room::RoomStorage;
@@ -291,7 +291,8 @@ async fn create_test_user(pool: &sqlx::PgPool, user_id: &str, username: &str) {
 
 fn create_room_service(pool: &Arc<sqlx::PgPool>, cache: Arc<CacheManager>) -> RoomService {
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
-    let event_storage: Arc<dyn EventRepository> = Arc::new(EventStorage::new(pool, "localhost".to_string()));
+    let event_storage: Arc<synapse_storage::event::EventStorage> =
+        Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let canonical_cache = cache;
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =

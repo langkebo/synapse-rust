@@ -26,7 +26,6 @@ use synapse_e2ee::verification::VerificationService;
 use synapse_federation::FriendFederation;
 use synapse_federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager};
 use synapse_storage::email_verification::EmailVerificationStorage;
-pub use synapse_storage::PresenceRepository;
 use synapse_storage::*;
 
 #[derive(Clone)]
@@ -185,7 +184,7 @@ pub struct AccountServices {
     pub threepid_storage: ThreepidStorage,
     pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
     pub token_storage: AccessTokenStorage,
-    pub presence_storage: Arc<dyn PresenceRepository>,
+    pub presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
     pub presence_service: Arc<crate::presence_service::PresenceService>,
     pub qr_login_storage: QrLoginStorage,
     pub invite_blocklist_storage: InviteBlocklistStorage,
@@ -198,7 +197,7 @@ impl AccountServices {
         user_storage: Arc<dyn UserStore>,
         device_storage: &Arc<synapse_storage::device::DeviceStorage>,
         threepid_storage: ThreepidStorage,
-        presence_storage: Arc<dyn PresenceRepository>,
+        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
         presence_service: &Arc<crate::presence_service::PresenceService>,
         qr_login_storage: QrLoginStorage,
         invite_blocklist_storage: InviteBlocklistStorage,
@@ -378,7 +377,7 @@ impl ExtensionServices {
         rooms: &RoomSyncServices,
         user_storage: &Arc<dyn UserStore>,
         _threepid_storage: &ThreepidStorage,
-        presence_storage: &Arc<dyn PresenceRepository>,
+        presence_storage: &Arc<synapse_storage::presence::PresenceStorage>,
         federation: &FederationServices,
         media_service: &crate::media_service::MediaService,
         media_domain_service: &Arc<crate::media::MediaDomainService>,
@@ -636,9 +635,9 @@ impl E2eeServices {
 
 #[derive(Clone)]
 pub struct RoomSyncServices {
-    pub room_storage: Arc<dyn RoomRepository>,
-    pub member_storage: Arc<dyn RoomMemberRepository>,
-    pub event_storage: Arc<dyn EventRepository>,
+    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
     pub room_summary_storage: synapse_storage::room_summary::RoomSummaryStorage,
     pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
@@ -664,17 +663,17 @@ impl RoomSyncServices {
         config: &Config,
         task_queue: &Option<Arc<RedisTaskQueue>>,
         auth_service: &Arc<dyn Auth>,
-        presence_storage: &Arc<dyn PresenceRepository>,
+        presence_storage: &Arc<synapse_storage::presence::PresenceStorage>,
         to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
         metrics: &Arc<MetricsCollector>,
     ) -> Self {
         let server_name_for_storage = config.server.get_server_name().to_string();
-        let member_storage: Arc<dyn RoomMemberRepository> =
+        let member_storage: Arc<synapse_storage::membership::RoomMemberStorage> =
             Arc::new(RoomMemberStorage::new(pool, &server_name_for_storage));
         let room_storage_concrete = Arc::new(RoomStorage::new(pool));
-        let room_storage: Arc<dyn RoomRepository> = room_storage_concrete.clone();
+        let room_storage: Arc<synapse_storage::room::RoomStorage> = room_storage_concrete.clone();
         let event_storage_concrete = Arc::new(EventStorage::new(pool, server_name_for_storage));
-        let event_storage: Arc<dyn EventRepository> = event_storage_concrete.clone();
+        let event_storage: Arc<synapse_storage::event::EventStorage> = event_storage_concrete.clone();
         let device_storage: Arc<synapse_storage::device::DeviceStorage> = Arc::new(DeviceStorage::new(pool));
         let relations_storage: Arc<synapse_storage::relations::RelationsStorage> =
             Arc::new(synapse_storage::relations::RelationsStorage::new(pool));
@@ -1175,7 +1174,8 @@ impl ServiceContainer {
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let device_storage: Arc<synapse_storage::device::DeviceStorage> = Arc::new(DeviceStorage::new(pool));
         let threepid_storage = ThreepidStorage::new(pool);
-        let presence_storage: Arc<dyn PresenceRepository> = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
+        let presence_storage: Arc<synapse_storage::presence::PresenceStorage> =
+            Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
         let qr_login_storage = QrLoginStorage::new(pool.clone());
         let invite_blocklist_storage = InviteBlocklistStorage::new(pool.clone());

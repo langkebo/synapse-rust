@@ -20,9 +20,9 @@ use crate::room::summary::RoomSummaryService;
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
 pub struct MembershipService {
-    pub(crate) member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
-    pub(crate) room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub(crate) event_storage: Arc<dyn synapse_storage::EventRepository>,
+    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: Arc<dyn crate::auth::Auth>,
     pub(crate) server_name: String,
@@ -34,9 +34,9 @@ pub struct MembershipService {
 
 /// Configuration for constructing a [`MembershipService`].
 pub struct MembershipServiceConfig {
-    pub member_storage: Arc<dyn synapse_storage::RoomMemberRepository>,
-    pub room_storage: Arc<dyn synapse_storage::RoomRepository>,
-    pub event_storage: Arc<dyn synapse_storage::EventRepository>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn crate::auth::Auth>,
     pub server_name: String,

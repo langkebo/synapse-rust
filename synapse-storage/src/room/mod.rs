@@ -1,8 +1,6 @@
 pub mod admin;
 pub(crate) mod models;
 pub use models::*;
-mod repository;
-pub use repository::RoomRepository;
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -1242,11 +1240,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1292,10 +1287,7 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!get_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@creator:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@creator:example.com", "invite", "10", false).await.unwrap();
 
         let found = storage.get_room(&room_id).await.expect("get_room should succeed");
         assert!(found.is_some());
@@ -1308,10 +1300,7 @@ mod db_tests {
     async fn test_get_room_not_found() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let result = storage
-            .get_room("!nonexistent:example.com")
-            .await
-            .expect("get_room should succeed");
+        let result = storage.get_room("!nonexistent:example.com").await.expect("get_room should succeed");
         assert!(result.is_none());
     }
 
@@ -1321,10 +1310,7 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!exists_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@creator:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@creator:example.com", "invite", "10", false).await.unwrap();
 
         assert!(storage.room_exists(&room_id).await.expect("room_exists should succeed"));
         assert!(!storage.room_exists("!nope:example.com").await.expect("room_exists should succeed"));
@@ -1338,15 +1324,9 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!creator_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@thecreator:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@thecreator:example.com", "invite", "10", false).await.unwrap();
 
-        let creator = storage
-            .get_room_creator(&room_id)
-            .await
-            .expect("get_room_creator should succeed");
+        let creator = storage.get_room_creator(&room_id).await.expect("get_room_creator should succeed");
         assert_eq!(creator, Some("@thecreator:example.com".to_string()));
 
         let _ = storage.delete_room(&room_id).await;
@@ -1360,19 +1340,11 @@ mod db_tests {
         let rid2 = format!("!batch2_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&rid1).await;
         let _ = storage.delete_room(&rid2).await;
-        storage
-            .create_room(&rid1, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
-        storage
-            .create_room(&rid2, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&rid1, "@c:example.com", "invite", "10", false).await.unwrap();
+        storage.create_room(&rid2, "@c:example.com", "invite", "10", false).await.unwrap();
 
-        let rooms = storage
-            .get_rooms_batch(&[rid1.clone(), rid2.clone()])
-            .await
-            .expect("get_rooms_batch should succeed");
+        let rooms =
+            storage.get_rooms_batch(&[rid1.clone(), rid2.clone()]).await.expect("get_rooms_batch should succeed");
         assert_eq!(rooms.len(), 2);
 
         let _ = storage.delete_room(&rid1).await;
@@ -1385,15 +1357,9 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!name_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
 
-        storage
-            .update_room_name(&room_id, "New Room Name")
-            .await
-            .expect("update_room_name should succeed");
+        storage.update_room_name(&room_id, "New Room Name").await.expect("update_room_name should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert_eq!(room.name, Some("New Room Name".to_string()));
 
@@ -1406,15 +1372,9 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!topic_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
 
-        storage
-            .update_room_topic(&room_id, "New Topic")
-            .await
-            .expect("update_room_topic should succeed");
+        storage.update_room_topic(&room_id, "New Topic").await.expect("update_room_topic should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert_eq!(room.topic, Some("New Topic".to_string()));
 
@@ -1435,24 +1395,15 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!pub_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
         assert!(!storage.is_room_in_directory(&room_id).await.unwrap());
 
-        storage
-            .set_room_public(&room_id, true)
-            .await
-            .expect("set_room_public should succeed");
+        storage.set_room_public(&room_id, true).await.expect("set_room_public should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert!(room.is_public);
         assert!(storage.is_room_in_directory(&room_id).await.unwrap());
 
-        storage
-            .set_room_public(&room_id, false)
-            .await
-            .expect("unset public should succeed");
+        storage.set_room_public(&room_id, false).await.expect("unset public should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert!(!room.is_public);
 
@@ -1465,10 +1416,7 @@ mod db_tests {
         let storage = RoomStorage::new(&pool);
         let room_id = format!("!delete_test_{}:example.com", uuid::Uuid::new_v4());
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
         assert!(storage.room_exists(&room_id).await.unwrap());
 
         storage.delete_room(&room_id).await.expect("delete_room should succeed");
@@ -1479,10 +1427,7 @@ mod db_tests {
     async fn test_get_public_rooms() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let rooms = storage
-            .get_public_rooms(5)
-            .await
-            .expect("get_public_rooms should succeed");
+        let rooms = storage.get_public_rooms(5).await.expect("get_public_rooms should succeed");
         // All returned rooms should be public
         for room in &rooms {
             assert!(room.is_public);
@@ -1493,10 +1438,7 @@ mod db_tests {
     async fn test_count_public_rooms() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let count = storage
-            .count_public_rooms()
-            .await
-            .expect("count_public_rooms should succeed");
+        let count = storage.count_public_rooms().await.expect("count_public_rooms should succeed");
         assert!(count >= 0);
     }
 
@@ -1504,10 +1446,8 @@ mod db_tests {
     async fn test_get_public_rooms_paginated() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let rooms = storage
-            .get_public_rooms_paginated(5, None, None)
-            .await
-            .expect("get_public_rooms_paginated should succeed");
+        let rooms =
+            storage.get_public_rooms_paginated(5, None, None).await.expect("get_public_rooms_paginated should succeed");
         assert!(rooms.len() <= 5);
         for room in &rooms {
             assert!(room.is_public);
@@ -1522,32 +1462,17 @@ mod db_tests {
         let room_id = format!("!alias_test_{}:example.com", suffix);
         let alias = format!("#mytestalias_{}:example.com", suffix);
         let _ = storage.delete_room(&room_id).await;
-        storage
-            .create_room(&room_id, "@c:example.com", "invite", "10", false)
-            .await
-            .unwrap();
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
 
-        storage
-            .set_room_alias(&room_id, &alias, "@c:example.com")
-            .await
-            .expect("set_room_alias should succeed");
+        storage.set_room_alias(&room_id, &alias, "@c:example.com").await.expect("set_room_alias should succeed");
 
-        let aliases = storage
-            .get_room_aliases(&room_id)
-            .await
-            .expect("get_room_aliases should succeed");
+        let aliases = storage.get_room_aliases(&room_id).await.expect("get_room_aliases should succeed");
         assert!(aliases.contains(&alias));
 
-        let resolved = storage
-            .get_room_by_alias(&alias)
-            .await
-            .expect("get_room_by_alias should succeed");
+        let resolved = storage.get_room_by_alias(&alias).await.expect("get_room_by_alias should succeed");
         assert_eq!(resolved, Some(room_id.clone()));
 
-        storage
-            .remove_room_alias_by_name(&alias)
-            .await
-            .expect("remove_room_alias_by_name should succeed");
+        storage.remove_room_alias_by_name(&alias).await.expect("remove_room_alias_by_name should succeed");
         let after = storage.get_room_by_alias(&alias).await.unwrap();
         assert!(after.is_none());
 
@@ -1558,10 +1483,7 @@ mod db_tests {
     async fn test_search_room_directory() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let results = storage
-            .search_room_directory("test", 10)
-            .await
-            .expect("search_room_directory should succeed");
+        let results = storage.search_room_directory("test", 10).await.expect("search_room_directory should succeed");
         // Search may return 0 results — just verify it doesn't error
         assert!(results.len() <= 10);
     }
@@ -1570,10 +1492,7 @@ mod db_tests {
     async fn test_get_user_rooms() {
         let pool = test_pool().await;
         let storage = RoomStorage::new(&pool);
-        let room_ids = storage
-            .get_user_rooms("@testuser:example.com")
-            .await
-            .expect("get_user_rooms should succeed");
+        let room_ids = storage.get_user_rooms("@testuser:example.com").await.expect("get_user_rooms should succeed");
         // Room membership may be empty for a test user — the .expect() above
         // already verifies the query itself succeeds without error.
         let _ = room_ids;
