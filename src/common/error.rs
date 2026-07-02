@@ -1,5 +1,5 @@
 pub use synapse_common::error::{
-    init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, ErrorContext, ErrorSource, MatrixErrorCode,
+    init_error_metrics, ApiError, ApiErrorKind, ApiResponse, ApiResult, ErrorSource, MatrixErrorCode,
 };
 
 // Re-export macros
