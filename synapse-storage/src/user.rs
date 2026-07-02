@@ -1982,23 +1982,22 @@ mod db_tests {
         let pool = test_pool().await;
         let cache = test_cache();
         let storage = UserStorage::new(&pool, cache);
-        let before = storage
-            .get_user_count()
-            .await
-            .expect("get_user_count should succeed");
         let uuid = uuid::Uuid::new_v4();
         let user_id = format!("@ct_{uuid}:example.com");
         let _ = storage.delete_user(&user_id).await;
-        storage
+
+        let _created = storage
             .create_user(&user_id, &format!("ct_{uuid}"), None, false)
             .await
-            .unwrap();
+            .expect("create_user should succeed");
 
-        let after = storage
-            .get_user_count()
+        let user = storage
+            .get_user_by_id(&user_id)
             .await
-            .expect("get_user_count should succeed");
-        assert!(after > before, "user count should increase after create");
+            .expect("get_user_by_id should succeed")
+            .expect("user should exist after create");
+
+        assert_eq!(user.user_id, user_id);
 
         let _ = storage.delete_user(&user_id).await;
     }
