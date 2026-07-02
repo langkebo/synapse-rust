@@ -135,7 +135,7 @@ pub use event_report::create_event_report_router;
 #[cfg(feature = "external-services")]
 pub use external_service::create_external_service_router;
 // extract_token_from_headers removed — use crate::web::utils::auth::bearer_token directly
-pub use extractors::{AdminUser, AuthExtractor, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
+pub use extractors::{AdminUser, AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
 pub use feature_flags::create_feature_flags_router;
 pub use federation::create_federation_router;
 #[cfg(feature = "friends")]
