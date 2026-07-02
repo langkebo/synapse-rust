@@ -16,15 +16,14 @@ use synapse_services::room_service::{CreateRoomConfig, RoomService};
 use synapse_services::room_summary_service::RoomSummaryService;
 use synapse_services::sync_service::SyncService;
 use synapse_storage::device::DeviceStorage;
-use synapse_storage::event::{CreateEventParams, EventRepository, EventStorage};
+use synapse_storage::event::{CreateEventParams, EventStorage};
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
-use synapse_storage::room::{RoomRepository, RoomStorage};
+use synapse_storage::room::RoomStorage;
 use synapse_storage::room_summary::RoomSummaryStorage;
 use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 use synapse_storage::PresenceStorage;
-use synapse_storage::RoomMemberRepository;
 use synapse_storage::{AccountDataStorage, CreateFilterRequest, FilterStorage, RoomAccountDataStorage};
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
@@ -326,9 +325,9 @@ async fn create_test_user(pool: &Pool<Postgres>, user_id: &str, username: &str) 
 
 fn create_room_service(
     pool: &Arc<Pool<Postgres>>,
-    room_storage: Arc<dyn RoomRepository>,
-    member_storage: Arc<dyn RoomMemberRepository>,
-    event_storage: Arc<dyn EventRepository>,
+    room_storage: Arc<synapse_storage::room::RoomStorage>,
+    member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    event_storage: Arc<synapse_storage::event::EventStorage>,
     user_storage: Arc<dyn UserStore>,
 ) -> RoomService {
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));

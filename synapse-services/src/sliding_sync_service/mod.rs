@@ -7,10 +7,7 @@ use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::event::EventRepository;
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
-use synapse_storage::PresenceRepository;
-use synapse_storage::RoomMemberRepository;
 
 mod extensions;
 mod filters;
@@ -37,11 +34,11 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
-    event_storage: Arc<dyn EventRepository>,
+    event_storage: Arc<synapse_storage::event::EventStorage>,
     device_key_storage: DeviceKeyStorage,
     typing_service: Arc<crate::typing_service::TypingService>,
-    presence_storage: Arc<dyn PresenceRepository>,
-    member_storage: Arc<dyn RoomMemberRepository>,
+    presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
+    member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
     device_storage: Arc<synapse_storage::device::DeviceStorage>,
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
@@ -79,11 +76,11 @@ impl SlidingSyncService {
     pub fn new(
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
-        event_storage: Arc<dyn EventRepository>,
+        event_storage: Arc<synapse_storage::event::EventStorage>,
         device_key_storage: DeviceKeyStorage,
         typing_service: Arc<crate::typing_service::TypingService>,
-        presence_storage: Arc<dyn PresenceRepository>,
-        member_storage: Arc<dyn RoomMemberRepository>,
+        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
+        member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
         to_device_storage: ToDeviceStorage,
         metrics: Arc<MetricsCollector>,

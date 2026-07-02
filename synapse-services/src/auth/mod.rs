@@ -17,7 +17,6 @@ use synapse_common::config::SecurityConfig;
 use synapse_common::metrics::MetricsCollector;
 use synapse_common::validation::Validator;
 use synapse_common::{ApiError, ApiResult};
-use synapse_storage::event::EventRepository;
 use synapse_storage::*;
 
 pub use r#trait::Auth;
@@ -39,8 +38,8 @@ pub struct AuthService {
     pub token_storage: AccessTokenStorage,
     pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
     pub room_storage: RoomStorage,
-    pub member_storage: Arc<dyn RoomMemberRepository>,
-    pub event_storage: Arc<dyn EventRepository>,
+    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub event_storage: Arc<synapse_storage::event::EventStorage>,
     pub cache: Arc<CacheManager>,
     pub metrics: Arc<MetricsCollector>,
     pub validator: Arc<Validator>,

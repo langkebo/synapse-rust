@@ -7,11 +7,11 @@ pub type PresenceRecord = (String, Option<String>, Option<i64>);
 pub type PresenceBatchRecord = (String, String, Option<String>, Option<i64>);
 
 pub struct PresenceService {
-    storage: Arc<dyn synapse_storage::PresenceRepository>,
+    storage: Arc<synapse_storage::presence::PresenceStorage>,
 }
 
 impl PresenceService {
-    pub fn new(storage: Arc<dyn synapse_storage::PresenceRepository>) -> Self {
+    pub fn new(storage: Arc<synapse_storage::presence::PresenceStorage>) -> Self {
         Self { storage }
     }
 

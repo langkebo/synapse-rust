@@ -1,10 +1,8 @@
 pub mod batch;
 pub(crate) mod models;
-mod repository;
 pub mod state;
 
 pub use models::*;
-pub use repository::EventRepository;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1299,7 +1297,6 @@ impl EventStorage {
     }
 
     // -----------------------------------------------------------------------
-    // EventRepository delegation targets
     // -----------------------------------------------------------------------
 
     pub async fn get_room_events_paginated_with_filter(
@@ -1578,11 +1575,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1602,10 +1596,7 @@ mod db_tests {
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -1634,10 +1625,7 @@ mod db_tests {
         let user_id = "@sender:example.com";
 
         // Cleanup from previous runs
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1667,10 +1655,7 @@ mod db_tests {
         let event_id = format!("$evt_get_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@getter:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1697,10 +1682,7 @@ mod db_tests {
     async fn test_get_event_not_found() {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
-        let result = storage
-            .get_event("$nonexistent:example.com")
-            .await
-            .expect("get_event should succeed");
+        let result = storage.get_event("$nonexistent:example.com").await.expect("get_event should succeed");
         assert!(result.is_none());
     }
 
@@ -1711,10 +1693,7 @@ mod db_tests {
         let room_id = format!("!evt_list_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@lister:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1732,10 +1711,7 @@ mod db_tests {
             storage.create_event(params, None).await.unwrap();
         }
 
-        let events = storage
-            .get_room_events(&room_id, 10)
-            .await
-            .expect("get_room_events should succeed");
+        let events = storage.get_room_events(&room_id, 10).await.expect("get_room_events should succeed");
         assert!(events.len() >= 3);
 
         let _ = storage.delete_room_events(&room_id).await;
@@ -1750,10 +1726,7 @@ mod db_tests {
         let room_id = format!("!evt_count_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@counter:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1784,17 +1757,11 @@ mod db_tests {
         let room_id = format!("!evt_page_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@pager:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
-        let events = storage
-            .get_room_events_paginated(&room_id, None, 5, "b")
-            .await
-            .expect("paginated should succeed");
+        let events = storage.get_room_events_paginated(&room_id, None, 5, "b").await.expect("paginated should succeed");
         assert!(events.len() <= 5);
 
         let _ = storage.delete_room_events(&room_id).await;
@@ -1807,10 +1774,7 @@ mod db_tests {
         let room_id = format!("!evt_del_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@deleter:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1826,10 +1790,7 @@ mod db_tests {
         };
         storage.create_event(params, None).await.unwrap();
 
-        storage
-            .delete_room_events(&room_id)
-            .await
-            .expect("delete_room_events should succeed");
+        storage.delete_room_events(&room_id).await.expect("delete_room_events should succeed");
         let count = storage.count_room_events(&room_id).await.unwrap();
         assert_eq!(count, 0);
     }
@@ -1838,10 +1799,8 @@ mod db_tests {
     async fn test_get_room_message_count() {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
-        let count = storage
-            .get_room_message_count("!any:example.com")
-            .await
-            .expect("get_room_message_count should succeed");
+        let count =
+            storage.get_room_message_count("!any:example.com").await.expect("get_room_message_count should succeed");
         assert!(count >= 0);
     }
 
@@ -1860,29 +1819,18 @@ mod db_tests {
             .bind(user_id)
             .execute(&*pool)
             .await;
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
         storage
-            .add_ephemeral_event(
-                &room_id,
-                user_id,
-                "m.typing",
-                &serde_json::json!({"typing": true}),
-                1,
-            )
+            .add_ephemeral_event(&room_id, user_id, "m.typing", &serde_json::json!({"typing": true}), 1)
             .await
             .expect("add_ephemeral_event should succeed");
 
         let now = chrono::Utc::now().timestamp_millis();
-        let events = storage
-            .get_ephemeral_events(&room_id, now, 10)
-            .await
-            .expect("get_ephemeral_events should succeed");
+        let events =
+            storage.get_ephemeral_events(&room_id, now, 10).await.expect("get_ephemeral_events should succeed");
         assert!(!events.is_empty());
 
         storage
@@ -1902,14 +1850,8 @@ mod db_tests {
         let user_id = "@reporter:example.com";
 
         // Cleanup from previous runs
-        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1")
-            .bind(&event_id)
-            .execute(&*pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1").bind(&event_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1930,17 +1872,11 @@ mod db_tests {
             .await
             .expect("report_event should succeed");
 
-        let reports = storage
-            .get_event_report(&event_id)
-            .await
-            .expect("get_event_report should succeed");
+        let reports = storage.get_event_report(&event_id).await.expect("get_event_report should succeed");
         assert!(!reports.is_empty());
 
         // Cleanup: delete reports first (FK constraint with events), then events
-        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1")
-            .bind(&event_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM event_reports WHERE event_id = $1").bind(&event_id).execute(&*pool).await;
         let _ = storage.delete_room_events(&room_id).await;
     }
 
@@ -1952,10 +1888,7 @@ mod db_tests {
         let event_id = format!("$redact_{}:example.com", uuid::Uuid::new_v4());
         let user_id = "@redactor:example.com";
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -1971,10 +1904,7 @@ mod db_tests {
         };
         storage.create_event(params, None).await.unwrap();
 
-        storage
-            .redact_event_content(&event_id, Some(user_id))
-            .await
-            .expect("redact_event_content should succeed");
+        storage.redact_event_content(&event_id, Some(user_id)).await.expect("redact_event_content should succeed");
 
         let _ = storage.delete_room_events(&room_id).await;
     }
@@ -1988,14 +1918,8 @@ mod db_tests {
         let user_id = "@signer:example.com";
 
         // Cleanup from previous runs
-        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1")
-            .bind(&event_id)
-            .execute(&*pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1").bind(&event_id).execute(&*pool).await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, user_id).await;
 
@@ -2017,18 +1941,12 @@ mod db_tests {
             .await
             .expect("save_event_signature should succeed");
 
-        let sigs = storage
-            .get_event_signatures(&event_id)
-            .await
-            .expect("get_event_signatures should succeed");
+        let sigs = storage.get_event_signatures(&event_id).await.expect("get_event_signatures should succeed");
         assert!(!sigs.is_empty());
         assert_eq!(sigs[0].user_id, user_id);
 
         // Cleanup: delete signatures first, then events
-        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1")
-            .bind(&event_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM event_signatures WHERE event_id = $1").bind(&event_id).execute(&*pool).await;
         let _ = storage.delete_room_events(&room_id).await;
     }
 
@@ -2039,10 +1957,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
         let input = vec![format!("$missing_{}:example.com", uuid::Uuid::new_v4())];
-        let missing = storage
-            .find_missing_event_ids(&input)
-            .await
-            .expect("find_missing_event_ids should succeed");
+        let missing = storage.find_missing_event_ids(&input).await.expect("find_missing_event_ids should succeed");
         assert_eq!(missing.len(), 1);
     }
 
@@ -2050,10 +1965,7 @@ mod db_tests {
     async fn test_get_total_message_count() {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
-        let count = storage
-            .get_total_message_count()
-            .await
-            .expect("get_total_message_count should succeed");
+        let count = storage.get_total_message_count().await.expect("get_total_message_count should succeed");
         assert!(count >= 0);
     }
 
@@ -2061,10 +1973,7 @@ mod db_tests {
     async fn test_get_daily_message_count() {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
-        let count = storage
-            .get_daily_message_count()
-            .await
-            .expect("get_daily_message_count should succeed");
+        let count = storage.get_daily_message_count().await.expect("get_daily_message_count should succeed");
         assert!(count >= 0);
     }
 
@@ -2074,10 +1983,7 @@ mod db_tests {
         let storage = EventStorage::new(&pool, test_server_name());
         let room_id = format!("!evt_old_{}:example.com", uuid::Uuid::new_v4());
 
-        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1")
-            .bind(&room_id)
-            .execute(&*pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM events WHERE room_id = $1").bind(&room_id).execute(&*pool).await;
         ensure_test_room(&pool, &room_id).await;
 
         // Delete events before a far-future timestamp — should succeed even if 0 rows
@@ -2104,10 +2010,7 @@ mod db_tests {
     async fn test_get_events_batch_empty_input() {
         let pool = test_pool().await;
         let storage = EventStorage::new(&pool, test_server_name());
-        let results = storage
-            .get_events_batch(&[])
-            .await
-            .expect("get_events_batch should succeed");
+        let results = storage.get_events_batch(&[]).await.expect("get_events_batch should succeed");
         assert!(results.is_empty());
     }
 

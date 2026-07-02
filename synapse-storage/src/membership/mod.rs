@@ -3,8 +3,6 @@ use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use synapse_common::crypto::generate_event_id;
 
-pub mod repository;
-
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RoomMember {
     pub room_id: String,
@@ -776,200 +774,6 @@ impl RoomMemberStorage {
     }
 }
 
-#[async_trait::async_trait]
-#[allow(clippy::too_many_arguments)]
-impl repository::RoomMemberRepository for RoomMemberStorage {
-    fn pool(&self) -> &Arc<Pool<Postgres>> {
-        &self.pool
-    }
-
-    async fn add_member(
-        &self,
-        room_id: &str,
-        user_id: &str,
-        membership: &str,
-        display_name: Option<&str>,
-        join_reason: Option<&str>,
-        sender: Option<&str>,
-        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
-    ) -> Result<RoomMember, sqlx::Error> {
-        self.add_member(room_id, user_id, membership, display_name, join_reason, sender, tx).await
-    }
-
-    async fn get_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
-        self.get_member(room_id, user_id).await
-    }
-
-    async fn get_room_members(&self, room_id: &str, membership_type: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
-        self.get_room_members(room_id, membership_type).await
-    }
-
-    async fn has_any_non_banned_member_from_server(
-        &self,
-        room_id: &str,
-        server_name: &str,
-    ) -> Result<bool, sqlx::Error> {
-        self.has_any_non_banned_member_from_server(room_id, server_name).await
-    }
-
-    async fn get_room_member_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
-        self.get_room_member_count(room_id).await
-    }
-
-    async fn get_room_members_paginated(
-        &self,
-        room_id: &str,
-        membership_type: &str,
-        limit: i64,
-        from_user_id: Option<&str>,
-    ) -> Result<Vec<RoomMember>, sqlx::Error> {
-        self.get_room_members_paginated(room_id, membership_type, limit, from_user_id).await
-    }
-
-    async fn remove_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        self.remove_member(room_id, user_id).await
-    }
-
-    async fn forget_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        self.forget_member(room_id, user_id).await
-    }
-
-    async fn is_forgotten(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        self.is_forgotten(room_id, user_id).await
-    }
-
-    async fn get_shared_room_users(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.get_shared_room_users(user_id).await
-    }
-
-    async fn remove_all_members(&self, room_id: &str) -> Result<(), sqlx::Error> {
-        self.remove_all_members(room_id).await
-    }
-
-    async fn ban_member(&self, room_id: &str, user_id: &str, banned_by: &str) -> Result<(), sqlx::Error> {
-        self.ban_member(room_id, user_id, banned_by).await
-    }
-
-    async fn unban_member(&self, room_id: &str, user_id: &str) -> Result<(), sqlx::Error> {
-        self.unban_member(room_id, user_id).await
-    }
-
-    async fn get_joined_rooms(&self, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
-        self.get_joined_rooms(user_id).await
-    }
-
-    async fn get_sync_rooms(&self, user_id: &str, include_leave: bool) -> Result<Vec<UserRoomMembership>, sqlx::Error> {
-        self.get_sync_rooms(user_id, include_leave).await
-    }
-
-    async fn get_membership_state(&self, room_id: &str, user_id: &str) -> Result<Option<String>, sqlx::Error> {
-        self.get_membership_state(room_id, user_id).await
-    }
-
-    async fn get_joined_room_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
-        self.get_joined_room_count(user_id).await
-    }
-
-    async fn is_member(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
-        self.is_member(room_id, user_id).await
-    }
-
-    async fn get_room_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
-        self.get_room_member(room_id, user_id).await
-    }
-
-    async fn get_joined_members(&self, room_id: &str) -> Result<Vec<RoomMember>, sqlx::Error> {
-        self.get_joined_members(room_id).await
-    }
-
-    async fn get_joined_member(&self, room_id: &str, user_id: &str) -> Result<Option<RoomMember>, sqlx::Error> {
-        self.get_joined_member(room_id, user_id).await
-    }
-
-    async fn share_common_room(&self, user_id_1: &str, user_id_2: &str) -> Result<bool, sqlx::Error> {
-        self.share_common_room(user_id_1, user_id_2).await
-    }
-
-    async fn share_common_rooms_batch(
-        &self,
-        user_id: &str,
-        other_user_ids: &[String],
-    ) -> Result<Vec<String>, sqlx::Error> {
-        self.share_common_rooms_batch(user_id, other_user_ids).await
-    }
-
-    async fn get_membership_history(&self, room_id: &str, limit: i64) -> Result<Vec<RoomMember>, sqlx::Error> {
-        self.get_membership_history(room_id, limit).await
-    }
-
-    async fn get_joined_rooms_with_details(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<(String, String, Option<String>, Option<String>)>, sqlx::Error> {
-        self.get_joined_rooms_with_details(user_id).await
-    }
-
-    async fn get_room_members_with_profiles(
-        &self,
-        room_id: &str,
-        membership_type: &str,
-    ) -> Result<Vec<(RoomMember, Option<String>, Option<String>)>, sqlx::Error> {
-        self.get_room_members_with_profiles(room_id, membership_type).await
-    }
-
-    async fn get_members_batch(
-        &self,
-        room_ids: &[String],
-        membership_type: &str,
-    ) -> Result<std::collections::HashMap<String, Vec<RoomMember>>, sqlx::Error> {
-        self.get_members_batch(room_ids, membership_type).await
-    }
-
-    async fn get_joined_members_batch(
-        &self,
-        room_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, Vec<RoomMember>>, sqlx::Error> {
-        self.get_joined_members_batch(room_ids).await
-    }
-
-    async fn check_membership_batch(
-        &self,
-        room_id: &str,
-        user_ids: &[String],
-        membership_type: &str,
-    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-        self.check_membership_batch(room_id, user_ids, membership_type).await
-    }
-
-    async fn user_shares_room_with_server(&self, user_id: &str, server_name: &str) -> Result<bool, sqlx::Error> {
-        self.user_shares_room_with_server(user_id, server_name).await
-    }
-
-    async fn filter_users_sharing_room_with_server(
-        &self,
-        user_ids: &[String],
-        server_name: &str,
-    ) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-        self.filter_users_sharing_room_with_server(user_ids, server_name).await
-    }
-
-    async fn set_ban_reason(&self, room_id: &str, user_id: &str, reason: &str) -> Result<(), sqlx::Error> {
-        self.set_ban_reason(room_id, user_id, reason).await
-    }
-
-    async fn force_leave_membership(&self, room_id: &str, user_id: &str, now: i64) -> Result<(), sqlx::Error> {
-        self.force_leave_membership(room_id, user_id, now).await
-    }
-
-    async fn get_joined_servers_in_room(
-        &self,
-        room_id: &str,
-        local_server_name: &str,
-    ) -> Result<Vec<String>, sqlx::Error> {
-        self.get_joined_servers_in_room(room_id, local_server_name).await
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1193,10 +997,7 @@ mod db_tests {
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) \
              ON CONFLICT (user_id) DO NOTHING",
@@ -1211,26 +1012,10 @@ mod db_tests {
 
     async fn cleanup_membership_data(pool: &sqlx::PgPool, suffix: &str) {
         let pattern = format!("%{suffix}%");
-        sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM room_memberships WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM room_memberships WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
     }
 
     // ── 1. add_member ─────────────────────────────────────────────
@@ -1248,33 +1033,21 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // Join
-        let m = storage
-            .add_member(&room_id, &user_id, "join", Some("TN"), None, None, None)
-            .await
-            .unwrap();
+        let m = storage.add_member(&room_id, &user_id, "join", Some("TN"), None, None, None).await.unwrap();
         assert_eq!(m.membership, "join");
         assert_eq!(m.display_name.as_deref(), Some("TN"));
         assert!(m.joined_ts.is_some());
 
         // Invite (upsert)
-        let m = storage
-            .add_member(&room_id, &user_id, "invite", None, None, None, None)
-            .await
-            .unwrap();
+        let m = storage.add_member(&room_id, &user_id, "invite", None, None, None, None).await.unwrap();
         assert_eq!(m.membership, "invite");
 
         // Ban (upsert)
-        let m = storage
-            .add_member(&room_id, &user_id, "ban", None, None, None, None)
-            .await
-            .unwrap();
+        let m = storage.add_member(&room_id, &user_id, "ban", None, None, None, None).await.unwrap();
         assert_eq!(m.membership, "ban");
 
         // Leave (upsert)
-        let m = storage
-            .add_member(&room_id, &user_id, "leave", None, None, None, None)
-            .await
-            .unwrap();
+        let m = storage.add_member(&room_id, &user_id, "leave", None, None, None, None).await.unwrap();
         assert_eq!(m.membership, "leave");
 
         cleanup_membership_data(&pool, &suffix).await;
@@ -1294,10 +1067,7 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
         ensure_test_user(&pool, &sender).await;
 
-        let m = storage
-            .add_member(&room_id, &user_id, "invite", None, None, Some(&sender), None)
-            .await
-            .unwrap();
+        let m = storage.add_member(&room_id, &user_id, "invite", None, None, Some(&sender), None).await.unwrap();
         assert_eq!(m.sender.as_deref(), Some(sender.as_str()));
 
         cleanup_membership_data(&pool, &suffix).await;
@@ -1317,10 +1087,7 @@ mod db_tests {
         ensure_test_room(&pool, &room_id).await;
         ensure_test_user(&pool, &user_id).await;
 
-        storage
-            .add_member(&room_id, &user_id, "join", None, None, None, None)
-            .await
-            .unwrap();
+        storage.add_member(&room_id, &user_id, "join", None, None, None, None).await.unwrap();
 
         // Found
         let result = storage.get_member(&room_id, &user_id).await.unwrap();
