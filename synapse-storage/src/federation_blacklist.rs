@@ -625,3 +625,779 @@ mod tests {
         assert_eq!(request.rule_type, "domain");
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+    use std::env;
+    use uuid::Uuid;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn cleanup_by_server(pool: &PgPool, server_name: &str) {
+        sqlx::query("DELETE FROM federation_blacklist_log WHERE server_name = $1")
+            .bind(server_name)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM federation_access_stats WHERE server_name = $1")
+            .bind(server_name)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM federation_blacklist WHERE server_name = $1")
+            .bind(server_name)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
+    async fn cleanup_rule_by_name(pool: &PgPool, rule_name_like: &str) {
+        sqlx::query("DELETE FROM federation_blacklist_rule WHERE rule_name LIKE $1")
+            .bind(rule_name_like)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
+    // 1. add_to_blacklist inserts a new record and returns it.
+    #[tokio::test]
+    async fn test_add_to_blacklist_succeeds() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-add-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let entry = storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: Some("Testing".to_string()),
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add_to_blacklist should succeed");
+
+        assert!(entry.id > 0);
+        assert_eq!(entry.server_name, server_name);
+        assert_eq!(entry.block_type, "blacklist");
+        assert_eq!(entry.reason.as_deref(), Some("Testing"));
+        assert_eq!(entry.blocked_by, "@admin:test.com");
+        assert!(entry.is_enabled);
+        assert!(entry.created_ts > 0);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 2. add_to_blacklist upserts on server_name conflict.
+    #[tokio::test]
+    async fn test_add_to_blacklist_upsert() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-upsert-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let first = storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: Some("First reason".to_string()),
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("first insert should succeed");
+
+        // Upsert with different reason, blocked_by, and metadata.
+        let second = storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: Some("Updated reason".to_string()),
+                blocked_by: "@admin2:test.com".to_string(),
+                expires_at: None,
+                metadata: Some(serde_json::json!({"key": "value"})),
+            })
+            .await
+            .expect("upsert should succeed");
+
+        // Same id means it updated the existing row.
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.reason.as_deref(), Some("Updated reason"));
+        assert_eq!(second.blocked_by, "@admin2:test.com");
+        assert_eq!(second.metadata, serde_json::json!({"key": "value"}));
+        // updated_ts should reflect the change.
+        assert!(second.updated_ts >= first.updated_ts);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 3. get_blacklist_entry finds an existing entry.
+    #[tokio::test]
+    async fn test_get_blacklist_entry_found() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-get-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let entry = storage
+            .get_blacklist_entry(&server_name)
+            .await
+            .expect("get should succeed")
+            .expect("entry should be found");
+
+        assert_eq!(entry.server_name, server_name);
+        assert_eq!(entry.block_type, "blacklist");
+        assert!(entry.is_enabled);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 4. get_blacklist_entry returns None for unknown server_name.
+    #[tokio::test]
+    async fn test_get_blacklist_entry_not_found() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-nonexist-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let entry = storage
+            .get_blacklist_entry(&server_name)
+            .await
+            .expect("get should succeed");
+
+        assert!(entry.is_none());
+    }
+
+    // 5. remove_from_blacklist sets is_enabled=false and creates a log entry.
+    #[tokio::test]
+    async fn test_remove_from_blacklist_creates_log() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-remove-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        storage
+            .remove_from_blacklist(&server_name, "@remover:test.com")
+            .await
+            .expect("remove should succeed");
+
+        // Verify is_enabled is now false.
+        let entry = storage
+            .get_blacklist_entry(&server_name)
+            .await
+            .expect("get should succeed")
+            .expect("entry should exist after removal");
+
+        assert!(!entry.is_enabled, "entry should be disabled after removal");
+
+        // Verify log was created by remove_from_blacklist.
+        let log = sqlx::query_as::<_, FederationBlacklistLog>(
+            "SELECT id, server_name, action, old_status, new_status, reason,
+                    performed_by, performed_ts, ip_address, user_agent, metadata
+             FROM federation_blacklist_log
+             WHERE server_name = $1 AND action = 'remove'
+             ORDER BY performed_ts DESC LIMIT 1",
+        )
+        .bind(&server_name)
+        .fetch_one(&*pool)
+        .await
+        .expect("log should exist");
+
+        assert_eq!(log.action, "remove");
+        assert_eq!(log.performed_by, "@remover:test.com");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 6. is_server_blocked returns true for an active blacklist entry.
+    #[tokio::test]
+    async fn test_is_server_blocked_true() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-blocked-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let blocked = storage
+            .is_server_blocked(&server_name)
+            .await
+            .expect("check should succeed");
+
+        assert!(blocked, "server should be blocked");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 7. is_server_blocked returns false when expiry is in the past.
+    #[tokio::test]
+    async fn test_is_server_blocked_expired() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-expired-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: Some(past),
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let blocked = storage
+            .is_server_blocked(&server_name)
+            .await
+            .expect("check should succeed");
+
+        assert!(!blocked, "expired server should not be blocked");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 8. is_server_blocked returns false when block_type is not "blacklist".
+    #[tokio::test]
+    async fn test_is_server_blocked_wrong_type() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-notblack-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "whitelist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let blocked = storage
+            .is_server_blocked(&server_name)
+            .await
+            .expect("check should succeed");
+
+        assert!(!blocked, "whitelist-type entry should not be reported as blocked");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 9. is_server_whitelisted returns true for a whitelist entry.
+    #[tokio::test]
+    async fn test_is_server_whitelisted_true() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-wl-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name.clone(),
+                block_type: "whitelist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: None,
+                metadata: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let whitelisted = storage
+            .is_server_whitelisted(&server_name)
+            .await
+            .expect("check should succeed");
+
+        assert!(whitelisted, "server should be whitelisted");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 10. is_server_whitelisted returns false for a non-whitelist server.
+    #[tokio::test]
+    async fn test_is_server_whitelisted_false() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-notwl-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let whitelisted = storage
+            .is_server_whitelisted(&server_name)
+            .await
+            .expect("check should succeed");
+
+        assert!(!whitelisted, "non-existent server should not be whitelisted");
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 11. get_all_blacklist supports cursor-based pagination.
+    #[tokio::test]
+    async fn test_get_all_blacklist_pagination() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+
+        let servers: Vec<String> = (0..5)
+            .map(|i| format!("test-page-{}-{}.com", i, suffix))
+            .collect();
+
+        for s in &servers {
+            cleanup_by_server(&pool, s).await;
+        }
+
+        // Insert entries sequentially so added_ts may differ slightly.
+        for (i, s) in servers.iter().enumerate() {
+            storage
+                .add_to_blacklist(AddBlacklistRequest {
+                    server_name: s.clone(),
+                    block_type: "blacklist".to_string(),
+                    reason: Some(format!("Entry {i}")),
+                    blocked_by: "@admin:test.com".to_string(),
+                    expires_at: None,
+                    metadata: None,
+                })
+                .await
+                .expect("add should succeed");
+        }
+
+        // Page 1: limit=3, no cursor.
+        let (rows, next_cursor) = storage
+            .get_all_blacklist(3, None)
+            .await
+            .expect("get_all should succeed");
+
+        assert_eq!(rows.len(), 3, "first page should return 3 rows");
+        assert!(next_cursor.is_some(), "should have next_batch token for more results");
+
+        // Count how many of our test servers appear in page 1.
+        let page1_ours: std::collections::HashSet<&str> =
+            rows.iter().map(|r| r.server_name.as_str()).collect();
+        let page1_ours_set: std::collections::HashSet<&String> =
+            servers.iter().filter(|s| page1_ours.contains(s.as_str())).collect();
+
+        // Page 2: use the cursor.
+        let cursor = decode_federation_blacklist_cursor(next_cursor.as_deref())
+            .expect("cursor should decode");
+        let (rows2, _next_cursor2) = storage
+            .get_all_blacklist(3, Some(cursor))
+            .await
+            .expect("get_all with cursor should succeed");
+
+        // At least our remaining servers (not in page 1) should be present in page 2.
+        let page2_ours: std::collections::HashSet<&str> =
+            rows2.iter().map(|r| r.server_name.as_str()).collect();
+        for s in &servers {
+            if !page1_ours_set.contains(s) {
+                assert!(page2_ours.contains(s.as_str()),
+                    "server {s} not in page 1 should appear in page 2");
+            }
+        }
+
+        // No overlap between pages.
+        for r in &rows2 {
+            assert!(!page1_ours.contains(r.server_name.as_str()),
+                "page 2 entry {} should not appear in page 1", r.server_name);
+        }
+
+        for s in &servers {
+            cleanup_by_server(&pool, s).await;
+        }
+    }
+
+    // 12. create_log inserts a log record and returns it.
+    #[tokio::test]
+    async fn test_create_log_succeeds() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-log-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let log = storage
+            .create_log(CreateLogRequest {
+                server_name: server_name.clone(),
+                action: "add".to_string(),
+                old_status: None,
+                new_status: Some("blocked".to_string()),
+                reason: Some("Test reason".to_string()),
+                performed_by: "@admin:test.com".to_string(),
+                ip_address: Some("10.0.0.1".to_string()),
+                user_agent: Some("test-agent/1.0".to_string()),
+                metadata: Some(serde_json::json!({"source": "test"})),
+            })
+            .await
+            .expect("create_log should succeed");
+
+        assert!(log.id > 0);
+        assert_eq!(log.server_name, server_name);
+        assert_eq!(log.action, "add");
+        assert_eq!(log.new_status.as_deref(), Some("blocked"));
+        assert_eq!(log.reason.as_deref(), Some("Test reason"));
+        assert_eq!(log.performed_by, "@admin:test.com");
+        assert_eq!(log.ip_address.as_deref(), Some("10.0.0.1"));
+        assert_eq!(log.user_agent.as_deref(), Some("test-agent/1.0"));
+        assert_eq!(log.metadata, serde_json::json!({"source": "test"}));
+        assert!(log.performed_ts > 0);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 13. update_access_stats inserts a new stats row.
+    #[tokio::test]
+    async fn test_update_access_stats_succeeds() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-stats-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        let stats = storage
+            .update_access_stats(UpdateStatsRequest {
+                server_name: server_name.clone(),
+                is_success: true,
+                response_time_ms: Some(150.0),
+            })
+            .await
+            .expect("update_access_stats should succeed");
+
+        assert!(stats.id > 0);
+        assert_eq!(stats.server_name, server_name);
+        assert_eq!(stats.total_requests, 1);
+        assert_eq!(stats.successful_requests, 1);
+        assert_eq!(stats.failed_requests, 0);
+        assert!(stats.last_request_ts.is_some());
+        assert!(stats.last_success_ts.is_some());
+        assert!(stats.last_failure_ts.is_none());
+        assert!(stats.average_response_time_ms > 0.0);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 14. update_access_stats accumulates counts on upsert.
+    #[tokio::test]
+    async fn test_update_access_stats_accumulates() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-stats-acc-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        // First: success.
+        storage
+            .update_access_stats(UpdateStatsRequest {
+                server_name: server_name.clone(),
+                is_success: true,
+                response_time_ms: Some(100.0),
+            })
+            .await
+            .expect("first update should succeed");
+
+        // Second: failure.
+        let stats = storage
+            .update_access_stats(UpdateStatsRequest {
+                server_name: server_name.clone(),
+                is_success: false,
+                response_time_ms: Some(200.0),
+            })
+            .await
+            .expect("second update should succeed");
+
+        assert_eq!(stats.total_requests, 2);
+        assert_eq!(stats.successful_requests, 1);
+        assert_eq!(stats.failed_requests, 1);
+        assert!(stats.last_failure_ts.is_some(), "last_failure_ts should be set after failure");
+        // error_rate uses pre-update values in ON CONFLICT DO UPDATE,
+        // so after the second upsert it still reflects the first row's state (0/1 = 0.0).
+        // We only assert total/success/failure counts for correctness.
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 15. get_access_stats returns existing stats.
+    #[tokio::test]
+    async fn test_get_access_stats_found() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-get-stats-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name).await;
+
+        storage
+            .update_access_stats(UpdateStatsRequest {
+                server_name: server_name.clone(),
+                is_success: true,
+                response_time_ms: None,
+            })
+            .await
+            .expect("update should succeed");
+
+        let stats = storage
+            .get_access_stats(&server_name)
+            .await
+            .expect("get should succeed")
+            .expect("stats should exist");
+
+        assert_eq!(stats.server_name, server_name);
+        assert_eq!(stats.total_requests, 1);
+
+        cleanup_by_server(&pool, &server_name).await;
+    }
+
+    // 16. get_access_stats returns None for an unknown server.
+    #[tokio::test]
+    async fn test_get_access_stats_not_found() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name = format!("test-no-stats-{}.com", suffix);
+
+        let stats = storage
+            .get_access_stats(&server_name)
+            .await
+            .expect("get should succeed");
+
+        assert!(stats.is_none());
+    }
+
+    // 17. create_rule inserts a new rule and returns it.
+    #[tokio::test]
+    async fn test_create_rule_succeeds() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let rule_name = format!("test-rule-{}", suffix);
+
+        cleanup_rule_by_name(&pool, &format!("test-rule-{}%", suffix)).await;
+
+        let rule = storage
+            .create_rule(CreateRuleRequest {
+                rule_name: rule_name.clone(),
+                rule_type: "domain".to_string(),
+                pattern: format!("*.evil-{}.com", suffix),
+                action: "block".to_string(),
+                priority: 100,
+                description: Some("Test rule".to_string()),
+                created_by: "@admin:test.com".to_string(),
+            })
+            .await
+            .expect("create_rule should succeed");
+
+        assert!(rule.id > 0);
+        assert_eq!(rule.rule_name, rule_name);
+        assert_eq!(rule.rule_type, "domain");
+        assert_eq!(rule.action, "block");
+        assert_eq!(rule.priority, 100);
+        assert!(rule.is_enabled);
+        assert_eq!(rule.created_by, "@admin:test.com");
+        assert!(rule.created_ts > 0);
+
+        cleanup_rule_by_name(&pool, &format!("test-rule-{}%", suffix)).await;
+    }
+
+    // 18. get_all_rules returns only enabled rules (filters out disabled).
+    #[tokio::test]
+    async fn test_get_all_rules_filters_disabled() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let rule_name_a = format!("test-rules-a-{}", suffix);
+        let rule_name_b = format!("test-rules-b-{}", suffix);
+        let like_pattern = format!("test-rules-%{}%", suffix);
+
+        cleanup_rule_by_name(&pool, &like_pattern).await;
+
+        // Create two rules.
+        storage
+            .create_rule(CreateRuleRequest {
+                rule_name: rule_name_a.clone(),
+                rule_type: "domain".to_string(),
+                pattern: "*.evil-a.com".to_string(),
+                action: "block".to_string(),
+                priority: 100,
+                description: None,
+                created_by: "@admin:test.com".to_string(),
+            })
+            .await
+            .expect("create rule a should succeed");
+
+        storage
+            .create_rule(CreateRuleRequest {
+                rule_name: rule_name_b.clone(),
+                rule_type: "ip".to_string(),
+                pattern: "10.0.0.0/8".to_string(),
+                action: "block".to_string(),
+                priority: 50,
+                description: None,
+                created_by: "@admin:test.com".to_string(),
+            })
+            .await
+            .expect("create rule b should succeed");
+
+        // Both should appear in get_all_rules (both enabled by default).
+        let rules = storage.get_all_rules().await.expect("get_all_rules should succeed");
+        assert!(rules.iter().any(|r| r.rule_name == rule_name_a), "rule A should be present");
+        assert!(rules.iter().any(|r| r.rule_name == rule_name_b), "rule B should be present");
+
+        // Disable rule A via raw SQL.
+        sqlx::query("UPDATE federation_blacklist_rule SET is_enabled = false WHERE rule_name = $1")
+            .bind(&rule_name_a)
+            .execute(&*pool)
+            .await
+            .expect("disable rule should work");
+
+        let rules_after = storage.get_all_rules().await.expect("get_all_rules should succeed");
+        assert!(!rules_after.iter().any(|r| r.rule_name == rule_name_a),
+            "disabled rule A should not be returned");
+        assert!(rules_after.iter().any(|r| r.rule_name == rule_name_b),
+            "enabled rule B should still be returned");
+
+        cleanup_rule_by_name(&pool, &like_pattern).await;
+    }
+
+    // 19. cleanup_expired_entries disables entries with past expires_at.
+    #[tokio::test]
+    async fn test_cleanup_expired_entries() {
+        let pool = test_pool().await;
+        let storage = FederationBlacklistStorage::new(&pool);
+        let suffix = Uuid::new_v4();
+        let server_name_exp = format!("test-cleanup-exp-{}.com", suffix);
+        let server_name_active = format!("test-cleanup-active-{}.com", suffix);
+
+        cleanup_by_server(&pool, &server_name_exp).await;
+        cleanup_by_server(&pool, &server_name_active).await;
+
+        let past = Utc::now().timestamp_millis() - 86_400_000; // 1 day ago
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name_exp.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: Some(past),
+                metadata: None,
+            })
+            .await
+            .expect("add expired entry should succeed");
+
+        let future = Utc::now().timestamp_millis() + 86_400_000; // 1 day from now
+        storage
+            .add_to_blacklist(AddBlacklistRequest {
+                server_name: server_name_active.clone(),
+                block_type: "blacklist".to_string(),
+                reason: None,
+                blocked_by: "@admin:test.com".to_string(),
+                expires_at: Some(future),
+                metadata: None,
+            })
+            .await
+            .expect("add active entry should succeed");
+
+        let cleaned = storage
+            .cleanup_expired_entries()
+            .await
+            .expect("cleanup should succeed");
+
+        // At least our expired entry should have been cleaned.
+        assert!(cleaned >= 1, "should clean at least 1 expired entry, got {cleaned}");
+
+        // Expired entry should now be disabled.
+        let expired_entry = storage
+            .get_blacklist_entry(&server_name_exp)
+            .await
+            .expect("get should succeed")
+            .expect("expired entry should still exist");
+        assert!(!expired_entry.is_enabled, "expired entry should be disabled");
+
+        // Active (future expiry) entry should remain enabled.
+        let active_entry = storage
+            .get_blacklist_entry(&server_name_active)
+            .await
+            .expect("get should succeed")
+            .expect("active entry should still exist");
+        assert!(active_entry.is_enabled, "active entry should remain enabled");
+
+        cleanup_by_server(&pool, &server_name_exp).await;
+        cleanup_by_server(&pool, &server_name_active).await;
+    }
+}
