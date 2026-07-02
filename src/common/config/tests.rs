@@ -5,12 +5,6 @@
 #[allow(clippy::module_inception)]
 mod tests {
     use crate::common::config::*;
-    use crate::common::config::{
-        security::{
-            default_admin_mfa_allowed_drift_steps, default_admin_rbac_enabled, default_ui_auth_session_timeout,
-        },
-        server::default_dehydrated_device_cleanup_interval_secs,
-    };
     use std::path::PathBuf;
 
     #[test]
