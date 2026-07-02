@@ -1194,3 +1194,786 @@ mod tests {
         assert!(reply.is_edited);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    async fn ensure_test_room(pool: &Pool<Postgres>, room_id: &str) {
+        sqlx::query(
+            r#"INSERT INTO rooms (room_id, room_version, is_public, creator, created_ts) VALUES ($1, '10', false, $2, $3) ON CONFLICT (room_id) DO NOTHING"#,
+        )
+        .bind(room_id)
+        .bind("@test:localhost")
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool)
+        .await
+        .expect("failed to create test room");
+    }
+
+    async fn cleanup_thread_data(pool: &Pool<Postgres>, room_id: &str, thread_id: &str) {
+        sqlx::query("DELETE FROM thread_read_receipts WHERE room_id = $1 AND thread_id = $2")
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM thread_subscriptions WHERE room_id = $1 AND thread_id = $2")
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM thread_relations WHERE room_id = $1 AND thread_id = $2")
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM thread_replies WHERE room_id = $1 AND thread_id = $2")
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(pool)
+            .await
+            .ok();
+        sqlx::query("DELETE FROM thread_roots WHERE room_id = $1 AND thread_id = $2")
+            .bind(room_id)
+            .bind(thread_id)
+            .execute(pool)
+            .await
+            .ok();
+    }
+
+    // 1. test_create_thread_root
+    #[tokio::test]
+    async fn test_create_thread_root() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_cr_{suffix}:localhost");
+        let thread_id = format!("thread-cr-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        let root = storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        assert!(root.id > 0);
+        assert_eq!(root.room_id, room_id);
+        assert_eq!(root.thread_id, Some(thread_id.clone()));
+        assert_eq!(root.reply_count, 0);
+        assert!(!root.is_fetched);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 2. test_get_thread_root_found
+    #[tokio::test]
+    async fn test_get_thread_root_found() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_gt_{suffix}:localhost");
+        let thread_id = format!("thread-gt-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let found = storage
+            .get_thread_root(&room_id, &thread_id)
+            .await
+            .expect("query should succeed");
+
+        assert!(found.is_some());
+        let root = found.unwrap();
+        assert_eq!(root.room_id, room_id);
+        assert_eq!(root.thread_id, Some(thread_id.clone()));
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 3. test_get_thread_root_not_found
+    #[tokio::test]
+    async fn test_get_thread_root_not_found() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+
+        let result = storage
+            .get_thread_root("!nonexistent:localhost", "nonexistent-thread")
+            .await
+            .expect("query should succeed");
+
+        assert!(result.is_none(), "nonexistent thread should return None");
+    }
+
+    // 4. test_get_thread_root_by_event
+    #[tokio::test]
+    async fn test_get_thread_root_by_event() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_gte_{suffix}:localhost");
+        let thread_id = format!("thread-gte-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let found = storage
+            .get_thread_root_by_event(&room_id, &format!("$root_{suffix}"))
+            .await
+            .expect("query should succeed");
+
+        assert!(found.is_some());
+        let root = found.unwrap();
+        assert_eq!(root.root_event_id, format!("$root_{suffix}"));
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 5. test_list_thread_roots
+    #[tokio::test]
+    async fn test_list_thread_roots() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_lt_{suffix}:localhost");
+        let t1 = format!("thread-lt-a-{suffix}");
+        let t2 = format!("thread-lt-b-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &t1).await;
+        cleanup_thread_data(&pool, &room_id, &t2).await;
+
+        for tid in &[&t1, &t2] {
+            storage
+                .create_thread_root(CreateThreadRootParams {
+                    room_id: room_id.clone(),
+                    root_event_id: format!("$ev_{}", tid),
+                    sender: "@sender:localhost".to_string(),
+                    thread_id: Some((*tid).clone()),
+                })
+                .await
+                .expect("should create thread root");
+        }
+
+        let roots = storage
+            .list_thread_roots(ThreadListParams {
+                room_id: room_id.clone(),
+                limit: Some(10),
+                from: None,
+                include_all: false,
+            })
+            .await
+            .expect("should list roots");
+
+        assert!(roots.len() >= 2);
+
+        cleanup_thread_data(&pool, &room_id, &t1).await;
+        cleanup_thread_data(&pool, &room_id, &t2).await;
+    }
+
+    // 6. test_list_all_thread_roots
+    #[tokio::test]
+    async fn test_list_all_thread_roots() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_la_{suffix}:localhost");
+        let thread_id = format!("thread-la-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let roots = storage
+            .list_all_thread_roots(Some(10), None)
+            .await
+            .expect("should list all roots");
+
+        assert!(!roots.is_empty());
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 7. test_create_thread_reply
+    #[tokio::test]
+    async fn test_create_thread_reply() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_rp_{suffix}:localhost");
+        let thread_id = format!("thread-rp-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let ts = chrono::Utc::now().timestamp_millis();
+        let reply = storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$reply_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@replier:localhost".to_string(),
+                in_reply_to_event_id: Some(format!("$root_{suffix}")),
+                content: serde_json::json!({"body": "test reply"}),
+                origin_server_ts: ts,
+            })
+            .await
+            .expect("should create reply");
+
+        assert!(reply.id > 0);
+        assert_eq!(reply.thread_id, thread_id);
+        assert_eq!(reply.sender, "@replier:localhost");
+        assert!(!reply.is_edited);
+        assert!(!reply.is_redacted);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 8. test_get_thread_replies
+    #[tokio::test]
+    async fn test_get_thread_replies() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_gtr_{suffix}:localhost");
+        let thread_id = format!("thread-gtr-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let ts1 = chrono::Utc::now().timestamp_millis();
+        let ts2 = ts1 + 1;
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$r1_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@r1:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "first reply"}),
+                origin_server_ts: ts1,
+            })
+            .await
+            .expect("should create reply1");
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$r2_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@r2:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "second reply"}),
+                origin_server_ts: ts2,
+            })
+            .await
+            .expect("should create reply2");
+
+        let replies = storage
+            .get_thread_replies(&room_id, &thread_id, Some(10), None)
+            .await
+            .expect("should get replies");
+
+        assert!(replies.len() >= 2);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 9. test_get_reply_count
+    #[tokio::test]
+    async fn test_get_reply_count() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_rc_{suffix}:localhost");
+        let thread_id = format!("thread-rc-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        // Zero when no thread exists yet
+        let count0 = storage
+            .get_reply_count(&room_id, &thread_id)
+            .await
+            .expect("should get count");
+        assert_eq!(count0, 0);
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create root");
+
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$r1_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@r1:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "reply1"}),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            })
+            .await
+            .expect("should create reply1");
+
+        let count1 = storage
+            .get_reply_count(&room_id, &thread_id)
+            .await
+            .expect("should get count");
+        assert_eq!(count1, 1);
+
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$r2_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@r2:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "reply2"}),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            })
+            .await
+            .expect("should create reply2");
+
+        let count2 = storage
+            .get_reply_count(&room_id, &thread_id)
+            .await
+            .expect("should get count");
+        assert_eq!(count2, 2);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 10. test_subscribe_to_thread
+    #[tokio::test]
+    async fn test_subscribe_to_thread() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_sub_{suffix}:localhost");
+        let thread_id = format!("thread-sub-{suffix}");
+        let user_id = format!("@user_sub_{suffix}:localhost");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: user_id.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let sub = storage
+            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
+            .await
+            .expect("should subscribe");
+
+        assert!(sub.id > 0);
+        assert_eq!(sub.room_id, room_id);
+        assert_eq!(sub.thread_id, thread_id);
+        assert_eq!(sub.user_id, user_id);
+        assert_eq!(sub.notification_level, "all");
+        assert!(!sub.is_muted);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 11. test_unsubscribe_from_thread
+    #[tokio::test]
+    async fn test_unsubscribe_from_thread() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_unsub_{suffix}:localhost");
+        let thread_id = format!("thread-unsub-{suffix}");
+        let user_id = format!("@user_unsub_{suffix}:localhost");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: user_id.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create root");
+
+        storage
+            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
+            .await
+            .expect("should subscribe");
+
+        storage
+            .unsubscribe_from_thread(&room_id, &thread_id, &user_id)
+            .await
+            .expect("should unsubscribe");
+
+        let sub = storage
+            .get_thread_subscription(&room_id, &thread_id, &user_id)
+            .await
+            .expect("query should succeed");
+
+        assert!(sub.is_none(), "subscription should be removed after unsubscribe");
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 12. test_get_thread_subscription — found / not found
+    #[tokio::test]
+    async fn test_get_thread_subscription() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_gsub_{suffix}:localhost");
+        let thread_id = format!("thread-gsub-{suffix}");
+        let user_id = format!("@user_gsub_{suffix}:localhost");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        // Not found initially
+        let sub = storage
+            .get_thread_subscription(&room_id, &thread_id, &user_id)
+            .await
+            .expect("query should succeed");
+        assert!(sub.is_none(), "should not exist before subscribe");
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: user_id.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create root");
+
+        storage
+            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
+            .await
+            .expect("should subscribe");
+
+        // Found after subscription
+        let sub = storage
+            .get_thread_subscription(&room_id, &thread_id, &user_id)
+            .await
+            .expect("query should succeed");
+        assert!(sub.is_some(), "should exist after subscribe");
+        let sub = sub.unwrap();
+        assert_eq!(sub.notification_level, "all");
+        assert!(!sub.is_muted);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 13. test_get_user_thread_subscriptions
+    #[tokio::test]
+    async fn test_get_user_thread_subscriptions() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_uts_{suffix}:localhost");
+        let user_id = format!("@user_uts_{suffix}:localhost");
+        let t1 = format!("thread-uts-a-{suffix}");
+        let t2 = format!("thread-uts-b-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &t1).await;
+        cleanup_thread_data(&pool, &room_id, &t2).await;
+
+        for tid in &[&t1, &t2] {
+            storage
+                .create_thread_root(CreateThreadRootParams {
+                    room_id: room_id.clone(),
+                    root_event_id: format!("$ev_{}", tid),
+                    sender: user_id.clone(),
+                    thread_id: Some((*tid).clone()),
+                })
+                .await
+                .expect("should create root");
+            storage
+                .subscribe_to_thread(&room_id, tid, &user_id, "all")
+                .await
+                .expect("should subscribe");
+        }
+
+        let subs = storage
+            .get_user_thread_subscriptions(&user_id, Some(10))
+            .await
+            .expect("should get subscriptions");
+
+        assert!(subs.len() >= 2, "expected at least 2 subscriptions, got {}", subs.len());
+
+        cleanup_thread_data(&pool, &room_id, &t1).await;
+        cleanup_thread_data(&pool, &room_id, &t2).await;
+    }
+
+    // 14. test_update_read_receipt
+    #[tokio::test]
+    async fn test_update_read_receipt() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_urr_{suffix}:localhost");
+        let thread_id = format!("thread-urr-{suffix}");
+        let user_id = format!("@user_urr_{suffix}:localhost");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: user_id.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        let ts = chrono::Utc::now().timestamp_millis();
+        let receipt = storage
+            .update_read_receipt(&room_id, &thread_id, &user_id, "$event_last", ts)
+            .await
+            .expect("should update receipt");
+
+        assert!(receipt.id > 0);
+        assert_eq!(receipt.room_id, room_id);
+        assert_eq!(receipt.thread_id, thread_id);
+        assert_eq!(receipt.user_id, user_id);
+        assert_eq!(receipt.last_read_event_id, Some("$event_last".to_string()));
+        assert_eq!(receipt.unread_count, 0);
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 15. test_get_read_receipt
+    #[tokio::test]
+    async fn test_get_read_receipt() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_grr_{suffix}:localhost");
+        let thread_id = format!("thread-grr-{suffix}");
+        let user_id = format!("@user_grr_{suffix}:localhost");
+
+        ensure_test_room(&pool, &room_id).await;
+        ensure_test_user(&pool, &user_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        // Not found initially
+        let rr = storage
+            .get_read_receipt(&room_id, &thread_id, &user_id)
+            .await
+            .expect("query should succeed");
+        assert!(rr.is_none(), "read receipt should not exist initially");
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: user_id.clone(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create root");
+
+        storage
+            .update_read_receipt(
+                &room_id,
+                &thread_id,
+                &user_id,
+                "$event_123",
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .await
+            .expect("should update receipt");
+
+        let rr = storage
+            .get_read_receipt(&room_id, &thread_id, &user_id)
+            .await
+            .expect("query should succeed");
+
+        assert!(rr.is_some(), "read receipt should exist after update");
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+
+    // 16. test_delete_thread
+    #[tokio::test]
+    async fn test_delete_thread() {
+        let pool = test_pool().await;
+        let storage = ThreadStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!room_del_{suffix}:localhost");
+        let thread_id = format!("thread-del-{suffix}");
+
+        ensure_test_room(&pool, &room_id).await;
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+
+        storage
+            .create_thread_root(CreateThreadRootParams {
+                room_id: room_id.clone(),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@sender:localhost".to_string(),
+                thread_id: Some(thread_id.clone()),
+            })
+            .await
+            .expect("should create thread root");
+
+        // Create a reply too, to verify cascading delete
+        storage
+            .create_thread_reply(CreateThreadReplyParams {
+                room_id: room_id.clone(),
+                thread_id: thread_id.clone(),
+                event_id: format!("$reply_{suffix}"),
+                root_event_id: format!("$root_{suffix}"),
+                sender: "@replier:localhost".to_string(),
+                in_reply_to_event_id: None,
+                content: serde_json::json!({"body": "reply"}),
+                origin_server_ts: chrono::Utc::now().timestamp_millis(),
+            })
+            .await
+            .expect("should create reply");
+
+        // Verify thread and reply exist before delete
+        assert!(storage
+            .get_thread_root(&room_id, &thread_id)
+            .await
+            .unwrap()
+            .is_some());
+        assert_eq!(
+            storage.get_reply_count(&room_id, &thread_id).await.unwrap(),
+            1
+        );
+
+        storage
+            .delete_thread(&room_id, &thread_id)
+            .await
+            .expect("should delete");
+
+        // Root should be gone
+        let root = storage
+            .get_thread_root(&room_id, &thread_id)
+            .await
+            .expect("query should succeed");
+        assert!(root.is_none(), "thread root should be deleted");
+
+        // Reply should be gone
+        let count = storage
+            .get_reply_count(&room_id, &thread_id)
+            .await
+            .expect("query should succeed");
+        assert_eq!(count, 0, "replies should be deleted");
+
+        cleanup_thread_data(&pool, &room_id, &thread_id).await;
+    }
+}
