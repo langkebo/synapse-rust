@@ -1,5 +1,5 @@
 pub use synapse_e2ee::backup;
-pub mod cross_signing;
+pub use synapse_e2ee::cross_signing;
 pub use synapse_e2ee::crypto;
 pub mod device_keys;
 pub use synapse_e2ee::device_trust;

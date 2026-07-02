@@ -7,6 +7,8 @@ use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_rust::common::config::PerformanceConfig;
 use synapse_rust::common::metrics::MetricsCollector;
 
+use synapse_e2ee::device_keys::DeviceKeyStorage;
+use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::Validator;
 use synapse_rust::e2ee::to_device::ToDeviceStorage;
@@ -24,8 +26,6 @@ use synapse_storage::user::UserStore;
 use synapse_storage::PresenceStorage;
 use synapse_storage::RoomMemberRepository;
 use synapse_storage::{AccountDataStorage, CreateFilterRequest, FilterStorage, RoomAccountDataStorage};
-use synapse_e2ee::device_keys::DeviceKeyStorage;
-use synapse_e2ee::key_rotation::KeyRotationStorage;
 
 async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     sqlx::query(
@@ -341,7 +341,7 @@ fn create_room_service(
         event_storage,
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage,
-        auth_service: Arc::new(synapse_rust::auth::AuthService::new(
+        auth_service: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),

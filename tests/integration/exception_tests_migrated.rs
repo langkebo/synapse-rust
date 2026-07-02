@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
-use synapse_rust::auth::AuthService;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::common::config::SecurityConfig;
 use synapse_rust::common::metrics::MetricsCollector;
+use synapse_services::auth::AuthService;
 
 #[tokio::test]
 async fn test_invalid_jwt() {
