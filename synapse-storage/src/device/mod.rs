@@ -1436,3 +1436,544 @@ mod tests {
         assert!(after_delete.is_empty());
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    async fn ensure_test_device(pool: &Pool<Postgres>, user_id: &str, device_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r#"INSERT INTO devices (device_id, user_id, created_ts, first_seen_ts)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (device_id) DO NOTHING"#,
+        )
+        .bind(device_id)
+        .bind(user_id)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test device");
+    }
+
+    #[tokio::test]
+    async fn test_create_device_returns_valid_record() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_create_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@testuser:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+
+        let device = storage
+            .create_device(device_id, user_id, Some("Test Phone"))
+            .await
+            .expect("create_device should succeed");
+
+        assert_eq!(device.device_id, device_id.as_str());
+        assert_eq!(device.user_id, user_id);
+        assert_eq!(device.display_name.as_deref(), Some("Test Phone"));
+        assert!(device.created_ts > 0);
+        assert!(device.first_seen_ts > 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_device_without_display_name() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_nodesc_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@nodesc:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+
+        let device = storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device without display name should succeed");
+
+        assert_eq!(device.device_id, device_id.as_str());
+        assert!(device.display_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_device_finds_created_device() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_get_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@getuser:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, Some("Find Me"))
+            .await
+            .expect("create_device should succeed");
+
+        let found = storage
+            .get_device(device_id)
+            .await
+            .expect("get_device should succeed");
+
+        assert!(found.is_some());
+        let found = found.unwrap();
+        assert_eq!(found.device_id, device_id.as_str());
+        assert_eq!(found.user_id, user_id);
+        assert_eq!(found.display_name.as_deref(), Some("Find Me"));
+    }
+
+    #[tokio::test]
+    async fn test_get_device_not_found_returns_none() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        let result = storage
+            .get_device("nonexistent_device_id_12345")
+            .await
+            .expect("get_device should succeed");
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_user_devices_returns_all() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@multidev_{}:example.com", suffix);
+        let d1 = format!("multi_1_{}", suffix);
+        let d2 = format!("multi_2_{}", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+        // Clean up any leftover devices from previous runs
+        let _ = storage.delete_user_devices(&user_id).await;
+        storage.create_device(&d1, &user_id, Some("Phone")).await.expect("create d1");
+        storage.create_device(&d2, &user_id, Some("Tablet")).await.expect("create d2");
+
+        let devices = storage
+            .get_user_devices(&user_id)
+            .await
+            .expect("get_user_devices should succeed");
+
+        assert_eq!(devices.len(), 2);
+        let ids: Vec<&str> = devices.iter().map(|d| d.device_id.as_str()).collect();
+        assert!(ids.contains(&d1.as_str()));
+        assert!(ids.contains(&d2.as_str()));
+    }
+
+    #[tokio::test]
+    async fn test_get_user_devices_empty_for_new_user() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let user_id = "@nodevices:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+
+        let devices = storage
+            .get_user_devices(user_id)
+            .await
+            .expect("get_user_devices should succeed");
+
+        assert!(devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_update_device_display_name() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_updname_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@updatename:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, Some("Old Name"))
+            .await
+            .expect("create_device");
+
+        storage
+            .update_device_display_name(device_id, "New Name")
+            .await
+            .expect("update_device_display_name should succeed");
+
+        let updated = storage.get_device(device_id).await.expect("get_device").unwrap();
+        assert_eq!(updated.display_name.as_deref(), Some("New Name"));
+    }
+
+    #[tokio::test]
+    async fn test_update_user_device_display_name_returns_rows_affected() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_upduser_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@upduser:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        let rows = storage
+            .update_user_device_display_name(user_id, device_id, "Updated")
+            .await
+            .expect("update_user_device_display_name should succeed");
+
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_user_device_display_name_wrong_user_returns_zero() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_wrongusr_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@rightuser:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        let rows = storage
+            .update_user_device_display_name("@wronguser:example.com", device_id, "Nope")
+            .await
+            .expect("update should succeed but affect 0 rows");
+
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn test_update_device_last_seen() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_seen_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@seen:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        storage
+            .update_device_last_seen(device_id)
+            .await
+            .expect("update_device_last_seen should succeed");
+
+        let updated = storage.get_device(device_id).await.expect("get_device").unwrap();
+        assert!(updated.last_seen_ts.is_some());
+        assert!(updated.last_seen_ts.unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_device_returns_rows_affected() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_del_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@deleteusr:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        let rows = storage
+            .delete_user_device(user_id, device_id)
+            .await
+            .expect("delete_user_device should succeed");
+
+        assert_eq!(rows, 1);
+
+        let after = storage.get_device(device_id).await.expect("get_device");
+        assert!(after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_device_nonexistent_returns_zero() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        let rows = storage
+            .delete_user_device("@nobody:example.com", "no_such_device")
+            .await
+            .expect("delete should succeed but affect 0 rows");
+
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn test_device_exists_returns_true_for_created_device() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_exists_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = &format!("@exists_{}:example.com", uuid::Uuid::new_v4().simple().to_string().split_at(8).0);
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        assert!(storage.device_exists(device_id).await.expect("device_exists should succeed"));
+    }
+
+    #[tokio::test]
+    async fn test_device_exists_returns_false_for_unknown_device() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        assert!(!storage
+            .device_exists("no_such_device_xyz")
+            .await
+            .expect("device_exists should succeed"));
+    }
+
+    #[tokio::test]
+    async fn test_get_device_count_counts_correctly() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@countusr_{}:example.com", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+        let _ = storage.delete_user_devices(&user_id).await;
+
+        assert_eq!(
+            storage.get_device_count(&user_id).await.expect("get_device_count"),
+            0
+        );
+
+        let d1 = format!("cnt_1_{}", suffix);
+        let d2 = format!("cnt_2_{}", suffix);
+        storage.create_device(&d1, &user_id, None).await.expect("create d1");
+        storage.create_device(&d2, &user_id, None).await.expect("create d2");
+
+        assert_eq!(
+            storage.get_device_count(&user_id).await.expect("get_device_count"),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_devices_removes_all() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let user_id = "@purge:example.com";
+        let d1 = &format!("purge_1_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let d2 = &format!("purge_2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+
+        ensure_test_user(&pool, user_id).await;
+        storage.create_device(d1, user_id, None).await.expect("create d1");
+        storage.create_device(d2, user_id, None).await.expect("create d2");
+
+        storage
+            .delete_user_devices(user_id)
+            .await
+            .expect("delete_user_devices should succeed");
+
+        assert_eq!(
+            storage.get_device_count(user_id).await.expect("get_device_count"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_user_device_finds_by_user_and_device() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_userdev_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@userdev:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, Some("Specific"))
+            .await
+            .expect("create_device");
+
+        let found = storage
+            .get_user_device(user_id, device_id)
+            .await
+            .expect("get_user_device should succeed");
+
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().device_id, device_id.as_str());
+    }
+
+    #[tokio::test]
+    async fn test_get_user_device_returns_none_for_wrong_user() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_wrongusr2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@owner:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        ensure_test_user(&pool, "@other:example.com").await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        let found = storage
+            .get_user_device("@other:example.com", device_id)
+            .await
+            .expect("get_user_device should succeed");
+
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_devices_batch_returns_requested_devices() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let user_id = "@batchusr:example.com";
+        let d1 = &format!("batch_1_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let d2 = &format!("batch_2_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+
+        ensure_test_user(&pool, user_id).await;
+        storage.create_device(d1, user_id, None).await.expect("create d1");
+        storage.create_device(d2, user_id, None).await.expect("create d2");
+
+        let devices = storage
+            .get_devices_batch(&[d1.clone(), d2.clone(), "no_such".to_string()])
+            .await
+            .expect("get_devices_batch should succeed");
+
+        assert_eq!(devices.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_devices_batch_empty_input_returns_empty() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        let devices = storage
+            .get_devices_batch(&[])
+            .await
+            .expect("get_devices_batch with empty input should succeed");
+
+        assert!(devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_filter_existing_users_returns_only_users_with_devices() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@filterusr_{}:example.com", suffix);
+        let no_device_user = format!("@nodevusr_{}:example.com", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+        ensure_test_user(&pool, &no_device_user).await;
+        let _ = storage.delete_user_devices(&user_id).await;
+
+        storage
+            .create_device(&format!("filter_dev_{}", suffix), &user_id, None)
+            .await
+            .expect("create_device");
+
+        let result = storage
+            .filter_existing_users(&[user_id.clone(), no_device_user.clone()])
+            .await
+            .expect("filter_existing_users should succeed");
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], user_id);
+    }
+
+    #[tokio::test]
+    async fn test_filter_existing_users_empty_input_returns_empty() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        let result = storage
+            .filter_existing_users(&[])
+            .await
+            .expect("filter_existing_users with empty input should succeed");
+
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_max_device_list_stream_id_returns_zero_for_empty() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+
+        let max_id = storage
+            .get_max_device_list_stream_id()
+            .await
+            .expect("get_max_device_list_stream_id should succeed");
+
+        assert!(max_id >= 0);
+    }
+
+    #[tokio::test]
+    async fn test_device_list_stream_id_advances_after_create_device() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let user_id = "@streamusr:example.com";
+        let device_id = &format!("stream_dev_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+
+        ensure_test_user(&pool, user_id).await;
+
+        let before = storage.get_max_device_list_stream_id().await.expect("get max before");
+
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        let after = storage.get_max_device_list_stream_id().await.expect("get max after");
+        assert!(after > before);
+    }
+
+    #[tokio::test]
+    async fn test_delete_device_by_id_cleans_up_record() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let device_id = &format!("dev_delbyid_{}", uuid::Uuid::new_v4().simple().to_string().split_at(12).0);
+        let user_id = "@delbyid:example.com";
+
+        ensure_test_user(&pool, user_id).await;
+        storage
+            .create_device(device_id, user_id, None)
+            .await
+            .expect("create_device");
+
+        storage
+            .delete_device(device_id)
+            .await
+            .expect("delete_device should succeed");
+
+        assert!(storage.get_device(device_id).await.expect("get_device").is_none());
+    }
+}
