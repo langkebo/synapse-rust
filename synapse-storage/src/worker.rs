@@ -1626,12 +1626,21 @@ mod tests {
     fn test_worker_type_owned_route_prefixes() {
         assert_eq!(
             WorkerType::Master.owned_route_prefixes(),
-            &["/_matrix/client/*", "/_matrix/federation/*", "/_matrix/media/*", "/_synapse/admin/*", "/_synapse/worker/*"]
+            &[
+                "/_matrix/client/*",
+                "/_matrix/federation/*",
+                "/_matrix/media/*",
+                "/_synapse/admin/*",
+                "/_synapse/worker/*"
+            ]
         );
         assert_eq!(WorkerType::Frontend.owned_route_prefixes(), &["/_matrix/client/*"]);
         assert_eq!(WorkerType::Background.owned_route_prefixes(), &["/_synapse/worker/*"]);
         assert_eq!(WorkerType::EventPersister.owned_route_prefixes(), &["/_synapse/worker/v1/replication/*"]);
-        assert_eq!(WorkerType::Synchrotron.owned_route_prefixes(), &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"]);
+        assert_eq!(
+            WorkerType::Synchrotron.owned_route_prefixes(),
+            &["/_matrix/client/*/sync", "/_matrix/client/v3/sync"]
+        );
         assert_eq!(WorkerType::FederationSender.owned_route_prefixes(), &[] as &[&str]);
         assert_eq!(WorkerType::FederationReader.owned_route_prefixes(), &["/_matrix/federation/*"]);
         assert_eq!(WorkerType::MediaRepository.owned_route_prefixes(), &["/_matrix/media/*"]);
@@ -1641,10 +1650,7 @@ mod tests {
 
     #[test]
     fn test_worker_type_replication_streams() {
-        assert_eq!(
-            WorkerType::Master.replication_streams(),
-            &["events", "worker_commands", "worker_tasks"]
-        );
+        assert_eq!(WorkerType::Master.replication_streams(), &["events", "worker_commands", "worker_tasks"]);
         assert_eq!(WorkerType::Frontend.replication_streams(), &[] as &[&str]);
         assert_eq!(WorkerType::Background.replication_streams(), &["worker_commands", "worker_tasks"]);
         assert_eq!(WorkerType::EventPersister.replication_streams(), &["events"]);
@@ -1950,10 +1956,7 @@ mod tests {
             let summary = WorkerResponsibilitySummary::for_type(variant);
             assert_eq!(summary.worker_type, variant);
             assert!(!summary.domains.is_empty(), "WorkerType {variant:?} has empty domains");
-            assert_eq!(
-                summary.capabilities.can_handle_http,
-                WorkerCapabilities::for_type(&variant).can_handle_http
-            );
+            assert_eq!(summary.capabilities.can_handle_http, WorkerCapabilities::for_type(&variant).can_handle_http);
         }
     }
 
@@ -2447,11 +2450,7 @@ mod tests {
 
     #[test]
     fn test_heartbeat_request_no_load_stats() {
-        let req = HeartbeatRequest {
-            worker_id: "w-002".to_string(),
-            status: WorkerStatus::Stopping,
-            load_stats: None,
-        };
+        let req = HeartbeatRequest { worker_id: "w-002".to_string(), status: WorkerStatus::Stopping, load_stats: None };
         assert!(req.load_stats.is_none());
     }
 
@@ -2522,10 +2521,7 @@ mod tests {
 
     #[test]
     fn test_stream_position_fields() {
-        let pos = StreamPosition {
-            stream_name: "events".to_string(),
-            position: 1000,
-        };
+        let pos = StreamPosition { stream_name: "events".to_string(), position: 1000 };
         assert_eq!(pos.stream_name, "events");
         assert_eq!(pos.position, 1000);
     }
@@ -2549,10 +2545,7 @@ mod tests {
 
     #[test]
     fn test_rdata_position_fields() {
-        let pos = RdataPosition {
-            stream_name: "events".to_string(),
-            position: 999,
-        };
+        let pos = RdataPosition { stream_name: "events".to_string(), position: 999 };
         assert_eq!(pos.stream_name, "events");
         assert_eq!(pos.position, 999);
     }

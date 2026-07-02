@@ -432,11 +432,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -484,11 +481,7 @@ mod db_tests {
         assert_eq!(captcha.user_agent.as_deref(), Some("test-agent/1.0"));
 
         // Cleanup
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -517,11 +510,7 @@ mod db_tests {
         assert_eq!(captcha.max_attempts, 5);
         assert_eq!(captcha.metadata, serde_json::json!({}));
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -543,11 +532,7 @@ mod db_tests {
         assert_eq!(found.captcha_id, created.captcha_id);
         assert_eq!(found.code, "abcd");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -581,11 +566,7 @@ mod db_tests {
         assert_eq!(latest.code, "bbbbb");
         assert_eq!(latest.status, "pending");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -608,11 +589,7 @@ mod db_tests {
         assert_eq!(latest.captcha_id, second.captcha_id);
         assert_eq!(latest.code, "second");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -650,11 +627,7 @@ mod db_tests {
         assert!(updated.verified_ts.is_some());
         assert!(updated.used_ts.is_some());
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -676,11 +649,7 @@ mod db_tests {
         assert_eq!(updated.status, "pending");
         assert_eq!(updated.attempt_count, 1);
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -733,11 +702,7 @@ mod db_tests {
         assert!(updated.is_some());
         assert_eq!(updated.unwrap().status, "expired");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -773,11 +738,7 @@ mod db_tests {
         assert!(updated.is_some());
         assert_eq!(updated.unwrap().status, "exhausted");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -801,11 +762,7 @@ mod db_tests {
         assert_eq!(updated.status, "used");
         assert!(updated.used_ts.is_some());
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -844,11 +801,7 @@ mod db_tests {
         assert!(log.error_message.is_none());
         assert_eq!(log.provider.as_deref(), Some("aws-sns"));
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -875,11 +828,7 @@ mod db_tests {
         assert_eq!(log.error_message.as_deref(), Some("SMTP connection refused"));
         assert!(log.captcha_id.is_none());
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -894,27 +843,26 @@ mod db_tests {
         let sql_target = target.clone();
 
         // Create one send log
-        let _log = storage.create_send_log(CreateSendLogRequest {
-            captcha_id: None,
-            captcha_type: "sms".to_string(),
-            target: target.clone(),
-            ip_address: None,
-            user_agent: None,
-            is_success: true,
-            error_message: None,
-            provider: None,
-            provider_response: None,
-        }).await.expect("create send log");
+        let _log = storage
+            .create_send_log(CreateSendLogRequest {
+                captcha_id: None,
+                captcha_type: "sms".to_string(),
+                target: target.clone(),
+                ip_address: None,
+                user_agent: None,
+                is_success: true,
+                error_message: None,
+                provider: None,
+                provider_response: None,
+            })
+            .await
+            .expect("create send log");
 
         // 1 log < max_per_hour=2 -> allowed
         let within = storage.check_rate_limit(&target, "sms", 2).await.expect("check rate limit");
         assert!(within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -925,27 +873,26 @@ mod db_tests {
         let sql_target = target.clone();
 
         // Create one send log
-        let _log = storage.create_send_log(CreateSendLogRequest {
-            captcha_id: None,
-            captcha_type: "sms".to_string(),
-            target: target.clone(),
-            ip_address: None,
-            user_agent: None,
-            is_success: true,
-            error_message: None,
-            provider: None,
-            provider_response: None,
-        }).await.expect("create send log");
+        let _log = storage
+            .create_send_log(CreateSendLogRequest {
+                captcha_id: None,
+                captcha_type: "sms".to_string(),
+                target: target.clone(),
+                ip_address: None,
+                user_agent: None,
+                is_success: true,
+                error_message: None,
+                provider: None,
+                provider_response: None,
+            })
+            .await
+            .expect("create send log");
 
         // 1 log >= max_per_hour=1 -> blocked
         let within = storage.check_rate_limit(&target, "sms", 1).await.expect("check rate limit");
         assert!(!within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -970,27 +917,26 @@ mod db_tests {
         let target = format!("test_iprl_{}@example.com", unique_suffix());
         let sql_target = target.clone();
 
-        let _log = storage.create_send_log(CreateSendLogRequest {
-            captcha_id: None,
-            captcha_type: "sms".to_string(),
-            target: target.clone(),
-            ip_address: Some("192.168.50.1".to_string()),
-            user_agent: None,
-            is_success: true,
-            error_message: None,
-            provider: None,
-            provider_response: None,
-        }).await.expect("create send log");
+        let _log = storage
+            .create_send_log(CreateSendLogRequest {
+                captcha_id: None,
+                captcha_type: "sms".to_string(),
+                target: target.clone(),
+                ip_address: Some("192.168.50.1".to_string()),
+                user_agent: None,
+                is_success: true,
+                error_message: None,
+                provider: None,
+                provider_response: None,
+            })
+            .await
+            .expect("create send log");
 
         // 1 log for IP < max_per_hour=2 -> allowed
         let within = storage.check_ip_rate_limit("192.168.50.1", 2).await.expect("check IP rate limit");
         assert!(within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -1000,27 +946,26 @@ mod db_tests {
         let target = format!("test_iprl_ex_{}@example.com", unique_suffix());
         let sql_target = target.clone();
 
-        let _log = storage.create_send_log(CreateSendLogRequest {
-            captcha_id: None,
-            captcha_type: "sms".to_string(),
-            target: target.clone(),
-            ip_address: Some("10.10.10.10".to_string()),
-            user_agent: None,
-            is_success: true,
-            error_message: None,
-            provider: None,
-            provider_response: None,
-        }).await.expect("create send log");
+        let _log = storage
+            .create_send_log(CreateSendLogRequest {
+                captcha_id: None,
+                captcha_type: "sms".to_string(),
+                target: target.clone(),
+                ip_address: Some("10.10.10.10".to_string()),
+                user_agent: None,
+                is_success: true,
+                error_message: None,
+                provider: None,
+                provider_response: None,
+            })
+            .await
+            .expect("create send log");
 
         // 1 log for IP >= max_per_hour=1 -> blocked
         let within = storage.check_ip_rate_limit("10.10.10.10", 1).await.expect("check IP rate limit");
         assert!(!within);
 
-        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_send_log WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -1197,11 +1142,7 @@ mod db_tests {
         let result = storage.get_config(&config_key).await.expect("get_config should succeed");
         assert_eq!(result, Some("42".to_string()));
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1")
-            .bind(&config_key)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -1232,11 +1173,7 @@ mod db_tests {
         let value = storage.get_config_as_int(&config_key, 0).await.expect("get_config_as_int should succeed");
         assert_eq!(value, 99);
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1")
-            .bind(&config_key)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -1244,7 +1181,8 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = CaptchaStorage::new(&pool);
 
-        let value = storage.get_config_as_int("nonexistent_key_xyz", 5).await.expect("get_config_as_int should succeed");
+        let value =
+            storage.get_config_as_int("nonexistent_key_xyz", 5).await.expect("get_config_as_int should succeed");
         assert_eq!(value, 5);
     }
 
@@ -1267,11 +1205,7 @@ mod db_tests {
         let value = storage.get_config_as_int(&config_key, 7).await.expect("get_config_as_int should succeed");
         assert_eq!(value, 7);
 
-        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1")
-            .bind(&config_key)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM captcha_config WHERE config_key = $1").bind(&config_key).execute(&*pool).await.ok();
     }
 
     // ---------------------------------------------------------------------------
@@ -1320,11 +1254,7 @@ mod db_tests {
         assert!(after.is_none());
 
         // Cleanup any leftovers
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -1371,11 +1301,7 @@ mod db_tests {
         assert!(after.is_some());
         assert_eq!(after.unwrap().status, "expired");
 
-        sqlx::query("DELETE FROM registration_captcha WHERE target = $1")
-            .bind(&sql_target)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM registration_captcha WHERE target = $1").bind(&sql_target).execute(&*pool).await.ok();
     }
 
     #[tokio::test]

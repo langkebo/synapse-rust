@@ -1141,9 +1141,7 @@ mod tests {
 
     #[test]
     fn test_update_request_builder_partial_chain() {
-        let req = UpdateApplicationServiceRequest::new()
-            .url("https://partial.example.com")
-            .is_enabled(true);
+        let req = UpdateApplicationServiceRequest::new().url("https://partial.example.com").is_enabled(true);
 
         assert_eq!(req.url.as_deref(), Some("https://partial.example.com"));
         assert_eq!(req.is_enabled, Some(true));
@@ -1180,11 +1178,7 @@ mod tests {
 
     #[test]
     fn test_namespace_rule_without_group_id() {
-        let rule = NamespaceRule {
-            is_exclusive: false,
-            regex: "@test:example.com".to_string(),
-            group_id: None,
-        };
+        let rule = NamespaceRule { is_exclusive: false, regex: "@test:example.com".to_string(), group_id: None };
         let json = serde_json::to_string(&rule).unwrap();
         let deserialized: NamespaceRule = serde_json::from_str(&json).unwrap();
         assert!(!deserialized.is_exclusive);
@@ -1249,11 +1243,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -1277,10 +1268,8 @@ mod db_tests {
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM application_service_state WHERE as_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM application_service_state WHERE as_id LIKE $1").bind(&pattern).execute(pool).await;
         let _ = sqlx::query("DELETE FROM application_service_events WHERE as_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
@@ -1289,14 +1278,9 @@ mod db_tests {
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM application_service_users WHERE as_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM application_services WHERE as_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM application_service_users WHERE as_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM application_services WHERE as_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     fn make_registration(
@@ -1505,10 +1489,7 @@ mod db_tests {
 
         cleanup_with_suffix(&pool, &suffix).await;
 
-        let found = storage
-            .get_by_token(&format!("bogus_token_{suffix}"))
-            .await
-            .expect("get_by_token should succeed");
+        let found = storage.get_by_token(&format!("bogus_token_{suffix}")).await.expect("get_by_token should succeed");
         assert!(found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1531,10 +1512,7 @@ mod db_tests {
 
         // Disable the service
         storage
-            .update(
-                &as_id,
-                &UpdateApplicationServiceRequest::new().is_enabled(false),
-            )
+            .update(&as_id, &UpdateApplicationServiceRequest::new().is_enabled(false))
             .await
             .expect("update should succeed");
 
@@ -1561,10 +1539,7 @@ mod db_tests {
         let req = make_registration(&as_id, "http://localhost:9001", &as_token, &hs_token, &sender);
         storage.register(req).await.expect("register should succeed");
 
-        let found = storage
-            .get_by_hs_token(&hs_token)
-            .await
-            .expect("get_by_hs_token should succeed");
+        let found = storage.get_by_hs_token(&hs_token).await.expect("get_by_hs_token should succeed");
         assert!(found.is_some());
         assert_eq!(found.unwrap().as_id, as_id);
 
@@ -1579,10 +1554,8 @@ mod db_tests {
 
         cleanup_with_suffix(&pool, &suffix).await;
 
-        let found = storage
-            .get_by_hs_token(&format!("bogus_hs_{suffix}"))
-            .await
-            .expect("get_by_hs_token should succeed");
+        let found =
+            storage.get_by_hs_token(&format!("bogus_hs_{suffix}")).await.expect("get_by_hs_token should succeed");
         assert!(found.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1618,23 +1591,14 @@ mod db_tests {
         );
         storage.register(req2).await.expect("register inactive should succeed");
         storage
-            .update(
-                &as_id2,
-                &UpdateApplicationServiceRequest::new().is_enabled(false),
-            )
+            .update(&as_id2, &UpdateApplicationServiceRequest::new().is_enabled(false))
             .await
             .expect("disable should succeed");
 
-        let active = storage
-            .get_all_active()
-            .await
-            .expect("get_all_active should succeed");
+        let active = storage.get_all_active().await.expect("get_all_active should succeed");
         let active_ids: Vec<_> = active.iter().map(|s| s.as_id.as_str()).collect();
         assert!(active_ids.contains(&as_id1.as_str()), "active list should contain enabled service");
-        assert!(
-            !active_ids.contains(&as_id2.as_str()),
-            "active list should NOT contain disabled service"
-        );
+        assert!(!active_ids.contains(&as_id2.as_str()), "active list should NOT contain disabled service");
 
         cleanup_with_suffix(&pool, &suffix).await;
     }
@@ -1657,17 +1621,11 @@ mod db_tests {
         );
         storage.register(req).await.expect("register should succeed");
         storage
-            .update(
-                &as_id,
-                &UpdateApplicationServiceRequest::new().is_enabled(false),
-            )
+            .update(&as_id, &UpdateApplicationServiceRequest::new().is_enabled(false))
             .await
             .expect("disable should succeed");
 
-        let active = storage
-            .get_all_active()
-            .await
-            .expect("get_all_active should succeed");
+        let active = storage.get_all_active().await.expect("get_all_active should succeed");
         // Filter out pre-existing data — only check our test rows
         let our_active: Vec<_> = active.into_iter().filter(|s| s.as_id.ends_with(&suffix)).collect();
         assert!(our_active.is_empty(), "no active services for our test suffix");
@@ -1699,10 +1657,7 @@ mod db_tests {
             .protocols(vec!["irc".to_string(), "matrix".to_string()])
             .api_key("new_key");
 
-        let updated = storage
-            .update(&as_id, &update_req)
-            .await
-            .expect("update should succeed");
+        let updated = storage.update(&as_id, &update_req).await.expect("update should succeed");
         assert_eq!(updated.url, "http://localhost:9999");
         assert_eq!(updated.description.as_deref(), Some("Updated description"));
         assert!(updated.is_rate_limited);
@@ -1736,10 +1691,7 @@ mod db_tests {
         let created = storage.register(req).await.expect("register should succeed");
         assert!(created.updated_ts.is_none(), "newly created should have no updated_ts");
 
-        storage
-            .update_timestamp(&as_id)
-            .await
-            .expect("update_timestamp should succeed");
+        storage.update_timestamp(&as_id).await.expect("update_timestamp should succeed");
 
         let fetched = storage.get_by_id(&as_id).await.expect("get_by_id should succeed");
         let fetched = fetched.unwrap();
@@ -1769,10 +1721,7 @@ mod db_tests {
         let found = storage.get_by_id(&as_id).await.expect("get_by_id should succeed");
         assert!(found.is_some(), "should exist before unregister");
 
-        storage
-            .unregister(&as_id)
-            .await
-            .expect("unregister should succeed");
+        storage.unregister(&as_id).await.expect("unregister should succeed");
 
         let after = storage.get_by_id(&as_id).await.expect("get_by_id should succeed");
         assert!(after.is_none(), "should be gone after unregister");
@@ -1801,18 +1750,13 @@ mod db_tests {
         );
         storage.register(req).await.expect("register should succeed");
 
-        let state = storage
-            .set_state(&as_id, "config", "{\"theme\":\"dark\"}")
-            .await
-            .expect("set_state should succeed");
+        let state =
+            storage.set_state(&as_id, "config", "{\"theme\":\"dark\"}").await.expect("set_state should succeed");
         assert_eq!(state.as_id, as_id);
         assert_eq!(state.state_key, "config");
         assert_eq!(state.state_value, "{\"theme\":\"dark\"}");
 
-        let fetched = storage
-            .get_state(&as_id, "config")
-            .await
-            .expect("get_state should succeed");
+        let fetched = storage.get_state(&as_id, "config").await.expect("get_state should succeed");
         assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().state_value, "{\"theme\":\"dark\"}");
 
@@ -1837,19 +1781,10 @@ mod db_tests {
         );
         storage.register(req).await.expect("register should succeed");
 
-        storage
-            .set_state(&as_id, "counter", "1")
-            .await
-            .expect("first set_state should succeed");
-        storage
-            .set_state(&as_id, "counter", "2")
-            .await
-            .expect("second set_state should succeed");
+        storage.set_state(&as_id, "counter", "1").await.expect("first set_state should succeed");
+        storage.set_state(&as_id, "counter", "2").await.expect("second set_state should succeed");
 
-        let fetched = storage
-            .get_state(&as_id, "counter")
-            .await
-            .expect("get_state should succeed");
+        let fetched = storage.get_state(&as_id, "counter").await.expect("get_state should succeed");
         assert_eq!(fetched.unwrap().state_value, "2");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1873,19 +1808,10 @@ mod db_tests {
         );
         storage.register(req).await.expect("register should succeed");
 
-        storage
-            .set_state(&as_id, "key1", "val1")
-            .await
-            .expect("set_state key1 should succeed");
-        storage
-            .set_state(&as_id, "key2", "val2")
-            .await
-            .expect("set_state key2 should succeed");
+        storage.set_state(&as_id, "key1", "val1").await.expect("set_state key1 should succeed");
+        storage.set_state(&as_id, "key2", "val2").await.expect("set_state key2 should succeed");
 
-        let all = storage
-            .get_all_states(&as_id)
-            .await
-            .expect("get_all_states should succeed");
+        let all = storage.get_all_states(&as_id).await.expect("get_all_states should succeed");
         assert_eq!(all.len(), 2);
         let keys: Vec<_> = all.iter().map(|s| s.state_key.as_str()).collect();
         assert!(keys.contains(&"key1"));
@@ -1903,10 +1829,7 @@ mod db_tests {
 
         cleanup_with_suffix(&pool, &suffix).await;
 
-        let state = storage
-            .get_state(&as_id, "nonexistent_key")
-            .await
-            .expect("get_state should succeed");
+        let state = storage.get_state(&as_id, "nonexistent_key").await.expect("get_state should succeed");
         assert!(state.is_none());
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1944,30 +1867,18 @@ mod db_tests {
         assert!(event.processed_ts.is_none(), "new event should be unprocessed");
 
         // Count pending
-        let count = storage
-            .count_pending_events(&as_id)
-            .await
-            .expect("count_pending_events should succeed");
+        let count = storage.count_pending_events(&as_id).await.expect("count_pending_events should succeed");
         assert_eq!(count, 1);
 
         // Get pending
-        let pending = storage
-            .get_pending_events(&as_id, 10)
-            .await
-            .expect("get_pending_events should succeed");
+        let pending = storage.get_pending_events(&as_id, 10).await.expect("get_pending_events should succeed");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].event_id, event_id);
 
         // Mark processed
-        storage
-            .mark_event_processed(&event_id)
-            .await
-            .expect("mark_event_processed should succeed");
+        storage.mark_event_processed(&event_id).await.expect("mark_event_processed should succeed");
 
-        let count_after = storage
-            .count_pending_events(&as_id)
-            .await
-            .expect("count_pending_events should succeed");
+        let count_after = storage.count_pending_events(&as_id).await.expect("count_pending_events should succeed");
         assert_eq!(count_after, 0, "no pending events after marking processed");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -1998,16 +1909,10 @@ mod db_tests {
                 .expect("add_event should succeed");
         }
 
-        let pending = storage
-            .get_pending_events(&as_id, 3)
-            .await
-            .expect("get_pending_events should succeed");
+        let pending = storage.get_pending_events(&as_id, 3).await.expect("get_pending_events should succeed");
         assert_eq!(pending.len(), 3, "should respect limit of 3");
 
-        let total = storage
-            .count_pending_events(&as_id)
-            .await
-            .expect("count_pending_events should succeed");
+        let total = storage.count_pending_events(&as_id).await.expect("count_pending_events should succeed");
         assert_eq!(total, 5, "total should still be 5");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -2025,32 +1930,15 @@ mod db_tests {
         cleanup_with_suffix(&pool, &suffix).await;
 
         storage
-            .add_event(
-                &event_id,
-                &as_id,
-                &room_id,
-                "m.room.message",
-                "sender",
-                serde_json::json!({}),
-                None,
-            )
+            .add_event(&event_id, &as_id, &room_id, "m.room.message", "sender", serde_json::json!({}), None)
             .await
             .expect("add_event should succeed");
 
         // Mark processed twice
-        storage
-            .mark_event_processed(&event_id)
-            .await
-            .expect("first mark should succeed");
-        storage
-            .mark_event_processed(&event_id)
-            .await
-            .expect("second mark should succeed (idempotent)");
+        storage.mark_event_processed(&event_id).await.expect("first mark should succeed");
+        storage.mark_event_processed(&event_id).await.expect("second mark should succeed (idempotent)");
 
-        let count = storage
-            .count_pending_events(&as_id)
-            .await
-            .expect("count_pending_events should succeed");
+        let count = storage.count_pending_events(&as_id).await.expect("count_pending_events should succeed");
         assert_eq!(count, 0);
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -2069,39 +1957,27 @@ mod db_tests {
         cleanup_with_suffix(&pool, &suffix).await;
 
         let events = vec![serde_json::json!({"type": "m.room.message", "body": "hi"})];
-        let txn = storage
-            .create_transaction(&as_id, &txn_id, &events)
-            .await
-            .expect("create_transaction should succeed");
+        let txn =
+            storage.create_transaction(&as_id, &txn_id, &events).await.expect("create_transaction should succeed");
         assert_eq!(txn.as_id, as_id);
         assert_eq!(txn.txn_id, txn_id);
         assert!(txn.completed_ts.is_none(), "new transaction should be incomplete");
 
         // Count pending
-        let pending_count = storage
-            .count_pending_transactions(&as_id)
-            .await
-            .expect("count_pending_transactions should succeed");
+        let pending_count =
+            storage.count_pending_transactions(&as_id).await.expect("count_pending_transactions should succeed");
         assert_eq!(pending_count, 1);
 
         // Get pending transactions
-        let pending = storage
-            .get_pending_transactions(&as_id)
-            .await
-            .expect("get_pending_transactions should succeed");
+        let pending = storage.get_pending_transactions(&as_id).await.expect("get_pending_transactions should succeed");
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].txn_id, txn_id);
 
         // Complete
-        storage
-            .complete_transaction(&as_id, &txn_id)
-            .await
-            .expect("complete_transaction should succeed");
+        storage.complete_transaction(&as_id, &txn_id).await.expect("complete_transaction should succeed");
 
-        let after_count = storage
-            .count_pending_transactions(&as_id)
-            .await
-            .expect("count_pending_transactions should succeed");
+        let after_count =
+            storage.count_pending_transactions(&as_id).await.expect("count_pending_transactions should succeed");
         assert_eq!(after_count, 0, "no pending after completion");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -2117,10 +1993,7 @@ mod db_tests {
 
         cleanup_with_suffix(&pool, &suffix).await;
 
-        storage
-            .create_transaction(&as_id, &txn_id, &[])
-            .await
-            .expect("create_transaction should succeed");
+        storage.create_transaction(&as_id, &txn_id, &[]).await.expect("create_transaction should succeed");
 
         let failed = storage
             .fail_transaction(&as_id, &txn_id, "connection refused")
@@ -2129,18 +2002,13 @@ mod db_tests {
         assert_eq!(failed.retry_count, 1);
         assert_eq!(failed.last_error.as_deref(), Some("connection refused"));
 
-        let failed2 = storage
-            .fail_transaction(&as_id, &txn_id, "timeout")
-            .await
-            .expect("second fail should succeed");
+        let failed2 = storage.fail_transaction(&as_id, &txn_id, "timeout").await.expect("second fail should succeed");
         assert_eq!(failed2.retry_count, 2);
         assert_eq!(failed2.last_error.as_deref(), Some("timeout"));
 
         // Failed transaction is still pending (completed_ts still null)
-        let pending_count = storage
-            .count_pending_transactions(&as_id)
-            .await
-            .expect("count_pending_transactions should succeed");
+        let pending_count =
+            storage.count_pending_transactions(&as_id).await.expect("count_pending_transactions should succeed");
         assert_eq!(pending_count, 1, "failed txns are still pending");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -2183,10 +2051,7 @@ mod db_tests {
         assert_eq!(vu2.user_id, user2);
         assert!(vu2.displayname.is_none());
 
-        let users = storage
-            .get_virtual_users(&as_id)
-            .await
-            .expect("get_virtual_users should succeed");
+        let users = storage.get_virtual_users(&as_id).await.expect("get_virtual_users should succeed");
         assert_eq!(users.len(), 2);
         let user_ids: Vec<_> = users.iter().map(|u| u.user_id.as_str()).collect();
         assert!(user_ids.contains(&user1.as_str()));
@@ -2228,10 +2093,7 @@ mod db_tests {
         assert_eq!(vu2.displayname.as_deref(), Some("Updated"));
         assert_eq!(vu2.avatar_url.as_deref(), Some("mxc://avatar"));
 
-        let users = storage
-            .get_virtual_users(&as_id)
-            .await
-            .expect("get_virtual_users should succeed");
+        let users = storage.get_virtual_users(&as_id).await.expect("get_virtual_users should succeed");
         assert_eq!(users.len(), 1, "only one row for the same user");
 
         cleanup_with_suffix(&pool, &suffix).await;
@@ -2246,10 +2108,7 @@ mod db_tests {
 
         cleanup_with_suffix(&pool, &suffix).await;
 
-        let users = storage
-            .get_virtual_users(&as_id)
-            .await
-            .expect("get_virtual_users should succeed");
+        let users = storage.get_virtual_users(&as_id).await.expect("get_virtual_users should succeed");
         assert!(users.is_empty());
 
         cleanup_with_suffix(&pool, &suffix).await;

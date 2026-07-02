@@ -1409,36 +1409,18 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     /// Clean up any leftover data from previous test runs.
     async fn cleanup(pool: &Arc<PgPool>, space_id: &str) {
-        let _ = sqlx::query(r"DELETE FROM space_events WHERE space_id = $1")
-            .bind(space_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM space_children WHERE space_id = $1")
-            .bind(space_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM space_members WHERE space_id = $1")
-            .bind(space_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM space_summaries WHERE space_id = $1")
-            .bind(space_id)
-            .execute(&**pool)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1")
-            .bind(space_id)
-            .execute(&**pool)
-            .await;
+        let _ = sqlx::query(r"DELETE FROM space_events WHERE space_id = $1").bind(space_id).execute(&**pool).await;
+        let _ = sqlx::query(r"DELETE FROM space_children WHERE space_id = $1").bind(space_id).execute(&**pool).await;
+        let _ = sqlx::query(r"DELETE FROM space_members WHERE space_id = $1").bind(space_id).execute(&**pool).await;
+        let _ = sqlx::query(r"DELETE FROM space_summaries WHERE space_id = $1").bind(space_id).execute(&**pool).await;
+        let _ = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1").bind(space_id).execute(&**pool).await;
     }
 
     // === Test 1: create_space ===
@@ -1501,8 +1483,7 @@ mod db_tests {
     async fn test_get_space_not_found() {
         let pool = test_pool().await;
         let storage = SpaceStorage::new(&pool);
-        let result = storage.get_space("!nonexistent_space:example.com")
-            .await.expect("get_space should succeed");
+        let result = storage.get_space("!nonexistent_space:example.com").await.expect("get_space should succeed");
         assert!(result.is_none());
     }
 
@@ -1553,11 +1534,8 @@ mod db_tests {
         };
         let created = storage.create_space(request).await.unwrap();
 
-        let update = UpdateSpaceRequest::new()
-            .name("Updated Name")
-            .topic("Updated Topic");
-        let updated = storage.update_space(&created.space_id, &update)
-            .await.expect("update_space should succeed");
+        let update = UpdateSpaceRequest::new().name("Updated Name").topic("Updated Topic");
+        let updated = storage.update_space(&created.space_id, &update).await.expect("update_space should succeed");
         assert_eq!(updated.name, Some("Updated Name".to_string()));
         assert_eq!(updated.topic, Some("Updated Topic".to_string()));
 
@@ -1613,21 +1591,22 @@ mod db_tests {
         };
         let space = storage.create_space(request).await.unwrap();
 
-        let child = storage.add_child(AddChildRequest {
-            space_id: space.space_id.clone(),
-            room_id: child_room_id.clone(),
-            sender: "@sender:example.com".to_string(),
-            is_suggested: true,
-            via_servers: vec!["example.com".to_string()],
-        }).await.expect("add_child should succeed");
+        let child = storage
+            .add_child(AddChildRequest {
+                space_id: space.space_id.clone(),
+                room_id: child_room_id.clone(),
+                sender: "@sender:example.com".to_string(),
+                is_suggested: true,
+                via_servers: vec!["example.com".to_string()],
+            })
+            .await
+            .expect("add_child should succeed");
         assert_eq!(child.room_id, child_room_id);
 
-        let children = storage.get_space_children(&space.space_id)
-            .await.expect("get_space_children should succeed");
+        let children = storage.get_space_children(&space.space_id).await.expect("get_space_children should succeed");
         assert_eq!(children.len(), 1);
 
-        storage.remove_child(&space.space_id, &child_room_id)
-            .await.expect("remove_child should succeed");
+        storage.remove_child(&space.space_id, &child_room_id).await.expect("remove_child should succeed");
         let after = storage.get_space_children(&space.space_id).await.unwrap();
         assert!(after.is_empty());
 
@@ -1655,22 +1634,25 @@ mod db_tests {
         let space = storage.create_space(request).await.unwrap();
 
         // Creator is auto-added as a member
-        let members = storage.get_space_members(&space.space_id)
-            .await.expect("get_space_members should succeed");
+        let members = storage.get_space_members(&space.space_id).await.expect("get_space_members should succeed");
         assert!(!members.is_empty()); // creator is always a member
 
-        let member = storage.get_space_member(&space.space_id, "@m:example.com")
-            .await.expect("get_space_member should succeed");
+        let member =
+            storage.get_space_member(&space.space_id, "@m:example.com").await.expect("get_space_member should succeed");
         assert!(member.is_some());
 
         // Add another member
-        storage.add_space_member(&space.space_id, "@other:example.com", "join", None)
-            .await.expect("add_space_member should succeed");
+        storage
+            .add_space_member(&space.space_id, "@other:example.com", "join", None)
+            .await
+            .expect("add_space_member should succeed");
         assert!(storage.is_space_member(&space.space_id, "@other:example.com").await.unwrap());
 
         // Remove the member
-        storage.remove_space_member(&space.space_id, "@other:example.com")
-            .await.expect("remove_space_member should succeed");
+        storage
+            .remove_space_member(&space.space_id, "@other:example.com")
+            .await
+            .expect("remove_space_member should succeed");
         assert!(!storage.is_space_member(&space.space_id, "@other:example.com").await.unwrap());
 
         cleanup(&pool, &space.space_id).await;
@@ -1696,8 +1678,7 @@ mod db_tests {
         };
         let space = storage.create_space(request).await.unwrap();
 
-        let user_spaces = storage.get_user_spaces("@us:example.com")
-            .await.expect("get_user_spaces should succeed");
+        let user_spaces = storage.get_user_spaces("@us:example.com").await.expect("get_user_spaces should succeed");
         assert!(!user_spaces.is_empty());
         assert!(user_spaces.iter().any(|s| s.space_id == space.space_id));
 
@@ -1709,8 +1690,7 @@ mod db_tests {
     async fn test_get_public_spaces() {
         let pool = test_pool().await;
         let storage = SpaceStorage::new(&pool);
-        let spaces = storage.get_public_spaces(10, None, None)
-            .await.expect("get_public_spaces should succeed");
+        let spaces = storage.get_public_spaces(10, None, None).await.expect("get_public_spaces should succeed");
         // All returned spaces should be public
         for space in &spaces {
             assert!(space.is_public);
@@ -1737,14 +1717,15 @@ mod db_tests {
         };
         let space = storage.create_space(request).await.unwrap();
 
-        let map = storage.get_spaces_by_rooms_batch(&[room_id.clone()])
-            .await.expect("get_spaces_by_rooms_batch should succeed");
+        let map = storage
+            .get_spaces_by_rooms_batch(&[room_id.clone()])
+            .await
+            .expect("get_spaces_by_rooms_batch should succeed");
         assert!(map.contains_key(&room_id));
         assert_eq!(map[&room_id].space_id, space.space_id);
 
         // Empty batch should return empty map
-        let empty_map = storage.get_spaces_by_rooms_batch(&[])
-            .await.expect("empty batch should succeed");
+        let empty_map = storage.get_spaces_by_rooms_batch(&[]).await.expect("empty batch should succeed");
         assert!(empty_map.is_empty());
 
         cleanup(&pool, &space.space_id).await;
@@ -1771,13 +1752,11 @@ mod db_tests {
         let space = storage.create_space(request).await.unwrap();
 
         // New space has no summary until update is called
-        let summary = storage.get_space_summary(&space.space_id)
-            .await.expect("get_space_summary should succeed");
+        let summary = storage.get_space_summary(&space.space_id).await.expect("get_space_summary should succeed");
         assert!(summary.is_none(), "new space should not have a summary yet");
 
         // After update, summary should exist
-        storage.update_space_summary(&space.space_id)
-            .await.expect("update_space_summary should succeed");
+        storage.update_space_summary(&space.space_id).await.expect("update_space_summary should succeed");
         let after = storage.get_space_summary(&space.space_id).await.unwrap();
         assert!(after.is_some());
         let s = after.unwrap();
@@ -1808,17 +1787,19 @@ mod db_tests {
         let space = storage.create_space(request).await.unwrap();
 
         // Add a child room to this space
-        storage.add_child(AddChildRequest {
-            space_id: space.space_id.clone(),
-            room_id: child_room_id.clone(),
-            sender: "@sender:example.com".to_string(),
-            is_suggested: false,
-            via_servers: vec!["example.com".to_string()],
-        }).await.unwrap();
+        storage
+            .add_child(AddChildRequest {
+                space_id: space.space_id.clone(),
+                room_id: child_room_id.clone(),
+                sender: "@sender:example.com".to_string(),
+                is_suggested: false,
+                via_servers: vec!["example.com".to_string()],
+            })
+            .await
+            .unwrap();
 
         // Reverse lookup: find spaces that have this room as a child
-        let child_spaces = storage.get_child_spaces(&child_room_id)
-            .await.expect("get_child_spaces should succeed");
+        let child_spaces = storage.get_child_spaces(&child_room_id).await.expect("get_child_spaces should succeed");
         assert!(!child_spaces.is_empty());
         assert_eq!(child_spaces[0].space_id, space.space_id);
 
@@ -1845,8 +1826,8 @@ mod db_tests {
         };
         let space = storage.create_space(request).await.unwrap();
 
-        let hierarchy = storage.get_space_hierarchy(&space.space_id, 2)
-            .await.expect("get_space_hierarchy should succeed");
+        let hierarchy =
+            storage.get_space_hierarchy(&space.space_id, 2).await.expect("get_space_hierarchy should succeed");
         // SpaceHierarchy has: space, children, members
         assert_eq!(hierarchy.space.space_id, space.space_id);
         assert!(!hierarchy.members.is_empty(), "creator should be a member");
@@ -1880,31 +1861,38 @@ mod db_tests {
         let space = storage.create_space(request).await.unwrap();
 
         // Add a space event
-        let added = storage.add_space_event(
-            &event_id,
-            &space.space_id,
-            "m.space.child",
-            "@sender:example.com",
-            serde_json::json!({"via": ["example.com"]}),
-            Some("!child:example.com"),
-        ).await.expect("add_space_event should succeed");
+        let added = storage
+            .add_space_event(
+                &event_id,
+                &space.space_id,
+                "m.space.child",
+                "@sender:example.com",
+                serde_json::json!({"via": ["example.com"]}),
+                Some("!child:example.com"),
+            )
+            .await
+            .expect("add_space_event should succeed");
         assert_eq!(added.event_id, event_id);
         assert_eq!(added.event_type, "m.space.child");
 
         // Get all events for the space
-        let events = storage.get_space_events(&space.space_id, None, 10)
-            .await.expect("get_space_events should succeed");
+        let events =
+            storage.get_space_events(&space.space_id, None, 10).await.expect("get_space_events should succeed");
         assert!(!events.is_empty());
         assert_eq!(events[0].event_id, event_id);
 
         // Get events filtered by type
-        let filtered = storage.get_space_events(&space.space_id, Some("m.space.child"), 10)
-            .await.expect("get_space_events filtered should succeed");
+        let filtered = storage
+            .get_space_events(&space.space_id, Some("m.space.child"), 10)
+            .await
+            .expect("get_space_events filtered should succeed");
         assert!(!filtered.is_empty());
 
         // Get events filtered by non-matching type
-        let no_match = storage.get_space_events(&space.space_id, Some("m.room.create"), 10)
-            .await.expect("get_space_events should succeed");
+        let no_match = storage
+            .get_space_events(&space.space_id, Some("m.room.create"), 10)
+            .await
+            .expect("get_space_events should succeed");
         assert!(no_match.is_empty());
 
         cleanup(&pool, &space.space_id).await;
@@ -1932,26 +1920,30 @@ mod db_tests {
         let space = storage.create_space(request).await.unwrap();
 
         // Initially: 1 member (creator), 0 children
-        let (member_count, child_count) = storage.get_space_member_and_child_count(&space.space_id)
-            .await.expect("get_space_member_and_child_count should succeed");
+        let (member_count, child_count) = storage
+            .get_space_member_and_child_count(&space.space_id)
+            .await
+            .expect("get_space_member_and_child_count should succeed");
         assert_eq!(member_count, 1);
         assert_eq!(child_count, 0);
 
         // Add a child
-        storage.add_child(AddChildRequest {
-            space_id: space.space_id.clone(),
-            room_id: child_room_id.clone(),
-            sender: "@sender:example.com".to_string(),
-            is_suggested: false,
-            via_servers: vec!["example.com".to_string()],
-        }).await.unwrap();
+        storage
+            .add_child(AddChildRequest {
+                space_id: space.space_id.clone(),
+                room_id: child_room_id.clone(),
+                sender: "@sender:example.com".to_string(),
+                is_suggested: false,
+                via_servers: vec!["example.com".to_string()],
+            })
+            .await
+            .unwrap();
 
         // Add another member
-        storage.add_space_member(&space.space_id, "@other:example.com", "join", None)
-            .await.unwrap();
+        storage.add_space_member(&space.space_id, "@other:example.com", "join", None).await.unwrap();
 
-        let (member_count2, child_count2) = storage.get_space_member_and_child_count(&space.space_id)
-            .await.expect("count should succeed after adding");
+        let (member_count2, child_count2) =
+            storage.get_space_member_and_child_count(&space.space_id).await.expect("count should succeed after adding");
         assert_eq!(member_count2, 2);
         assert_eq!(child_count2, 1);
 

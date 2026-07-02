@@ -931,9 +931,9 @@ mod cursor_tests {
 #[cfg(test)]
 mod db_tests {
     use super::{
-        decode_conversation_cursor, decode_generation_cursor, decode_message_cursor,
-        CreateChatRoleParams, CreateConnectionParams, CreateConversationParams,
-        OpenClawStorage, UpdateChatRoleParams, UpdateConnectionParams,
+        decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, CreateChatRoleParams,
+        CreateConnectionParams, CreateConversationParams, OpenClawStorage, UpdateChatRoleParams,
+        UpdateConnectionParams,
     };
     use sqlx::postgres::PgPoolOptions;
     use std::env;
@@ -942,19 +942,13 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -975,26 +969,10 @@ mod db_tests {
         .execute(pool)
         .await
         .ok();
-        sqlx::query("DELETE FROM ai_conversations WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM ai_generations WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM ai_chat_roles WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
-        sqlx::query("DELETE FROM openclaw_connections WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM ai_conversations WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM ai_generations WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM ai_chat_roles WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
+        sqlx::query("DELETE FROM openclaw_connections WHERE user_id LIKE $1").bind(&pattern).execute(pool).await.ok();
     }
 
     fn unique_suffix() -> String {
@@ -1101,18 +1079,12 @@ mod db_tests {
             .await
             .expect("create_connection failed");
 
-        let found = storage
-            .get_connection(created.id)
-            .await
-            .expect("get_connection failed")
-            .expect("connection should exist");
+        let found =
+            storage.get_connection(created.id).await.expect("get_connection failed").expect("connection should exist");
         assert_eq!(found.id, created.id);
         assert_eq!(found.name, "get-test");
 
-        let missing = storage
-            .get_connection(-1)
-            .await
-            .expect("get_connection should not error for missing id");
+        let missing = storage.get_connection(-1).await.expect("get_connection should not error for missing id");
         assert!(missing.is_none());
 
         clean_test_data(&pool, &suffix).await;
@@ -1131,8 +1103,13 @@ mod db_tests {
         // Create two non-default connections first, then a default one
         storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "conn-a", provider: "openai",
-                base_url: "https://a.example.com", encrypted_api_key: None, config: None, is_default: false,
+                user_id: &user_id,
+                name: "conn-a",
+                provider: "openai",
+                base_url: "https://a.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: false,
             })
             .await
             .expect("create conn-a");
@@ -1140,24 +1117,31 @@ mod db_tests {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "conn-b", provider: "anthropic",
-                base_url: "https://b.example.com", encrypted_api_key: None, config: None, is_default: true,
+                user_id: &user_id,
+                name: "conn-b",
+                provider: "anthropic",
+                base_url: "https://b.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: true,
             })
             .await
             .expect("create conn-b");
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "conn-c", provider: "ollama",
-                base_url: "https://c.example.com", encrypted_api_key: None, config: None, is_default: false,
+                user_id: &user_id,
+                name: "conn-c",
+                provider: "ollama",
+                base_url: "https://c.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: false,
             })
             .await
             .expect("create conn-c");
 
-        let connections = storage
-            .get_user_connections(&user_id)
-            .await
-            .expect("get_user_connections failed");
+        let connections = storage.get_user_connections(&user_id).await.expect("get_user_connections failed");
         assert_eq!(connections.len(), 3);
         // Default connection should be first (ordered by is_default DESC, created_ts DESC)
         assert!(connections[0].is_default);
@@ -1176,10 +1160,7 @@ mod db_tests {
 
         let storage = OpenClawStorage::new(Arc::clone(&pool));
 
-        let connections = storage
-            .get_user_connections(&user_id)
-            .await
-            .expect("get_user_connections failed");
+        let connections = storage.get_user_connections(&user_id).await.expect("get_user_connections failed");
         assert!(connections.is_empty());
 
         clean_test_data(&pool, &suffix).await;
@@ -1196,17 +1177,19 @@ mod db_tests {
         let storage = OpenClawStorage::new(Arc::clone(&pool));
 
         // No default should exist yet
-        let none = storage
-            .get_default_connection(&user_id)
-            .await
-            .expect("get_default_connection failed");
+        let none = storage.get_default_connection(&user_id).await.expect("get_default_connection failed");
         assert!(none.is_none());
 
         // Create a default (is_active=true by default in create_connection)
         let created = storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "default-conn", provider: "openai",
-                base_url: "https://api.openai.com", encrypted_api_key: None, config: None, is_default: true,
+                user_id: &user_id,
+                name: "default-conn",
+                provider: "openai",
+                base_url: "https://api.openai.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: true,
             })
             .await
             .expect("create_connection failed");
@@ -1235,8 +1218,13 @@ mod db_tests {
 
         let created = storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "to-update", provider: "openai",
-                base_url: "https://a.example.com", encrypted_api_key: None, config: None, is_default: false,
+                user_id: &user_id,
+                name: "to-update",
+                provider: "openai",
+                base_url: "https://a.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: false,
             })
             .await
             .expect("create_connection");
@@ -1277,16 +1265,26 @@ mod db_tests {
 
         let conn1 = storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "default-conn", provider: "openai",
-                base_url: "https://a.example.com", encrypted_api_key: None, config: None, is_default: true,
+                user_id: &user_id,
+                name: "default-conn",
+                provider: "openai",
+                base_url: "https://a.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: true,
             })
             .await
             .expect("create conn1");
 
         let conn2 = storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "new-default", provider: "anthropic",
-                base_url: "https://b.example.com", encrypted_api_key: None, config: None, is_default: false,
+                user_id: &user_id,
+                name: "new-default",
+                provider: "anthropic",
+                base_url: "https://b.example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: false,
             })
             .await
             .expect("create conn2");
@@ -1295,7 +1293,10 @@ mod db_tests {
         let updated = storage
             .update_connection(UpdateConnectionParams {
                 id: conn2.id,
-                name: None, base_url: None, encrypted_api_key: None, config: None,
+                name: None,
+                base_url: None,
+                encrypted_api_key: None,
+                config: None,
                 is_default: Some(true),
                 is_active: None,
             })
@@ -1322,8 +1323,13 @@ mod db_tests {
 
         let created = storage
             .create_connection(CreateConnectionParams {
-                user_id: &user_id, name: "to-delete", provider: "openai",
-                base_url: "https://example.com", encrypted_api_key: None, config: None, is_default: false,
+                user_id: &user_id,
+                name: "to-delete",
+                provider: "openai",
+                base_url: "https://example.com",
+                encrypted_api_key: None,
+                config: None,
+                is_default: false,
             })
             .await
             .expect("create_connection");
@@ -1334,10 +1340,7 @@ mod db_tests {
         assert!(after.is_none());
 
         // Idempotent: deleting again should not error
-        storage
-            .delete_connection(created.id)
-            .await
-            .expect("delete_connection should be idempotent");
+        storage.delete_connection(created.id).await.expect("delete_connection should be idempotent");
 
         clean_test_data(&pool, &suffix).await;
     }
@@ -1410,8 +1413,13 @@ mod db_tests {
 
         let created = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: Some("My Conversation"),
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: Some("My Conversation"),
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
@@ -1424,10 +1432,7 @@ mod db_tests {
         assert_eq!(found.id, created.id);
         assert_eq!(found.title.as_deref(), Some("My Conversation"));
 
-        let missing = storage
-            .get_conversation(-1)
-            .await
-            .expect("get_conversation should not error");
+        let missing = storage.get_conversation(-1).await.expect("get_conversation should not error");
         assert!(missing.is_none());
 
         clean_test_data(&pool, &suffix).await;
@@ -1444,10 +1449,8 @@ mod db_tests {
         let storage = OpenClawStorage::new(Arc::clone(&pool));
 
         // Empty case first
-        let (empty, next) = storage
-            .get_user_conversations(&user_id, 10, None)
-            .await
-            .expect("get_user_conversations failed");
+        let (empty, next) =
+            storage.get_user_conversations(&user_id, 10, None).await.expect("get_user_conversations failed");
         assert!(empty.is_empty());
         assert!(next.is_none());
 
@@ -1456,25 +1459,26 @@ mod db_tests {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             storage
                 .create_conversation(CreateConversationParams {
-                    user_id: &user_id, connection_id: None,
+                    user_id: &user_id,
+                    connection_id: None,
                     title: Some(&format!("Conv {i}")),
-                    model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                    model_id: None,
+                    system_prompt: None,
+                    temperature: None,
+                    max_tokens: None,
                 })
                 .await
                 .expect("create_conversation");
         }
 
         // Fetch with limit=3, should return 3 + next_batch cursor
-        let (convs, cursor) = storage
-            .get_user_conversations(&user_id, 3, None)
-            .await
-            .expect("get_user_conversations failed");
+        let (convs, cursor) =
+            storage.get_user_conversations(&user_id, 3, None).await.expect("get_user_conversations failed");
         assert_eq!(convs.len(), 3);
         assert!(cursor.is_some(), "should have next-batch cursor");
 
         // Use cursor to get next page (limit=3 again)
-        let decoded = decode_conversation_cursor(cursor.as_deref())
-            .expect("cursor should decode");
+        let decoded = decode_conversation_cursor(cursor.as_deref()).expect("cursor should decode");
         let (convs2, cursor2) = storage
             .get_user_conversations(&user_id, 3, Some(decoded))
             .await
@@ -1500,8 +1504,13 @@ mod db_tests {
 
         let created = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: Some("Original"),
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: Some("Original"),
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
@@ -1540,8 +1549,13 @@ mod db_tests {
 
         let created = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: Some("To Delete"),
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: Some("To Delete"),
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
@@ -1573,8 +1587,13 @@ mod db_tests {
 
         let conv = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: None,
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: None,
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
@@ -1593,14 +1612,7 @@ mod db_tests {
         assert!(msg_user.created_ts > 0);
 
         let msg_assistant = storage
-            .create_message(
-                conv.id,
-                "assistant",
-                "Hi there!",
-                Some(30),
-                Some(tool_calls.clone()),
-                Some("call_123"),
-            )
+            .create_message(conv.id, "assistant", "Hi there!", Some(30), Some(tool_calls.clone()), Some("call_123"))
             .await
             .expect("create assistant message");
 
@@ -1624,8 +1636,13 @@ mod db_tests {
 
         let conv = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: None,
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: None,
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
@@ -1640,35 +1657,23 @@ mod db_tests {
         }
 
         // Fetch all 4
-        let (msgs, next) = storage
-            .get_conversation_messages(conv.id, 10, None)
-            .await
-            .expect("get_conversation_messages failed");
+        let (msgs, next) =
+            storage.get_conversation_messages(conv.id, 10, None).await.expect("get_conversation_messages failed");
         assert_eq!(msgs.len(), 4);
         assert!(next.is_none());
 
         // Messages should be in descending order by created_ts (newest first)
         for i in 1..msgs.len() {
-            assert!(
-                msgs[i - 1].created_ts >= msgs[i].created_ts,
-                "messages should be ordered by created_ts DESC"
-            );
+            assert!(msgs[i - 1].created_ts >= msgs[i].created_ts, "messages should be ordered by created_ts DESC");
         }
 
         // Pagination: limit=2
-        let (page1, cursor1) = storage
-            .get_conversation_messages(conv.id, 2, None)
-            .await
-            .expect("first page");
+        let (page1, cursor1) = storage.get_conversation_messages(conv.id, 2, None).await.expect("first page");
         assert_eq!(page1.len(), 2);
         assert!(cursor1.is_some());
 
-        let decoded = decode_message_cursor(cursor1.as_deref())
-            .expect("message cursor should decode");
-        let (page2, cursor2) = storage
-            .get_conversation_messages(conv.id, 2, Some(decoded))
-            .await
-            .expect("second page");
+        let decoded = decode_message_cursor(cursor1.as_deref()).expect("message cursor should decode");
+        let (page2, cursor2) = storage.get_conversation_messages(conv.id, 2, Some(decoded)).await.expect("second page");
         assert_eq!(page2.len(), 1);
         assert!(cursor2.is_none(), "no more pages");
 
@@ -1694,22 +1699,20 @@ mod db_tests {
 
         let conv = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: None,
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: None,
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
 
-        let msg = storage
-            .create_message(conv.id, "user", "Hello", None, None, None)
-            .await
-            .expect("create message");
+        let msg = storage.create_message(conv.id, "user", "Hello", None, None, None).await.expect("create message");
 
-        let found = storage
-            .get_message(msg.id)
-            .await
-            .expect("get_message failed")
-            .expect("should find message");
+        let found = storage.get_message(msg.id).await.expect("get_message failed").expect("should find message");
         assert_eq!(found.id, msg.id);
         assert_eq!(found.content, "Hello");
 
@@ -1731,16 +1734,18 @@ mod db_tests {
 
         let conv = storage
             .create_conversation(CreateConversationParams {
-                user_id: &user_id, connection_id: None, title: None,
-                model_id: None, system_prompt: None, temperature: None, max_tokens: None,
+                user_id: &user_id,
+                connection_id: None,
+                title: None,
+                model_id: None,
+                system_prompt: None,
+                temperature: None,
+                max_tokens: None,
             })
             .await
             .expect("create_conversation");
 
-        let msg = storage
-            .create_message(conv.id, "user", "Delete me", None, None, None)
-            .await
-            .expect("create message");
+        let msg = storage.create_message(conv.id, "user", "Delete me", None, None, None).await.expect("create message");
 
         storage.delete_message(msg.id).await.expect("delete_message failed");
 
@@ -1824,16 +1829,10 @@ mod db_tests {
 
         let storage = OpenClawStorage::new(Arc::clone(&pool));
 
-        let gen = storage
-            .create_generation(&user_id, None, "image", "Prompt")
-            .await
-            .expect("create_generation");
+        let gen = storage.create_generation(&user_id, None, "image", "Prompt").await.expect("create_generation");
 
-        let found = storage
-            .get_generation(gen.id)
-            .await
-            .expect("get_generation failed")
-            .expect("should find generation");
+        let found =
+            storage.get_generation(gen.id).await.expect("get_generation failed").expect("should find generation");
         assert_eq!(found.id, gen.id);
 
         let missing = storage.get_generation(-1).await.expect("get_generation for missing");
@@ -1869,10 +1868,7 @@ mod db_tests {
         }
 
         // All generations without type filter
-        let (all, _) = storage
-            .get_user_generations(&user_id, None, 10, None)
-            .await
-            .expect("get_user_generations all");
+        let (all, _) = storage.get_user_generations(&user_id, None, 10, None).await.expect("get_user_generations all");
         assert_eq!(all.len(), 5);
 
         // Filter by type "image" → 3
@@ -1896,15 +1892,12 @@ mod db_tests {
         }
 
         // Pagination with type filter: limit=2
-        let (page1, cursor1) = storage
-            .get_user_generations(&user_id, Some("image"), 2, None)
-            .await
-            .expect("get_user_generations page1");
+        let (page1, cursor1) =
+            storage.get_user_generations(&user_id, Some("image"), 2, None).await.expect("get_user_generations page1");
         assert_eq!(page1.len(), 2);
         assert!(cursor1.is_some());
 
-        let decoded = decode_generation_cursor(cursor1.as_deref())
-            .expect("cursor should decode");
+        let decoded = decode_generation_cursor(cursor1.as_deref()).expect("cursor should decode");
         let (page2, cursor2) = storage
             .get_user_generations(&user_id, Some("image"), 2, Some(decoded))
             .await
@@ -1925,10 +1918,7 @@ mod db_tests {
 
         let storage = OpenClawStorage::new(Arc::clone(&pool));
 
-        let gen = storage
-            .create_generation(&user_id, None, "image", "Delete me")
-            .await
-            .expect("create_generation");
+        let gen = storage.create_generation(&user_id, None, "image", "Delete me").await.expect("create_generation");
 
         storage.delete_generation(gen.id).await.expect("delete_generation failed");
 
@@ -1979,11 +1969,7 @@ mod db_tests {
         assert!(role.created_ts > 0);
 
         // Get by id
-        let found = storage
-            .get_chat_role(role.id)
-            .await
-            .expect("get_chat_role failed")
-            .expect("should find role");
+        let found = storage.get_chat_role(role.id).await.expect("get_chat_role failed").expect("should find role");
         assert_eq!(found.id, role.id);
 
         let missing = storage.get_chat_role(-1).await.expect("get_chat_role missing");
@@ -2002,8 +1988,7 @@ mod db_tests {
         clean_test_data(&pool, &suffix).await;
         clean_test_data(&pool, &suffix2).await;
         // Also clean any residual test chat roles with oc_test_ pattern
-        sqlx::query("DELETE FROM ai_chat_roles WHERE user_id LIKE '%oc_test_%'")
-            .execute(pool.as_ref()).await.ok();
+        sqlx::query("DELETE FROM ai_chat_roles WHERE user_id LIKE '%oc_test_%'").execute(pool.as_ref()).await.ok();
         ensure_test_user(&pool, &user_id).await;
         ensure_test_user(&pool, &user_id2).await;
 
@@ -2012,9 +1997,16 @@ mod db_tests {
         // User 1 creates a role
         storage
             .create_chat_role(CreateChatRoleParams {
-                user_id: &user_id, name: "Private Role", description: None,
-                system_message: "Private", model_id: None, avatar_url: None,
-                category: None, temperature: None, max_tokens: None, is_public: false,
+                user_id: &user_id,
+                name: "Private Role",
+                description: None,
+                system_message: "Private",
+                model_id: None,
+                avatar_url: None,
+                category: None,
+                temperature: None,
+                max_tokens: None,
+                is_public: false,
             })
             .await
             .expect("create private role");
@@ -2022,19 +2014,23 @@ mod db_tests {
         // User 2 creates a public role
         storage
             .create_chat_role(CreateChatRoleParams {
-                user_id: &user_id2, name: "Public Role", description: None,
-                system_message: "Public", model_id: None, avatar_url: None,
-                category: None, temperature: None, max_tokens: None, is_public: true,
+                user_id: &user_id2,
+                name: "Public Role",
+                description: None,
+                system_message: "Public",
+                model_id: None,
+                avatar_url: None,
+                category: None,
+                temperature: None,
+                max_tokens: None,
+                is_public: true,
             })
             .await
             .expect("create public role");
 
         // User 1 sees own private role + public role of user 2
         // (may also see other public roles from residual test data)
-        let roles = storage
-            .get_user_chat_roles(&user_id)
-            .await
-            .expect("get_user_chat_roles failed");
+        let roles = storage.get_user_chat_roles(&user_id).await.expect("get_user_chat_roles failed");
         assert!(roles.len() >= 2, "should see at least own private role + public role from user 2");
         // Verify that our private role is present
         let private = roles.iter().find(|r| r.name == "Private Role");
@@ -2065,9 +2061,16 @@ mod db_tests {
 
         let role = storage
             .create_chat_role(CreateChatRoleParams {
-                user_id: &user_id, name: "Original", description: None,
-                system_message: "Original prompt", model_id: None, avatar_url: None,
-                category: None, temperature: None, max_tokens: None, is_public: false,
+                user_id: &user_id,
+                name: "Original",
+                description: None,
+                system_message: "Original prompt",
+                model_id: None,
+                avatar_url: None,
+                category: None,
+                temperature: None,
+                max_tokens: None,
+                is_public: false,
             })
             .await
             .expect("create_chat_role");
@@ -2079,8 +2082,11 @@ mod db_tests {
                 description: Some("New description"),
                 system_message: Some("Updated prompt"),
                 model_id: Some("claude-4"),
-                avatar_url: None, category: None,
-                temperature: Some(0.5), max_tokens: Some(4096), is_public: Some(true),
+                avatar_url: None,
+                category: None,
+                temperature: Some(0.5),
+                max_tokens: Some(4096),
+                is_public: Some(true),
             })
             .await
             .expect("update_chat_role failed");

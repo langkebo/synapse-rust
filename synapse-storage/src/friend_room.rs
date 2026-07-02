@@ -952,19 +952,13 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
         )
@@ -1020,10 +1014,7 @@ mod db_tests {
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM friend_categories WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM friend_categories WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
         let _ = sqlx::query("DELETE FROM events WHERE sender LIKE $1 OR room_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
@@ -1032,18 +1023,12 @@ mod db_tests {
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM room_summaries WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM room_summaries WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
         let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1 OR creator LIKE $1")
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     // ——————————————————————————————————————————————
@@ -1363,15 +1348,7 @@ mod db_tests {
                 {"sender_id": format!("@sender2_{suffix}:localhost"), "receiver_id": &user_id, "status": "pending"}
             ]
         });
-        insert_event(
-            &pool,
-            &room_id,
-            &user_id,
-            "m.friend_requests.incoming",
-            "",
-            &requests_content,
-        )
-        .await;
+        insert_event(&pool, &room_id, &user_id, "m.friend_requests.incoming", "", &requests_content).await;
 
         let storage = FriendRoomStorage::new(pool.clone());
 
@@ -1420,10 +1397,7 @@ mod db_tests {
 
         // False: user not in list
         let stranger = format!("@stranger_{suffix}:localhost");
-        assert!(
-            !storage.is_friend(&room_id, &stranger).await.expect("query should succeed"),
-            "should not be a friend"
-        );
+        assert!(!storage.is_friend(&room_id, &stranger).await.expect("query should succeed"), "should not be a friend");
 
         cleanup_all(&pool, &suffix).await;
     }
@@ -1570,10 +1544,7 @@ mod db_tests {
         let group_name = format!("test_group_{suffix}");
 
         // Creates
-        storage
-            .create_friend_group(&room_id, &user_id, &group_name)
-            .await
-            .expect("create should succeed");
+        storage.create_friend_group(&room_id, &user_id, &group_name).await.expect("create should succeed");
 
         let groups = storage.get_friend_groups(&room_id).await.expect("query should succeed");
         assert!(groups.is_some(), "groups should exist after create");
@@ -1611,7 +1582,8 @@ mod db_tests {
         storage.create_friend_group(&room_id, &user_id, &group_name).await.expect("create should succeed");
 
         // Deletes
-        let deleted = storage.delete_friend_group(&room_id, &user_id, &group_name).await.expect("delete should succeed");
+        let deleted =
+            storage.delete_friend_group(&room_id, &user_id, &group_name).await.expect("delete should succeed");
         assert!(deleted, "should return true when group was deleted");
 
         let groups = storage.get_friend_groups(&room_id).await.expect("query should succeed");
@@ -1620,7 +1592,8 @@ mod db_tests {
         assert!(arr.is_empty(), "groups should be empty after delete");
 
         // Idempotent: delete non-existent group returns false
-        let deleted = storage.delete_friend_group(&room_id, &user_id, &group_name).await.expect("delete should succeed");
+        let deleted =
+            storage.delete_friend_group(&room_id, &user_id, &group_name).await.expect("delete should succeed");
         assert!(!deleted, "should return false when group does not exist");
 
         cleanup_all(&pool, &suffix).await;
@@ -1647,7 +1620,8 @@ mod db_tests {
         storage.create_friend_group(&room_id, &user_id, &old_name).await.expect("create should succeed");
 
         // Renames
-        let renamed = storage.rename_friend_group(&room_id, &user_id, &old_name, &new_name).await.expect("rename should succeed");
+        let renamed =
+            storage.rename_friend_group(&room_id, &user_id, &old_name, &new_name).await.expect("rename should succeed");
         assert!(renamed, "should return true on successful rename");
 
         let groups = storage.get_friend_groups(&room_id).await.expect("query should succeed");
@@ -1658,7 +1632,8 @@ mod db_tests {
 
         // Not found: rename non-existent group
         let fake = format!("fake_group_{suffix}");
-        let renamed = storage.rename_friend_group(&room_id, &user_id, &fake, "irrelevant").await.expect("rename should succeed");
+        let renamed =
+            storage.rename_friend_group(&room_id, &user_id, &fake, "irrelevant").await.expect("rename should succeed");
         assert!(!renamed, "should return false when group not found");
 
         cleanup_all(&pool, &suffix).await;
@@ -1685,20 +1660,16 @@ mod db_tests {
         storage.create_friend_group(&room_id, &user_id, &group_name).await.expect("create should succeed");
 
         // Add friend
-        let added = storage
-            .add_friend_to_group(&room_id, &user_id, &group_name, &friend_id)
-            .await
-            .expect("add should succeed");
+        let added =
+            storage.add_friend_to_group(&room_id, &user_id, &group_name, &friend_id).await.expect("add should succeed");
         assert!(added, "should return true when friend was added");
 
         let group_names = storage.get_friend_groups_for_user(&room_id, &friend_id).await.expect("query should succeed");
         assert!(group_names.contains(&group_name), "friend should be in the group");
 
         // Add same friend again should return false
-        let added_again = storage
-            .add_friend_to_group(&room_id, &user_id, &group_name, &friend_id)
-            .await
-            .expect("add should succeed");
+        let added_again =
+            storage.add_friend_to_group(&room_id, &user_id, &group_name, &friend_id).await.expect("add should succeed");
         assert!(!added_again, "should return false for duplicate addition");
 
         cleanup_all(&pool, &suffix).await;
@@ -1723,10 +1694,7 @@ mod db_tests {
 
         let storage = FriendRoomStorage::new(pool.clone());
         storage.create_friend_group(&room_id, &user_id, &group_name).await.expect("create should succeed");
-        storage
-            .add_friend_to_group(&room_id, &user_id, &group_name, &friend_id)
-            .await
-            .expect("add should succeed");
+        storage.add_friend_to_group(&room_id, &user_id, &group_name, &friend_id).await.expect("add should succeed");
 
         // Remove friend
         let removed = storage
@@ -1766,10 +1734,8 @@ mod db_tests {
         let storage = FriendRoomStorage::new(pool.clone());
 
         // Creates
-        let id = storage
-            .create_friend_request(&sender, &receiver, Some("Hello!"))
-            .await
-            .expect("create should succeed");
+        let id =
+            storage.create_friend_request(&sender, &receiver, Some("Hello!")).await.expect("create should succeed");
         assert!(id > 0, "should return a valid ID");
 
         // Duplicate: upsert updates the status
@@ -1805,10 +1771,7 @@ mod db_tests {
         ensure_test_user(&pool, &receiver).await;
 
         let storage = FriendRoomStorage::new(pool.clone());
-        storage
-            .create_friend_request(&sender, &receiver, Some("Hi"))
-            .await
-            .expect("create should succeed");
+        storage.create_friend_request(&sender, &receiver, Some("Hi")).await.expect("create should succeed");
 
         // Found
         let record = storage.get_friend_request(&sender, &receiver).await.expect("query should succeed");
@@ -1843,10 +1806,7 @@ mod db_tests {
         ensure_test_user(&pool, &receiver).await;
 
         let storage = FriendRoomStorage::new(pool.clone());
-        storage
-            .create_friend_request(&sender, &receiver, Some("Hi"))
-            .await
-            .expect("create should succeed");
+        storage.create_friend_request(&sender, &receiver, Some("Hi")).await.expect("create should succeed");
 
         // Found: pending request
         let record = storage.get_pending_friend_request(&sender, &receiver).await.expect("query should succeed");

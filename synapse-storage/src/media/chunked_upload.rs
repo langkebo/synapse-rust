@@ -279,11 +279,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -291,10 +288,7 @@ mod db_tests {
     /// `upload_progress.user_id` is satisfied. Uses ON CONFLICT DO NOTHING.
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -310,14 +304,8 @@ mod db_tests {
 
     /// Clean up any test artifacts for a given upload_id.
     async fn cleanup_upload(pool: &PgPool, upload_id: &str) {
-        let _ = sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1")
-            .bind(upload_id)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1")
-            .bind(upload_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM upload_chunks WHERE upload_id = $1").bind(upload_id).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM upload_progress WHERE upload_id = $1").bind(upload_id).execute(pool).await;
     }
 
     #[tokio::test]
@@ -347,11 +335,8 @@ mod db_tests {
             .await
             .expect("create_upload should succeed");
 
-        let progress = storage
-            .get_progress(&upload_id)
-            .await
-            .expect("get_progress should succeed")
-            .expect("upload should exist");
+        let progress =
+            storage.get_progress(&upload_id).await.expect("get_progress should succeed").expect("upload should exist");
 
         assert_eq!(progress.upload_id, upload_id);
         assert_eq!(progress.user_id, user_id);
@@ -371,10 +356,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = ChunkedUploadStorage::new(&pool);
 
-        let result = storage
-            .get_progress("nonexistent-upload-id")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_progress("nonexistent-upload-id").await.expect("query should succeed");
 
         assert!(result.is_none(), "nonexistent upload should return None");
     }
@@ -424,11 +406,8 @@ mod db_tests {
             .await
             .expect("increment progress should succeed");
 
-        let progress = storage
-            .get_progress(&upload_id)
-            .await
-            .expect("get_progress should succeed")
-            .expect("upload should exist");
+        let progress =
+            storage.get_progress(&upload_id).await.expect("get_progress should succeed").expect("upload should exist");
 
         assert_eq!(progress.uploaded_chunks, 1);
         assert_eq!(progress.uploaded_size, chunk_size);
@@ -487,10 +466,7 @@ mod db_tests {
             .await
             .expect("second store_chunk should succeed");
 
-        let chunks = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0], second_chunk);
@@ -563,10 +539,7 @@ mod db_tests {
             .await
             .expect("store chunk1 should succeed");
 
-        let chunks = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert_eq!(chunks.len(), 3);
         assert_eq!(chunks[0], chunk0);
@@ -628,10 +601,7 @@ mod db_tests {
 
         assert_eq!(progress.status, "finalized");
 
-        let chunks = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert!(chunks.is_empty(), "chunks should be deleted after finalize");
 
@@ -677,22 +647,13 @@ mod db_tests {
             .await
             .expect("store_chunk should succeed");
 
-        storage
-            .delete_upload(&upload_id)
-            .await
-            .expect("delete_upload should succeed");
+        storage.delete_upload(&upload_id).await.expect("delete_upload should succeed");
 
-        let progress = storage
-            .get_progress(&upload_id)
-            .await
-            .expect("get_progress should succeed");
+        let progress = storage.get_progress(&upload_id).await.expect("get_progress should succeed");
 
         assert!(progress.is_none(), "upload progress should be deleted");
 
-        let chunks = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert!(chunks.is_empty(), "upload chunks should be deleted");
     }
@@ -764,18 +725,12 @@ mod db_tests {
             .await
             .expect("finalize upload_c should succeed");
 
-        let uploads = storage
-            .list_user_uploads(&user_id)
-            .await
-            .expect("list_user_uploads should succeed");
+        let uploads = storage.list_user_uploads(&user_id).await.expect("list_user_uploads should succeed");
 
         let upload_ids: Vec<&str> = uploads.iter().map(|u| u.upload_id.as_str()).collect();
         assert!(upload_ids.contains(&upload_a.as_str()), "should contain pending upload A");
         assert!(upload_ids.contains(&upload_b.as_str()), "should contain pending upload B");
-        assert!(
-            !upload_ids.contains(&upload_c.as_str()),
-            "should NOT contain finalized upload C"
-        );
+        assert!(!upload_ids.contains(&upload_c.as_str()), "should NOT contain finalized upload C");
 
         cleanup_upload(&pool, &upload_a).await;
         cleanup_upload(&pool, &upload_b).await;
@@ -827,24 +782,15 @@ mod db_tests {
             .await
             .expect("create expired upload should succeed");
 
-        let cleaned = storage
-            .cleanup_expired()
-            .await
-            .expect("cleanup_expired should succeed");
+        let cleaned = storage.cleanup_expired().await.expect("cleanup_expired should succeed");
 
         assert_eq!(cleaned, 1, "should clean exactly 1 expired upload");
 
-        let active = storage
-            .get_progress(&active_upload)
-            .await
-            .expect("get_progress should succeed");
+        let active = storage.get_progress(&active_upload).await.expect("get_progress should succeed");
 
         assert!(active.is_some(), "active upload should still exist");
 
-        let expired = storage
-            .get_progress(&expired_upload)
-            .await
-            .expect("get_progress should succeed");
+        let expired = storage.get_progress(&expired_upload).await.expect("get_progress should succeed");
 
         assert!(expired.is_none(), "expired upload should be removed");
 
@@ -901,11 +847,8 @@ mod db_tests {
         }
 
         // Step 3: Verify progress after all chunks
-        let progress = storage
-            .get_progress(&upload_id)
-            .await
-            .expect("get_progress should succeed")
-            .expect("upload should exist");
+        let progress =
+            storage.get_progress(&upload_id).await.expect("get_progress should succeed").expect("upload should exist");
 
         assert_eq!(progress.uploaded_chunks, 3);
         assert_eq!(progress.uploaded_size, 3);
@@ -913,10 +856,7 @@ mod db_tests {
         assert_eq!(progress.status, "complete");
 
         // Step 4: Load chunk data and verify content
-        let loaded_chunks = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let loaded_chunks = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert_eq!(loaded_chunks.len(), 3);
         assert_eq!(loaded_chunks[0], b"a");
@@ -942,10 +882,7 @@ mod db_tests {
         assert_eq!(finalized.status, "finalized");
         assert_eq!(finalized.filename.as_deref(), Some("roundtrip.bin"));
 
-        let chunks_after = storage
-            .load_chunk_data(&upload_id)
-            .await
-            .expect("load_chunk_data should succeed");
+        let chunks_after = storage.load_chunk_data(&upload_id).await.expect("load_chunk_data should succeed");
 
         assert!(chunks_after.is_empty(), "chunks should be cleaned after finalize");
 

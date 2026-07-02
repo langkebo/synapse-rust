@@ -197,20 +197,14 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &PgPool, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -283,11 +277,8 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let found = storage
-            .get_token(&token_str)
-            .await
-            .expect("get_token should succeed")
-            .expect("token should be found");
+        let found =
+            storage.get_token(&token_str).await.expect("get_token should succeed").expect("token should be found");
 
         assert_eq!(found.token, token_str);
         assert_eq!(found.user_id, *user_id);
@@ -306,10 +297,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
 
-        let result = storage
-            .get_token("nonexistent_token_12345_x")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_token("nonexistent_token_12345_x").await.expect("query should succeed");
 
         assert!(result.is_none(), "nonexistent token should return None");
     }
@@ -336,10 +324,7 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let result = storage
-            .validate_token(&token_str)
-            .await
-            .expect("validate_token should succeed");
+        let result = storage.validate_token(&token_str).await.expect("validate_token should succeed");
 
         assert!(result.is_some(), "valid non-expired token should be returned");
         assert_eq!(result.unwrap().token, token_str);
@@ -374,10 +359,7 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let result = storage
-            .validate_token(&token_str)
-            .await
-            .expect("validate_token should succeed");
+        let result = storage.validate_token(&token_str).await.expect("validate_token should succeed");
 
         assert!(result.is_none(), "expired token should return None");
 
@@ -411,18 +393,12 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let revoked = storage
-            .revoke_token(&token_str)
-            .await
-            .expect("revoke_token should succeed");
+        let revoked = storage.revoke_token(&token_str).await.expect("revoke_token should succeed");
 
         assert!(revoked, "revoking existing token should return true");
 
         // Token should no longer be found by get_token (it checks is_valid=TRUE)
-        let found = storage
-            .get_token(&token_str)
-            .await
-            .expect("get_token should succeed");
+        let found = storage.get_token(&token_str).await.expect("get_token should succeed");
 
         assert!(found.is_none(), "revoked token should not be found by get_token");
 
@@ -439,10 +415,7 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
 
-        let revoked = storage
-            .revoke_token("nonexistent_revoke_token_xyz")
-            .await
-            .expect("revoke_token should succeed");
+        let revoked = storage.revoke_token("nonexistent_revoke_token_xyz").await.expect("revoke_token should succeed");
 
         assert!(!revoked, "revoking nonexistent token should return false");
     }
@@ -483,24 +456,13 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let count = storage
-            .revoke_user_tokens(user_id)
-            .await
-            .expect("revoke_user_tokens should succeed");
+        let count = storage.revoke_user_tokens(user_id).await.expect("revoke_user_tokens should succeed");
 
         assert!(count >= 2, "should revoke at least 2 tokens, got {count}");
 
         // Both tokens should no longer be found
-        assert!(storage
-            .get_token(&format!("tok_revu1_{suffix}"))
-            .await
-            .unwrap()
-            .is_none());
-        assert!(storage
-            .get_token(&format!("tok_revu2_{suffix}"))
-            .await
-            .unwrap()
-            .is_none());
+        assert!(storage.get_token(&format!("tok_revu1_{suffix}")).await.unwrap().is_none());
+        assert!(storage.get_token(&format!("tok_revu2_{suffix}")).await.unwrap().is_none());
 
         // Cleanup
         sqlx::query("DELETE FROM openid_tokens WHERE token LIKE $1")
@@ -562,18 +524,12 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let count = storage
-            .cleanup_expired_tokens()
-            .await
-            .expect("cleanup_expired_tokens should succeed");
+        let count = storage.cleanup_expired_tokens().await.expect("cleanup_expired_tokens should succeed");
 
         assert!(count >= 2, "should clean up at least 2 tokens, got {count}");
 
         // The valid token should still be found
-        let found = storage
-            .get_token(&valid_token)
-            .await
-            .expect("get_token should succeed");
+        let found = storage.get_token(&valid_token).await.expect("get_token should succeed");
 
         assert!(found.is_some(), "valid non-expired token should survive cleanup");
 
@@ -621,10 +577,7 @@ mod db_tests {
         .await
         .expect("insert failed");
 
-        let tokens = storage
-            .get_tokens_by_user(user_id)
-            .await
-            .expect("get_tokens_by_user should succeed");
+        let tokens = storage.get_tokens_by_user(user_id).await.expect("get_tokens_by_user should succeed");
 
         assert!(tokens.len() >= 2, "should return at least 2 tokens, got {}", tokens.len());
 

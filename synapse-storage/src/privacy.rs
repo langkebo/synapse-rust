@@ -302,11 +302,8 @@ mod db_tests {
     async fn test_pool() -> Arc<sqlx::Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -314,31 +311,20 @@ mod db_tests {
     async fn cleanup_privacy_data(pool: &sqlx::Pool<Postgres>, suffix: &str) {
         let pattern = format!("%{suffix}%");
         // Delete in FK-safe order: privacy settings → memberships → rooms → users
-        let _ = sqlx::query("DELETE FROM user_privacy_settings WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ =
+            sqlx::query("DELETE FROM user_privacy_settings WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
         let _ = sqlx::query("DELETE FROM room_memberships WHERE user_id LIKE $1 OR room_id LIKE $1")
             .bind(&pattern)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1")
-            .bind(&pattern)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM rooms WHERE room_id LIKE $1").bind(&pattern).execute(pool).await;
+        let _ = sqlx::query("DELETE FROM users WHERE user_id LIKE $1").bind(&pattern).execute(pool).await;
     }
 
     /// Insert a minimal user row so FK constraints are satisfied.
     async fn ensure_test_user(pool: &sqlx::Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts)
                VALUES ($1, $2, $3)
@@ -393,9 +379,8 @@ mod db_tests {
         cleanup_privacy_data(&pool, &suffix).await;
 
         // Tables should already exist from migrations — verify they're queryable
-        let row = sqlx::query("SELECT 1::INT AS check_val FROM user_privacy_settings LIMIT 0")
-            .fetch_optional(&*pool)
-            .await;
+        let row =
+            sqlx::query("SELECT 1::INT AS check_val FROM user_privacy_settings LIMIT 0").fetch_optional(&*pool).await;
         assert!(row.is_ok(), "user_privacy_settings table should exist");
 
         cleanup_privacy_data(&pool, &suffix).await;
@@ -918,10 +903,8 @@ mod db_tests {
 
         let storage = PrivacyStorage::new(pool.clone());
 
-        let result = storage
-            .batch_can_view_profile(None, &[])
-            .await
-            .expect("batch query with empty input should succeed");
+        let result =
+            storage.batch_can_view_profile(None, &[]).await.expect("batch query with empty input should succeed");
 
         assert!(result.is_empty(), "empty input should produce empty result");
     }
@@ -934,10 +917,12 @@ mod db_tests {
 
         // Ensure the allow_profile_lookup column exists (may have been added
         // in a migration that `create_tables` does not include).
-        sqlx::query("ALTER TABLE user_privacy_settings ADD COLUMN IF NOT EXISTS allow_profile_lookup BOOLEAN DEFAULT TRUE")
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query(
+            "ALTER TABLE user_privacy_settings ADD COLUMN IF NOT EXISTS allow_profile_lookup BOOLEAN DEFAULT TRUE",
+        )
+        .execute(&*pool)
+        .await
+        .ok();
 
         let storage = PrivacyStorage::new(pool.clone());
         let user_a = format!("@batch_a_{}:test.com", suffix);
@@ -952,10 +937,8 @@ mod db_tests {
         let user_ids = vec![user_a.clone(), user_b.clone()];
 
         // Batch query as user_a (anonymous None variant also tested implicitly)
-        let result = storage
-            .batch_can_view_profile(Some(&user_a), &user_ids)
-            .await
-            .expect("batch query should succeed");
+        let result =
+            storage.batch_can_view_profile(Some(&user_a), &user_ids).await.expect("batch query should succeed");
 
         // Both users have default public settings, so both should be visible
         assert!(result.get(&user_a).unwrap_or(&false));

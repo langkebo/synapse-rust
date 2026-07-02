@@ -254,36 +254,21 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn cleanup_server_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_servers WHERE server_name LIKE $1")
-            .bind(prefix)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM federation_servers WHERE server_name LIKE $1").bind(prefix).execute(pool).await.ok();
     }
 
     async fn cleanup_queue_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_queue WHERE destination LIKE $1")
-            .bind(prefix)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM federation_queue WHERE destination LIKE $1").bind(prefix).execute(pool).await.ok();
     }
 
     async fn cleanup_cache_prefix(pool: &PgPool, prefix: &str) {
-        sqlx::query("DELETE FROM federation_cache WHERE key LIKE $1")
-            .bind(prefix)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM federation_cache WHERE key LIKE $1").bind(prefix).execute(pool).await.ok();
     }
 
     async fn insert_test_server(pool: &PgPool, server_name: &str, status: &str, updated_ts: i64) {
@@ -328,28 +313,20 @@ mod db_tests {
         cleanup_server_prefix(&pool, &prefix).await;
 
         let now = chrono::Utc::now().timestamp_millis();
-        let servers: Vec<String> = (0..5)
-            .map(|i| format!("test-list-{:02}-{}.com", i, suffix))
-            .collect();
+        let servers: Vec<String> = (0..5).map(|i| format!("test-list-{:02}-{}.com", i, suffix)).collect();
         for s in &servers {
             insert_test_server(&pool, s, "active", now).await;
         }
 
         // First page: no cursor, limit=3.
-        let page1 = storage
-            .list_destinations(None, 3)
-            .await
-            .expect("list_destinations page 1 should succeed");
+        let page1 = storage.list_destinations(None, 3).await.expect("list_destinations page 1 should succeed");
         assert!(!page1.is_empty(), "first page should not be empty");
 
         // Collect all our test servers across pages by paginating until done.
         let mut all_seen: Vec<String> = Vec::new();
         let mut cursor: Option<String> = None;
         loop {
-            let page = storage
-                .list_destinations(cursor.as_deref(), 3)
-                .await
-                .expect("list_destinations should succeed");
+            let page = storage.list_destinations(cursor.as_deref(), 3).await.expect("list_destinations should succeed");
             if page.is_empty() {
                 break;
             }
@@ -407,10 +384,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-get-nonexist-{}.com", suffix);
 
-        let result = storage
-            .get_destination(&server_name)
-            .await
-            .expect("get_destination should succeed");
+        let result = storage.get_destination(&server_name).await.expect("get_destination should succeed");
         assert!(result.is_none(), "unknown server should return None");
     }
 
@@ -439,10 +413,7 @@ mod db_tests {
         .await
         .expect("insert with failure data should succeed");
 
-        let affected = storage
-            .reset_connection(&server_name)
-            .await
-            .expect("reset_connection should succeed");
+        let affected = storage.reset_connection(&server_name).await.expect("reset_connection should succeed");
         assert_eq!(affected, 1);
 
         // Verify fields were cleared.
@@ -465,10 +436,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-reset-nonexist-{}.com", suffix);
 
-        let affected = storage
-            .reset_connection(&server_name)
-            .await
-            .expect("reset_connection should succeed");
+        let affected = storage.reset_connection(&server_name).await.expect("reset_connection should succeed");
         assert_eq!(affected, 0);
     }
 
@@ -486,17 +454,11 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
         insert_test_server(&pool, &server_name, "active", now).await;
 
-        let affected = storage
-            .delete_destination(&server_name)
-            .await
-            .expect("delete_destination should succeed");
+        let affected = storage.delete_destination(&server_name).await.expect("delete_destination should succeed");
         assert_eq!(affected, 1);
 
         // Verify it is gone.
-        let dest = storage
-            .get_destination(&server_name)
-            .await
-            .expect("get_destination should succeed");
+        let dest = storage.get_destination(&server_name).await.expect("get_destination should succeed");
         assert!(dest.is_none());
 
         cleanup_server_prefix(&pool, &prefix).await;
@@ -510,10 +472,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-del-nonexist-{}.com", suffix);
 
-        let affected = storage
-            .delete_destination(&server_name)
-            .await
-            .expect("delete_destination should succeed");
+        let affected = storage.delete_destination(&server_name).await.expect("delete_destination should succeed");
         assert_eq!(affected, 0);
     }
 
@@ -531,10 +490,7 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
         insert_test_server(&pool, &server_name, "active", now).await;
 
-        let exists = storage
-            .destination_exists(&server_name)
-            .await
-            .expect("destination_exists should succeed");
+        let exists = storage.destination_exists(&server_name).await.expect("destination_exists should succeed");
         assert!(exists);
 
         cleanup_server_prefix(&pool, &prefix).await;
@@ -548,10 +504,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-exists-nonexist-{}.com", suffix);
 
-        let exists = storage
-            .destination_exists(&server_name)
-            .await
-            .expect("destination_exists should succeed");
+        let exists = storage.destination_exists(&server_name).await.expect("destination_exists should succeed");
         assert!(!exists);
     }
 
@@ -606,10 +559,7 @@ mod db_tests {
         .await
         .expect("insert queue entry b2 should succeed");
 
-        let rooms = storage
-            .get_destination_rooms(&server_name)
-            .await
-            .expect("get_destination_rooms should succeed");
+        let rooms = storage.get_destination_rooms(&server_name).await.expect("get_destination_rooms should succeed");
         assert_eq!(rooms.len(), 2, "should return 2 distinct rooms");
         assert!(rooms.contains(&format!("!room-a:{}", suffix)));
         assert!(rooms.contains(&format!("!room-b:{}", suffix)));
@@ -627,10 +577,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-rooms-empty-{}.com", suffix);
 
-        let rooms = storage
-            .get_destination_rooms(&server_name)
-            .await
-            .expect("get_destination_rooms should succeed");
+        let rooms = storage.get_destination_rooms(&server_name).await.expect("get_destination_rooms should succeed");
         assert!(rooms.is_empty());
     }
 
@@ -648,10 +595,7 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
         insert_test_server(&pool, &server_name, "rejected", now).await;
 
-        let status = storage
-            .get_destination_status(&server_name)
-            .await
-            .expect("get_destination_status should succeed");
+        let status = storage.get_destination_status(&server_name).await.expect("get_destination_status should succeed");
         assert_eq!(status.as_deref(), Some("rejected"));
 
         cleanup_server_prefix(&pool, &prefix).await;
@@ -665,10 +609,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-status-nonexist-{}.com", suffix);
 
-        let status = storage
-            .get_destination_status(&server_name)
-            .await
-            .expect("get_destination_status should succeed");
+        let status = storage.get_destination_status(&server_name).await.expect("get_destination_status should succeed");
         assert!(status.is_none());
     }
 
@@ -722,10 +663,8 @@ mod db_tests {
         cleanup_server_prefix(&pool, &prefix).await;
 
         let now = chrono::Utc::now().timestamp_millis();
-        let affected = storage
-            .insert_pending_server(&server_name, now)
-            .await
-            .expect("insert_pending_server should succeed");
+        let affected =
+            storage.insert_pending_server(&server_name, now).await.expect("insert_pending_server should succeed");
         assert_eq!(affected, 1, "should insert 1 row");
 
         // Verify the row was inserted with status='pending'.
@@ -752,10 +691,8 @@ mod db_tests {
         cleanup_server_prefix(&pool, &prefix).await;
 
         let now = chrono::Utc::now().timestamp_millis();
-        let first = storage
-            .insert_pending_server(&server_name, now)
-            .await
-            .expect("first insert_pending_server should succeed");
+        let first =
+            storage.insert_pending_server(&server_name, now).await.expect("first insert_pending_server should succeed");
         assert_eq!(first, 1);
 
         // Second insert with same server_name should do nothing.
@@ -836,18 +773,14 @@ mod db_tests {
 
         let now = chrono::Utc::now().timestamp_millis();
         // Insert pending servers with staggered updated_ts.
-        let servers: Vec<String> = (0..5)
-            .map(|i| format!("test-pending-list-{:02}-{}.com", i, suffix))
-            .collect();
+        let servers: Vec<String> = (0..5).map(|i| format!("test-pending-list-{:02}-{}.com", i, suffix)).collect();
         for (i, s) in servers.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)",
-            )
-            .bind(s)
-            .bind(now + i as i64)
-            .execute(&*pool)
-            .await
-            .expect("insert pending server should succeed");
+            sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
+                .bind(s)
+                .bind(now + i as i64)
+                .execute(&*pool)
+                .await
+                .expect("insert pending server should succeed");
         }
 
         // Collect all our test servers across pages by paginating until done.
@@ -887,23 +820,20 @@ mod db_tests {
         let pool = test_pool().await;
         let storage = AdminFederationStorage::new(&pool);
 
-        let results = storage
-            .list_pending_federation(None, None, 10)
-            .await
-            .expect("list_pending_federation should succeed");
+        let results =
+            storage.list_pending_federation(None, None, 10).await.expect("list_pending_federation should succeed");
 
         // Verify no results for pending status (there may be none, validate each is pending).
         // We can't assert length is zero since other tests may leave pending rows.
         for r in &results {
             // All returned rows should correspond to pending servers.
-            let raw_status: Option<String> = sqlx::query_scalar(
-                "SELECT status FROM federation_servers WHERE server_name = $1",
-            )
-            .bind(&r.server_name)
-            .fetch_optional(&*pool)
-            .await
-            .expect("status lookup should succeed")
-            .flatten();
+            let raw_status: Option<String> =
+                sqlx::query_scalar("SELECT status FROM federation_servers WHERE server_name = $1")
+                    .bind(&r.server_name)
+                    .fetch_optional(&*pool)
+                    .await
+                    .expect("status lookup should succeed")
+                    .flatten();
             assert!(
                 raw_status.as_deref().map_or(true, |s| s == "pending"),
                 "list_pending_federation should only return pending servers, got status={raw_status:?}"
@@ -924,23 +854,18 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
         // Insert some pending servers.
         for i in 0..2 {
-            sqlx::query(
-                "INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)",
-            )
-            .bind(format!("test-pending-count-{}-{}.com", i, suffix))
-            .bind(now)
-            .execute(&*pool)
-            .await
-            .expect("insert pending server should succeed");
+            sqlx::query("INSERT INTO federation_servers (server_name, status, updated_ts) VALUES ($1, 'pending', $2)")
+                .bind(format!("test-pending-count-{}-{}.com", i, suffix))
+                .bind(now)
+                .execute(&*pool)
+                .await
+                .expect("insert pending server should succeed");
         }
 
         // Also insert an active server to ensure it is not counted.
         insert_test_server(&pool, &format!("test-pending-count-active-{}.com", suffix), "active", now).await;
 
-        let count = storage
-            .count_pending_federation()
-            .await
-            .expect("count_pending_federation should succeed");
+        let count = storage.count_pending_federation().await.expect("count_pending_federation should succeed");
         assert!(count >= 2, "should count at least 2 pending servers, got {count}");
 
         cleanup_server_prefix(&pool, &prefix).await;
@@ -958,32 +883,25 @@ mod db_tests {
 
         let now = chrono::Utc::now().timestamp_millis();
         // Insert two cache entries.
-        sqlx::query(
-            "INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(format!("test-cache-a-{}", suffix))
-        .bind("value-a")
-        .bind(now + 3600_000)
-        .bind(now)
-        .execute(&*pool)
-        .await
-        .expect("insert cache entry a should succeed");
-
-        sqlx::query(
-            "INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(format!("test-cache-b-{}", suffix))
-        .bind("value-b")
-        .bind(now + 7200_000)
-        .bind(now)
-        .execute(&*pool)
-        .await
-        .expect("insert cache entry b should succeed");
-
-        let entries = storage
-            .get_federation_cache()
+        sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
+            .bind(format!("test-cache-a-{}", suffix))
+            .bind("value-a")
+            .bind(now + 3600_000)
+            .bind(now)
+            .execute(&*pool)
             .await
-            .expect("get_federation_cache should succeed");
+            .expect("insert cache entry a should succeed");
+
+        sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
+            .bind(format!("test-cache-b-{}", suffix))
+            .bind("value-b")
+            .bind(now + 7200_000)
+            .bind(now)
+            .execute(&*pool)
+            .await
+            .expect("insert cache entry b should succeed");
+
+        let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");
 
         // Find our test entries.
         let ours: Vec<&FederationCacheRecord> = entries
@@ -1011,10 +929,7 @@ mod db_tests {
         cleanup_cache_prefix(&pool, &prefix).await;
 
         // With no matching entries, the function should return an empty vec.
-        let entries = storage
-            .get_federation_cache()
-            .await
-            .expect("get_federation_cache should succeed");
+        let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");
 
         let ours: Vec<&FederationCacheRecord> = entries
             .iter()
@@ -1037,31 +952,25 @@ mod db_tests {
 
         let now = chrono::Utc::now().timestamp_millis();
         let key = format!("test-cache-del-{}", suffix);
-        sqlx::query(
-            "INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(&key)
-        .bind("temp-value")
-        .bind(now + 3600_000)
-        .bind(now)
-        .execute(&*pool)
-        .await
-        .expect("insert cache entry should succeed");
-
-        let affected = storage
-            .delete_federation_cache_entry(&key)
+        sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
+            .bind(&key)
+            .bind("temp-value")
+            .bind(now + 3600_000)
+            .bind(now)
+            .execute(&*pool)
             .await
-            .expect("delete_federation_cache_entry should succeed");
+            .expect("insert cache entry should succeed");
+
+        let affected =
+            storage.delete_federation_cache_entry(&key).await.expect("delete_federation_cache_entry should succeed");
         assert_eq!(affected, 1);
 
         // Verify entry is gone.
-        let remaining = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM federation_cache WHERE key = $1",
-        )
-        .bind(&key)
-        .fetch_one(&*pool)
-        .await
-        .expect("count should succeed");
+        let remaining = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM federation_cache WHERE key = $1")
+            .bind(&key)
+            .fetch_one(&*pool)
+            .await
+            .expect("count should succeed");
         assert_eq!(remaining, 0);
 
         cleanup_cache_prefix(&pool, &prefix).await;
@@ -1075,10 +984,8 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let key = format!("test-cache-del-nonexist-{}", suffix);
 
-        let affected = storage
-            .delete_federation_cache_entry(&key)
-            .await
-            .expect("delete_federation_cache_entry should succeed");
+        let affected =
+            storage.delete_federation_cache_entry(&key).await.expect("delete_federation_cache_entry should succeed");
         assert_eq!(affected, 0);
     }
 
@@ -1094,30 +1001,22 @@ mod db_tests {
 
         let now = chrono::Utc::now().timestamp_millis();
         for i in 0..2 {
-            sqlx::query(
-                "INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)",
-            )
-            .bind(format!("test-cache-clear-{}-{}", i, suffix))
-            .bind(format!("value-{}", i))
-            .bind(now + (i + 1) as i64 * 3600_000)
-            .bind(now)
-            .execute(&*pool)
-            .await
-            .expect("insert cache entry should succeed");
+            sqlx::query("INSERT INTO federation_cache (key, value, expiry_ts, created_ts) VALUES ($1, $2, $3, $4)")
+                .bind(format!("test-cache-clear-{}-{}", i, suffix))
+                .bind(format!("value-{}", i))
+                .bind(now + (i + 1) as i64 * 3600_000)
+                .bind(now)
+                .execute(&*pool)
+                .await
+                .expect("insert cache entry should succeed");
         }
 
-        let affected = storage
-            .clear_federation_cache()
-            .await
-            .expect("clear_federation_cache should succeed");
+        let affected = storage.clear_federation_cache().await.expect("clear_federation_cache should succeed");
         // Global DELETE — just assert it didn't error (rows affected >= our 2 entries).
         assert!(affected >= 2, "should delete at least 2 entries, got {affected}");
 
         // Verify cache has been fully cleared.
-        let entries = storage
-            .get_federation_cache()
-            .await
-            .expect("get_federation_cache should succeed");
+        let entries = storage.get_federation_cache().await.expect("get_federation_cache should succeed");
         assert_eq!(entries.len(), 0, "federation_cache should be empty after clear");
 
         cleanup_cache_prefix(&pool, &prefix).await;

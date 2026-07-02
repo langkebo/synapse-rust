@@ -320,11 +320,8 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -334,14 +331,18 @@ mod db_tests {
             .bind(user_id)
             .execute(pool)
             .await;
-        let _ = sqlx::query("DELETE FROM dehydrated_devices WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
+        let _ = sqlx::query("DELETE FROM dehydrated_devices WHERE user_id = $1").bind(user_id).execute(pool).await;
     }
 
     /// Build device_data JSON with one_time_keys and fallback_keys for OTK tests.
-    fn make_device_data_with_keys(otk_alg: &str, otk_id: &str, otk_val: &Value, _fb_alg: &str, fb_id: &str, fb_val: &Value) -> Value {
+    fn make_device_data_with_keys(
+        otk_alg: &str,
+        otk_id: &str,
+        otk_val: &Value,
+        _fb_alg: &str,
+        fb_id: &str,
+        fb_val: &Value,
+    ) -> Value {
         json!({
             "one_time_keys": { otk_id: otk_val },
             "fallback_keys": { fb_id: fb_val },
@@ -584,24 +585,22 @@ mod db_tests {
             .expect("update expires_at");
 
         // Verify it exists (expired, so get_by_user won't return it, but it's in the DB)
-        let count_before: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
-                .bind(&user_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("count query should succeed");
+        let count_before: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("count query should succeed");
         assert_eq!(count_before.0, 1, "Device should exist before sweep");
 
         let swept = storage.sweep_expired().await.expect("sweep should succeed");
         assert!(swept >= 1, "Should sweep at least 1 device, got {}", swept);
 
         // Verify it's gone from DB
-        let count_after: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
-                .bind(&user_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("count query should succeed");
+        let count_after: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("count query should succeed");
         assert_eq!(count_after.0, 0, "Device should be gone after sweep");
 
         cleanup_user(&pool, &user_id).await;
@@ -671,26 +670,20 @@ mod db_tests {
         }
 
         // Fetch first 3 (stream_id > 0)
-        let (events, max_id) = storage
-            .claim_to_device_events(&user_id, device_id, 0, 3)
-            .await
-            .expect("claim should succeed");
+        let (events, max_id) =
+            storage.claim_to_device_events(&user_id, device_id, 0, 3).await.expect("claim should succeed");
         assert_eq!(events.len(), 3);
         assert_eq!(max_id, 102);
 
         // Fetch remaining 2 (stream_id > 102)
-        let (events2, max_id2) = storage
-            .claim_to_device_events(&user_id, device_id, max_id, 3)
-            .await
-            .expect("second claim should succeed");
+        let (events2, max_id2) =
+            storage.claim_to_device_events(&user_id, device_id, max_id, 3).await.expect("second claim should succeed");
         assert_eq!(events2.len(), 2);
         assert_eq!(max_id2, 104);
 
         // No more messages
-        let (events3, max_id3) = storage
-            .claim_to_device_events(&user_id, device_id, max_id2, 3)
-            .await
-            .expect("third claim should succeed");
+        let (events3, max_id3) =
+            storage.claim_to_device_events(&user_id, device_id, max_id2, 3).await.expect("third claim should succeed");
         assert_eq!(events3.len(), 0);
         assert_eq!(max_id3, max_id2); // cursor unchanged when empty
 
@@ -717,10 +710,8 @@ mod db_tests {
         };
         storage.upsert_for_user(params).await.expect("upsert should succeed");
 
-        let (events, max_id) = storage
-            .claim_to_device_events(&user_id, device_id, 0, 10)
-            .await
-            .expect("claim should succeed");
+        let (events, max_id) =
+            storage.claim_to_device_events(&user_id, device_id, 0, 10).await.expect("claim should succeed");
         assert_eq!(events.len(), 0);
         assert_eq!(max_id, 0); // cursor unchanged when empty
 
@@ -907,22 +898,35 @@ mod db_tests {
 
         // Insert to_device messages for this user's dehydrated device
         insert_to_device_msg(
-            &pool, "@sender:test", &user_id, device_id,
-            "m.room.message", &json!({"body": "msg1"}), 200,
-        ).await;
+            &pool,
+            "@sender:test",
+            &user_id,
+            device_id,
+            "m.room.message",
+            &json!({"body": "msg1"}),
+            200,
+        )
+        .await;
         insert_to_device_msg(
-            &pool, "@sender:test", &user_id, device_id,
-            "m.room.message", &json!({"body": "msg2"}), 201,
-        ).await;
+            &pool,
+            "@sender:test",
+            &user_id,
+            device_id,
+            "m.room.message",
+            &json!({"body": "msg2"}),
+            201,
+        )
+        .await;
 
         // Verify messages exist
-        let msg_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2")
-                .bind(&user_id)
-                .bind(device_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("count should succeed");
+        let msg_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2",
+        )
+        .bind(&user_id)
+        .bind(device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count should succeed");
         assert_eq!(msg_count.0, 2, "Should have 2 to_device messages before delete");
 
         // Delete should also clean up to_device_messages
@@ -930,13 +934,14 @@ mod db_tests {
         assert_eq!(deleted, 1, "Should delete one device");
 
         // Verify messages are gone
-        let msg_count_after: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2")
-                .bind(&user_id)
-                .bind(device_id)
-                .fetch_one(&*pool)
-                .await
-                .expect("count should succeed");
+        let msg_count_after: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2",
+        )
+        .bind(&user_id)
+        .bind(device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("count should succeed");
         assert_eq!(msg_count_after.0, 0, "to_device messages should be cleaned up");
 
         cleanup_user(&pool, &user_id).await;

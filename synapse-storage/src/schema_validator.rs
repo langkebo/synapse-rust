@@ -273,11 +273,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -526,9 +523,7 @@ mod db_tests {
         let validator = SchemaValidator::new(pool);
 
         let missing_col = format!("nonexistent_col_{suffix}");
-        let missing = validator
-            .validate_required_columns(&[("users", "user_id"), ("users", &missing_col)])
-            .await;
+        let missing = validator.validate_required_columns(&[("users", "user_id"), ("users", &missing_col)]).await;
         assert!(missing.is_ok());
 
         let missing = missing.unwrap();
@@ -543,9 +538,7 @@ mod db_tests {
         let validator = SchemaValidator::new(pool);
 
         let missing_table = format!("nonesuch_tbl_{suffix}");
-        let missing = validator
-            .validate_required_columns(&[("users", "user_id"), (&missing_table, "id")])
-            .await;
+        let missing = validator.validate_required_columns(&[("users", "user_id"), (&missing_table, "id")]).await;
         assert!(missing.is_ok());
 
         let missing = missing.unwrap();
@@ -619,8 +612,7 @@ mod db_tests {
         };
 
         let json = serde_json::to_string(&original).expect("serialization should succeed");
-        let roundtripped: SchemaValidationResult =
-            serde_json::from_str(&json).expect("deserialization should succeed");
+        let roundtripped: SchemaValidationResult = serde_json::from_str(&json).expect("deserialization should succeed");
 
         assert_eq!(roundtripped.is_valid, original.is_valid);
         assert_eq!(roundtripped.is_healthy, original.is_healthy);

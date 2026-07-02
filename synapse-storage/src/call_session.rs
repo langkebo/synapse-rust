@@ -208,28 +208,21 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     /// Clean up test call sessions and candidates matching a UUID suffix.
     async fn cleanup_test_data(pool: &Pool<Postgres>, suffix: &str) {
-        let _ = sqlx::query(
-            "DELETE FROM call_candidates WHERE call_id LIKE $1",
-        )
-        .bind(format!("%{suffix}"))
-        .execute(pool)
-        .await;
-        let _ = sqlx::query(
-            "DELETE FROM call_sessions WHERE call_id LIKE $1",
-        )
-        .bind(format!("%{suffix}"))
-        .execute(pool)
-        .await;
+        let _ = sqlx::query("DELETE FROM call_candidates WHERE call_id LIKE $1")
+            .bind(format!("%{suffix}"))
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM call_sessions WHERE call_id LIKE $1")
+            .bind(format!("%{suffix}"))
+            .execute(pool)
+            .await;
     }
 
     #[tokio::test]
@@ -249,19 +242,13 @@ mod db_tests {
             lifetime: Some(120_000),
         };
 
-        let session = storage
-            .create_session(params)
-            .await
-            .expect("create_session should succeed");
+        let session = storage.create_session(params).await.expect("create_session should succeed");
 
         assert!(session.id > 0);
         assert_eq!(session.call_id, format!("create_session_{suffix}"));
         assert_eq!(session.room_id, format!("!room_{suffix}:example.com"));
         assert_eq!(session.caller_id, format!("@caller_{suffix}:example.com"));
-        assert_eq!(
-            session.callee_id,
-            Some(format!("@callee_{suffix}:example.com"))
-        );
+        assert_eq!(session.callee_id, Some(format!("@callee_{suffix}:example.com")));
         assert_eq!(session.state, "ringing");
         assert!(session.offer_sdp.is_some());
         assert_eq!(session.lifetime, 120_000);
@@ -290,10 +277,7 @@ mod db_tests {
             lifetime: None,
         };
 
-        let session = storage
-            .create_session(params)
-            .await
-            .expect("create_session should succeed");
+        let session = storage.create_session(params).await.expect("create_session should succeed");
 
         assert_eq!(session.lifetime, 60_000, "default lifetime should be 60000ms");
 
@@ -367,16 +351,9 @@ mod db_tests {
         storage.create_session(params).await.unwrap();
 
         // Update state to "connected"
-        storage
-            .update_state(&call_id, &room_id, "connected")
-            .await
-            .expect("update_state should succeed");
+        storage.update_state(&call_id, &room_id, "connected").await.expect("update_state should succeed");
 
-        let updated = storage
-            .get_session(&call_id, &room_id)
-            .await
-            .unwrap()
-            .expect("session should exist");
+        let updated = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
         assert_eq!(updated.state, "connected");
         assert!(updated.updated_ts.unwrap() > updated.created_ts);
@@ -405,16 +382,9 @@ mod db_tests {
         storage.create_session(params).await.unwrap();
 
         let answer = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=answer";
-        storage
-            .set_answer(&call_id, &room_id, answer)
-            .await
-            .expect("set_answer should succeed");
+        storage.set_answer(&call_id, &room_id, answer).await.expect("set_answer should succeed");
 
-        let updated = storage
-            .get_session(&call_id, &room_id)
-            .await
-            .unwrap()
-            .expect("session should exist");
+        let updated = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
         assert_eq!(updated.state, "connected");
         assert_eq!(updated.answer_sdp.unwrap(), answer);
@@ -442,16 +412,9 @@ mod db_tests {
         };
         storage.create_session(params).await.unwrap();
 
-        storage
-            .end_session(&call_id, &room_id)
-            .await
-            .expect("end_session should succeed");
+        storage.end_session(&call_id, &room_id).await.expect("end_session should succeed");
 
-        let ended = storage
-            .get_session(&call_id, &room_id)
-            .await
-            .unwrap()
-            .expect("session should exist");
+        let ended = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
         assert_eq!(ended.state, "ended");
         assert!(ended.ended_ts.is_some(), "ended_ts should be set when session ends");
@@ -483,18 +446,11 @@ mod db_tests {
         // Wait for the session to expire
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
-        let affected = storage
-            .cleanup_expired()
-            .await
-            .expect("cleanup_expired should succeed");
+        let affected = storage.cleanup_expired().await.expect("cleanup_expired should succeed");
 
         assert!(affected >= 1, "should have cleaned up at least 1 expired session");
 
-        let cleaned = storage
-            .get_session(&call_id, &room_id)
-            .await
-            .unwrap()
-            .expect("session should exist");
+        let cleaned = storage.get_session(&call_id, &room_id).await.unwrap().expect("session should exist");
 
         assert_eq!(cleaned.state, "ended");
         assert!(cleaned.ended_ts.is_some());
@@ -544,10 +500,7 @@ mod db_tests {
             .await
             .expect("add_candidate should succeed");
 
-        let candidates = storage
-            .get_candidates(&call_id, &room_id)
-            .await
-            .expect("get_candidates should succeed");
+        let candidates = storage.get_candidates(&call_id, &room_id).await.expect("get_candidates should succeed");
 
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].sender_id, format!("@alice_{suffix}:example.com"));

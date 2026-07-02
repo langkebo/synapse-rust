@@ -637,11 +637,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -795,10 +792,7 @@ mod db_tests {
 
         cleanup_by_server(&pool, &server_name).await;
 
-        let entry = storage
-            .get_blacklist_entry(&server_name)
-            .await
-            .expect("get should succeed");
+        let entry = storage.get_blacklist_entry(&server_name).await.expect("get should succeed");
 
         assert!(entry.is_none());
     }
@@ -825,10 +819,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        storage
-            .remove_from_blacklist(&server_name, "@remover:test.com")
-            .await
-            .expect("remove should succeed");
+        storage.remove_from_blacklist(&server_name, "@remover:test.com").await.expect("remove should succeed");
 
         // Verify is_enabled is now false.
         let entry = storage
@@ -880,10 +871,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let blocked = storage
-            .is_server_blocked(&server_name)
-            .await
-            .expect("check should succeed");
+        let blocked = storage.is_server_blocked(&server_name).await.expect("check should succeed");
 
         assert!(blocked, "server should be blocked");
 
@@ -913,10 +901,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let blocked = storage
-            .is_server_blocked(&server_name)
-            .await
-            .expect("check should succeed");
+        let blocked = storage.is_server_blocked(&server_name).await.expect("check should succeed");
 
         assert!(!blocked, "expired server should not be blocked");
 
@@ -945,10 +930,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let blocked = storage
-            .is_server_blocked(&server_name)
-            .await
-            .expect("check should succeed");
+        let blocked = storage.is_server_blocked(&server_name).await.expect("check should succeed");
 
         assert!(!blocked, "whitelist-type entry should not be reported as blocked");
 
@@ -977,10 +959,7 @@ mod db_tests {
             .await
             .expect("add should succeed");
 
-        let whitelisted = storage
-            .is_server_whitelisted(&server_name)
-            .await
-            .expect("check should succeed");
+        let whitelisted = storage.is_server_whitelisted(&server_name).await.expect("check should succeed");
 
         assert!(whitelisted, "server should be whitelisted");
 
@@ -997,10 +976,7 @@ mod db_tests {
 
         cleanup_by_server(&pool, &server_name).await;
 
-        let whitelisted = storage
-            .is_server_whitelisted(&server_name)
-            .await
-            .expect("check should succeed");
+        let whitelisted = storage.is_server_whitelisted(&server_name).await.expect("check should succeed");
 
         assert!(!whitelisted, "non-existent server should not be whitelisted");
 
@@ -1014,9 +990,7 @@ mod db_tests {
         let storage = FederationBlacklistStorage::new(&pool);
         let suffix = Uuid::new_v4();
 
-        let servers: Vec<String> = (0..5)
-            .map(|i| format!("test-page-{}-{}.com", i, suffix))
-            .collect();
+        let servers: Vec<String> = (0..5).map(|i| format!("test-page-{}-{}.com", i, suffix)).collect();
 
         for s in &servers {
             cleanup_by_server(&pool, s).await;
@@ -1038,42 +1012,36 @@ mod db_tests {
         }
 
         // Page 1: limit=3, no cursor.
-        let (rows, next_cursor) = storage
-            .get_all_blacklist(3, None)
-            .await
-            .expect("get_all should succeed");
+        let (rows, next_cursor) = storage.get_all_blacklist(3, None).await.expect("get_all should succeed");
 
         assert_eq!(rows.len(), 3, "first page should return 3 rows");
         assert!(next_cursor.is_some(), "should have next_batch token for more results");
 
         // Count how many of our test servers appear in page 1.
-        let page1_ours: std::collections::HashSet<&str> =
-            rows.iter().map(|r| r.server_name.as_str()).collect();
+        let page1_ours: std::collections::HashSet<&str> = rows.iter().map(|r| r.server_name.as_str()).collect();
         let page1_ours_set: std::collections::HashSet<&String> =
             servers.iter().filter(|s| page1_ours.contains(s.as_str())).collect();
 
         // Page 2: use the cursor.
-        let cursor = decode_federation_blacklist_cursor(next_cursor.as_deref())
-            .expect("cursor should decode");
-        let (rows2, _next_cursor2) = storage
-            .get_all_blacklist(3, Some(cursor))
-            .await
-            .expect("get_all with cursor should succeed");
+        let cursor = decode_federation_blacklist_cursor(next_cursor.as_deref()).expect("cursor should decode");
+        let (rows2, _next_cursor2) =
+            storage.get_all_blacklist(3, Some(cursor)).await.expect("get_all with cursor should succeed");
 
         // At least our remaining servers (not in page 1) should be present in page 2.
-        let page2_ours: std::collections::HashSet<&str> =
-            rows2.iter().map(|r| r.server_name.as_str()).collect();
+        let page2_ours: std::collections::HashSet<&str> = rows2.iter().map(|r| r.server_name.as_str()).collect();
         for s in &servers {
             if !page1_ours_set.contains(s) {
-                assert!(page2_ours.contains(s.as_str()),
-                    "server {s} not in page 1 should appear in page 2");
+                assert!(page2_ours.contains(s.as_str()), "server {s} not in page 1 should appear in page 2");
             }
         }
 
         // No overlap between pages.
         for r in &rows2 {
-            assert!(!page1_ours.contains(r.server_name.as_str()),
-                "page 2 entry {} should not appear in page 1", r.server_name);
+            assert!(
+                !page1_ours.contains(r.server_name.as_str()),
+                "page 2 entry {} should not appear in page 1",
+                r.server_name
+            );
         }
 
         for s in &servers {
@@ -1212,11 +1180,8 @@ mod db_tests {
             .await
             .expect("update should succeed");
 
-        let stats = storage
-            .get_access_stats(&server_name)
-            .await
-            .expect("get should succeed")
-            .expect("stats should exist");
+        let stats =
+            storage.get_access_stats(&server_name).await.expect("get should succeed").expect("stats should exist");
 
         assert_eq!(stats.server_name, server_name);
         assert_eq!(stats.total_requests, 1);
@@ -1232,10 +1197,7 @@ mod db_tests {
         let suffix = Uuid::new_v4();
         let server_name = format!("test-no-stats-{}.com", suffix);
 
-        let stats = storage
-            .get_access_stats(&server_name)
-            .await
-            .expect("get should succeed");
+        let stats = storage.get_access_stats(&server_name).await.expect("get should succeed");
 
         assert!(stats.is_none());
     }
@@ -1327,10 +1289,8 @@ mod db_tests {
             .expect("disable rule should work");
 
         let rules_after = storage.get_all_rules().await.expect("get_all_rules should succeed");
-        assert!(!rules_after.iter().any(|r| r.rule_name == rule_name_a),
-            "disabled rule A should not be returned");
-        assert!(rules_after.iter().any(|r| r.rule_name == rule_name_b),
-            "enabled rule B should still be returned");
+        assert!(!rules_after.iter().any(|r| r.rule_name == rule_name_a), "disabled rule A should not be returned");
+        assert!(rules_after.iter().any(|r| r.rule_name == rule_name_b), "enabled rule B should still be returned");
 
         cleanup_rule_by_name(&pool, &like_pattern).await;
     }
@@ -1373,10 +1333,7 @@ mod db_tests {
             .await
             .expect("add active entry should succeed");
 
-        let cleaned = storage
-            .cleanup_expired_entries()
-            .await
-            .expect("cleanup should succeed");
+        let cleaned = storage.cleanup_expired_entries().await.expect("cleanup should succeed");
 
         // At least our expired entry should have been cleaned.
         assert!(cleaned >= 1, "should clean at least 1 expired entry, got {cleaned}");

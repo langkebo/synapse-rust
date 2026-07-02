@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -117,7 +116,7 @@ impl DeviceStorage {
         let _ = self.record_device_list_changes_batch(user_id, device_ids, change_type).await;
     }
 
-    pub(crate) async fn insert_device_list_change(
+    pub async fn insert_device_list_change(
         &self,
         user_id: &str,
         device_id: Option<&str>,

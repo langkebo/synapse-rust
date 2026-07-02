@@ -346,11 +346,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -373,11 +370,7 @@ mod db_tests {
     }
 
     async fn cleanup_burn_log(pool: &PgPool, user_id: &str) {
-        sqlx::query("DELETE FROM burn_after_read_log WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM burn_after_read_log WHERE user_id = $1").bind(user_id).execute(pool).await.ok();
     }
 
     async fn cleanup_burn_user_defaults(pool: &PgPool, user_id: &str) {
@@ -399,10 +392,7 @@ mod db_tests {
 
         cleanup_burn_settings(&pool, &user_id, &room_id).await;
 
-        let row = storage
-            .set_settings(&user_id, &room_id, true, 120_000)
-            .await
-            .expect("set_settings should succeed");
+        let row = storage.set_settings(&user_id, &room_id, true, 120_000).await.expect("set_settings should succeed");
 
         assert_eq!(row.user_id, user_id);
         assert_eq!(row.room_id, room_id);
@@ -435,10 +425,7 @@ mod db_tests {
         let user_id = format!("@nonexist_{suffix}:test.com");
         let room_id = format!("!nonexist_{suffix}:test.com");
 
-        let result = storage
-            .get_settings(&user_id, &room_id)
-            .await
-            .expect("get_settings should succeed");
+        let result = storage.get_settings(&user_id, &room_id).await.expect("get_settings should succeed");
 
         assert!(result.is_none(), "nonexistent settings should return None");
     }
@@ -455,26 +442,23 @@ mod db_tests {
         cleanup_burn_settings(&pool, &user_id, &room_id).await;
 
         // First insert: enabled with 60s
-        let row1 = storage
-            .set_settings(&user_id, &room_id, true, 60_000)
-            .await
-            .expect("first set_settings should succeed");
+        let row1 =
+            storage.set_settings(&user_id, &room_id, true, 60_000).await.expect("first set_settings should succeed");
 
         assert!(row1.is_enabled);
         assert_eq!(row1.burn_after_ms, 60_000);
 
         // Second insert: disable (upsert should update, not insert a duplicate)
-        let row2 = storage
-            .set_settings(&user_id, &room_id, false, 30_000)
-            .await
-            .expect("second set_settings should succeed");
+        let row2 =
+            storage.set_settings(&user_id, &room_id, false, 30_000).await.expect("second set_settings should succeed");
 
         assert!(!row2.is_enabled);
         assert_eq!(row2.burn_after_ms, 30_000);
         // created_ts should remain the same; updated_ts should change
         assert_eq!(row2.created_ts, row1.created_ts);
-        assert!(row2.updated_ts.unwrap() > row1.updated_ts.unwrap()
-                || row2.updated_ts.unwrap() >= row1.updated_ts.unwrap());
+        assert!(
+            row2.updated_ts.unwrap() > row1.updated_ts.unwrap() || row2.updated_ts.unwrap() >= row1.updated_ts.unwrap()
+        );
 
         cleanup_burn_settings(&pool, &user_id, &room_id).await;
     }
@@ -506,10 +490,7 @@ mod db_tests {
         assert!(!row.is_processed);
         assert_eq!(row.delete_ts, delete_ts);
 
-        let pending = storage
-            .get_pending_burns(&user_id, &room_id)
-            .await
-            .expect("get_pending_burns should succeed");
+        let pending = storage.get_pending_burns(&user_id, &room_id).await.expect("get_pending_burns should succeed");
 
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].event_id, event_id);
@@ -532,25 +513,13 @@ mod db_tests {
 
         let now = chrono::Utc::now().timestamp_millis();
         let delete_ts = now + 60_000;
-        storage
-            .schedule_burn(&user_id, &room_id, &event_id, delete_ts)
-            .await
-            .expect("schedule_burn should succeed");
+        storage.schedule_burn(&user_id, &room_id, &event_id, delete_ts).await.expect("schedule_burn should succeed");
 
-        storage
-            .cancel_burn(&user_id, &room_id, &event_id)
-            .await
-            .expect("cancel_burn should succeed");
+        storage.cancel_burn(&user_id, &room_id, &event_id).await.expect("cancel_burn should succeed");
 
-        let pending = storage
-            .get_pending_burns(&user_id, &room_id)
-            .await
-            .expect("get_pending_burns should succeed");
+        let pending = storage.get_pending_burns(&user_id, &room_id).await.expect("get_pending_burns should succeed");
 
-        assert!(
-            pending.is_empty(),
-            "cancelled burns should not appear in pending list"
-        );
+        assert!(pending.is_empty(), "cancelled burns should not appear in pending list");
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
     }
@@ -584,10 +553,7 @@ mod db_tests {
             .await
             .expect("schedule future burn should succeed");
 
-        let expired = storage
-            .get_expired_burns(now)
-            .await
-            .expect("get_expired_burns should succeed");
+        let expired = storage.get_expired_burns(now).await.expect("get_expired_burns should succeed");
 
         // Should only contain the past event (the future one may appear too
         // if other tests leave data, but at minimum the past one must be present)
@@ -620,16 +586,10 @@ mod db_tests {
             .await
             .expect("schedule_burn should succeed");
 
-        storage
-            .mark_burn_processed(scheduled.id)
-            .await
-            .expect("mark_burn_processed should succeed");
+        storage.mark_burn_processed(scheduled.id).await.expect("mark_burn_processed should succeed");
 
         // Should no longer appear in pending (is_processed = TRUE)
-        let pending = storage
-            .get_pending_burns(&user_id, &room_id)
-            .await
-            .expect("get_pending_burns should succeed");
+        let pending = storage.get_pending_burns(&user_id, &room_id).await.expect("get_pending_burns should succeed");
 
         assert!(
             pending.iter().all(|r| r.id != scheduled.id),
@@ -655,10 +615,7 @@ mod db_tests {
         let now = chrono::Utc::now().timestamp_millis();
 
         // Log a burned event
-        storage
-            .log_burned_event(&user_id, &room_id, &event_id, now)
-            .await
-            .expect("log_burned_event should succeed");
+        storage.log_burned_event(&user_id, &room_id, &event_id, now).await.expect("log_burned_event should succeed");
 
         // Schedule a pending burn to produce non-zero total_pending
         storage
@@ -666,10 +623,7 @@ mod db_tests {
             .await
             .expect("schedule burn should succeed");
 
-        let stats = storage
-            .get_user_stats(&user_id)
-            .await
-            .expect("get_user_stats should succeed");
+        let stats = storage.get_user_stats(&user_id).await.expect("get_user_stats should succeed");
 
         assert!(stats.total_burned >= 1, "should have at least 1 burned event");
         assert!(stats.total_pending >= 1, "should have at least 1 pending burn");
@@ -689,17 +643,11 @@ mod db_tests {
         cleanup_burn_user_defaults(&pool, &user_id).await;
 
         // Initially no default
-        let before = storage
-            .get_user_default(&user_id)
-            .await
-            .expect("get_user_default should succeed");
+        let before = storage.get_user_default(&user_id).await.expect("get_user_default should succeed");
         assert!(before.is_none(), "new user should have no default");
 
         // Set a default
-        storage
-            .set_user_default(&user_id, 90_000)
-            .await
-            .expect("set_user_default should succeed");
+        storage.set_user_default(&user_id, 90_000).await.expect("set_user_default should succeed");
 
         // Retrieve and verify
         let after = storage
@@ -714,10 +662,7 @@ mod db_tests {
         assert!(after.updated_ts.is_some());
 
         // Update the default (upsert)
-        storage
-            .set_user_default(&user_id, 120_000)
-            .await
-            .expect("second set_user_default should succeed");
+        storage.set_user_default(&user_id, 120_000).await.expect("second set_user_default should succeed");
 
         let updated = storage
             .get_user_default(&user_id)
@@ -749,16 +694,11 @@ mod db_tests {
         cleanup_burn_user_defaults(&pool, &user_id).await;
 
         // Step 1: Set user default
-        storage
-            .set_user_default(&user_id, 60_000)
-            .await
-            .expect("set_user_default should succeed");
+        storage.set_user_default(&user_id, 60_000).await.expect("set_user_default should succeed");
 
         // Step 2: Enable burn-after-read for the room
-        let settings = storage
-            .set_settings(&user_id, &room_id, true, 60_000)
-            .await
-            .expect("set_settings should succeed");
+        let settings =
+            storage.set_settings(&user_id, &room_id, true, 60_000).await.expect("set_settings should succeed");
         assert!(settings.is_enabled);
 
         // Step 3: Schedule a burn for the event
@@ -771,17 +711,11 @@ mod db_tests {
         assert!(!scheduled.is_processed);
 
         // Step 4: Verify it appears in pending burns
-        let pending = storage
-            .get_pending_burns(&user_id, &room_id)
-            .await
-            .expect("get_pending_burns should succeed");
+        let pending = storage.get_pending_burns(&user_id, &room_id).await.expect("get_pending_burns should succeed");
         assert!(pending.iter().any(|r| r.event_id == event_id));
 
         // Step 5: Mark as processed
-        storage
-            .mark_burn_processed(scheduled.id)
-            .await
-            .expect("mark_burn_processed should succeed");
+        storage.mark_burn_processed(scheduled.id).await.expect("mark_burn_processed should succeed");
 
         // Step 6: Log the burned event
         let burned_ts = chrono::Utc::now().timestamp_millis();
@@ -791,10 +725,7 @@ mod db_tests {
             .expect("log_burned_event should succeed");
 
         // Step 7: Verify stats reflect the burned event
-        let stats = storage
-            .get_user_stats(&user_id)
-            .await
-            .expect("get_user_stats should succeed");
+        let stats = storage.get_user_stats(&user_id).await.expect("get_user_stats should succeed");
         assert!(stats.total_burned >= 1, "total_burned should be >= 1");
 
         // Cleanup end
@@ -827,37 +758,24 @@ mod db_tests {
                 .expect("schedule_burn should succeed");
         }
 
-        let expired = storage
-            .get_expired_burns(now)
-            .await
-            .expect("get_expired_burns should succeed");
+        let expired = storage.get_expired_burns(now).await.expect("get_expired_burns should succeed");
 
         // At least the 2 past-delete_ts burns should show up
-        let past_count = expired
-            .iter()
-            .filter(|r| r.user_id == user_id && r.room_id == room_id)
-            .count();
+        let past_count = expired.iter().filter(|r| r.user_id == user_id && r.room_id == room_id).count();
         assert!(past_count >= 2, "should find at least 2 expired burns for this user/room");
 
         // Mark all expired as processed
         for row in &expired {
             if row.user_id == user_id && row.room_id == room_id {
-                storage
-                    .mark_burn_processed(row.id)
-                    .await
-                    .expect("mark_burn_processed should succeed");
+                storage.mark_burn_processed(row.id).await.expect("mark_burn_processed should succeed");
             }
         }
 
         // After marking, pending should only contain the future burn
-        let remaining = storage
-            .get_pending_burns(&user_id, &room_id)
-            .await
-            .expect("get_pending_burns should succeed");
+        let remaining = storage.get_pending_burns(&user_id, &room_id).await.expect("get_pending_burns should succeed");
 
         let has_future = remaining.iter().any(|r| r.event_id.contains(&format!("{suffix}_2")));
-        assert!(has_future || remaining.len() == 1,
-                "only the future burn should remain in pending");
+        assert!(has_future || remaining.len() == 1, "only the future burn should remain in pending");
 
         cleanup_burn_pending(&pool, &user_id, &room_id).await;
     }

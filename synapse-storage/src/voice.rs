@@ -230,11 +230,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -290,11 +287,7 @@ mod db_tests {
         let room_id = format!("!room_{suffix}:test.com");
 
         // Cleanup at start (previous failed run)
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         let id = storage
             .record_upload(&user_id, Some(&room_id), &media_id, "audio/ogg", 5000, 102400)
@@ -303,11 +296,7 @@ mod db_tests {
         assert!(id > 0);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -320,17 +309,10 @@ mod db_tests {
         let room_id = format!("!room_get_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         // Not found for non-existent media_id
-        let result = storage
-            .get_by_media_id("nonexistent_media_id_12345")
-            .await
-            .expect("query should succeed");
+        let result = storage.get_by_media_id("nonexistent_media_id_12345").await.expect("query should succeed");
         assert!(result.is_none(), "non-existent media_id should return None");
 
         // Record and then find
@@ -339,11 +321,8 @@ mod db_tests {
             .await
             .expect("record_upload should succeed");
 
-        let found = storage
-            .get_by_media_id(&media_id)
-            .await
-            .expect("query should succeed")
-            .expect("media_id should be found");
+        let found =
+            storage.get_by_media_id(&media_id).await.expect("query should succeed").expect("media_id should be found");
 
         assert_eq!(found.user_id, user_id);
         assert_eq!(found.media_id, media_id);
@@ -352,11 +331,7 @@ mod db_tests {
         assert_eq!(found.size_bytes, 51200);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -368,33 +343,19 @@ mod db_tests {
         let room_id = format!("!room_msgs_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         // Record 3 messages for the same room
         for i in 0..3 {
             let media_id = format!("room_media_{suffix}_{i}");
             storage
-                .record_upload(
-                    &user_id,
-                    Some(&room_id),
-                    &media_id,
-                    "audio/ogg",
-                    1000 * (i + 1),
-                    1024 * (i + 1) as i64,
-                )
+                .record_upload(&user_id, Some(&room_id), &media_id, "audio/ogg", 1000 * (i + 1), 1024 * (i + 1) as i64)
                 .await
                 .expect("record should succeed");
         }
 
         // Retrieve with limit 2 (most recent first)
-        let msgs = storage
-            .get_room_messages(&room_id, 2, None)
-            .await
-            .expect("get_room_messages should succeed");
+        let msgs = storage.get_room_messages(&room_id, 2, None).await.expect("get_room_messages should succeed");
 
         assert_eq!(msgs.len(), 2, "should respect limit of 2");
         for msg in &msgs {
@@ -404,11 +365,7 @@ mod db_tests {
         assert!(msgs[0].created_ts >= msgs[1].created_ts);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -420,21 +377,14 @@ mod db_tests {
         let media_id = format!("user_media_{suffix}");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         storage
             .record_upload(&user_id, None, &media_id, "audio/ogg", 7000, 204800)
             .await
             .expect("record should succeed");
 
-        let msgs = storage
-            .get_user_messages(&user_id, 10, None)
-            .await
-            .expect("get_user_messages should succeed");
+        let msgs = storage.get_user_messages(&user_id, 10, None).await.expect("get_user_messages should succeed");
 
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].user_id, user_id);
@@ -442,11 +392,7 @@ mod db_tests {
         assert!(msgs[0].room_id.is_none());
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -457,31 +403,17 @@ mod db_tests {
         let user_id = format!("@voice_ustats_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         // Record 3 uploads
         for i in 0..3 {
             storage
-                .record_upload(
-                    &user_id,
-                    None,
-                    &format!("stats_media_{suffix}_{i}"),
-                    "audio/ogg",
-                    3000,
-                    50000,
-                )
+                .record_upload(&user_id, None, &format!("stats_media_{suffix}_{i}"), "audio/ogg", 3000, 50000)
                 .await
                 .expect("record should succeed");
         }
 
-        let stats = storage
-            .get_user_stats(&user_id)
-            .await
-            .expect("get_user_stats should succeed");
+        let stats = storage.get_user_stats(&user_id).await.expect("get_user_stats should succeed");
 
         assert_eq!(stats.total_uploads, 3);
         assert_eq!(stats.total_duration_ms, 9000);
@@ -489,11 +421,7 @@ mod db_tests {
         assert!(stats.uploads_today >= 0);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -505,11 +433,7 @@ mod db_tests {
         let room_id = format!("!room_stats_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         // Record 2 uploads in the same room
         for i in 0..2 {
@@ -526,21 +450,14 @@ mod db_tests {
                 .expect("record should succeed");
         }
 
-        let stats = storage
-            .get_room_stats(&room_id)
-            .await
-            .expect("get_room_stats should succeed");
+        let stats = storage.get_room_stats(&room_id).await.expect("get_room_stats should succeed");
 
         assert_eq!(stats.total_uploads, 2);
         assert_eq!(stats.total_duration_ms, 30000);
         assert_eq!(stats.total_size_bytes, 200000);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -551,21 +468,14 @@ mod db_tests {
         let user_id = format!("@voice_deluser_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         storage
             .record_upload(&user_id, None, &format!("del_media_{suffix}"), "audio/ogg", 1000, 1024)
             .await
             .expect("record should succeed");
 
-        let affected = storage
-            .delete_user_stats(&user_id)
-            .await
-            .expect("delete_user_stats should succeed");
+        let affected = storage.delete_user_stats(&user_id).await.expect("delete_user_stats should succeed");
         assert_eq!(affected, 1);
 
         // Verify deleted
@@ -573,11 +483,7 @@ mod db_tests {
         assert_eq!(stats.total_uploads, 0);
 
         // Cleanup at end (already deleted, but safe to re-run)
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 
     #[tokio::test]
@@ -590,31 +496,17 @@ mod db_tests {
         let room_id = format!("!rt_room_{suffix}:test.com");
 
         // Cleanup at start
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
 
         let id = storage
-            .record_upload(
-                &user_id,
-                Some(&room_id),
-                &media_id,
-                "audio/ogg; codecs=opus",
-                42000,
-                987654,
-            )
+            .record_upload(&user_id, Some(&room_id), &media_id, "audio/ogg; codecs=opus", 42000, 987654)
             .await
             .expect("record_upload should succeed");
         assert!(id > 0);
 
         // Retrieve by media_id and verify all fields
-        let record = storage
-            .get_by_media_id(&media_id)
-            .await
-            .expect("query should succeed")
-            .expect("record should exist");
+        let record =
+            storage.get_by_media_id(&media_id).await.expect("query should succeed").expect("record should exist");
 
         assert_eq!(record.user_id, user_id);
         assert_eq!(record.room_id, Some(room_id.clone()));
@@ -625,27 +517,17 @@ mod db_tests {
         assert!(record.created_ts > 0);
 
         // Verify user messages returns the same record
-        let user_msgs = storage
-            .get_user_messages(&user_id, 10, None)
-            .await
-            .expect("get_user_messages should succeed");
+        let user_msgs = storage.get_user_messages(&user_id, 10, None).await.expect("get_user_messages should succeed");
         assert_eq!(user_msgs.len(), 1);
         assert_eq!(user_msgs[0].id, record.id);
 
         // Verify global_user_stats delegates to get_user_stats
-        let global_stats = storage
-            .get_global_user_stats(&user_id)
-            .await
-            .expect("get_global_user_stats should succeed");
+        let global_stats = storage.get_global_user_stats(&user_id).await.expect("get_global_user_stats should succeed");
         assert_eq!(global_stats.total_uploads, 1);
         assert_eq!(global_stats.total_duration_ms, 42000);
         assert_eq!(global_stats.total_size_bytes, 987654);
 
         // Cleanup at end
-        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1")
-            .bind(&user_id)
-            .execute(&*pool)
-            .await
-            .ok();
+        sqlx::query("DELETE FROM voice_usage_stats WHERE user_id = $1").bind(&user_id).execute(&*pool).await.ok();
     }
 }

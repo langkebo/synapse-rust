@@ -181,11 +181,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -336,13 +333,11 @@ mod db_tests {
         assert_eq!(found.expires_ts, BASE_TS + 2 * ONE_HOUR_MS);
 
         // Verify only one row exists for this URL
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*)::bigint FROM url_preview_cache WHERE url = $1"
-        )
-        .bind(&url)
-        .fetch_one(pool.as_ref())
-        .await
-        .expect("count query should succeed");
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*)::bigint FROM url_preview_cache WHERE url = $1")
+            .bind(&url)
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("count query should succeed");
         assert_eq!(count.0, 1, "upsert should not create duplicate rows");
 
         cleanup_by_prefix(&pool, &prefix).await;
@@ -378,30 +373,20 @@ mod db_tests {
         // dead1 has expires_ts = BASE_TS + ONE_HOUR_MS (<= cutoff, gets deleted)
         // dead2 has expires_ts = BASE_TS - ONE_HOUR_MS (< cutoff, gets deleted)
         // alive has expires_ts = BASE_TS + 10 * ONE_HOUR_MS (> cutoff, stays)
-        let deleted = storage
-            .cleanup_expired_previews(BASE_TS + ONE_HOUR_MS)
-            .await
-            .expect("cleanup should succeed");
+        let deleted = storage.cleanup_expired_previews(BASE_TS + ONE_HOUR_MS).await.expect("cleanup should succeed");
         assert!(deleted >= 2, "should delete at least 2 expired previews");
 
         // Verify alive preview still exists
-        let found_alive = storage
-            .get_cached_preview(&url_alive, BASE_TS + 5 * ONE_HOUR_MS)
-            .await
-            .expect("get should succeed");
+        let found_alive =
+            storage.get_cached_preview(&url_alive, BASE_TS + 5 * ONE_HOUR_MS).await.expect("get should succeed");
         assert!(found_alive.is_some(), "non-expired preview should survive cleanup");
 
         // Verify dead previews are gone
-        let found_dead1 = storage
-            .get_cached_preview(&url_dead1, BASE_TS + ONE_HOUR_MS + 1)
-            .await
-            .expect("get should succeed");
+        let found_dead1 =
+            storage.get_cached_preview(&url_dead1, BASE_TS + ONE_HOUR_MS + 1).await.expect("get should succeed");
         assert!(found_dead1.is_none(), "expired preview should be deleted");
 
-        let found_dead2 = storage
-            .get_cached_preview(&url_dead2, BASE_TS)
-            .await
-            .expect("get should succeed");
+        let found_dead2 = storage.get_cached_preview(&url_dead2, BASE_TS).await.expect("get should succeed");
         assert!(found_dead2.is_none(), "expired preview should be deleted");
 
         cleanup_by_prefix(&pool, &prefix).await;

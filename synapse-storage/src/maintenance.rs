@@ -282,11 +282,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
@@ -304,16 +301,10 @@ mod db_tests {
 
         // analyze_table_stats is private; exercise it via perform_maintenance.
         // It queries pg_stat_user_tables which always has entries for any live database.
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
         // pg_stat_user_tables should have at least some rows for a live database.
-        assert!(
-            !report.table_stats.is_empty(),
-            "table_stats should be non-empty for any live PostgreSQL database"
-        );
+        assert!(!report.table_stats.is_empty(), "table_stats should be non-empty for any live PostgreSQL database");
 
         // Each TableStats entry should have a non-empty table name.
         for stat in &report.table_stats {
@@ -327,15 +318,9 @@ mod db_tests {
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         // The internal query uses LIMIT 20, so table_stats should never exceed that.
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
-        assert!(
-            report.table_stats.len() <= 20,
-            "analyze_table_stats LIMIT 20 should cap results"
-        );
+        assert!(report.table_stats.len() <= 20, "analyze_table_stats LIMIT 20 should cap results");
     }
 
     // --- perform_maintenance integration ---
@@ -345,20 +330,14 @@ mod db_tests {
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
         // The report must have a non-negative duration.
         assert!(report.duration_ms >= 0, "duration_ms should be non-negative");
 
         // completed_at should be set after started_at (or equal within the same
         // instant for a trivial run).
-        assert!(
-            report.completed_at >= report.started_at,
-            "completed_at should not precede started_at"
-        );
+        assert!(report.completed_at >= report.started_at, "completed_at should not precede started_at");
 
         // reindexed_tables may be empty (REINDEX blocked in tx) but it must
         // always be present as a Vec.
@@ -370,10 +349,7 @@ mod db_tests {
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
         // errors is always present even when empty.
         // VACUUM/REINDEX may log transaction-block errors, but they are caught
@@ -391,10 +367,7 @@ mod db_tests {
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
         // vacuum_results always present — tables_processed may be 0 when
         // VACUUM is blocked inside a transaction, but the VacuumResult struct
@@ -409,15 +382,9 @@ mod db_tests {
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
-        let report1 = maintenance
-            .perform_maintenance()
-            .await
-            .expect("first perform_maintenance should succeed");
+        let report1 = maintenance.perform_maintenance().await.expect("first perform_maintenance should succeed");
 
-        let report2 = maintenance
-            .perform_maintenance()
-            .await
-            .expect("second perform_maintenance should succeed");
+        let report2 = maintenance.perform_maintenance().await.expect("second perform_maintenance should succeed");
 
         // Both reports should have non-empty table_stats (pg_stat_user_tables
         // is stable across calls from the same connection).
@@ -435,23 +402,14 @@ mod db_tests {
 
     #[tokio::test]
     async fn test_maintenance_report_timestamps_are_recent() {
-        let before = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
 
         let pool = test_pool().await;
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance should return Ok");
+        let report = maintenance.perform_maintenance().await.expect("perform_maintenance should return Ok");
 
-        let after = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64 + 5; // small buffer
+        let after = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64 + 5; // small buffer
 
         // Both timestamps should be within [before, after] of the current wall clock.
         let started_ts = report.started_at.timestamp();
@@ -475,10 +433,8 @@ mod db_tests {
         let maintenance = DatabaseMaintenance::new((*pool).clone());
 
         // Construction succeeded. Now call a method to prove the pool is usable.
-        let report = maintenance
-            .perform_maintenance()
-            .await
-            .expect("perform_maintenance after construction should succeed");
+        let report =
+            maintenance.perform_maintenance().await.expect("perform_maintenance after construction should succeed");
 
         assert!(report.duration_ms >= 0);
     }

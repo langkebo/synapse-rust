@@ -1203,20 +1203,14 @@ mod db_tests {
     async fn test_pool() -> Arc<Pool<Postgres>> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 
     async fn ensure_test_user(pool: &Pool<Postgres>, user_id: &str) {
         let now = chrono::Utc::now().timestamp_millis();
-        let username = user_id
-            .strip_prefix('@')
-            .and_then(|u| u.split(':').next())
-            .unwrap_or("testuser");
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
         sqlx::query(
             r#"INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING"#,
         )
@@ -1326,10 +1320,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let found = storage
-            .get_thread_root(&room_id, &thread_id)
-            .await
-            .expect("query should succeed");
+        let found = storage.get_thread_root(&room_id, &thread_id).await.expect("query should succeed");
 
         assert!(found.is_some());
         let root = found.unwrap();
@@ -1375,10 +1366,8 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let found = storage
-            .get_thread_root_by_event(&room_id, &format!("$root_{suffix}"))
-            .await
-            .expect("query should succeed");
+        let found =
+            storage.get_thread_root_by_event(&room_id, &format!("$root_{suffix}")).await.expect("query should succeed");
 
         assert!(found.is_some());
         let root = found.unwrap();
@@ -1451,10 +1440,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let roots = storage
-            .list_all_thread_roots(Some(10), None)
-            .await
-            .expect("should list all roots");
+        let roots = storage.list_all_thread_roots(Some(10), None).await.expect("should list all roots");
 
         assert!(!roots.is_empty());
 
@@ -1558,10 +1544,8 @@ mod db_tests {
             .await
             .expect("should create reply2");
 
-        let replies = storage
-            .get_thread_replies(&room_id, &thread_id, Some(10), None)
-            .await
-            .expect("should get replies");
+        let replies =
+            storage.get_thread_replies(&room_id, &thread_id, Some(10), None).await.expect("should get replies");
 
         assert!(replies.len() >= 2);
 
@@ -1581,10 +1565,7 @@ mod db_tests {
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
         // Zero when no thread exists yet
-        let count0 = storage
-            .get_reply_count(&room_id, &thread_id)
-            .await
-            .expect("should get count");
+        let count0 = storage.get_reply_count(&room_id, &thread_id).await.expect("should get count");
         assert_eq!(count0, 0);
 
         storage
@@ -1611,10 +1592,7 @@ mod db_tests {
             .await
             .expect("should create reply1");
 
-        let count1 = storage
-            .get_reply_count(&room_id, &thread_id)
-            .await
-            .expect("should get count");
+        let count1 = storage.get_reply_count(&room_id, &thread_id).await.expect("should get count");
         assert_eq!(count1, 1);
 
         storage
@@ -1631,10 +1609,7 @@ mod db_tests {
             .await
             .expect("should create reply2");
 
-        let count2 = storage
-            .get_reply_count(&room_id, &thread_id)
-            .await
-            .expect("should get count");
+        let count2 = storage.get_reply_count(&room_id, &thread_id).await.expect("should get count");
         assert_eq!(count2, 2);
 
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
@@ -1664,10 +1639,7 @@ mod db_tests {
             .await
             .expect("should create thread root");
 
-        let sub = storage
-            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
-            .await
-            .expect("should subscribe");
+        let sub = storage.subscribe_to_thread(&room_id, &thread_id, &user_id, "all").await.expect("should subscribe");
 
         assert!(sub.id > 0);
         assert_eq!(sub.room_id, room_id);
@@ -1703,20 +1675,11 @@ mod db_tests {
             .await
             .expect("should create root");
 
-        storage
-            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
-            .await
-            .expect("should subscribe");
+        storage.subscribe_to_thread(&room_id, &thread_id, &user_id, "all").await.expect("should subscribe");
 
-        storage
-            .unsubscribe_from_thread(&room_id, &thread_id, &user_id)
-            .await
-            .expect("should unsubscribe");
+        storage.unsubscribe_from_thread(&room_id, &thread_id, &user_id).await.expect("should unsubscribe");
 
-        let sub = storage
-            .get_thread_subscription(&room_id, &thread_id, &user_id)
-            .await
-            .expect("query should succeed");
+        let sub = storage.get_thread_subscription(&room_id, &thread_id, &user_id).await.expect("query should succeed");
 
         assert!(sub.is_none(), "subscription should be removed after unsubscribe");
 
@@ -1738,10 +1701,7 @@ mod db_tests {
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
         // Not found initially
-        let sub = storage
-            .get_thread_subscription(&room_id, &thread_id, &user_id)
-            .await
-            .expect("query should succeed");
+        let sub = storage.get_thread_subscription(&room_id, &thread_id, &user_id).await.expect("query should succeed");
         assert!(sub.is_none(), "should not exist before subscribe");
 
         storage
@@ -1754,16 +1714,10 @@ mod db_tests {
             .await
             .expect("should create root");
 
-        storage
-            .subscribe_to_thread(&room_id, &thread_id, &user_id, "all")
-            .await
-            .expect("should subscribe");
+        storage.subscribe_to_thread(&room_id, &thread_id, &user_id, "all").await.expect("should subscribe");
 
         // Found after subscription
-        let sub = storage
-            .get_thread_subscription(&room_id, &thread_id, &user_id)
-            .await
-            .expect("query should succeed");
+        let sub = storage.get_thread_subscription(&room_id, &thread_id, &user_id).await.expect("query should succeed");
         assert!(sub.is_some(), "should exist after subscribe");
         let sub = sub.unwrap();
         assert_eq!(sub.notification_level, "all");
@@ -1798,16 +1752,10 @@ mod db_tests {
                 })
                 .await
                 .expect("should create root");
-            storage
-                .subscribe_to_thread(&room_id, tid, &user_id, "all")
-                .await
-                .expect("should subscribe");
+            storage.subscribe_to_thread(&room_id, tid, &user_id, "all").await.expect("should subscribe");
         }
 
-        let subs = storage
-            .get_user_thread_subscriptions(&user_id, Some(10))
-            .await
-            .expect("should get subscriptions");
+        let subs = storage.get_user_thread_subscriptions(&user_id, Some(10)).await.expect("should get subscriptions");
 
         assert!(subs.len() >= 2, "expected at least 2 subscriptions, got {}", subs.len());
 
@@ -1870,10 +1818,7 @@ mod db_tests {
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
 
         // Not found initially
-        let rr = storage
-            .get_read_receipt(&room_id, &thread_id, &user_id)
-            .await
-            .expect("query should succeed");
+        let rr = storage.get_read_receipt(&room_id, &thread_id, &user_id).await.expect("query should succeed");
         assert!(rr.is_none(), "read receipt should not exist initially");
 
         storage
@@ -1887,20 +1832,11 @@ mod db_tests {
             .expect("should create root");
 
         storage
-            .update_read_receipt(
-                &room_id,
-                &thread_id,
-                &user_id,
-                "$event_123",
-                chrono::Utc::now().timestamp_millis(),
-            )
+            .update_read_receipt(&room_id, &thread_id, &user_id, "$event_123", chrono::Utc::now().timestamp_millis())
             .await
             .expect("should update receipt");
 
-        let rr = storage
-            .get_read_receipt(&room_id, &thread_id, &user_id)
-            .await
-            .expect("query should succeed");
+        let rr = storage.get_read_receipt(&room_id, &thread_id, &user_id).await.expect("query should succeed");
 
         assert!(rr.is_some(), "read receipt should exist after update");
 
@@ -1945,33 +1881,17 @@ mod db_tests {
             .expect("should create reply");
 
         // Verify thread and reply exist before delete
-        assert!(storage
-            .get_thread_root(&room_id, &thread_id)
-            .await
-            .unwrap()
-            .is_some());
-        assert_eq!(
-            storage.get_reply_count(&room_id, &thread_id).await.unwrap(),
-            1
-        );
+        assert!(storage.get_thread_root(&room_id, &thread_id).await.unwrap().is_some());
+        assert_eq!(storage.get_reply_count(&room_id, &thread_id).await.unwrap(), 1);
 
-        storage
-            .delete_thread(&room_id, &thread_id)
-            .await
-            .expect("should delete");
+        storage.delete_thread(&room_id, &thread_id).await.expect("should delete");
 
         // Root should be gone
-        let root = storage
-            .get_thread_root(&room_id, &thread_id)
-            .await
-            .expect("query should succeed");
+        let root = storage.get_thread_root(&room_id, &thread_id).await.expect("query should succeed");
         assert!(root.is_none(), "thread root should be deleted");
 
         // Reply should be gone
-        let count = storage
-            .get_reply_count(&room_id, &thread_id)
-            .await
-            .expect("query should succeed");
+        let count = storage.get_reply_count(&room_id, &thread_id).await.expect("query should succeed");
         assert_eq!(count, 0, "replies should be deleted");
 
         cleanup_thread_data(&pool, &room_id, &thread_id).await;
