@@ -644,7 +644,7 @@ impl SamlStorage {
             UPDATE saml_identity_providers
             SET metadata_xml = $1,
                 last_metadata_refresh_at = $4,
-                metadata_valid_until = $2,
+                metadata_valid_until_at = $2,
                 updated_ts = $4
             WHERE entity_id = $3
             "#,
@@ -1753,7 +1753,6 @@ mod db_tests {
     }
 
     #[tokio::test]
-    #[ignore = "BUG: update_idp_metadata SQL references 'metadata_valid_until' but the DB column is 'metadata_valid_until_at'"]
     async fn test_update_idp_metadata() {
         let pool = test_pool().await;
         let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
