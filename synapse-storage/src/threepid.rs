@@ -502,3 +502,619 @@ mod tests {
         assert!(threepid.is_verified);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::PgPool;
+
+    async fn test_pool() -> PgPool {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database")
+    }
+
+    async fn ensure_test_user(pool: &PgPool, user_id: &str) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let username = user_id
+            .strip_prefix('@')
+            .and_then(|u| u.split(':').next())
+            .unwrap_or("testuser");
+        sqlx::query(
+            r#"INSERT INTO users (user_id, username, created_ts)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (user_id) DO NOTHING"#,
+        )
+        .bind(user_id)
+        .bind(username)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    #[tokio::test]
+    async fn test_add_threepid() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@add_{uuid}:test.com");
+        let address = format!("add_{uuid}@test.com");
+
+        // Cleanup at start
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+
+        ensure_test_user(&pool, &user_id).await;
+
+        let request = CreateThreepidRequest {
+            user_id: user_id.clone(),
+            medium: "email".to_string(),
+            address: address.clone(),
+            verification_token: None,
+            verification_expires_at: None,
+        };
+
+        let result = storage
+            .add_threepid(request)
+            .await
+            .expect("add_threepid should succeed");
+
+        assert!(result.id > 0);
+        assert_eq!(result.user_id, user_id);
+        assert_eq!(result.medium, "email");
+        assert_eq!(result.address, address);
+        assert!(!result.is_verified);
+        assert!(result.added_ts > 0);
+
+        // Cleanup at end
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_threepid_found() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@getf_{uuid}:test.com");
+        let address = format!("getf_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let found = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get_threepid should succeed");
+
+        assert!(found.is_some(), "threepid should be found");
+        let threepid = found.unwrap();
+        assert_eq!(threepid.user_id, user_id);
+        assert_eq!(threepid.medium, "email");
+        assert_eq!(threepid.address, address);
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_threepid_not_found() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@nofind_{uuid}:test.com");
+
+        ensure_test_user(&pool, &user_id).await;
+
+        let result = storage
+            .get_threepid(&user_id, "email", &format!("nofind_{uuid}@test.com"))
+            .await
+            .expect("get_threepid should succeed");
+
+        assert!(result.is_none(), "nonexistent threepid should return None");
+    }
+
+    #[tokio::test]
+    async fn test_get_threepids_by_user() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@list_{uuid}:test.com");
+        let addr1 = format!("list1_{uuid}@test.com");
+        let addr2 = format!("list2_{uuid}@test.com");
+
+        // Cleanup
+        let _ = storage.remove_threepid(&user_id, "email", &addr1).await;
+        let _ = storage.remove_threepid(&user_id, "email", &addr2).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: addr1.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add 1 should succeed");
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: addr2.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add 2 should succeed");
+
+        let threepids = storage
+            .get_threepids_by_user(&user_id)
+            .await
+            .expect("get_threepids_by_user should succeed");
+
+        assert!(
+            threepids.len() >= 2,
+            "expected at least 2 threepids, got {}",
+            threepids.len()
+        );
+        for t in &threepids {
+            assert_eq!(t.user_id, user_id);
+        }
+
+        let _ = storage.remove_threepid(&user_id, "email", &addr1).await;
+        let _ = storage.remove_threepid(&user_id, "email", &addr2).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_threepid_by_address() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@addr_{uuid}:test.com");
+        let address = format!("addr_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let found = storage
+            .get_threepid_by_address("email", &address)
+            .await
+            .expect("get_threepid_by_address should succeed");
+
+        assert!(found.is_some(), "threepid should be found by address");
+        assert_eq!(found.unwrap().address, address);
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_verify_threepid() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@verify_{uuid}:test.com");
+        let address = format!("verify_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let verified = storage
+            .verify_threepid(&user_id, "email", &address)
+            .await
+            .expect("verify_threepid should succeed");
+
+        assert!(verified, "verify should return true");
+
+        let found = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed")
+            .expect("threepid should exist");
+
+        assert!(found.is_verified, "threepid should be verified");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_threepid() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@remove_{uuid}:test.com");
+        let address = format!("remove_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        let removed = storage
+            .remove_threepid(&user_id, "email", &address)
+            .await
+            .expect("remove_threepid should succeed");
+
+        assert!(removed, "remove should return true");
+
+        let found = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed");
+
+        assert!(found.is_none(), "threepid should be gone after removal");
+    }
+
+    #[tokio::test]
+    async fn test_add_verified_threepid() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@addv_{uuid}:test.com");
+        let address = format!("addv_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let rows = storage
+            .add_verified_threepid(&user_id, "email", &address, now, now)
+            .await
+            .expect("add_verified_threepid should succeed");
+
+        assert_eq!(rows, 1, "should insert one row");
+
+        let found = storage
+            .get_threepid_by_address("email", &address)
+            .await
+            .expect("get should succeed")
+            .expect("threepid should exist");
+
+        assert!(found.is_verified, "threepid should be verified");
+        assert_eq!(found.validated_at, Some(now));
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_verified_threepid_by_address() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@gvaddr_{uuid}:test.com");
+        let verified_addr = format!("gv_verified_{uuid}@test.com");
+        let unverified_addr = format!("gv_unverified_{uuid}@test.com");
+
+        // Cleanup
+        let _ = storage.remove_threepid(&user_id, "email", &verified_addr).await;
+        let _ = storage.remove_threepid(&user_id, "email", &unverified_addr).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Add verified threepid
+        storage
+            .add_verified_threepid(&user_id, "email", &verified_addr, now, now)
+            .await
+            .expect("add verified should succeed");
+
+        // Add unverified threepid
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: unverified_addr.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add unverified should succeed");
+
+        // Query only verified
+        let verified = storage
+            .get_verified_threepid_by_address("email", &verified_addr)
+            .await
+            .expect("get verified should succeed");
+
+        assert!(
+            verified.is_some(),
+            "verified threepid should be found by get_verified_threepid_by_address"
+        );
+
+        // Unverified should not be found by verified-only query
+        let not_found = storage
+            .get_verified_threepid_by_address("email", &unverified_addr)
+            .await
+            .expect("get verified should succeed");
+
+        assert!(
+            not_found.is_none(),
+            "unverified threepid should not be found by get_verified_threepid_by_address"
+        );
+
+        let _ = storage.remove_threepid(&user_id, "email", &verified_addr).await;
+        let _ = storage.remove_threepid(&user_id, "email", &unverified_addr).await;
+    }
+
+    #[tokio::test]
+    async fn test_create_validation_session() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let session_id = format!("session_{uuid}");
+        let address = format!("vsession_{uuid}@test.com");
+        let now = chrono::Utc::now().timestamp_millis();
+        let expires_at = now + 3600_000;
+
+        // Cleanup: delete any matching validation sessions
+        let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE session_id = $1")
+            .bind(&session_id)
+            .execute(&pool)
+            .await;
+
+        let id = storage
+            .create_validation_session(
+                &session_id,
+                "email",
+                &address,
+                "test_client_secret",
+                "test_token_value",
+                None,
+                now,
+                expires_at,
+            )
+            .await
+            .expect("create_validation_session should succeed");
+
+        assert!(id > 0, "should return a valid session id");
+
+        // Cleanup
+        let _ = sqlx::query("DELETE FROM threepid_validation_session WHERE id = $1")
+            .bind(id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_threepids() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@pend_{uuid}:test.com");
+        let address = format!("pend_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Use add_verified_threepid with validated_at < added_ts to create a row
+        // that matches the get_pending_threepids WHERE validated_at < added_ts filter.
+        // Note: the query does not filter on is_verified, so a "verified" threepid
+        // with validated_at < added_ts will appear in pending results.
+        storage
+            .add_verified_threepid(&user_id, "email", &address, 1, 1000)
+            .await
+            .expect("add should succeed");
+
+        let pending = storage
+            .get_pending_threepids(10)
+            .await
+            .expect("get_pending_threepids should succeed");
+
+        assert!(
+            pending.len() >= 1,
+            "expected at least 1 pending threepid, got {}",
+            pending.len()
+        );
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_expired_verifications() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@cleanup_{uuid}:test.com");
+        let address = format!("cleanup_{uuid}@test.com");
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Add a threepid with an expired verification_expires_at
+        let past_time = chrono::Utc::now().timestamp_millis() - 3600_000;
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: Some("expired_token".to_string()),
+                verification_expires_at: Some(past_time),
+            })
+            .await
+            .expect("add should succeed");
+
+        let cleaned = storage
+            .cleanup_expired_verifications()
+            .await
+            .expect("cleanup_expired_verifications should succeed");
+
+        assert!(
+            cleaned >= 1,
+            "should clean at least 1 expired verification, got {}",
+            cleaned
+        );
+
+        // Verify threepid was removed
+        let found = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed");
+
+        assert!(
+            found.is_none(),
+            "expired threepid should be cleaned up"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_verify_threepid_by_token() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@vbt_{uuid}:test.com");
+        let address = format!("vbt_{uuid}@test.com");
+        let token = format!("tok_{uuid}");
+        let future_expires = chrono::Utc::now().timestamp_millis() + 3600_000;
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // Add threepid with verification token and future expiry
+        storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: Some(token.clone()),
+                verification_expires_at: Some(future_expires),
+            })
+            .await
+            .expect("add should succeed");
+
+        let verified = storage
+            .verify_threepid_by_token(&token)
+            .await
+            .expect("verify_threepid_by_token should succeed");
+
+        assert!(
+            verified.is_some(),
+            "verify_threepid_by_token should return the threepid"
+        );
+
+        let threepid = verified.unwrap();
+        assert!(threepid.is_verified, "threepid should now be verified");
+        assert_eq!(threepid.user_id, user_id);
+
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+    }
+
+    #[tokio::test]
+    async fn test_threepid_round_trip() {
+        let pool = test_pool().await;
+        let storage = ThreepidStorage::new(&pool);
+        let uuid = uuid::Uuid::new_v4();
+        let user_id = format!("@rt_{uuid}:test.com");
+        let address = format!("rt_{uuid}@test.com");
+
+        // Cleanup at start
+        let _ = storage.remove_threepid(&user_id, "email", &address).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        // 1. Add
+        let added = storage
+            .add_threepid(CreateThreepidRequest {
+                user_id: user_id.clone(),
+                medium: "email".to_string(),
+                address: address.clone(),
+                verification_token: None,
+                verification_expires_at: None,
+            })
+            .await
+            .expect("add should succeed");
+
+        assert!(added.id > 0);
+        assert!(!added.is_verified);
+
+        // 2. Get
+        let found = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed")
+            .expect("threepid should exist");
+
+        assert_eq!(found.id, added.id);
+        assert_eq!(found.user_id, user_id);
+
+        // 3. Verify
+        let verified = storage
+            .verify_threepid(&user_id, "email", &address)
+            .await
+            .expect("verify should succeed");
+
+        assert!(verified);
+
+        let after_verify = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed")
+            .expect("threepid should still exist");
+
+        assert!(after_verify.is_verified, "should be verified");
+        assert!(after_verify.validated_at.is_some());
+
+        // 4. Remove
+        let removed = storage
+            .remove_threepid(&user_id, "email", &address)
+            .await
+            .expect("remove should succeed");
+
+        assert!(removed);
+
+        let after_remove = storage
+            .get_threepid(&user_id, "email", &address)
+            .await
+            .expect("get should succeed");
+
+        assert!(
+            after_remove.is_none(),
+            "threepid should be removed after full lifecycle"
+        );
+    }
+}
