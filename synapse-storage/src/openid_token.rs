@@ -228,7 +228,7 @@ mod db_tests {
     async fn test_create_token_returns_valid_record() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_create:{}", uuid::Uuid::new_v4());
+        let user_id = &format!("@openid_test_create_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_create_{}", uuid::Uuid::new_v4());
         let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
 
@@ -263,7 +263,7 @@ mod db_tests {
     async fn test_get_token_finds_valid_token() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_get:{}", uuid::Uuid::new_v4());
+        let user_id = &format!("@openid_test_get_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_get_{}", uuid::Uuid::new_v4());
         let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
 
@@ -318,7 +318,7 @@ mod db_tests {
     async fn test_validate_token_returns_token_if_not_expired() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_val:{}", uuid::Uuid::new_v4());
+        let user_id = &format!("@openid_test_val_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_val_{}", uuid::Uuid::new_v4());
         let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
 
@@ -356,7 +356,7 @@ mod db_tests {
     async fn test_validate_token_returns_none_for_expired_token() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_exp:{}", uuid::Uuid::new_v4());
+        let user_id = &format!("@openid_test_exp_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_exp_{}", uuid::Uuid::new_v4());
         let past = chrono::Utc::now().timestamp_millis() - 3600000; // 1 hour ago
 
@@ -393,7 +393,7 @@ mod db_tests {
     async fn test_revoke_token_returns_true_and_makes_token_not_found() {
         let pool = test_pool().await;
         let storage = OpenIdTokenStorage::new(&pool);
-        let user_id = &format!("@openid_test_revoke:{}", uuid::Uuid::new_v4());
+        let user_id = &format!("@openid_test_revoke_{}:localhost", uuid::Uuid::new_v4().to_string().replace('-', ""));
         let token_str = format!("tok_revoke_{}", uuid::Uuid::new_v4());
         let far_future = chrono::Utc::now().timestamp_millis() + 86400000;
 
