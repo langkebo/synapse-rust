@@ -7,14 +7,14 @@ use crate::web::middleware::{
 };
 use crate::web::routes::telemetry::{summarize_appservice_scheduler_metrics, AppserviceSchedulerTelemetrySummary};
 use crate::web::AppState;
-use crate::worker::topology_validator::{
-    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
-};
 use axum::{response::IntoResponse, routing::get, Router};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use synapse_services::worker::topology_validator::{
+    current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
+};
 use tokio::signal;
 
 use synapse_storage::*;
@@ -157,7 +157,7 @@ impl SynapseServer {
 
         // Startup topology validation — ensures worker configuration is consistent before proceeding
         {
-            let validation = crate::worker::topology_validator::validate_worker_config(&config.worker);
+            let validation = synapse_services::worker::topology_validator::validate_worker_config(&config.worker);
             validation.log();
             if !validation.valid {
                 ::tracing::warn!(
@@ -846,7 +846,7 @@ mod tests {
     use super::*;
     #[cfg(feature = "test-utils")]
     use crate::test_utils::prepare_shared_test_pool;
-    use crate::worker::types::WorkerType;
+    use synapse_services::worker::types::WorkerType;
     #[cfg(feature = "test-utils")]
     use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
     #[cfg(feature = "test-utils")]

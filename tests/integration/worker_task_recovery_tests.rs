@@ -1,6 +1,6 @@
 use serde_json::json;
 use std::sync::Arc;
-use synapse_rust::worker::{
+use synapse_services::worker::{
     AssignTaskRequest, HealthCheckConfig, HealthChecker, LoadBalanceStrategy, RegisterWorkerRequest,
     WorkerLoadBalancer, WorkerLoadStats, WorkerManager, WorkerStatus, WorkerStorage, WorkerType,
 };

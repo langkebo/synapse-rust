@@ -5,13 +5,13 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use synapse_rust::worker::bus::{BusMessage, RedisBusConfig, WorkerBus};
-use synapse_rust::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
-use synapse_rust::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
-use synapse_rust::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
-use synapse_rust::worker::protocol::*;
-use synapse_rust::worker::stream::{StreamWriterManager, StreamWriters};
-use synapse_rust::worker::types::*;
+use synapse_services::worker::bus::{BusMessage, RedisBusConfig, WorkerBus};
+use synapse_services::worker::health::{HealthCheckConfig, HealthChecker, HealthStatus};
+use synapse_services::worker::load_balancer::WorkerLoadStats as LoadBalancerStats;
+use synapse_services::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
+use synapse_services::worker::protocol::*;
+use synapse_services::worker::stream::{StreamWriterManager, StreamWriters};
+use synapse_services::worker::types::*;
 
 // ============== Protocol Tests ==============
 
@@ -771,7 +771,7 @@ fn test_health_status_all() {
 
 #[test]
 fn test_health_check_result() {
-    use synapse_rust::worker::health::HealthCheckResult;
+    use synapse_services::worker::health::HealthCheckResult;
 
     let result = HealthCheckResult {
         worker_id: "worker1".to_string(),
@@ -1087,7 +1087,7 @@ async fn test_health_checker_is_healthy() {
 
 #[tokio::test]
 async fn test_load_balancer_update_worker_load() {
-    use synapse_rust::worker::types::WorkerInfo;
+    use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();
@@ -1127,7 +1127,7 @@ async fn test_load_balancer_update_worker_load() {
 
 #[tokio::test]
 async fn test_load_balancer_get_all_stats() {
-    use synapse_rust::worker::types::WorkerInfo;
+    use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();
@@ -1156,7 +1156,7 @@ async fn test_load_balancer_get_all_stats() {
 
 #[tokio::test]
 async fn test_load_balancer_get_active_worker_count() {
-    use synapse_rust::worker::types::WorkerInfo;
+    use synapse_services::worker::types::WorkerInfo;
 
     let balancer = WorkerLoadBalancer::new(LoadBalanceStrategy::RoundRobin);
     let now = chrono::Utc::now().timestamp_millis();

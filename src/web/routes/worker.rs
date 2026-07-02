@@ -13,8 +13,8 @@ use crate::common::ApiError;
 use crate::web::middleware::replication_http_auth_middleware;
 use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from, require_found, status_json};
 use crate::web::routes::{AdminUser, AppState};
-use crate::worker::types::*;
 use synapse_common::config::worker::WorkerConfig;
+use synapse_services::worker::types::*;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterWorkerBody {
@@ -228,7 +228,7 @@ pub struct WorkerTopologyValidationResponse {
     pub known_instances: Vec<String>,
     pub replication_enabled: bool,
     pub replication_http_enabled: bool,
-    pub validation: crate::worker::topology_validator::TopologyValidation,
+    pub validation: synapse_services::worker::topology_validator::TopologyValidation,
     pub stream_writers: Vec<WorkerStreamWriterOwners>,
     pub route_owner_expectations: Vec<WorkerRouteOwnerExpectation>,
 }
@@ -268,15 +268,15 @@ fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyVa
         },
     ];
     let route_owner_expectations = [
-        crate::worker::topology_validator::RouteOwnerProbe::Sync,
-        crate::worker::topology_validator::RouteOwnerProbe::Media,
-        crate::worker::topology_validator::RouteOwnerProbe::Federation,
+        synapse_services::worker::topology_validator::RouteOwnerProbe::Sync,
+        synapse_services::worker::topology_validator::RouteOwnerProbe::Media,
+        synapse_services::worker::topology_validator::RouteOwnerProbe::Federation,
     ]
     .into_iter()
     .map(|probe| WorkerRouteOwnerExpectation {
         probe: probe.as_str().to_string(),
         path: probe.path().to_string(),
-        expected_owner: crate::worker::topology_validator::expected_route_owner_for_probe(config, probe)
+        expected_owner: synapse_services::worker::topology_validator::expected_route_owner_for_probe(config, probe)
             .as_str()
             .to_string(),
     })
@@ -288,7 +288,7 @@ fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyVa
         known_instances,
         replication_enabled: config.replication.enabled,
         replication_http_enabled: config.replication.http.enabled,
-        validation: crate::worker::topology_validator::validate_worker_config(config),
+        validation: synapse_services::worker::topology_validator::validate_worker_config(config),
         stream_writers,
         route_owner_expectations,
     }

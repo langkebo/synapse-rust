@@ -2,7 +2,7 @@
 mod tests {
     use synapse_services::ServiceContainer;
     use synapse_storage::room_summary::*;
-    use synapse_rust::worker::StreamPosition;
+    use synapse_services::worker::StreamPosition;
 
     #[test]
     fn test_create_room_summary_request() {

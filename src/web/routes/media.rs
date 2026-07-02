@@ -562,7 +562,7 @@ async fn upload_media_v3(
 
 pub async fn media_config(State(state): State<AppState>) -> impl IntoResponse {
     let route_owner =
-        crate::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+        synapse_services::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
     (
         [(header::HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
         Json(json!({
