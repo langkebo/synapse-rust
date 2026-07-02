@@ -723,3 +723,751 @@ impl PresenceRepository for PresenceStorage {
         self.get_presence_snapshots(user_ids).await
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::{Pool, Postgres};
+    use std::env;
+    use std::sync::Arc;
+    use synapse_cache::{CacheConfig, CacheManager};
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    fn test_cache() -> Arc<CacheManager> {
+        Arc::new(CacheManager::new(&CacheConfig::default()))
+    }
+
+    async fn ensure_test_user(pool: &sqlx::PgPool, user_id: &str) {
+        let username = user_id.strip_prefix('@').and_then(|u| u.split(':').next()).unwrap_or("testuser");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, EXTRACT(EPOCH FROM NOW()) * 1000) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(username)
+        .execute(pool)
+        .await
+        .expect("failed to create test user");
+    }
+
+    async fn cleanup_presence_data(pool: &sqlx::PgPool, suffix: &str) {
+        let _ = sqlx::query("DELETE FROM presence WHERE user_id LIKE $1")
+            .bind(format!("%{suffix}%"))
+            .execute(pool)
+            .await;
+        let _ = sqlx::query(
+            "DELETE FROM presence_subscriptions WHERE subscriber_id LIKE $1 OR target_id LIKE $1",
+        )
+        .bind(format!("%{suffix}%"))
+        .execute(pool)
+        .await;
+        let _ = sqlx::query("DELETE FROM typing WHERE user_id LIKE $1")
+            .bind(format!("%{suffix}%"))
+            .execute(pool)
+            .await;
+    }
+
+    // ================================================================
+    // set_presence
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_set_presence_online() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_online_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_id, "online", None)
+            .await
+            .expect("set_presence should succeed");
+
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
+        )
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("should find presence row");
+
+        assert_eq!(row.0, "online");
+        assert!(row.1.is_none());
+        assert!(row.2.is_some());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_presence_offline() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_offline_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_id, "offline", None)
+            .await
+            .expect("set_presence should succeed");
+
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
+        )
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("should find presence row");
+
+        assert_eq!(row.0, "offline");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_presence_unavailable_with_status() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_unavail_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_id, "unavailable", Some("Away from keyboard"))
+            .await
+            .expect("set_presence should succeed");
+
+        let row = sqlx::query_as::<_, (String, Option<String>, Option<i64>)>(
+            "SELECT presence, status_msg, last_active_ts FROM presence WHERE user_id = $1",
+        )
+        .bind(&user_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("should find presence row");
+
+        assert_eq!(row.0, "unavailable");
+        assert_eq!(row.1.as_deref(), Some("Away from keyboard"));
+        assert!(row.2.is_some());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_presence
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_presence_found() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_get_found_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_id, "online", Some("Hello"))
+            .await
+            .expect("set_presence should succeed");
+
+        let result = storage
+            .get_presence(&user_id)
+            .await
+            .expect("get_presence should succeed");
+
+        assert!(result.is_some());
+        let (presence, status_msg) = result.unwrap();
+        assert_eq!(presence, "online");
+        assert_eq!(status_msg.as_deref(), Some("Hello"));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_presence_not_found() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_get_miss_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        // Note: intentionally NOT creating the user so presence is truly missing
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        let result = storage
+            .get_presence(&user_id)
+            .await
+            .expect("get_presence should succeed");
+        assert!(result.is_none());
+
+        // get_presence_with_meta should also return None for unknown user
+        let meta_result = storage
+            .get_presence_with_meta(&user_id)
+            .await
+            .expect("get_presence_with_meta should succeed");
+        assert!(meta_result.is_none());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_presence_with_meta
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_presence_with_meta_found() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_meta_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_id).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_id, "online", Some("Working"))
+            .await
+            .expect("set_presence should succeed");
+
+        let result = storage
+            .get_presence_with_meta(&user_id)
+            .await
+            .expect("get_presence_with_meta should succeed");
+
+        assert!(result.is_some());
+        let (presence, status_msg, last_active_ts) = result.unwrap();
+        assert_eq!(presence, "online");
+        assert_eq!(status_msg.as_deref(), Some("Working"));
+        assert!(last_active_ts.is_some());
+        assert!(last_active_ts.unwrap() > 0);
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_presences
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_presences_multiple_users() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_test_bulk_a_{suffix}:localhost");
+        let user_b = format!("@pres_test_bulk_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_a, "online", None)
+            .await
+            .expect("set_presence a");
+        storage
+            .set_presence(&user_b, "offline", Some("Busy"))
+            .await
+            .expect("set_presence b");
+
+        let map = storage
+            .get_presences(&[user_a.clone(), user_b.clone()])
+            .await
+            .expect("get_presences should succeed");
+
+        assert_eq!(map.len(), 2);
+        assert_eq!(map.get(&user_a).map(|p| &*p.0), Some("online"));
+        assert_eq!(map.get(&user_b).map(|p| &*p.0), Some("offline"));
+        assert_eq!(
+            map.get(&user_b).and_then(|p| p.1.as_deref()),
+            Some("Busy")
+        );
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_presences_empty_batch() {
+        let pool = test_pool().await;
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+
+        let map = storage
+            .get_presences(&[])
+            .await
+            .expect("get_presences should succeed");
+        assert!(map.is_empty());
+    }
+
+    // ================================================================
+    // set_typing
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_set_typing_true() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_typing_t_{suffix}:localhost");
+        let room_id = format!("!test_room_typing_t_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_typing(&room_id, &user_id, true)
+            .await
+            .expect("set_typing should succeed");
+
+        let row = sqlx::query_as::<_, (bool, i64)>(
+            "SELECT is_typing, last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("should find typing row");
+
+        assert!(row.0, "is_typing should be true");
+        assert!(row.1 > 0);
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_typing_false_removes_row() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_typing_f_{suffix}:localhost");
+        let room_id = format!("!test_room_typing_f_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_typing(&room_id, &user_id, true)
+            .await
+            .expect("set_typing true");
+        storage
+            .set_typing(&room_id, &user_id, false)
+            .await
+            .expect("set_typing false");
+
+        let row = sqlx::query_as::<_, (bool,)>(
+            "SELECT is_typing FROM typing WHERE user_id = $1 AND room_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&room_id)
+        .fetch_optional(&*pool)
+        .await
+        .expect("query should succeed");
+
+        assert!(row.is_none(), "typing row should be deleted");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_typing_updates_timestamp() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_id = format!("@pres_test_typing_upd_{suffix}:localhost");
+        let room_id = format!("!test_room_typing_upd_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_typing(&room_id, &user_id, true)
+            .await
+            .expect("first set_typing");
+
+        let first_ts = sqlx::query_as::<_, (i64,)>(
+            "SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query first ts")
+        .0;
+
+        // Small sleep to ensure different timestamps
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        storage
+            .set_typing(&room_id, &user_id, true)
+            .await
+            .expect("second set_typing");
+
+        let second_ts = sqlx::query_as::<_, (i64,)>(
+            "SELECT last_active_ts FROM typing WHERE user_id = $1 AND room_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&room_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query second ts")
+        .0;
+
+        assert!(
+            second_ts >= first_ts,
+            "timestamp should be updated ({} >= {})",
+            second_ts,
+            first_ts
+        );
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // add_subscription / remove_subscription
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_add_subscription_subscribes() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_sub_a_{suffix}:localhost");
+        let target = format!("@pres_test_sub_t_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+        ensure_test_user(&pool, &target).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .add_subscription(&subscriber, &target)
+            .await
+            .expect("add_subscription should succeed");
+
+        let subs = storage
+            .get_subscriptions(&subscriber)
+            .await
+            .expect("get_subscriptions should succeed");
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0], target);
+
+        let followers = storage
+            .get_subscribers(&target)
+            .await
+            .expect("get_subscribers should succeed");
+        assert_eq!(followers.len(), 1);
+        assert_eq!(followers[0], subscriber);
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_add_subscription_idempotent() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_idem_s_{suffix}:localhost");
+        let target = format!("@pres_test_idem_t_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+        ensure_test_user(&pool, &target).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .add_subscription(&subscriber, &target)
+            .await
+            .expect("first add_subscription");
+        storage
+            .add_subscription(&subscriber, &target)
+            .await
+            .expect("second add_subscription should also succeed");
+
+        let subs = storage
+            .get_subscriptions(&subscriber)
+            .await
+            .expect("get_subscriptions should succeed");
+        assert_eq!(subs.len(), 1, "should only have one subscription");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_subscription_removes() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_rem_s_{suffix}:localhost");
+        let target = format!("@pres_test_rem_t_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+        ensure_test_user(&pool, &target).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .add_subscription(&subscriber, &target)
+            .await
+            .expect("add_subscription");
+        storage
+            .remove_subscription(&subscriber, &target)
+            .await
+            .expect("remove_subscription should succeed");
+
+        let subs = storage
+            .get_subscriptions(&subscriber)
+            .await
+            .expect("get_subscriptions should succeed");
+        assert!(subs.is_empty(), "subscriptions should be empty after removal");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_subscription_idempotent() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_rem_ni_{suffix}:localhost");
+        let target = format!("@pres_test_rem_nt_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+        ensure_test_user(&pool, &target).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        // Removing a non-existent subscription should succeed (no-op)
+        let result = storage.remove_subscription(&subscriber, &target).await;
+        assert!(result.is_ok(), "removing non-existent subscription should be ok");
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_subscriptions
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_subscriptions_returns_list() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_gsubs_s_{suffix}:localhost");
+        let target_a = format!("@pres_test_gsubs_a_{suffix}:localhost");
+        let target_b = format!("@pres_test_gsubs_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+        ensure_test_user(&pool, &target_a).await;
+        ensure_test_user(&pool, &target_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .add_subscription(&subscriber, &target_a)
+            .await
+            .expect("add sub a");
+        storage
+            .add_subscription(&subscriber, &target_b)
+            .await
+            .expect("add sub b");
+
+        let subs = storage
+            .get_subscriptions(&subscriber)
+            .await
+            .expect("get_subscriptions should succeed");
+        assert_eq!(subs.len(), 2);
+        assert!(subs.contains(&target_a));
+        assert!(subs.contains(&target_b));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_subscriptions_empty() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let subscriber = format!("@pres_test_gsubs_e_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &subscriber).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        let subs = storage
+            .get_subscriptions(&subscriber)
+            .await
+            .expect("get_subscriptions should succeed");
+        assert!(subs.is_empty());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_subscribers
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_subscribers_returns_list() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let target = format!("@pres_test_follow_t_{suffix}:localhost");
+        let follower_a = format!("@pres_test_follow_a_{suffix}:localhost");
+        let follower_b = format!("@pres_test_follow_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &target).await;
+        ensure_test_user(&pool, &follower_a).await;
+        ensure_test_user(&pool, &follower_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .add_subscription(&follower_a, &target)
+            .await
+            .expect("add sub a");
+        storage
+            .add_subscription(&follower_b, &target)
+            .await
+            .expect("add sub b");
+
+        let followers = storage
+            .get_subscribers(&target)
+            .await
+            .expect("get_subscribers should succeed");
+        assert_eq!(followers.len(), 2);
+        assert!(followers.contains(&follower_a));
+        assert!(followers.contains(&follower_b));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_subscribers_empty() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let target = format!("@pres_test_follow_e_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &target).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        let followers = storage
+            .get_subscribers(&target)
+            .await
+            .expect("get_subscribers should succeed");
+        assert!(followers.is_empty());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_presence_batch
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_presence_batch_multiple_users() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_test_batch_a_{suffix}:localhost");
+        let user_b = format!("@pres_test_batch_b_{suffix}:localhost");
+        let user_c = format!("@pres_test_batch_c_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_a, "online", None)
+            .await
+            .expect("set_presence a");
+        storage
+            .set_presence(&user_b, "offline", Some("Sleeping"))
+            .await
+            .expect("set_presence b");
+        // user_c has no presence — should be silently omitted
+
+        let results = storage
+            .get_presence_batch(&[user_a.clone(), user_b.clone(), user_c.clone()])
+            .await
+            .expect("get_presence_batch should succeed");
+
+        assert_eq!(results.len(), 2, "should return only users with presence data");
+        let a = results.iter().find(|r| r.0 == user_a).expect("user_a present");
+        assert_eq!(a.1, "online");
+        assert!(a.2.is_none());
+        let b = results.iter().find(|r| r.0 == user_b).expect("user_b present");
+        assert_eq!(b.1, "offline");
+        assert_eq!(b.2.as_deref(), Some("Sleeping"));
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_presence_batch_with_meta() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user = format!("@pres_test_batch_m_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user, "online", Some("At desk"))
+            .await
+            .expect("set_presence");
+
+        let results = storage
+            .get_presence_batch_with_meta(&[user.clone()])
+            .await
+            .expect("get_presence_batch_with_meta should succeed");
+
+        assert_eq!(results.len(), 1);
+        let (uid, presence, status_msg, last_active) = &results[0];
+        assert_eq!(uid, &user);
+        assert_eq!(presence, "online");
+        assert_eq!(status_msg.as_deref(), Some("At desk"));
+        assert!(last_active.is_some());
+        assert!(last_active.unwrap() > 0);
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    // ================================================================
+    // get_presence_snapshots
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_get_presence_snapshots_returns_data() {
+        let pool = test_pool().await;
+        let suffix = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let user_a = format!("@pres_test_snap_a_{suffix}:localhost");
+        let user_b = format!("@pres_test_snap_b_{suffix}:localhost");
+        cleanup_presence_data(&pool, &suffix).await;
+        ensure_test_user(&pool, &user_a).await;
+        ensure_test_user(&pool, &user_b).await;
+
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+        storage
+            .set_presence(&user_a, "online", Some("Available"))
+            .await
+            .expect("set_presence a");
+        storage
+            .set_presence(&user_b, "unavailable", None)
+            .await
+            .expect("set_presence b");
+
+        let snapshots = storage
+            .get_presence_snapshots(&[user_a.clone(), user_b.clone()])
+            .await
+            .expect("get_presence_snapshots should succeed");
+
+        assert_eq!(snapshots.len(), 2);
+        let snap_a = snapshots.get(&user_a).expect("snapshot for user_a");
+        assert_eq!(snap_a.presence, "online");
+        assert_eq!(snap_a.status_msg.as_deref(), Some("Available"));
+        let snap_b = snapshots.get(&user_b).expect("snapshot for user_b");
+        assert_eq!(snap_b.presence, "unavailable");
+        assert!(snap_b.status_msg.is_none());
+
+        cleanup_presence_data(&pool, &suffix).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_presence_snapshots_empty() {
+        let pool = test_pool().await;
+        let storage = PresenceStorage::new(pool.clone(), test_cache());
+
+        let snapshots = storage
+            .get_presence_snapshots(&[])
+            .await
+            .expect("get_presence_snapshots should succeed");
+        assert!(snapshots.is_empty());
+    }
+}
