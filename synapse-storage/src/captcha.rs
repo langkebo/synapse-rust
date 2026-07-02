@@ -1297,7 +1297,9 @@ mod db_tests {
             metadata: None,
         };
         let captcha = storage.create_captcha(req).await.expect("create captcha");
-        let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+        // Use a hardcoded past timestamp (epoch + 1 ms) to guarantee expiry
+        // regardless of clock jitter or instrumentation overhead
+        let past: i64 = 1;
         sqlx::query("UPDATE registration_captcha SET expires_at = $1 WHERE captcha_id = $2")
             .bind(past)
             .bind(&captcha.captcha_id)
@@ -1344,7 +1346,9 @@ mod db_tests {
             metadata: None,
         };
         let captcha = storage.create_captcha(req).await.expect("create captcha");
-        let past = chrono::Utc::now().timestamp_millis() - 86_400_000;
+        // Use a hardcoded past timestamp (epoch + 1 ms) to guarantee expiry
+        // regardless of clock jitter or instrumentation overhead
+        let past: i64 = 1;
         sqlx::query("UPDATE registration_captcha SET expires_at = $1 WHERE captcha_id = $2")
             .bind(past)
             .bind(&captcha.captcha_id)
