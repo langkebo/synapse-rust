@@ -1400,3 +1400,561 @@ mod tests {
         assert_eq!(event.sender, deserialized.sender);
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use sqlx::postgres::PgPoolOptions;
+
+    async fn test_pool() -> Arc<PgPool> {
+        let db_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    /// Clean up any leftover data from previous test runs.
+    async fn cleanup(pool: &Arc<PgPool>, space_id: &str) {
+        let _ = sqlx::query(r"DELETE FROM space_events WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM space_children WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM space_members WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM space_summaries WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&**pool)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM spaces WHERE space_id = $1")
+            .bind(space_id)
+            .execute(&**pool)
+            .await;
+    }
+
+    // === Test 1: create_space ===
+    #[tokio::test]
+    async fn test_create_space_returns_valid_space() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!space_create_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Test Space".to_string()),
+            topic: Some("A test space".to_string()),
+            avatar_url: None,
+            creator: "@creator:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: Some(true),
+            parent_space_id: None,
+        };
+
+        let space = storage.create_space(request).await.expect("create_space should succeed");
+        assert!(!space.space_id.is_empty());
+        assert_eq!(space.name, Some("Test Space".to_string()));
+        assert_eq!(space.topic, Some("A test space".to_string()));
+        assert!(space.is_public);
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 2: get_space (found) ===
+    #[tokio::test]
+    async fn test_get_space_found() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!space_get_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Get Test".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@g:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let created = storage.create_space(request).await.unwrap();
+
+        let found = storage.get_space(&created.space_id).await.expect("get_space should succeed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, Some("Get Test".to_string()));
+
+        cleanup(&pool, &created.space_id).await;
+    }
+
+    // === Test 3: get_space (not found) ===
+    #[tokio::test]
+    async fn test_get_space_not_found() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let result = storage.get_space("!nonexistent_space:example.com")
+            .await.expect("get_space should succeed");
+        assert!(result.is_none());
+    }
+
+    // === Test 4: get_space_by_room ===
+    #[tokio::test]
+    async fn test_get_space_by_room() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!space_by_room_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Room Lookup".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@r:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let created = storage.create_space(request).await.unwrap();
+
+        let found = storage.get_space_by_room(&room_id).await.expect("get_space_by_room should succeed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().space_id, created.space_id);
+
+        cleanup(&pool, &created.space_id).await;
+    }
+
+    // === Test 5: update_space ===
+    #[tokio::test]
+    async fn test_update_space() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!space_update_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Original".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@u:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let created = storage.create_space(request).await.unwrap();
+
+        let update = UpdateSpaceRequest::new()
+            .name("Updated Name")
+            .topic("Updated Topic");
+        let updated = storage.update_space(&created.space_id, &update)
+            .await.expect("update_space should succeed");
+        assert_eq!(updated.name, Some("Updated Name".to_string()));
+        assert_eq!(updated.topic, Some("Updated Topic".to_string()));
+
+        cleanup(&pool, &created.space_id).await;
+    }
+
+    // === Test 6: delete_space ===
+    #[tokio::test]
+    async fn test_delete_space() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!space_del_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Delete Me".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@d:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let created = storage.create_space(request).await.unwrap();
+
+        storage.delete_space(&created.space_id).await.expect("delete_space should succeed");
+        let found = storage.get_space(&created.space_id).await.unwrap();
+        assert!(found.is_none());
+
+        // Clean up related records (delete_space only removes from spaces table)
+        cleanup(&pool, &created.space_id).await;
+    }
+
+    // === Test 7: space children CRUD ===
+    #[tokio::test]
+    async fn test_space_children_crud() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_child_{}:example.com", uuid::Uuid::new_v4());
+        let child_room_id = format!("!childroom_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Parent Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@p:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        let child = storage.add_child(AddChildRequest {
+            space_id: space.space_id.clone(),
+            room_id: child_room_id.clone(),
+            sender: "@sender:example.com".to_string(),
+            is_suggested: true,
+            via_servers: vec!["example.com".to_string()],
+        }).await.expect("add_child should succeed");
+        assert_eq!(child.room_id, child_room_id);
+
+        let children = storage.get_space_children(&space.space_id)
+            .await.expect("get_space_children should succeed");
+        assert_eq!(children.len(), 1);
+
+        storage.remove_child(&space.space_id, &child_room_id)
+            .await.expect("remove_child should succeed");
+        let after = storage.get_space_children(&space.space_id).await.unwrap();
+        assert!(after.is_empty());
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 8: space members CRUD ===
+    #[tokio::test]
+    async fn test_space_members_crud() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_member_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Member Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@m:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        // Creator is auto-added as a member
+        let members = storage.get_space_members(&space.space_id)
+            .await.expect("get_space_members should succeed");
+        assert!(!members.is_empty()); // creator is always a member
+
+        let member = storage.get_space_member(&space.space_id, "@m:example.com")
+            .await.expect("get_space_member should succeed");
+        assert!(member.is_some());
+
+        // Add another member
+        storage.add_space_member(&space.space_id, "@other:example.com", "join", None)
+            .await.expect("add_space_member should succeed");
+        assert!(storage.is_space_member(&space.space_id, "@other:example.com").await.unwrap());
+
+        // Remove the member
+        storage.remove_space_member(&space.space_id, "@other:example.com")
+            .await.expect("remove_space_member should succeed");
+        assert!(!storage.is_space_member(&space.space_id, "@other:example.com").await.unwrap());
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 9: get_user_spaces ===
+    #[tokio::test]
+    async fn test_get_user_spaces() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_user_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("User Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@us:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        let user_spaces = storage.get_user_spaces("@us:example.com")
+            .await.expect("get_user_spaces should succeed");
+        assert!(!user_spaces.is_empty());
+        assert!(user_spaces.iter().any(|s| s.space_id == space.space_id));
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 10: get_public_spaces ===
+    #[tokio::test]
+    async fn test_get_public_spaces() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let spaces = storage.get_public_spaces(10, None, None)
+            .await.expect("get_public_spaces should succeed");
+        // All returned spaces should be public
+        for space in &spaces {
+            assert!(space.is_public);
+        }
+    }
+
+    // === Test 11: get_spaces_by_rooms_batch ===
+    #[tokio::test]
+    async fn test_get_spaces_by_rooms_batch() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_batch_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Batch Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@b:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        let map = storage.get_spaces_by_rooms_batch(&[room_id.clone()])
+            .await.expect("get_spaces_by_rooms_batch should succeed");
+        assert!(map.contains_key(&room_id));
+        assert_eq!(map[&room_id].space_id, space.space_id);
+
+        // Empty batch should return empty map
+        let empty_map = storage.get_spaces_by_rooms_batch(&[])
+            .await.expect("empty batch should succeed");
+        assert!(empty_map.is_empty());
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 12: get_space_summary and update_space_summary ===
+    #[tokio::test]
+    async fn test_get_space_summary_and_update() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_sum_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Summary Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@s:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        // New space has no summary until update is called
+        let summary = storage.get_space_summary(&space.space_id)
+            .await.expect("get_space_summary should succeed");
+        assert!(summary.is_none(), "new space should not have a summary yet");
+
+        // After update, summary should exist
+        storage.update_space_summary(&space.space_id)
+            .await.expect("update_space_summary should succeed");
+        let after = storage.get_space_summary(&space.space_id).await.unwrap();
+        assert!(after.is_some());
+        let s = after.unwrap();
+        assert!(s.member_count >= 1, "should have at least the creator as member");
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 13: get_child_spaces (reverse lookup) ===
+    #[tokio::test]
+    async fn test_get_child_spaces() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_child_of_{}:example.com", uuid::Uuid::new_v4());
+        let child_room_id = format!("!child_of_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Child Of".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@c:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        // Add a child room to this space
+        storage.add_child(AddChildRequest {
+            space_id: space.space_id.clone(),
+            room_id: child_room_id.clone(),
+            sender: "@sender:example.com".to_string(),
+            is_suggested: false,
+            via_servers: vec!["example.com".to_string()],
+        }).await.unwrap();
+
+        // Reverse lookup: find spaces that have this room as a child
+        let child_spaces = storage.get_child_spaces(&child_room_id)
+            .await.expect("get_child_spaces should succeed");
+        assert!(!child_spaces.is_empty());
+        assert_eq!(child_spaces[0].space_id, space.space_id);
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 14: get_space_hierarchy ===
+    #[tokio::test]
+    async fn test_get_space_hierarchy() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_hier_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Hierarchy Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@h:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        let hierarchy = storage.get_space_hierarchy(&space.space_id, 2)
+            .await.expect("get_space_hierarchy should succeed");
+        // SpaceHierarchy has: space, children, members
+        assert_eq!(hierarchy.space.space_id, space.space_id);
+        assert!(!hierarchy.members.is_empty(), "creator should be a member");
+
+        // Test with non-existent space_id
+        let result = storage.get_space_hierarchy("!nonexistent:example.com", 2).await;
+        assert!(result.is_err(), "should error for non-existent space");
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 15: add_space_event and get_space_events ===
+    #[tokio::test]
+    async fn test_add_and_get_space_events() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_evt_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$evt_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Event Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@e:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        // Add a space event
+        let added = storage.add_space_event(
+            &event_id,
+            &space.space_id,
+            "m.space.child",
+            "@sender:example.com",
+            serde_json::json!({"via": ["example.com"]}),
+            Some("!child:example.com"),
+        ).await.expect("add_space_event should succeed");
+        assert_eq!(added.event_id, event_id);
+        assert_eq!(added.event_type, "m.space.child");
+
+        // Get all events for the space
+        let events = storage.get_space_events(&space.space_id, None, 10)
+            .await.expect("get_space_events should succeed");
+        assert!(!events.is_empty());
+        assert_eq!(events[0].event_id, event_id);
+
+        // Get events filtered by type
+        let filtered = storage.get_space_events(&space.space_id, Some("m.space.child"), 10)
+            .await.expect("get_space_events filtered should succeed");
+        assert!(!filtered.is_empty());
+
+        // Get events filtered by non-matching type
+        let no_match = storage.get_space_events(&space.space_id, Some("m.room.create"), 10)
+            .await.expect("get_space_events should succeed");
+        assert!(no_match.is_empty());
+
+        cleanup(&pool, &space.space_id).await;
+    }
+
+    // === Test 16: get_space_member_and_child_count ===
+    #[tokio::test]
+    async fn test_get_space_member_and_child_count() {
+        let pool = test_pool().await;
+        let storage = SpaceStorage::new(&pool);
+        let room_id = format!("!sp_count_{}:example.com", uuid::Uuid::new_v4());
+        let child_room_id = format!("!child_count_{}:example.com", uuid::Uuid::new_v4());
+
+        let request = CreateSpaceRequest {
+            room_id: room_id.clone(),
+            name: Some("Count Space".to_string()),
+            topic: None,
+            avatar_url: None,
+            creator: "@cnt:example.com".to_string(),
+            join_rule: None,
+            visibility: None,
+            is_public: None,
+            parent_space_id: None,
+        };
+        let space = storage.create_space(request).await.unwrap();
+
+        // Initially: 1 member (creator), 0 children
+        let (member_count, child_count) = storage.get_space_member_and_child_count(&space.space_id)
+            .await.expect("get_space_member_and_child_count should succeed");
+        assert_eq!(member_count, 1);
+        assert_eq!(child_count, 0);
+
+        // Add a child
+        storage.add_child(AddChildRequest {
+            space_id: space.space_id.clone(),
+            room_id: child_room_id.clone(),
+            sender: "@sender:example.com".to_string(),
+            is_suggested: false,
+            via_servers: vec!["example.com".to_string()],
+        }).await.unwrap();
+
+        // Add another member
+        storage.add_space_member(&space.space_id, "@other:example.com", "join", None)
+            .await.unwrap();
+
+        let (member_count2, child_count2) = storage.get_space_member_and_child_count(&space.space_id)
+            .await.expect("count should succeed after adding");
+        assert_eq!(member_count2, 2);
+        assert_eq!(child_count2, 1);
+
+        cleanup(&pool, &space.space_id).await;
+    }
+}
