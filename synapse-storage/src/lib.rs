@@ -170,7 +170,6 @@ pub use presence::repository::PresenceRepository;
 pub use refresh_token::repository::RefreshTokenRepository;
 pub use relations::repository::RelationsRepository;
 pub use room::RoomRepository;
-pub use room_tag::repository::RoomTagRepository;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]

@@ -1,5 +1,3 @@
-pub mod repository;
-
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -77,30 +75,5 @@ impl RoomTagStorage {
             .execute(&*self.pool)
             .await?;
         Ok(())
-    }
-}
-
-use repository::RoomTagRepository;
-
-#[async_trait::async_trait]
-impl RoomTagRepository for RoomTagStorage {
-    fn pool(&self) -> &Arc<sqlx::PgPool> {
-        self.pool()
-    }
-
-    async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-        self.get_all_tags(user_id).await
-    }
-
-    async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
-        self.get_tags(user_id, room_id).await
-    }
-
-    async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error> {
-        self.add_tag(user_id, room_id, tag, order).await
-    }
-
-    async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
-        self.remove_tag(user_id, room_id, tag).await
     }
 }
