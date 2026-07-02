@@ -309,3 +309,630 @@ impl DehydratedDeviceStorage {
         Ok(None)
     }
 }
+
+#[cfg(test)]
+mod db_tests {
+    use super::*;
+    use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
+    use std::env;
+
+    async fn test_pool() -> Arc<Pool<Postgres>> {
+        let db_url = env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect(&db_url)
+            .await
+            .expect("Failed to connect to test database");
+        Arc::new(pool)
+    }
+
+    /// Clean up dehydrated devices and to_device messages for a given user.
+    async fn cleanup_user(pool: &Pool<Postgres>, user_id: &str) {
+        let _ = sqlx::query("DELETE FROM to_device_messages WHERE recipient_user_id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM dehydrated_devices WHERE user_id = $1")
+            .bind(user_id)
+            .execute(pool)
+            .await;
+    }
+
+    /// Build device_data JSON with one_time_keys and fallback_keys for OTK tests.
+    fn make_device_data_with_keys(otk_alg: &str, otk_id: &str, otk_val: &Value, _fb_alg: &str, fb_id: &str, fb_val: &Value) -> Value {
+        json!({
+            "one_time_keys": { otk_id: otk_val },
+            "fallback_keys": { fb_id: fb_val },
+            "algorithm": otk_alg
+        })
+    }
+
+    /// Direct insert of a to-device message for testing claim_to_device_events.
+    async fn insert_to_device_msg(
+        pool: &Pool<Postgres>,
+        sender: &str,
+        recipient_user: &str,
+        recipient_device: &str,
+        event_type: &str,
+        content: &Value,
+        stream_id: i64,
+    ) {
+        sqlx::query(
+            r#"
+            INSERT INTO to_device_messages
+                (sender_user_id, sender_device_id, recipient_user_id, recipient_device_id,
+                 event_type, content, stream_id, created_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "#,
+        )
+        .bind(sender)
+        .bind("TEST_SENDER_DEV")
+        .bind(recipient_user)
+        .bind(recipient_device)
+        .bind(event_type)
+        .bind(content)
+        .bind(stream_id)
+        .bind(chrono::Utc::now().timestamp_millis())
+        .execute(pool)
+        .await
+        .expect("Failed to insert to_device_messages row");
+    }
+
+    #[tokio::test]
+    async fn test_get_by_user_returns_none_when_no_device() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@no_device_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let result = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(result.is_none(), "Should return None for user with no device");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_upsert_and_get_by_user() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@upsert_get_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let device_data = json!({"algorithms": ["m.olm.v1.curve25519-aes-sha2"]});
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_UPSERT_GET".to_string(),
+            device_data: device_data.clone(),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: Some(json!({"test": "account"})),
+            expires_at: None,
+        };
+
+        let created = storage.upsert_for_user(params).await.expect("upsert should succeed");
+        assert_eq!(created.user_id, user_id);
+        assert_eq!(created.device_id, "DEV_UPSERT_GET");
+        assert_eq!(created.device_data, device_data);
+        assert_eq!(created.algorithm, "m.dehydrated_device_v1");
+        assert_eq!(created.account, Some(json!({"test": "account"})));
+        assert!(created.expires_at.is_none());
+        assert!(created.created_ts > 0);
+        assert!(created.updated_ts > 0);
+        assert!(created.id > 0);
+
+        // Retrieve via get_by_user
+        let fetched = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(fetched.is_some(), "Should find the upserted device");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.user_id, user_id);
+        assert_eq!(fetched.device_id, "DEV_UPSERT_GET");
+        assert_eq!(fetched.device_data, device_data);
+        assert_eq!(fetched.algorithm, "m.dehydrated_device_v1");
+        assert_eq!(fetched.account, Some(json!({"test": "account"})));
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_by_user_respects_expiry() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@expired_get_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let past = chrono::Utc::now().timestamp_millis() - 100_000; // expired
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_EXPIRED".to_string(),
+            device_data: json!({"alg": "test"}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: Some(past),
+        };
+
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        let fetched = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(fetched.is_none(), "Should NOT return expired device");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_upsert_replaces_existing() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@upsert_replace_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        // First upsert
+        let params1 = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_FIRST".to_string(),
+            device_data: json!({"version": 1}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        let created1 = storage.upsert_for_user(params1).await.expect("first upsert should succeed");
+        assert_eq!(created1.device_id, "DEV_FIRST");
+
+        // Second upsert for same user — should delete first and create new
+        let params2 = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_SECOND".to_string(),
+            device_data: json!({"version": 2}),
+            algorithm: "m.dehydrated_device_v2".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        let created2 = storage.upsert_for_user(params2).await.expect("second upsert should succeed");
+        assert_eq!(created2.device_id, "DEV_SECOND");
+        assert_ne!(created2.id, created1.id);
+
+        // Verify only the second device exists
+        let fetched = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(fetched.is_some(), "Should find the second device");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.id, created2.id);
+        assert_eq!(fetched.device_id, "DEV_SECOND");
+        assert_eq!(fetched.algorithm, "m.dehydrated_device_v2");
+
+        // Verify the first device is gone by checking total count
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
+            .bind(&user_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("count query should succeed");
+        assert_eq!(count.0, 1, "Only one device should exist for this user after second upsert");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_by_user_removes_device() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@delete_test_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_DELETE".to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        let deleted = storage.delete_by_user(&user_id).await.expect("delete should succeed");
+        assert_eq!(deleted, 1, "Should delete one device");
+
+        let fetched = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(fetched.is_none(), "Device should be deleted");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_by_user_returns_zero_when_no_device() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@delete_none_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let deleted = storage.delete_by_user(&user_id).await.expect("delete should succeed");
+        assert_eq!(deleted, 0, "Should return zero for non-existent user");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_sweep_expired_removes_expired() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@sweep_expired_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let past = chrono::Utc::now().timestamp_millis() - 100_000;
+
+        // Create an expired device
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_SWEEP".to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: Some(past),
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // Verify it exists (expired, so get_by_user won't return it, but it's in the DB)
+        let count_before: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
+                .bind(&user_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("count query should succeed");
+        assert_eq!(count_before.0, 1, "Device should exist before sweep");
+
+        let swept = storage.sweep_expired().await.expect("sweep should succeed");
+        assert!(swept >= 1, "Should sweep at least 1 device, got {}", swept);
+
+        // Verify it's gone from DB
+        let count_after: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM dehydrated_devices WHERE user_id = $1")
+                .bind(&user_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("count query should succeed");
+        assert_eq!(count_after.0, 0, "Device should be gone after sweep");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_sweep_expired_keeps_valid() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@sweep_keep_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let future = chrono::Utc::now().timestamp_millis() + 86_400_000; // 1 day in future
+
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: "DEV_VALID".to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: Some(future),
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        let _ = storage.sweep_expired().await.expect("sweep should succeed");
+        // _swept may or may not include our device — depends on other tests
+
+        let fetched = storage.get_by_user(&user_id).await.expect("get_by_user should succeed");
+        assert!(fetched.is_some(), "Valid (future-expiry) device should survive sweep");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_to_device_events_pagination() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@claim_td_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_CLAIM_TD";
+
+        cleanup_user(&pool, &user_id).await;
+
+        // Create a dehydrated device first so the infrastructure is consistent
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // Insert 5 to_device messages with sequential stream_ids
+        for i in 0..5 {
+            insert_to_device_msg(
+                &pool,
+                "@sender:test",
+                &user_id,
+                device_id,
+                "m.room.message",
+                &json!({"body": format!("msg {}", i)}),
+                100 + i,
+            )
+            .await;
+        }
+
+        // Fetch first 3 (stream_id > 0)
+        let (events, max_id) = storage
+            .claim_to_device_events(&user_id, device_id, 0, 3)
+            .await
+            .expect("claim should succeed");
+        assert_eq!(events.len(), 3);
+        assert_eq!(max_id, 102);
+
+        // Fetch remaining 2 (stream_id > 102)
+        let (events2, max_id2) = storage
+            .claim_to_device_events(&user_id, device_id, max_id, 3)
+            .await
+            .expect("second claim should succeed");
+        assert_eq!(events2.len(), 2);
+        assert_eq!(max_id2, 104);
+
+        // No more messages
+        let (events3, max_id3) = storage
+            .claim_to_device_events(&user_id, device_id, max_id2, 3)
+            .await
+            .expect("third claim should succeed");
+        assert_eq!(events3.len(), 0);
+        assert_eq!(max_id3, max_id2); // cursor unchanged when empty
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_to_device_events_empty_when_no_messages() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@claim_empty_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_CLAIM_EMPTY";
+
+        cleanup_user(&pool, &user_id).await;
+
+        // Create a dehydrated device
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        let (events, max_id) = storage
+            .claim_to_device_events(&user_id, device_id, 0, 10)
+            .await
+            .expect("claim should succeed");
+        assert_eq!(events.len(), 0);
+        assert_eq!(max_id, 0); // cursor unchanged when empty
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_one_time_key_claims_otk_and_consumes() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@otk_claim_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_OTK_CLAIM";
+
+        cleanup_user(&pool, &user_id).await;
+
+        let otk_key = json!({"key": "otk_secret_key", "signatures": {"@device:test": {"ed25519:1": "sig"}}});
+        let fb_key = json!({"key": "fb_secret_key", "signatures": {"@device:test": {"ed25519:1": "sig"}}});
+        let device_data = make_device_data_with_keys(
+            "signed_curve25519",
+            "signed_curve25519:AAAAAQ",
+            &otk_key,
+            "signed_curve25519",
+            "signed_curve25519:BBBB",
+            &fb_key,
+        );
+
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data,
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // Claim the OTK
+        let result = storage
+            .claim_one_time_key(&user_id, device_id, "signed_curve25519")
+            .await
+            .expect("claim_one_time_key should succeed");
+        assert!(result.is_some(), "Should return a key");
+        let (key_id, key_payload) = result.unwrap();
+        assert_eq!(key_id, "signed_curve25519:AAAAAQ");
+        assert_eq!(key_payload, otk_key);
+
+        // Second claim should fall back to fallback key (OTK was consumed)
+        let result2 = storage
+            .claim_one_time_key(&user_id, device_id, "signed_curve25519")
+            .await
+            .expect("second claim_one_time_key should succeed");
+        assert!(result2.is_some(), "Should return the fallback key");
+        let (key_id2, key_payload2) = result2.unwrap();
+        assert_eq!(key_id2, "signed_curve25519:BBBB");
+        assert_eq!(key_payload2, fb_key);
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_one_time_key_none_when_no_device() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@otk_nodev_{}:test", uuid::Uuid::new_v4());
+
+        cleanup_user(&pool, &user_id).await;
+
+        let result = storage
+            .claim_one_time_key(&user_id, "NONEXISTENT_DEV", "signed_curve25519")
+            .await
+            .expect("claim_one_time_key should succeed");
+        assert!(result.is_none(), "Should return None when device doesn't exist");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_one_time_key_none_when_no_matching_algorithm() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@otk_noalg_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_OTK_NOALG";
+
+        cleanup_user(&pool, &user_id).await;
+
+        let otk_key = json!({"key": "some_key"});
+        let fb_key = json!({"key": "some_fb_key"});
+        let device_data = make_device_data_with_keys(
+            "signed_curve25519",
+            "signed_curve25519:AAAAAQ",
+            &otk_key,
+            "signed_curve25519",
+            "signed_curve25519:BBBB",
+            &fb_key,
+        );
+
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data,
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // Claim with different algorithm — no matching key
+        let result = storage
+            .claim_one_time_key(&user_id, device_id, "signed_ed25519")
+            .await
+            .expect("claim_one_time_key should succeed");
+        assert!(result.is_none(), "Should return None for non-matching algorithm");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_claim_one_time_key_fallback_only_no_otk() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@otk_fbonly_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_OTK_FBONLY";
+
+        cleanup_user(&pool, &user_id).await;
+
+        let fb_key = json!({"key": "reusable_fallback", "fallback": true});
+        let device_data = json!({
+            "fallback_keys": {
+                "signed_curve25519:CCCC": &fb_key
+            }
+        });
+
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data,
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // No OTKs available, should get fallback key
+        let result = storage
+            .claim_one_time_key(&user_id, device_id, "signed_curve25519")
+            .await
+            .expect("claim_one_time_key should succeed");
+        assert!(result.is_some(), "Should return fallback key when no OTK");
+        let (key_id, key_payload) = result.unwrap();
+        assert_eq!(key_id, "signed_curve25519:CCCC");
+        assert_eq!(key_payload, fb_key);
+
+        // Second claim — fallback keys are not consumed, should return again
+        let result2 = storage
+            .claim_one_time_key(&user_id, device_id, "signed_curve25519")
+            .await
+            .expect("second claim should succeed");
+        assert!(result2.is_some(), "Fallback key should be reusable");
+        let (key_id2, _) = result2.unwrap();
+        assert_eq!(key_id2, "signed_curve25519:CCCC");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_delete_by_user_cleans_up_to_device_messages() {
+        let pool = test_pool().await;
+        let storage = DehydratedDeviceStorage::new(&pool);
+        let user_id = format!("@del_cleanup_{}:test", uuid::Uuid::new_v4());
+        let device_id = "DEV_DEL_CLEANUP";
+
+        cleanup_user(&pool, &user_id).await;
+
+        // Create a dehydrated device
+        let params = UpsertDehydratedDeviceParams {
+            user_id: user_id.clone(),
+            device_id: device_id.to_string(),
+            device_data: json!({"test": true}),
+            algorithm: "m.dehydrated_device_v1".to_string(),
+            account: None,
+            expires_at: None,
+        };
+        storage.upsert_for_user(params).await.expect("upsert should succeed");
+
+        // Insert to_device messages for this user's dehydrated device
+        insert_to_device_msg(
+            &pool, "@sender:test", &user_id, device_id,
+            "m.room.message", &json!({"body": "msg1"}), 200,
+        ).await;
+        insert_to_device_msg(
+            &pool, "@sender:test", &user_id, device_id,
+            "m.room.message", &json!({"body": "msg2"}), 201,
+        ).await;
+
+        // Verify messages exist
+        let msg_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2")
+                .bind(&user_id)
+                .bind(device_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("count should succeed");
+        assert_eq!(msg_count.0, 2, "Should have 2 to_device messages before delete");
+
+        // Delete should also clean up to_device_messages
+        let deleted = storage.delete_by_user(&user_id).await.expect("delete should succeed");
+        assert_eq!(deleted, 1, "Should delete one device");
+
+        // Verify messages are gone
+        let msg_count_after: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM to_device_messages WHERE recipient_user_id = $1 AND recipient_device_id = $2")
+                .bind(&user_id)
+                .bind(device_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("count should succeed");
+        assert_eq!(msg_count_after.0, 0, "to_device messages should be cleaned up");
+
+        cleanup_user(&pool, &user_id).await;
+    }
+}
