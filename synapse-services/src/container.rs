@@ -143,7 +143,6 @@ impl CoreServices {
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
             pool,
             user_storage.clone(),
-            rooms.room_storage.clone(),
             room_account_data_storage,
             FilterStorage::new(pool),
             OpenIdTokenStorage::new(pool),

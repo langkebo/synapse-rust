@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
 use std::collections::HashSet;
 use std::sync::Arc;

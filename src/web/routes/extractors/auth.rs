@@ -513,10 +513,6 @@ impl AuthExtractor for HeaderMap {
     }
 }
 
-pub(crate) fn extract_token_from_request(headers: &HeaderMap, uri: &str) -> Result<String, ApiError> {
-    crate::web::utils::auth::extract_token(headers, uri)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{AdminUser, OptionalAuthenticatedUser};

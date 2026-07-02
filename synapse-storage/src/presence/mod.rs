@@ -651,6 +651,7 @@ impl PresenceStorage {
     }
 }
 
+#[cfg(test)]
 mod db_tests {
     use super::*;
     use sqlx::postgres::PgPoolOptions;

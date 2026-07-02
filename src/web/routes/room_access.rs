@@ -25,6 +25,7 @@ pub(crate) async fn is_joined_room_member(state: &AppState, user_id: &str, room_
     is_member_via(&state.services.rooms.room_service, user_id, room_id).await
 }
 
+#[allow(dead_code)]
 pub(crate) async fn is_joined_room_member_or_creator(
     state: &AppState,
     user_id: &str,
@@ -125,6 +126,7 @@ pub(crate) async fn ensure_room_member_strict_ctx(
 // RoomService-based helpers — for callers that have room_service directly.
 // =============================================================================
 
+#[allow(dead_code)]
 pub(crate) async fn is_joined_room_member_svc(
     room_service: &Arc<synapse_services::room_service::RoomService>,
     user_id: &str,

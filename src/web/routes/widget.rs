@@ -1,5 +1,6 @@
 use crate::common::error::ApiError;
-use crate::web::routes::{ensure_room_member_strict, is_joined_room_member, AppState, AuthenticatedUser};
+use crate::web::routes::room_access::is_joined_room_member;
+use crate::web::routes::{ensure_room_member_strict, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{delete, get, post, put},
