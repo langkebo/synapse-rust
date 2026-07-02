@@ -79,33 +79,17 @@ pub struct RoomService {
     pub state: RoomStateService,
     /// Domain sub-service: room lifecycle operations (create, upgrade, migration)
     pub lifecycle: LifecycleService,
-    #[allow(dead_code)]
     pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    #[allow(dead_code)]
     pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    #[allow(dead_code)]
-    pub(crate) room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
     pub user_storage: Arc<dyn UserStore>,
-    #[allow(dead_code)]
-    pub(crate) auth_service: Arc<dyn Auth>,
     pub validator: Arc<Validator>,
-    #[allow(dead_code)]
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
-    #[allow(dead_code)]
     pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
-    #[allow(dead_code)]
-    pub(crate) relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
-    #[cfg(feature = "beacons")]
-    #[allow(dead_code)]
-    pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
-    #[cfg(not(feature = "beacons"))]
-    #[allow(dead_code)]
-    pub(crate) beacon_service: Option<()>,
 }
 
 impl RoomService {
@@ -180,20 +164,13 @@ impl RoomService {
             room_storage: config.room_storage,
             member_storage: config.member_storage,
             event_storage: config.event_storage,
-            room_tag_storage: config.room_tag_storage,
             user_storage: config.user_storage,
-            auth_service: config.auth_service,
             room_summary_service: config.room_summary_service,
             validator: config.validator,
             server_name: config.server_name,
             task_queue: config.task_queue,
             active_tasks: Arc::new(RwLock::new(HashMap::new())),
-            relations_storage: config.relations_storage.clone(),
             infra,
-            #[cfg(feature = "beacons")]
-            beacon_service: config.beacon_service,
-            #[cfg(not(feature = "beacons"))]
-            beacon_service: None,
         }
     }
 
