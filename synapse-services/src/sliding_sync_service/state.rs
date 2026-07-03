@@ -23,7 +23,7 @@ impl SlidingSyncService {
             .collect())
     }
 
-    fn required_state_matches(required_state: &[Vec<String>], event: &StateEvent) -> bool {
+    pub(crate) fn required_state_matches(required_state: &[Vec<String>], event: &StateEvent) -> bool {
         let event_type = event.event_type.as_deref().unwrap_or_default();
         let state_key = event.state_key.as_deref().unwrap_or_default();
         required_state.iter().any(|entry| {
@@ -33,7 +33,7 @@ impl SlidingSyncService {
         })
     }
 
-    fn state_event_to_json(event: &StateEvent) -> Value {
+    pub(crate) fn state_event_to_json(event: &StateEvent) -> Value {
         let now = chrono::Utc::now().timestamp_millis();
         let age = now.saturating_sub(event.origin_server_ts);
         let sender = event.user_id.as_deref().unwrap_or(&event.sender);

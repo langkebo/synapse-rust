@@ -63,7 +63,7 @@ pub struct RoomServiceConfig {
     pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
     /// Outbound federation client, used for make_join/send_join/make_leave/
     /// send_leave/invite flows.  `None` in test setups.
-    pub federation_client: Option<Arc<synapse_federation::FederationClient>>,
+    pub federation_client: Option<Arc<dyn synapse_federation::client_api::FederationClientApi>>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
@@ -152,7 +152,7 @@ impl RoomService {
             user_storage: config.user_storage.clone(),
             validator: config.validator.clone(),
             server_name: config.server_name.clone(),
-            room_summary_service: config.room_summary_service.clone(),
+            room_summary_service: Some(config.room_summary_service.clone()),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 
@@ -235,7 +235,10 @@ impl RoomService {
         self.infra.set_key_rotation_manager(key_rotation_manager).await;
     }
 
-    pub async fn set_federation_client(&self, federation_client: Arc<synapse_federation::FederationClient>) {
+    pub async fn set_federation_client(
+        &self,
+        federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
+    ) {
         self.infra.set_federation_client(federation_client).await;
     }
 
@@ -694,6 +697,7 @@ impl RoomService {
     pub async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> ApiResult<()> {
         self.messaging.redact_event_content(event_id, redacted_by).await
     }
+    #[allow(clippy::too_many_arguments)]
     pub async fn save_event_signature(
         &self,
         event_id: &str,

@@ -13,7 +13,7 @@ pub struct RoomInfrastructure {
     pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     pub key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
-    pub federation_client: Arc<RwLock<Option<Arc<synapse_federation::FederationClient>>>>,
+    pub federation_client: Arc<RwLock<Option<Arc<dyn synapse_federation::client_api::FederationClientApi>>>>,
 }
 
 impl RoomInfrastructure {
@@ -21,6 +21,7 @@ impl RoomInfrastructure {
     ///
     /// Values are typically provided after construction via the dedicated
     /// setter methods (e.g. `set_event_broadcaster`).
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             event_broadcaster: Arc::new(RwLock::new(None)),
@@ -49,7 +50,7 @@ impl RoomInfrastructure {
 
     /// Set the federation client used for outbound federation requests
     /// (make_join, send_join, make_leave, send_leave, invite, etc.).
-    pub async fn set_federation_client(&self, c: Arc<synapse_federation::FederationClient>) {
+    pub async fn set_federation_client(&self, c: Arc<dyn synapse_federation::client_api::FederationClientApi>) {
         *self.federation_client.write().await = Some(c);
     }
 }
