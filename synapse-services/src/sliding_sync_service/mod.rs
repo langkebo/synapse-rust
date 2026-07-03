@@ -34,11 +34,11 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 pub struct SlidingSyncService {
     storage: SlidingSyncStorage,
     cache: Arc<CacheManager>,
-    event_storage: Arc<synapse_storage::event::EventStorage>,
+    event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     device_key_storage: DeviceKeyStorage,
     typing_service: Arc<crate::typing_service::TypingService>,
-    presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
-    member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     device_storage: Arc<synapse_storage::device::DeviceStorage>,
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
@@ -54,21 +54,21 @@ pub struct SlidingSyncService {
 }
 
 #[derive(Debug, Clone, Default)]
-struct RoomSubscriptionConfig {
-    timeline_limit: Option<u32>,
-    required_state: Option<Vec<Vec<String>>>,
+pub(crate) struct RoomSubscriptionConfig {
+    pub(crate) timeline_limit: Option<u32>,
+    pub(crate) required_state: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SlidingListWindowSnapshot {
-    ranges: Vec<SlidingListRangeSnapshot>,
+pub(crate) struct SlidingListWindowSnapshot {
+    pub(crate) ranges: Vec<SlidingListRangeSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SlidingListRangeSnapshot {
-    start: u32,
-    end: u32,
-    room_ids: Vec<String>,
+pub(crate) struct SlidingListRangeSnapshot {
+    pub(crate) start: u32,
+    pub(crate) end: u32,
+    pub(crate) room_ids: Vec<String>,
 }
 
 impl SlidingSyncService {
@@ -76,11 +76,11 @@ impl SlidingSyncService {
     pub fn new(
         storage: SlidingSyncStorage,
         cache: Arc<CacheManager>,
-        event_storage: Arc<synapse_storage::event::EventStorage>,
+        event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
         device_key_storage: DeviceKeyStorage,
         typing_service: Arc<crate::typing_service::TypingService>,
-        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
-        member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+        presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+        member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
         to_device_storage: ToDeviceStorage,
         metrics: Arc<MetricsCollector>,

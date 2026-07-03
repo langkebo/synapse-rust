@@ -139,7 +139,7 @@ impl RoomSummaryService {
         final_summary.ok_or_else(|| ApiError::not_found("Room summary not found after sync"))
     }
 
-    fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
+    pub(crate) fn create_request_to_update_request(request: &CreateRoomSummaryRequest) -> UpdateRoomSummaryRequest {
         UpdateRoomSummaryRequest {
             name: request.name.clone(),
             topic: request.topic.clone(),
@@ -263,5 +263,61 @@ impl RoomSummaryService {
             .collect();
 
         Ok(responses)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RoomSummaryService;
+    use synapse_storage::room_summary::{CreateRoomSummaryRequest, UpdateRoomSummaryRequest};
+
+    #[test]
+    fn create_request_to_update_request_copies_all_fields() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: Some("m.space".to_string()),
+            name: Some("Test Room".to_string()),
+            topic: Some("A test".to_string()),
+            avatar_url: Some("mxc://ex.com/av".to_string()),
+            canonical_alias: Some("#test:ex.com".to_string()),
+            join_rule: Some("invite".to_string()),
+            history_visibility: Some("shared".to_string()),
+            guest_access: Some("forbidden".to_string()),
+            is_direct: Some(true),
+            is_space: Some(true),
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert_eq!(update.name, create.name);
+        assert_eq!(update.topic, create.topic);
+        assert_eq!(update.avatar_url, create.avatar_url);
+        assert_eq!(update.canonical_alias, create.canonical_alias);
+        assert_eq!(update.join_rule, create.join_rule);
+        assert_eq!(update.history_visibility, create.history_visibility);
+        assert_eq!(update.guest_access, create.guest_access);
+        assert_eq!(update.is_direct, create.is_direct);
+        assert_eq!(update.is_space, create.is_space);
+    }
+
+    #[test]
+    fn create_request_to_update_request_defaults_unset_fields() {
+        let create = CreateRoomSummaryRequest {
+            room_id: "!r:ex.com".to_string(),
+            room_type: None,
+            name: None,
+            topic: None,
+            avatar_url: None,
+            canonical_alias: None,
+            join_rule: None,
+            history_visibility: None,
+            guest_access: None,
+            is_direct: None,
+            is_space: None,
+        };
+        let update = RoomSummaryService::create_request_to_update_request(&create);
+        assert!(update.name.is_none());
+        assert!(update.is_direct.is_none());
+        // Fields not in CreateRequest should remain at their Default values
+        assert!(update.is_encrypted.is_none());
+        assert!(update.last_event_id.is_none());
     }
 }

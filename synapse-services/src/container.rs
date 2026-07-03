@@ -22,6 +22,7 @@ use synapse_e2ee::megolm::MegolmProvider;
 use synapse_e2ee::ssss::SecretStorageService;
 use synapse_e2ee::to_device::ToDeviceService;
 use synapse_e2ee::verification::VerificationService;
+use synapse_federation::client_api::FederationClientApi;
 #[cfg(feature = "friends")]
 use synapse_federation::FriendFederation;
 use synapse_federation::{DeviceSyncManager, EventAuthChain, FederationClient, KeyRotationManager};
@@ -191,6 +192,7 @@ pub struct AccountServices {
 }
 
 impl AccountServices {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pool: &Arc<sqlx::PgPool>,
         user_storage: Arc<dyn UserStore>,
@@ -795,7 +797,7 @@ pub struct FederationServices {
     pub event_auth_chain: EventAuthChain,
     pub key_rotation_manager: KeyRotationManager,
     pub key_rotation_service: Arc<crate::federation_key_rotation_service::FederationKeyRotationService>,
-    pub federation_client: Arc<FederationClient>,
+    pub federation_client: Arc<dyn FederationClientApi>,
     pub device_sync_manager: DeviceSyncManager,
     pub federation_server_name: String,
 }
@@ -1060,16 +1062,18 @@ impl AdminServices {
         let worker_manager =
             Arc::new(crate::worker::WorkerManager::new(Arc::new(worker_storage.clone()), config.server.name.clone()));
 
+        let admin_media_storage = Arc::new(AdminMediaStorage::new(pool));
         let admin_media_service =
-            Arc::new(crate::admin_media_service::AdminMediaService::new(pool, user_storage.clone()));
+            Arc::new(crate::admin_media_service::AdminMediaService::new(admin_media_storage, user_storage.clone()));
+        let rate_limit_storage = Arc::new(RateLimitStorage::new(pool));
         let admin_security_service = Arc::new(crate::admin_security_service::AdminSecurityService::new(
             user_storage.clone(),
+            rate_limit_storage,
             cache.clone(),
-            pool,
         ));
         let admin_server_service = Arc::new(crate::admin_server_service::AdminServerService::new(pool.clone()));
         let admin_token_service = Arc::new(crate::admin_token_service::AdminTokenService::new(
-            AccessTokenStorage::new(pool),
+            Arc::new(AccessTokenStorage::new(pool)),
             refresh_token_storage.clone(),
             registration_token_service.clone(),
         ));
@@ -1248,16 +1252,16 @@ impl ServiceContainer {
         #[cfg(feature = "privacy-ext")]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             user_storage.clone(),
-            threepid_storage.clone(),
+            Arc::new(threepid_storage.clone()),
             extensions.privacy_storage.clone(),
         ));
         #[cfg(not(feature = "privacy-ext"))]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             user_storage.clone(),
-            threepid_storage.clone(),
+            Arc::new(threepid_storage.clone()),
         ));
         let account_device_list_service =
-            Arc::new(crate::account_device_list_service::AccountDeviceListService::new(DeviceStorage::new(pool)));
+            Arc::new(crate::account_device_list_service::AccountDeviceListService::new(device_storage.clone()));
         // Worker topology — compute before config is moved into the container
         #[cfg(feature = "burn-after-read")]
         let burn_after_read_processor_cfg = config.server.enable_burn_after_read_processor;

@@ -220,14 +220,14 @@ impl SlidingSyncService {
         })
     }
 
-    fn subscription_config_from_list(list_data: &SlidingSyncListData) -> RoomSubscriptionConfig {
+    pub(crate) fn subscription_config_from_list(list_data: &SlidingSyncListData) -> RoomSubscriptionConfig {
         RoomSubscriptionConfig {
             timeline_limit: list_data.timeline_limit,
             required_state: list_data.required_state.clone(),
         }
     }
 
-    fn subscription_config_from_value(value: Option<&serde_json::Value>) -> RoomSubscriptionConfig {
+    pub(crate) fn subscription_config_from_value(value: Option<&serde_json::Value>) -> RoomSubscriptionConfig {
         let Some(value) = value else {
             return RoomSubscriptionConfig::default();
         };
@@ -358,7 +358,12 @@ impl SlidingSyncService {
         }
     }
 
-    fn list_snapshot_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>, list_key: &str) -> String {
+    pub(crate) fn list_snapshot_cache_key(
+        user_id: &str,
+        device_id: &str,
+        conn_id: Option<&str>,
+        list_key: &str,
+    ) -> String {
         match conn_id {
             Some(conn_id) => {
                 format!("sliding_sync:list:{user_id}:{device_id}:{conn_id}:{list_key}")

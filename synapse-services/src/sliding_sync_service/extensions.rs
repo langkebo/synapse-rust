@@ -323,7 +323,7 @@ impl SlidingSyncService {
             .unwrap_or_default()
     }
 
-    fn compute_left_shared_users(previous: &[String], current: &[String]) -> Vec<String> {
+    pub(crate) fn compute_left_shared_users(previous: &[String], current: &[String]) -> Vec<String> {
         let previous: BTreeSet<&str> = previous.iter().map(String::as_str).collect();
         let current: BTreeSet<&str> = current.iter().map(String::as_str).collect();
 
