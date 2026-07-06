@@ -38,21 +38,21 @@ pub(crate) fn ensure_super_admin_for_privilege_change(
     Ok(())
 }
 
-pub fn create_admin_module_router(state: AppState) -> Router<AppState> {
+pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes::AppState> {
     #[allow(unused_mut)]
     let mut admin_router = Router::new()
-        .merge(create_audit_router(state.clone()))
-        .merge(create_user_router(state.clone()))
+        .merge(create_audit_router())
+        .merge(create_user_router())
         .merge(create_server_router(state.clone()))
-        .merge(create_security_router(state.clone()))
+        .merge(create_security_router())
         .merge(create_cleanup_router(state.clone()))
-        .merge(create_notification_router(state.clone()));
+        .merge(create_notification_router());
     let protected = admin_router
-        .merge(create_token_router(state.clone()))
-        .merge(create_federation_router(state.clone()))
-        .merge(create_media_router(state.clone()))
-        .merge(create_report_router(state.clone()))
-        .merge(create_retention_router(state.clone()))
+        .merge(create_token_router())
+        .merge(create_federation_router())
+        .merge(create_media_router())
+        .merge(create_report_router())
+        .merge(create_retention_router())
         .merge(room::create_room_router(state.clone()))
         .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
         .route_layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware));

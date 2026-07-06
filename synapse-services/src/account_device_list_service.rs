@@ -1,7 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use synapse_common::error::ApiError;
-use synapse_storage::{Device, DeviceStorage};
+use synapse_storage::device::DeviceListStoreApi;
+use synapse_storage::Device;
 
 #[derive(Debug, Clone)]
 pub struct DeviceListEntry {
@@ -33,11 +35,11 @@ pub struct DeviceListDelta {
 
 #[derive(Clone)]
 pub struct AccountDeviceListService {
-    device_storage: DeviceStorage,
+    device_storage: Arc<dyn DeviceListStoreApi>,
 }
 
 impl AccountDeviceListService {
-    pub fn new(device_storage: DeviceStorage) -> Self {
+    pub fn new(device_storage: Arc<dyn DeviceListStoreApi>) -> Self {
         Self { device_storage }
     }
 
@@ -198,5 +200,144 @@ impl AccountDeviceListService {
         }
 
         Ok(DeviceListDelta { changed, deleted, left, stream_id })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_storage::test_mocks::InMemoryDeviceListStore;
+
+    fn test_service() -> AccountDeviceListService {
+        AccountDeviceListService::new(Arc::new(InMemoryDeviceListStore::new()))
+    }
+
+    #[tokio::test]
+    async fn create_device_returns_device_with_correct_fields() {
+        let svc = test_service();
+        let device = svc.create_device("DEV1", "@alice:example.com", Some("Alice Phone")).await.unwrap();
+        assert_eq!(device.device_id, "DEV1");
+        assert_eq!(device.user_id, "@alice:example.com");
+        assert_eq!(device.display_name.as_deref(), Some("Alice Phone"));
+    }
+
+    #[tokio::test]
+    async fn create_device_without_display_name_is_ok() {
+        let svc = test_service();
+        let device = svc.create_device("DEV2", "@bob:example.com", None).await.unwrap();
+        assert!(device.display_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_device_finds_created_device() {
+        let svc = test_service();
+        svc.create_device("DEV3", "@alice:example.com", None).await.unwrap();
+        let found = svc.get_device("DEV3").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().device_id, "DEV3");
+    }
+
+    #[tokio::test]
+    async fn get_device_returns_none_for_unknown() {
+        let svc = test_service();
+        assert!(svc.get_device("NONEXISTENT").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_device_removes_it() {
+        let svc = test_service();
+        svc.create_device("DEV4", "@alice:example.com", None).await.unwrap();
+        svc.delete_device("DEV4").await.unwrap();
+        assert!(svc.get_device("DEV4").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_user_devices_returns_only_that_users_devices() {
+        let svc = test_service();
+        svc.create_device("D1", "@alice:example.com", None).await.unwrap();
+        svc.create_device("D2", "@alice:example.com", None).await.unwrap();
+        svc.create_device("D3", "@bob:example.com", None).await.unwrap();
+
+        let alice_devices = svc.get_user_devices("@alice:example.com").await.unwrap();
+        assert_eq!(alice_devices.len(), 2);
+
+        let bob_devices = svc.get_user_devices("@bob:example.com").await.unwrap();
+        assert_eq!(bob_devices.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_user_devices_returns_empty_for_new_user() {
+        let svc = test_service();
+        let devices = svc.get_user_devices("@unknown:example.com").await.unwrap();
+        assert!(devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_display_name_updates_and_returns_rows_affected() {
+        let svc = test_service();
+        svc.create_device("DEV5", "@alice:example.com", Some("Old")).await.unwrap();
+        let rows = svc.update_user_device_display_name("@alice:example.com", "DEV5", "New").await.unwrap();
+        assert_eq!(rows, 1);
+        let device = svc.get_device("DEV5").await.unwrap().unwrap();
+        assert_eq!(device.display_name.as_deref(), Some("New"));
+    }
+
+    #[tokio::test]
+    async fn update_display_name_wrong_user_returns_zero() {
+        let svc = test_service();
+        svc.create_device("DEV6", "@alice:example.com", None).await.unwrap();
+        let rows = svc.update_user_device_display_name("@bob:example.com", "DEV6", "Hijack").await.unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn stream_id_increments_after_create_device() {
+        let svc = test_service();
+        let before = svc.get_max_stream_id().await.unwrap();
+        svc.create_device("DEV7", "@alice:example.com", None).await.unwrap();
+        let after = svc.get_max_stream_id().await.unwrap();
+        assert!(after > before);
+    }
+
+    #[tokio::test]
+    async fn stream_id_increments_after_delete_device() {
+        let svc = test_service();
+        svc.create_device("DEV8", "@alice:example.com", None).await.unwrap();
+        let before = svc.get_max_stream_id().await.unwrap();
+        svc.delete_device("DEV8").await.unwrap();
+        let after = svc.get_max_stream_id().await.unwrap();
+        assert!(after > before);
+    }
+
+    #[tokio::test]
+    async fn snapshot_groups_users_with_and_without_devices() {
+        let svc = test_service();
+        svc.create_device("D1", "@alice:example.com", None).await.unwrap();
+        // @bob has no devices
+        let snap =
+            svc.get_device_list_snapshot(&["@alice:example.com".into(), "@bob:example.com".into()]).await.unwrap();
+        assert!(!snap.changed.is_empty());
+        assert!(snap.changed.iter().any(|e| e.user_id == "@alice:example.com"));
+        assert!(snap.left.contains(&"@bob:example.com".to_string()));
+    }
+
+    #[tokio::test]
+    async fn snapshot_user_with_zero_devices_is_left() {
+        let svc = test_service();
+        svc.create_device("D1", "@alice:example.com", None).await.unwrap();
+        // A user with no devices at all
+        let snap = svc.get_device_list_snapshot(&["@nobody:example.com".into()]).await.unwrap();
+        assert!(snap.changed.is_empty());
+        assert!(snap.left.contains(&"@nobody:example.com".to_string()));
+    }
+
+    #[tokio::test]
+    async fn filter_existing_users_returns_only_users_with_devices() {
+        let svc = test_service();
+        svc.create_device("D1", "@alice:example.com", None).await.unwrap();
+        let users: Vec<String> = vec!["@alice:example.com".into(), "@bob:example.com".into()];
+        let result = svc.device_storage.filter_existing_users(&users).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "@alice:example.com");
     }
 }

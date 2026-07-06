@@ -276,14 +276,14 @@ impl SlidingSyncService {
         }))
     }
 
-    fn e2ee_device_list_stream_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+    pub(crate) fn e2ee_device_list_stream_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:{user_id}:{device_id}:{conn_id}"),
             None => format!("sliding_sync:e2ee:{user_id}:{device_id}:"),
         }
     }
 
-    fn e2ee_shared_users_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
+    pub(crate) fn e2ee_shared_users_cache_key(user_id: &str, device_id: &str, conn_id: Option<&str>) -> String {
         match conn_id {
             Some(conn_id) => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:{conn_id}"),
             None => format!("sliding_sync:e2ee:shared_users:{user_id}:{device_id}:"),
@@ -347,5 +347,74 @@ impl SlidingSyncService {
         };
 
         Ok((events, next_batch))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compute_left_shared_users_empty_both() {
+        let left = SlidingSyncService::compute_left_shared_users(&[], &[]);
+        assert!(left.is_empty());
+    }
+
+    #[test]
+    fn compute_left_shared_users_no_change() {
+        let prev = vec!["alice".into(), "bob".into()];
+        let curr = vec!["alice".into(), "bob".into()];
+        let left = SlidingSyncService::compute_left_shared_users(&prev, &curr);
+        assert!(left.is_empty());
+    }
+
+    #[test]
+    fn compute_left_shared_users_user_left() {
+        let prev = vec!["alice".into(), "bob".into(), "carol".into()];
+        let curr = vec!["alice".into(), "carol".into()];
+        let left = SlidingSyncService::compute_left_shared_users(&prev, &curr);
+        assert_eq!(left, vec!["bob"]);
+    }
+
+    #[test]
+    fn compute_left_shared_users_new_user_joined() {
+        let prev = vec!["alice".into()];
+        let curr = vec!["alice".into(), "bob".into()];
+        let left = SlidingSyncService::compute_left_shared_users(&prev, &curr);
+        assert!(left.is_empty());
+    }
+
+    #[test]
+    fn compute_left_shared_users_multiple_left() {
+        let prev = vec!["a".into(), "b".into(), "c".into(), "d".into()];
+        let curr = vec!["a".into(), "d".into()];
+        let left = SlidingSyncService::compute_left_shared_users(&prev, &curr);
+        let mut left = left;
+        left.sort();
+        assert_eq!(left, vec!["b", "c"]);
+    }
+
+    #[test]
+    fn e2ee_device_list_stream_cache_key_with_conn_id() {
+        let key = SlidingSyncService::e2ee_device_list_stream_cache_key("alice", "DEV1", Some("conn123"));
+        assert_eq!(key, "sliding_sync:e2ee:alice:DEV1:conn123");
+    }
+
+    #[test]
+    fn e2ee_device_list_stream_cache_key_without_conn_id() {
+        let key = SlidingSyncService::e2ee_device_list_stream_cache_key("alice", "DEV1", None);
+        assert_eq!(key, "sliding_sync:e2ee:alice:DEV1:");
+    }
+
+    #[test]
+    fn e2ee_shared_users_cache_key_with_conn_id() {
+        let key = SlidingSyncService::e2ee_shared_users_cache_key("bob", "DEV2", Some("conn456"));
+        assert_eq!(key, "sliding_sync:e2ee:shared_users:bob:DEV2:conn456");
+    }
+
+    #[test]
+    fn e2ee_shared_users_cache_key_without_conn_id() {
+        let key = SlidingSyncService::e2ee_shared_users_cache_key("bob", "DEV2", None);
+        assert_eq!(key, "sliding_sync:e2ee:shared_users:bob:DEV2:");
     }
 }

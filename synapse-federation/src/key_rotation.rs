@@ -1,4 +1,5 @@
 use crate::signing::sign_json;
+use async_trait::async_trait;
 use base64::Engine;
 use chrono::{Duration, Utc};
 use parking_lot::RwLock as ParkingLotRwLock;
@@ -66,6 +67,20 @@ struct FederationKeyRecord {
 }
 
 type CachedKeyEntry = (String, i64);
+
+#[async_trait]
+pub trait KeyRotationManagerApi: Send + Sync {
+    async fn get_rotation_status(&self) -> serde_json::Value;
+    async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError>;
+    async fn get_current_key(&self) -> Result<Option<SigningKey>, ApiError>;
+    async fn revoke_key(
+        &self,
+        key_id: &str,
+        reason: Option<&str>,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>>;
+    async fn set_rotation_enabled(&self, enabled: bool);
+    async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError>;
+}
 
 #[derive(Debug, Clone)]
 pub struct KeyRotationManager {
@@ -806,6 +821,37 @@ impl KeyRotationManager {
 
     pub fn set_signature_cache(&self, cache: Arc<FederationSignatureCache>) {
         *self.signature_cache.write() = Some(cache);
+    }
+}
+
+#[async_trait]
+impl KeyRotationManagerApi for KeyRotationManager {
+    async fn get_rotation_status(&self) -> serde_json::Value {
+        self.get_rotation_status().await
+    }
+
+    async fn rotate_keys(&self, requested_key_id: Option<String>) -> Result<(), ApiError> {
+        self.rotate_keys(requested_key_id).await
+    }
+
+    async fn get_current_key(&self) -> Result<Option<SigningKey>, ApiError> {
+        self.get_current_key().await
+    }
+
+    async fn revoke_key(
+        &self,
+        key_id: &str,
+        reason: Option<&str>,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        self.revoke_key(key_id, reason).await
+    }
+
+    async fn set_rotation_enabled(&self, enabled: bool) {
+        self.set_rotation_enabled(enabled).await
+    }
+
+    async fn set_rotation_config_value(&self, key: &str, value: &str) -> Result<(), ApiError> {
+        self.set_rotation_config_value(key, value).await
     }
 }
 

@@ -4,21 +4,21 @@ use rand::RngCore;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::cas::{
-    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStorage, CasTicket, CasUserAttribute, CreatePgtRequest,
+    CasProxyGrantingTicket, CasProxyTicket, CasSloSession, CasStoreApi, CasTicket, CasUserAttribute, CreatePgtRequest,
     CreateProxyTicketRequest, CreateTicketRequest,
 };
 pub use synapse_storage::cas::{CasRegisteredService, RegisterServiceRequest};
 use tracing::{info, instrument};
 
 pub struct CasService {
-    storage: Arc<CasStorage>,
+    storage: Arc<dyn CasStoreApi>,
     server_name: String,
     ticket_prefix: String,
     ticket_validity_seconds: i64,
 }
 
 impl CasService {
-    pub fn new(storage: Arc<CasStorage>, server_name: String) -> Self {
+    pub fn new(storage: Arc<dyn CasStoreApi>, server_name: String) -> Self {
         Self { storage, server_name, ticket_prefix: "ST".to_string(), ticket_validity_seconds: 300 }
     }
 
@@ -336,3 +336,133 @@ impl CasValidationResponse {
 }
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_storage::test_mocks::InMemoryCasStore;
+
+    fn test_service() -> CasService {
+        CasService::new(Arc::new(InMemoryCasStore::new()), "example.com".to_string())
+    }
+
+    // ── to_xml (CasValidationResponse) ─────────────────────────────
+
+    #[test]
+    fn xml_success_with_user_only() {
+        let resp = CasValidationResponse::Success {
+            user: "@alice:example.com".to_string(),
+            attributes: std::collections::HashMap::new(),
+            proxy_granting_ticket: None,
+        };
+        let xml = resp.to_xml();
+        assert!(xml.contains("<cas:authenticationSuccess>"));
+        assert!(xml.contains("<cas:user>@alice:example.com</cas:user>"));
+        assert!(!xml.contains("<cas:attributes>"));
+        assert!(!xml.contains("<cas:proxyGrantingTicket>"));
+    }
+
+    #[test]
+    fn xml_success_with_attributes() {
+        let mut attrs = std::collections::HashMap::new();
+        attrs.insert("email".to_string(), "alice@example.com".to_string());
+        let resp = CasValidationResponse::Success {
+            user: "@alice:example.com".to_string(),
+            attributes: attrs,
+            proxy_granting_ticket: None,
+        };
+        let xml = resp.to_xml();
+        assert!(xml.contains("<cas:attributes>"));
+        assert!(xml.contains("<cas:email>alice@example.com</cas:email>"));
+    }
+
+    #[test]
+    fn xml_success_with_pgt() {
+        let resp = CasValidationResponse::Success {
+            user: "@alice:example.com".to_string(),
+            attributes: std::collections::HashMap::new(),
+            proxy_granting_ticket: Some("PGTIOU-123".to_string()),
+        };
+        let xml = resp.to_xml();
+        assert!(xml.contains("<cas:proxyGrantingTicket>PGTIOU-123</cas:proxyGrantingTicket>"));
+    }
+
+    #[test]
+    fn xml_failure_contains_code_and_description() {
+        let resp = CasValidationResponse::Failure {
+            code: "INVALID_TICKET".to_string(),
+            description: "Ticket expired".to_string(),
+        };
+        let xml = resp.to_xml();
+        assert!(xml.contains("<cas:authenticationFailure"));
+        assert!(xml.contains("INVALID_TICKET"));
+        assert!(xml.contains("Ticket expired"));
+    }
+
+    // ── create_service_ticket ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_service_ticket_returns_valid_ticket() {
+        let svc = test_service();
+        let ticket = svc.create_service_ticket("@alice:example.com", "https://app.example.com").await.unwrap();
+        assert_eq!(ticket.user_id, "@alice:example.com");
+        assert_eq!(ticket.service_url, "https://app.example.com");
+        assert!(ticket.is_valid);
+        assert!(ticket.ticket_id.starts_with("ST-"));
+    }
+
+    // ── validate_service_ticket_v3 ──────────────────────────────────
+
+    #[tokio::test]
+    async fn validate_v3_success_for_valid_ticket() {
+        let svc = test_service();
+        let ticket = svc.create_service_ticket("@alice:example.com", "https://app.example.com").await.unwrap();
+        let result =
+            svc.validate_service_ticket_v3(&ticket.ticket_id, "https://app.example.com", None, false).await.unwrap();
+        match result {
+            CasValidationResponse::Success { user, .. } => assert_eq!(user, "@alice:example.com"),
+            _ => panic!("Expected success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_v3_fails_for_nonexistent_ticket() {
+        let svc = test_service();
+        let result =
+            svc.validate_service_ticket_v3("ST-nonexistent", "https://app.example.com", None, false).await.unwrap();
+        match result {
+            CasValidationResponse::Failure { code, .. } => assert_eq!(code, "INVALID_TICKET"),
+            _ => panic!("Expected failure"),
+        }
+    }
+
+    // ── create_proxy_ticket ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_proxy_ticket_requires_valid_pgt() {
+        let svc = test_service();
+        let err = svc.create_proxy_ticket("PGT-invalid", "https://target.example.com").await.unwrap_err();
+        assert!(err.to_string().contains("Invalid proxy granting ticket"));
+    }
+
+    #[tokio::test]
+    async fn create_proxy_ticket_succeeds_with_valid_pgt() {
+        let svc = test_service();
+        // Create a PGT first
+        let pgt =
+            svc.create_proxy_granting_ticket("@alice:example.com", "https://app.example.com", None).await.unwrap();
+        let pt = svc.create_proxy_ticket(&pgt.pgt_id, "https://target.example.com").await.unwrap();
+        assert_eq!(pt.user_id, "@alice:example.com");
+        assert_eq!(pt.service_url, "https://target.example.com");
+        assert!(pt.is_valid);
+    }
+
+    // ── is_configured ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn is_configured_returns_true_when_tables_exist() {
+        let svc = test_service();
+        // The InMemoryCasStore always succeeds on list_services
+        assert!(svc.is_configured().await);
+    }
+}

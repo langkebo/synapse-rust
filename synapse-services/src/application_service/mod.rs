@@ -4,7 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use synapse_common::ApiError;
-use synapse_storage::{application_service::*, EventStorage};
+use synapse_storage::application_service::*;
+use synapse_storage::event::EventStoreApi;
 use tokio::fs;
 use tracing::{info, instrument, warn};
 
@@ -19,14 +20,18 @@ mod transaction;
 pub use models::NamespacesInfo;
 
 pub struct ApplicationServiceManager {
-    storage: Arc<ApplicationServiceStorage>,
-    event_storage: Arc<EventStorage>,
+    storage: Arc<dyn ApplicationServiceStoreApi>,
+    event_storage: Arc<dyn EventStoreApi>,
     http_client: Client,
     server_name: String,
 }
 
 impl ApplicationServiceManager {
-    pub fn new(storage: Arc<ApplicationServiceStorage>, event_storage: Arc<EventStorage>, server_name: String) -> Self {
+    pub fn new(
+        storage: Arc<dyn ApplicationServiceStoreApi>,
+        event_storage: Arc<dyn EventStoreApi>,
+        server_name: String,
+    ) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(5))

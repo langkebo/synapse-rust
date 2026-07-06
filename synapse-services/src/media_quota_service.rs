@@ -4,11 +4,11 @@ use synapse_storage::media_quota::*;
 use tracing::{info, instrument};
 
 pub struct MediaQuotaService {
-    storage: Arc<MediaQuotaStorage>,
+    storage: Arc<dyn MediaQuotaStoreApi>,
 }
 
 impl MediaQuotaService {
-    pub fn new(storage: Arc<MediaQuotaStorage>) -> Self {
+    pub fn new(storage: Arc<dyn MediaQuotaStoreApi>) -> Self {
         Self { storage }
     }
 

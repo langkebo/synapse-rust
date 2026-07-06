@@ -8,7 +8,7 @@ use tower::ServiceExt;
 /// 测试房间管理完整生命周期：创建 → 查询 → 删除 → 验证删除
 #[tokio::test]
 async fn test_admin_room_lifecycle_management() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (admin_token, _) = super::get_admin_token(&app).await;
@@ -142,7 +142,7 @@ async fn test_admin_room_lifecycle_management() {
 /// 测试房间历史清理功能
 #[tokio::test]
 async fn test_admin_room_history_purge() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (admin_token, _) = super::get_super_admin_token(&app).await;
@@ -243,7 +243,7 @@ async fn test_admin_room_history_purge() {
 
 #[tokio::test]
 async fn test_admin_purge_history_requires_existing_room() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (admin_token, _) = super::get_super_admin_token(&app).await;
@@ -273,7 +273,7 @@ async fn test_admin_purge_history_requires_existing_room() {
 /// 测试批量房间查询和搜索
 #[tokio::test]
 async fn test_admin_room_list_and_search() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (admin_token, _) = super::get_admin_token(&app).await;
@@ -381,7 +381,7 @@ async fn test_admin_room_list_and_search() {
 /// traffic.
 #[tokio::test]
 async fn test_admin_backfill_requires_existing_room() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (admin_token, _) = super::get_super_admin_token(&app).await;

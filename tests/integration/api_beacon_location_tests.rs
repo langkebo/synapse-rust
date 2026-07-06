@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    let (app, pool, _) = super::setup_fresh_test_app_with_pool().await?;
     Some((app, pool))
 }
 

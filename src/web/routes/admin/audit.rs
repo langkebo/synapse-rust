@@ -1,5 +1,6 @@
 use crate::common::ApiError;
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use crate::web::utils::auth::resolve_request_id as resolve_request_id_from_headers;
 use axum::{
     extract::{Path, Query, State},
@@ -11,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_storage::audit::{decode_audit_event_cursor, AuditEventFilters, CreateAuditEventRequest};
 
-pub fn create_audit_router(_state: AppState) -> Router<AppState> {
+pub fn create_audit_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/audit/events", post(create_audit_event).get(list_audit_events))
         .route("/_synapse/admin/v1/audit/events/{event_id}", get(get_audit_event))
@@ -55,13 +56,10 @@ pub struct AuditEventQueryParams {
 #[axum::debug_handler]
 pub async fn create_audit_event(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<CreateAuditEventBody>,
 ) -> Result<Json<Value>, ApiError> {
-    let event = state
-        .services
-        .admin
-        .security
+    let event = ctx
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: body.actor_id,
@@ -80,7 +78,7 @@ pub async fn create_audit_event(
 #[axum::debug_handler]
 pub async fn list_audit_events(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(params): Query<AuditEventQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 200);
@@ -99,10 +97,7 @@ pub async fn list_audit_events(
         return Err(ApiError::bad_request("Invalid from cursor"));
     }
 
-    let (events, total, next_batch) = state
-        .services
-        .admin
-        .security
+    let (events, total, next_batch) = ctx
         .admin_audit_service
         .list_events(AuditEventFilters {
             actor_id: params.actor_id,
@@ -125,13 +120,10 @@ pub async fn list_audit_events(
 #[axum::debug_handler]
 pub async fn get_audit_event(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(event_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let event = state
-        .services
-        .admin
-        .security
+    let event = ctx
         .admin_audit_service
         .get_event(&event_id)
         .await?
@@ -145,7 +137,7 @@ pub(crate) fn resolve_request_id(headers: &HeaderMap) -> String {
 }
 
 pub(crate) async fn record_audit_event(
-    state: &AppState,
+    ctx: &AdminContext,
     actor_id: &str,
     action: &str,
     resource_type: &str,
@@ -153,10 +145,7 @@ pub(crate) async fn record_audit_event(
     request_id: String,
     details: Value,
 ) -> Result<(), ApiError> {
-    let result = state
-        .services
-        .admin
-        .security
+    let result = ctx
         .admin_audit_service
         .create_event(CreateAuditEventRequest {
             actor_id: actor_id.to_string(),

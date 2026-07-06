@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -12,6 +13,24 @@ pub struct AiConnection {
     pub created_ts: i64,
     pub updated_ts: Option<i64>,
 }
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait AiConnectionStoreApi: Send + Sync {
+    async fn create_connection(&self, conn: &AiConnection) -> Result<(), sqlx::Error>;
+    async fn get_connection(&self, id: &str) -> Result<Option<AiConnection>, sqlx::Error>;
+    async fn get_user_connections(&self, user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error>;
+    async fn get_user_provider_connection(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<AiConnection>, sqlx::Error>;
+    async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error>;
+    async fn delete_connection(&self, id: &str) -> Result<(), sqlx::Error>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct AiConnectionStorage {
@@ -124,5 +143,38 @@ impl AiConnectionStorage {
         .await?;
 
         Ok(())
+    }
+}
+
+// ── Trait delegation ────────────────────────────────────────────────────
+
+#[async_trait]
+impl AiConnectionStoreApi for AiConnectionStorage {
+    async fn create_connection(&self, conn: &AiConnection) -> Result<(), sqlx::Error> {
+        self.create_connection(conn).await
+    }
+
+    async fn get_connection(&self, id: &str) -> Result<Option<AiConnection>, sqlx::Error> {
+        self.get_connection(id).await
+    }
+
+    async fn get_user_connections(&self, user_id: &str) -> Result<Vec<AiConnection>, sqlx::Error> {
+        self.get_user_connections(user_id).await
+    }
+
+    async fn get_user_provider_connection(
+        &self,
+        user_id: &str,
+        provider: &str,
+    ) -> Result<Option<AiConnection>, sqlx::Error> {
+        self.get_user_provider_connection(user_id, provider).await
+    }
+
+    async fn update_connection_status(&self, id: &str, is_active: bool) -> Result<(), sqlx::Error> {
+        self.update_connection_status(id, is_active).await
+    }
+
+    async fn delete_connection(&self, id: &str) -> Result<(), sqlx::Error> {
+        self.delete_connection(id).await
     }
 }

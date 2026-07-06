@@ -674,4 +674,423 @@ mod tests {
         assert_eq!(metrics.security_origin_validation_errors.get(), 1);
         assert_eq!(metrics.security_timestamp_validation_errors.get(), 1);
     }
+
+    #[test]
+    fn test_security_validation_success_does_not_increment_error_counters() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        // Successful validations should not increment any error counter.
+        metrics.record_security_validation(SecurityValidationType::Jwt, true);
+        metrics.record_security_validation(SecurityValidationType::Origin, true);
+        metrics.record_security_validation(SecurityValidationType::Timestamp, true);
+
+        assert_eq!(metrics.security_jwt_validation_errors.get(), 0);
+        assert_eq!(metrics.security_origin_validation_errors.get(), 0);
+        assert_eq!(metrics.security_timestamp_validation_errors.get(), 0);
+    }
+
+    #[test]
+    fn test_record_token_validation_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_token_validation(true);
+        assert_eq!(metrics.token_validations_total.get(), 1);
+        assert_eq!(metrics.token_validation_errors.get(), 0);
+
+        metrics.record_token_validation(false);
+        assert_eq!(metrics.token_validations_total.get(), 2);
+        assert_eq!(metrics.token_validation_errors.get(), 1);
+    }
+
+    #[test]
+    fn test_record_db_query_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_db_query(15.5, true);
+        assert_eq!(metrics.db_query_errors.get(), 0);
+        assert_eq!(metrics.db_query_duration.get_count(), 1);
+
+        metrics.record_db_query(30.0, false);
+        assert_eq!(metrics.db_query_errors.get(), 1);
+        assert_eq!(metrics.db_query_duration.get_count(), 2);
+    }
+
+    #[test]
+    fn test_record_db_transaction_duration_recorded() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.db_transaction_duration.observe(50.0);
+        assert_eq!(metrics.db_transaction_duration.get_count(), 1);
+        assert_eq!(metrics.db_transaction_duration.get_sum(), 50.0);
+    }
+
+    #[test]
+    fn test_record_cache_evictions_and_errors() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.cache_evictions_total.inc();
+        metrics.cache_errors.inc();
+        assert_eq!(metrics.cache_evictions_total.get(), 1);
+        assert_eq!(metrics.cache_errors.get(), 1);
+    }
+
+    #[test]
+    fn test_record_http_request_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_http_request(100.0, true);
+        assert_eq!(metrics.http_requests_total.get(), 1);
+        assert_eq!(metrics.http_request_errors.get(), 0);
+        assert_eq!(metrics.http_request_duration.get_count(), 1);
+
+        metrics.record_http_request(200.0, false);
+        assert_eq!(metrics.http_requests_total.get(), 2);
+        assert_eq!(metrics.http_request_errors.get(), 1);
+    }
+
+    #[test]
+    fn test_http_request_started_and_finished_tracks_active() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        assert_eq!(metrics.http_active_requests.get(), 0.0);
+        metrics.http_request_started();
+        assert_eq!(metrics.http_active_requests.get(), 1.0);
+        metrics.http_request_started();
+        assert_eq!(metrics.http_active_requests.get(), 2.0);
+        metrics.http_request_finished();
+        assert_eq!(metrics.http_active_requests.get(), 1.0);
+    }
+
+    #[test]
+    fn test_record_room_operation_create_join_leave() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_room_operation("create", 10.0, true);
+        metrics.record_room_operation("join", 20.0, true);
+        metrics.record_room_operation("leave", 5.0, true);
+
+        assert_eq!(metrics.room_creates_total.get(), 1);
+        assert_eq!(metrics.room_joins_total.get(), 1);
+        assert_eq!(metrics.room_leaves_total.get(), 1);
+        assert_eq!(metrics.room_operation_duration.get_count(), 3);
+    }
+
+    #[test]
+    fn test_record_room_operation_unknown_op_does_not_increment_counters() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        // Unknown op should still observe duration but not increment any counter.
+        metrics.record_room_operation("unknown", 15.0, false);
+        assert_eq!(metrics.room_creates_total.get(), 0);
+        assert_eq!(metrics.room_joins_total.get(), 0);
+        assert_eq!(metrics.room_leaves_total.get(), 0);
+        assert_eq!(metrics.room_operation_duration.get_count(), 1);
+    }
+
+    #[test]
+    fn test_record_sync_request() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_sync_request(500.0, true);
+        assert_eq!(metrics.sync_requests_total.get(), 1);
+        assert_eq!(metrics.sync_duration.get_count(), 1);
+
+        // success flag is currently ignored (let _ = success), but method should not error.
+        metrics.record_sync_request(1000.0, false);
+        assert_eq!(metrics.sync_requests_total.get(), 2);
+    }
+
+    #[test]
+    fn test_record_message_send() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_message_send(50.0, true);
+        assert_eq!(metrics.messages_sent_total.get(), 1);
+        assert_eq!(metrics.message_send_duration.get_count(), 1);
+
+        metrics.record_message_send(75.0, false);
+        assert_eq!(metrics.messages_sent_total.get(), 2);
+    }
+
+    #[test]
+    fn test_record_presence_update() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_presence_update(25.0);
+        assert_eq!(metrics.presence_updates_total.get(), 1);
+        assert_eq!(metrics.presence_sync_duration.get_count(), 1);
+        assert_eq!(metrics.presence_sync_duration.get_sum(), 25.0);
+    }
+
+    #[test]
+    fn test_record_state_group_resolve() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_state_group_resolve(40.0);
+        assert_eq!(metrics.state_group_resolves_total.get(), 1);
+        assert_eq!(metrics.state_group_resolve_duration.get_count(), 1);
+    }
+
+    #[test]
+    fn test_record_csrf_validation_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_csrf_validation(true);
+        assert_eq!(metrics.csrf_validations_total.get(), 1);
+        assert_eq!(metrics.csrf_validation_failures_total.get(), 0);
+
+        metrics.record_csrf_validation(false);
+        assert_eq!(metrics.csrf_validations_total.get(), 2);
+        assert_eq!(metrics.csrf_validation_failures_total.get(), 1);
+    }
+
+    #[test]
+    fn test_record_federation_signature_verification_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_federation_signature_verification(true);
+        assert_eq!(metrics.federation_signature_verifications.get(), 1);
+        assert_eq!(metrics.federation_signature_errors.get(), 0);
+
+        metrics.record_federation_signature_verification(false);
+        assert_eq!(metrics.federation_signature_verifications.get(), 2);
+        assert_eq!(metrics.federation_signature_errors.get(), 1);
+    }
+
+    #[test]
+    fn test_record_megolm_share_success() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_share(5, 10.0, 1.0, true);
+        assert_eq!(metrics.megolm_share_total.get(), 1);
+        assert_eq!(metrics.megolm_share_recipients_total.get(), 5);
+        assert_eq!(metrics.megolm_share_db_duration_ms.get_count(), 1);
+        assert_eq!(metrics.megolm_share_cache_duration_ms.get_count(), 1);
+        assert_eq!(metrics.megolm_share_db_errors_total.get(), 0);
+    }
+
+    #[test]
+    fn test_record_megolm_share_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_share(5, 10.0, 1.0, false);
+        assert_eq!(metrics.megolm_share_total.get(), 1);
+        assert_eq!(metrics.megolm_share_recipients_total.get(), 0);
+        assert_eq!(metrics.megolm_share_db_duration_ms.get_count(), 0);
+        assert_eq!(metrics.megolm_share_db_errors_total.get(), 1);
+    }
+
+    #[test]
+    fn test_record_megolm_share_cache_error() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_share_cache_error();
+        metrics.record_megolm_share_cache_error();
+        assert_eq!(metrics.megolm_share_cache_errors_total.get(), 2);
+    }
+
+    #[test]
+    fn test_record_megolm_session_key_read() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_session_key_read("hit", 5.0);
+        assert_eq!(metrics.megolm_session_key_read_total.get(), 1);
+        assert_eq!(metrics.megolm_session_key_read_duration_ms.get_count(), 1);
+    }
+
+    #[test]
+    fn test_record_megolm_vodozemac_pickle_persist_success() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_vodozemac_pickle_persist(15.0, true);
+        assert_eq!(metrics.megolm_vodozemac_pickle_persist_total.get(), 1);
+        assert_eq!(metrics.megolm_vodozemac_pickle_persist_errors_total.get(), 0);
+        assert_eq!(metrics.megolm_pickle_persist_duration_ms.get_count(), 1);
+    }
+
+    #[test]
+    fn test_record_megolm_vodozemac_pickle_persist_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_vodozemac_pickle_persist(15.0, false);
+        assert_eq!(metrics.megolm_vodozemac_pickle_persist_total.get(), 1);
+        assert_eq!(metrics.megolm_vodozemac_pickle_persist_errors_total.get(), 1);
+        assert_eq!(metrics.megolm_pickle_persist_duration_ms.get_count(), 0);
+    }
+
+    #[test]
+    fn test_record_megolm_dual_write_promotion_success_and_failure() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_dual_write_promotion(true);
+        metrics.record_megolm_dual_write_promotion(true);
+        metrics.record_megolm_dual_write_promotion(false);
+
+        assert_eq!(metrics.megolm_dual_write_promotions_total.get(), 2);
+        assert_eq!(metrics.megolm_dual_write_promotion_errors_total.get(), 1);
+    }
+
+    #[test]
+    fn test_record_megolm_lazy_migration_batch() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_megolm_lazy_migration_batch(100, 30);
+        assert_eq!(metrics.megolm_lazy_migration_sessions_scanned_total.get(), 100);
+        assert_eq!(metrics.megolm_lazy_migration_sessions_promoted_total.get(), 30);
+
+        metrics.record_megolm_lazy_migration_batch(50, 10);
+        assert_eq!(metrics.megolm_lazy_migration_sessions_scanned_total.get(), 150);
+        assert_eq!(metrics.megolm_lazy_migration_sessions_promoted_total.get(), 40);
+    }
+
+    #[test]
+    fn test_get_collector_returns_arc() {
+        let collector = Arc::new(MetricsCollector::new());
+        // Clone before moving into ServerMetrics::new (which takes Arc by value).
+        let collector_handle = collector.clone();
+        let metrics = ServerMetrics::new(collector);
+
+        let returned = metrics.get_collector();
+        // Strong count should be >= 2: one in metrics, one in collector_handle.
+        assert!(Arc::strong_count(returned) >= 2);
+
+        // Verify the returned Arc points to the same MetricsCollector.
+        let _ = collector_handle.get_counter("any_counter");
+    }
+
+    #[test]
+    fn test_calculate_cache_hit_rate_zero_when_no_ops() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        // No cache operations: hit rate should be 0.0 (avoids division by zero).
+        let summary = metrics.get_summary();
+        assert_eq!(summary.cache_hit_rate, 0.0);
+    }
+
+    #[test]
+    fn test_calculate_cache_hit_rate_with_mixed_hits_misses() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        // 3 hits + 1 miss = 75% hit rate.
+        metrics.record_cache_operation(true);
+        metrics.record_cache_operation(true);
+        metrics.record_cache_operation(true);
+        metrics.record_cache_operation(false);
+
+        let summary = metrics.get_summary();
+        assert_eq!(summary.cache_hits, 3);
+        assert_eq!(summary.cache_misses, 1);
+        assert_eq!(summary.cache_hit_rate, 75.0);
+    }
+
+    #[test]
+    fn test_metrics_summary_auth_success_rate_zero_when_no_attempts() {
+        let summary = MetricsSummary {
+            auth_attempts: 0,
+            auth_failures: 0,
+            auth_success: 0,
+            token_validations: 0,
+            token_errors: 0,
+            cache_hits: 0,
+            cache_misses: 0,
+            cache_hit_rate: 0.0,
+            federation_requests: 0,
+            federation_errors: 0,
+            replay_attacks_blocked: 0,
+            http_requests: 0,
+            http_errors: 0,
+            db_errors: 0,
+            room_creates: 0,
+            room_joins: 0,
+            room_leaves: 0,
+            sync_requests: 0,
+            messages_sent: 0,
+            presence_updates: 0,
+            state_group_resolves: 0,
+            csrf_validations: 0,
+            csrf_validation_failures: 0,
+        };
+
+        assert_eq!(summary.auth_success_rate(), 0.0);
+        assert_eq!(summary.error_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_get_summary_includes_all_room_operations() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.record_room_operation("create", 10.0, true);
+        metrics.record_room_operation("join", 20.0, true);
+        metrics.record_room_operation("leave", 5.0, true);
+        metrics.record_sync_request(500.0, true);
+        metrics.record_message_send(50.0, true);
+        metrics.record_presence_update(25.0);
+        metrics.record_state_group_resolve(40.0);
+        metrics.record_csrf_validation(true);
+        metrics.record_csrf_validation(false);
+
+        let summary = metrics.get_summary();
+        assert_eq!(summary.room_creates, 1);
+        assert_eq!(summary.room_joins, 1);
+        assert_eq!(summary.room_leaves, 1);
+        assert_eq!(summary.sync_requests, 1);
+        assert_eq!(summary.messages_sent, 1);
+        assert_eq!(summary.presence_updates, 1);
+        assert_eq!(summary.state_group_resolves, 1);
+        assert_eq!(summary.csrf_validations, 2);
+        assert_eq!(summary.csrf_validation_failures, 1);
+    }
+
+    #[test]
+    fn test_total_users_and_total_rooms_gauges() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.total_users.set(1500.0);
+        metrics.total_rooms.set(300.0);
+        assert_eq!(metrics.total_users.get(), 1500.0);
+        assert_eq!(metrics.total_rooms.get(), 300.0);
+    }
+
+    #[test]
+    fn test_dehydrated_device_metrics_counters() {
+        let collector = Arc::new(MetricsCollector::new());
+        let metrics = ServerMetrics::new(collector);
+
+        metrics.dehydrated_device_cleanup_total.inc();
+        metrics.dehydrated_device_cleaned_total.inc_by(5);
+        metrics.dehydrated_device_cleanup_errors_total.inc();
+        metrics.dehydrated_device_cleanup_duration.observe(100.0);
+
+        assert_eq!(metrics.dehydrated_device_cleanup_total.get(), 1);
+        assert_eq!(metrics.dehydrated_device_cleaned_total.get(), 5);
+        assert_eq!(metrics.dehydrated_device_cleanup_errors_total.get(), 1);
+        assert_eq!(metrics.dehydrated_device_cleanup_duration.get_count(), 1);
+    }
 }

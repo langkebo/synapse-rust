@@ -57,8 +57,14 @@ pub(crate) async fn filter_users_with_shared_rooms(
         return allowed;
     }
 
-    let shared =
-        state.services.rooms.room_service.share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
+    let shared = state
+        .services
+        .rooms
+        .room_service
+        .membership
+        .share_common_rooms_batch(current_user_id, &others)
+        .await
+        .unwrap_or_default();
 
     for uid in shared {
         allowed.insert(uid);

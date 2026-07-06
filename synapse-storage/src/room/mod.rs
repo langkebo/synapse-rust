@@ -1,5 +1,8 @@
 pub mod admin;
+pub(crate) mod api;
 pub(crate) mod models;
+
+pub use api::RoomStoreApi;
 pub use models::*;
 
 use serde_json::json;
@@ -10,7 +13,7 @@ use tracing;
 use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 
 impl RoomStorage {
-    fn encryption_from_is_encrypted(is_encrypted: Option<bool>) -> Option<String> {
+    pub(crate) fn encryption_from_is_encrypted(is_encrypted: Option<bool>) -> Option<String> {
         if is_encrypted.unwrap_or(false) {
             Some("m.megolm.v1.aes-sha2".to_string())
         } else {
@@ -667,17 +670,21 @@ impl RoomStorage {
     }
 
     pub async fn set_room_visibility(&self, room_id: &str, visibility: &str) -> Result<(), sqlx::Error> {
-        let visibility_value = match visibility {
-            "public" => "public",
-            "private" => "private",
-            _ => "private",
+        // Normalize the visibility string and derive the boolean is_public
+        // flag from it. `is_public` is what most callers actually read, so we
+        // keep it in sync with the visibility column.
+        let (visibility_value, is_public) = match visibility {
+            "public" => ("public", true),
+            "private" => ("private", false),
+            _ => ("private", false),
         };
         sqlx::query(
             r"
-            UPDATE rooms SET visibility = $1 WHERE room_id = $2
+            UPDATE rooms SET visibility = $1, is_public = $2 WHERE room_id = $3
             ",
         )
         .bind(visibility_value)
+        .bind(is_public)
         .bind(room_id)
         .execute(&*self.pool)
         .await?;
@@ -1398,12 +1405,13 @@ mod db_tests {
         storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
         assert!(!storage.is_room_in_directory(&room_id).await.unwrap());
 
-        storage.set_room_public(&room_id, true).await.expect("set_room_public should succeed");
+        storage.set_room_visibility(&room_id, "public").await.expect("set_room_visibility should succeed");
+        storage.set_room_directory(&room_id, true).await.expect("set_room_directory should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert!(room.is_public);
         assert!(storage.is_room_in_directory(&room_id).await.unwrap());
 
-        storage.set_room_public(&room_id, false).await.expect("unset public should succeed");
+        storage.set_room_visibility(&room_id, "private").await.expect("unset public should succeed");
         let room = storage.get_room(&room_id).await.unwrap().unwrap();
         assert!(!room.is_public);
 
@@ -1496,5 +1504,444 @@ mod db_tests {
         // Room membership may be empty for a test user — the .expect() above
         // already verifies the query itself succeeds without error.
         let _ = room_ids;
+    }
+
+    #[tokio::test]
+    async fn test_update_room_avatar() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!avatar_test_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+
+        storage
+            .update_room_avatar(&room_id, "mxc://example.com/avatar123")
+            .await
+            .expect("update_room_avatar should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert_eq!(room.avatar_url.as_deref(), Some("mxc://example.com/avatar123"));
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_canonical_alias_some_then_none() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!alias_set_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+
+        storage
+            .set_canonical_alias(&room_id, Some("#alias:example.com"))
+            .await
+            .expect("set_canonical_alias Some should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert_eq!(room.canonical_alias.as_deref(), Some("#alias:example.com"));
+
+        storage.set_canonical_alias(&room_id, None).await.expect("set_canonical_alias None should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert!(room.canonical_alias.is_none());
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_update_canonical_alias() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!upd_alias_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+
+        storage
+            .update_canonical_alias(&room_id, "#first:example.com")
+            .await
+            .expect("update_canonical_alias should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert_eq!(room.canonical_alias.as_deref(), Some("#first:example.com"));
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_room_alias_singular() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!single_alias_{}:example.com", suffix);
+        let alias = format!("#single_{}:example.com", suffix);
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+        storage.set_room_alias(&room_id, &alias, "@c:example.com").await.unwrap();
+
+        // get_room_alias returns a single alias (LIMIT 1)
+        let result = storage.get_room_alias(&room_id).await.expect("get_room_alias should succeed");
+        assert_eq!(result.as_deref(), Some(alias.as_str()));
+
+        // Absent room returns None
+        let absent = storage.get_room_alias("!nonexistent:example.com").await.unwrap();
+        assert!(absent.is_none());
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_remove_room_alias_by_room_id() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4();
+        let room_id = format!("!rm_alias_{}:example.com", suffix);
+        let alias = format!("#rm_{}:example.com", suffix);
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+        storage.set_room_alias(&room_id, &alias, "@c:example.com").await.unwrap();
+        assert!(storage.get_room_by_alias(&alias).await.unwrap().is_some());
+
+        storage.remove_room_alias(&room_id).await.expect("remove_room_alias should succeed");
+        assert!(storage.get_room_by_alias(&alias).await.unwrap().is_none());
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_room_version() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!version_test_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", false).await.unwrap();
+
+        storage.set_room_version(&room_id, "11").await.expect("set_room_version should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert_eq!(room.room_version, "11");
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_room_marks_private_and_renames() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!shutdown_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", true).await.unwrap();
+        storage.set_room_directory(&room_id, true).await.unwrap();
+
+        storage.shutdown_room(&room_id).await.expect("shutdown_room should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert!(!room.is_public, "shutdown should make room private");
+        assert!(room.name.as_deref().unwrap_or("").contains("SHUTDOWN"), "name should contain SHUTDOWN suffix");
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_rooms_map_empty_input() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let map = storage.get_rooms_map(&[]).await.expect("get_rooms_map empty should succeed");
+        assert!(map.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_rooms_map_with_rooms() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let rid1 = format!("!map1_{}:example.com", uuid::Uuid::new_v4());
+        let rid2 = format!("!map2_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&rid1).await;
+        let _ = storage.delete_room(&rid2).await;
+        storage.create_room(&rid1, "@c:example.com", "invite", "10", false).await.unwrap();
+        storage.create_room(&rid2, "@c:example.com", "invite", "10", false).await.unwrap();
+
+        let map = storage.get_rooms_map(&[rid1.clone(), rid2.clone()]).await.expect("get_rooms_map should succeed");
+        assert_eq!(map.len(), 2);
+        assert!(map.contains_key(&rid1));
+        assert!(map.contains_key(&rid2));
+
+        let _ = storage.delete_room(&rid1).await;
+        let _ = storage.delete_room(&rid2).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_rooms_batch_empty_input() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let rooms = storage.get_rooms_batch(&[]).await.expect("get_rooms_batch empty should succeed");
+        assert!(rooms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_user_rooms_paginated_no_cursor() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        // Querying for a user with no memberships should return empty without error
+        let rooms = storage
+            .get_user_rooms_paginated("@paginated_nobody:example.com", 10, None)
+            .await
+            .expect("get_user_rooms_paginated no cursor should succeed");
+        assert!(rooms.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_user_room_list_summary_empty() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let summaries = storage
+            .get_user_room_list_summary("@summary_nobody:example.com")
+            .await
+            .expect("get_user_room_list_summary should succeed");
+        assert!(summaries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_set_room_account_data_upsert() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!acct_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@acct_user_{}:example.com", uuid::Uuid::new_v4());
+
+        // Insert
+        storage
+            .set_room_account_data(&room_id, &user_id, "m.fully_read", &json!({"event_id": "$e1:example.com"}))
+            .await
+            .expect("set_room_account_data insert should succeed");
+
+        // Upsert (same key, different content)
+        storage
+            .set_room_account_data(&room_id, &user_id, "m.fully_read", &json!({"event_id": "$e2:example.com"}))
+            .await
+            .expect("set_room_account_data upsert should succeed");
+
+        // Cleanup
+        sqlx::query("DELETE FROM room_account_data WHERE user_id = $1")
+            .bind(&user_id)
+            .execute(&*pool)
+            .await
+            .expect("cleanup room_account_data");
+    }
+
+    #[tokio::test]
+    async fn test_update_read_marker_default_type() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!rm_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@rm_user_{}:example.com", uuid::Uuid::new_v4());
+
+        storage
+            .update_read_marker(&room_id, &user_id, "$event1:example.com")
+            .await
+            .expect("update_read_marker should succeed");
+
+        // Default marker_type is m.fully_read
+        let marker =
+            storage.get_read_marker(&room_id, &user_id, "m.fully_read").await.expect("get_read_marker should succeed");
+        assert_eq!(marker.as_deref(), Some("$event1:example.com"));
+
+        sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_update_read_marker_with_type() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!rmt_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@rmt_user_{}:example.com", uuid::Uuid::new_v4());
+
+        storage
+            .update_read_marker_with_type(&room_id, &user_id, "$e1:example.com", "m.read")
+            .await
+            .expect("update_read_marker_with_type m.read should succeed");
+        storage
+            .update_read_marker_with_type(&room_id, &user_id, "$e2:example.com", "m.marked_unread")
+            .await
+            .expect("update_read_marker_with_type m.marked_unread should succeed");
+
+        let read = storage.get_read_marker(&room_id, &user_id, "m.read").await.unwrap();
+        assert_eq!(read.as_deref(), Some("$e1:example.com"));
+        let unread = storage.get_read_marker(&room_id, &user_id, "m.marked_unread").await.unwrap();
+        assert_eq!(unread.as_deref(), Some("$e2:example.com"));
+
+        sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_read_marker_absent() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let marker = storage
+            .get_read_marker("!nope:example.com", "@nobody:example.com", "m.fully_read")
+            .await
+            .expect("get_read_marker absent should succeed");
+        assert!(marker.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_all_read_markers() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!allrm_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@allrm_user_{}:example.com", uuid::Uuid::new_v4());
+
+        storage.update_read_marker_with_type(&room_id, &user_id, "$e1:example.com", "m.fully_read").await.unwrap();
+        storage.update_read_marker_with_type(&room_id, &user_id, "$e2:example.com", "m.read").await.unwrap();
+
+        let all = storage.get_all_read_markers(&room_id, &user_id).await.expect("get_all_read_markers should succeed");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all.get("m.fully_read"), Some(&"$e1:example.com".to_string()));
+        assert_eq!(all.get("m.read"), Some(&"$e2:example.com".to_string()));
+
+        sqlx::query("DELETE FROM read_markers WHERE user_id = $1").bind(&user_id).execute(&*pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_all_read_markers_empty() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let all = storage
+            .get_all_read_markers("!nope:example.com", "@nobody:example.com")
+            .await
+            .expect("get_all_read_markers empty should succeed");
+        assert!(all.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_add_receipt_and_get_receipts() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!rcpt_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@rcpt_user_{}:example.com", uuid::Uuid::new_v4());
+        let event_id = format!("$rcpt_evt_{}:example.com", uuid::Uuid::new_v4());
+
+        storage
+            .add_receipt(&user_id, "server", &room_id, &event_id, "m.read", &json!({"ts": 123}))
+            .await
+            .expect("add_receipt should succeed");
+
+        let receipts = storage.get_receipts(&room_id, "m.read", &event_id).await.expect("get_receipts should succeed");
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].user_id, user_id);
+        assert_eq!(receipts[0].event_id, event_id);
+        assert_eq!(receipts[0].receipt_type, "m.read");
+
+        sqlx::query("DELETE FROM event_receipts WHERE user_id = $1").bind(&user_id).execute(&*pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_add_receipt_replaces_previous_for_same_type() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!rcpt2_{}:example.com", uuid::Uuid::new_v4());
+        let user_id = format!("@rcpt2_user_{}:example.com", uuid::Uuid::new_v4());
+        let event1 = format!("$evt1_{}:example.com", uuid::Uuid::new_v4());
+        let event2 = format!("$evt2_{}:example.com", uuid::Uuid::new_v4());
+
+        // Add first receipt
+        storage.add_receipt(&user_id, "server", &room_id, &event1, "m.read", &json!({})).await.unwrap();
+        // Add second receipt for the same user+type but different event:
+        // add_receipt deletes prior receipts of the same type for other events
+        storage.add_receipt(&user_id, "server", &room_id, &event2, "m.read", &json!({})).await.unwrap();
+
+        // The first event should no longer have a receipt
+        let receipts1 = storage.get_receipts(&room_id, "m.read", &event1).await.unwrap();
+        assert!(receipts1.is_empty(), "old event receipt should be removed");
+
+        // The new event should have the receipt
+        let receipts2 = storage.get_receipts(&room_id, "m.read", &event2).await.unwrap();
+        assert_eq!(receipts2.len(), 1);
+
+        sqlx::query("DELETE FROM event_receipts WHERE user_id = $1").bind(&user_id).execute(&*pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_receipts_empty() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let receipts = storage
+            .get_receipts("!nope:example.com", "m.read", "$nope:example.com")
+            .await
+            .expect("get_receipts empty should succeed");
+        assert!(receipts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_remove_room_directory() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!dirdel_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", true).await.unwrap();
+        storage.set_room_directory(&room_id, true).await.unwrap();
+        assert!(storage.is_room_in_directory(&room_id).await.unwrap());
+
+        storage.remove_room_directory(&room_id).await.expect("remove_room_directory should succeed");
+        assert!(!storage.is_room_in_directory(&room_id).await.unwrap());
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_set_room_visibility_invalid_defaults_private() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        let room_id = format!("!vis_{}:example.com", uuid::Uuid::new_v4());
+        let _ = storage.delete_room(&room_id).await;
+        storage.create_room(&room_id, "@c:example.com", "invite", "10", true).await.unwrap();
+        assert!(storage.get_room(&room_id).await.unwrap().unwrap().is_public);
+
+        // Unknown visibility string should default to "private"
+        storage
+            .set_room_visibility(&room_id, "unknown_value")
+            .await
+            .expect("set_room_visibility unknown should succeed");
+        let room = storage.get_room(&room_id).await.unwrap().unwrap();
+        assert!(!room.is_public, "unknown visibility should default to private");
+
+        let _ = storage.delete_room(&room_id).await;
+    }
+
+    #[tokio::test]
+    async fn test_get_public_rooms_paginated_with_cursor() {
+        let pool = test_pool().await;
+        let storage = RoomStorage::new(&pool);
+        // First page
+        let first_page = storage.get_public_rooms_paginated(5, None, None).await.unwrap();
+        assert!(first_page.len() <= 5);
+
+        // If we got a full page, attempt a second page using the last item as cursor
+        if let Some(last) = first_page.last() {
+            let second_page = storage
+                .get_public_rooms_paginated(5, Some(last.created_ts), Some(&last.room_id))
+                .await
+                .expect("get_public_rooms_paginated with cursor should succeed");
+            // Second page should not overlap with first page's last item
+            if let Some(second_last) = second_page.last() {
+                assert!(second_last.room_id != last.room_id || second_last.created_ts != last.created_ts);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encryption_from_is_encrypted_true() {
+        let result = RoomStorage::encryption_from_is_encrypted(Some(true));
+        assert_eq!(result, Some("m.megolm.v1.aes-sha2".to_string()));
+    }
+
+    #[test]
+    fn encryption_from_is_encrypted_false() {
+        let result = RoomStorage::encryption_from_is_encrypted(Some(false));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn encryption_from_is_encrypted_none() {
+        let result = RoomStorage::encryption_from_is_encrypted(None);
+        assert_eq!(result, None);
     }
 }

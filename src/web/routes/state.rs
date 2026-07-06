@@ -24,7 +24,7 @@ pub struct AppState {
     /// the homeserver cleanly.
     pub shutdown_signal: Option<tokio::sync::broadcast::Sender<()>>,
     #[cfg(feature = "openclaw-routes")]
-    pub ai_connection_storage: Arc<synapse_storage::ai_connection::AiConnectionStorage>,
+    pub ai_connection_storage: Arc<dyn synapse_storage::ai_connection::AiConnectionStoreApi>,
     #[cfg(feature = "openclaw-routes")]
     pub matrix_ai_connection_service: Arc<synapse_services::matrix_ai_connection_service::MatrixAiConnectionService>,
     #[cfg(feature = "openclaw-routes")]
@@ -62,7 +62,8 @@ impl AppState {
         let canonical_cache = cache.clone();
         #[cfg(feature = "openclaw-routes")]
         let openclaw_service = {
-            let openclaw_storage = Arc::new(synapse_storage::openclaw::OpenClawStorage::new(pool.clone()));
+            let openclaw_storage: Arc<dyn synapse_storage::openclaw::OpenClawStoreApi> =
+                Arc::new(synapse_storage::openclaw::OpenClawStorage::new(pool.clone()));
             let encryption_key = synapse_services::openclaw_service::OpenClawService::resolve_encryption_key(
                 services.core.config.server.macaroon_secret_key.as_deref(),
                 &services.core.config.security.secret,

@@ -3,11 +3,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::Value;
-use synapse_rust::common::room_versions::{DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS};
+use synapse_common::room_versions::{DEFAULT_ROOM_VERSION, SUPPORTED_ROOM_VERSIONS};
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 #[tokio::test]

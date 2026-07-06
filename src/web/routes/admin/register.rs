@@ -7,6 +7,7 @@
 
 use crate::common::error::MatrixErrorCode;
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::extractors::localhost_guard::{register_error_response, LocalhostGuard};
 use crate::web::routes::AppState;
 use crate::web::utils::ip::extract_client_ip;
@@ -27,7 +28,7 @@ use synapse_services::admin_registration_service::AdminRegisterRequest;
 use synapse_services::captcha_service::VerifyCaptchaRequest;
 use validator::Validate;
 
-pub fn create_register_router(state: AppState) -> Router<AppState> {
+pub fn create_register_router(state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/register/nonce", get(get_nonce))
         .route("/_synapse/admin/v1/register", post(register))
@@ -169,10 +170,10 @@ fn ensure_admin_registration_ip_policy(
 }
 
 async fn verify_additional_registration_controls(
-    state: &AppState,
+    ctx: &AdminContext,
     payload: &RegisterRequest,
 ) -> Result<(), Response<Body>> {
-    if state.services.core.config.admin_registration.require_captcha {
+    if ctx.config.admin_registration.require_captcha {
         let captcha_id = payload
             .captcha_id
             .as_ref()
@@ -182,10 +183,7 @@ async fn verify_additional_registration_controls(
             .as_ref()
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "captcha_code is required"))?;
 
-        let verified = state
-            .services
-            .admin
-            .security
+        let verified = ctx
             .captcha_service
             .verify_captcha(VerifyCaptchaRequest { captcha_id: captcha_id.clone(), code: captcha_code.clone() })
             .await
@@ -196,13 +194,13 @@ async fn verify_additional_registration_controls(
         }
     }
 
-    if state.services.core.config.admin_registration.require_manual_approval {
+    if ctx.config.admin_registration.require_manual_approval {
         let approval_token = payload
             .approval_token
             .as_ref()
             .ok_or_else(|| register_error_response(400, "M_INVALID_PARAM", "approval_token is required"))?;
 
-        if !state.services.core.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
+        if !ctx.config.admin_registration.approval_tokens.iter().any(|token| token == approval_token) {
             return Err(register_error_response(403, "M_FORBIDDEN", "Manual approval token is invalid"));
         }
     }
@@ -212,12 +210,12 @@ async fn verify_additional_registration_controls(
 
 /// 获取 nonce
 async fn get_nonce(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _guard: LocalhostGuard,
     headers: HeaderMap,
     connect_info: ConnectInfo<SocketAddr>,
 ) -> Result<Json<NonceResponse>, Response<Body>> {
-    let config = &state.services.core.config;
+    let config = &ctx.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
@@ -233,21 +231,14 @@ async fn get_nonce(
     ensure_admin_registration_ip_policy(&headers, &connect_info, &config.admin_registration.ip_whitelist)
         .map_err(|response| *response)?;
 
-    let response = state
-        .services
-        .admin
-        .user
-        .admin_registration_service
-        .generate_nonce()
-        .await
-        .map_err(map_admin_register_service_error)?;
+    let response = ctx.admin_registration_service.generate_nonce().await.map_err(map_admin_register_service_error)?;
 
     Ok(Json(NonceResponse { nonce: response.nonce }))
 }
 
 /// 注册管理员账号
 async fn register(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _guard: LocalhostGuard,
     headers: HeaderMap,
     connect_info: ConnectInfo<SocketAddr>,
@@ -258,7 +249,7 @@ async fn register(
         return Err(register_error_response(400, "M_INVALID_PARAM", &format!("Validation error: {e}")));
     }
 
-    let config = &state.services.core.config;
+    let config = &ctx.config;
 
     // 检查是否启用
     if !config.admin_registration.enabled {
@@ -268,13 +259,10 @@ async fn register(
     ensure_admin_registration_environment(config.admin_registration.production_only).map_err(|response| *response)?;
     ensure_admin_registration_ip_policy(&headers, &connect_info, &config.admin_registration.ip_whitelist)
         .map_err(|response| *response)?;
-    verify_additional_registration_controls(&state, &payload).await?;
+    verify_additional_registration_controls(&ctx, &payload).await?;
 
     let display_name = payload.displayname.clone().unwrap_or_else(|| payload.username.clone());
-    let response = state
-        .services
-        .admin
-        .user
+    let response = ctx
         .admin_registration_service
         .register_admin_user(AdminRegisterRequest {
             nonce: payload.nonce.clone(),

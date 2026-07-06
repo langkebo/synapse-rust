@@ -220,7 +220,7 @@ async fn login_user_with_password(app: &axum::Router, user: &str, password: &str
 
 #[tokio::test]
 async fn test_push_rules_scope_contract_rejects_non_global_scope() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -245,7 +245,7 @@ async fn test_push_rules_scope_contract_rejects_non_global_scope() {
 
 #[tokio::test]
 async fn test_directory_room_alias_contract_returns_not_found_for_missing_alias() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -275,7 +275,7 @@ async fn test_directory_room_alias_contract_returns_not_found_for_missing_alias(
 
 #[tokio::test]
 async fn test_account_data_contract_returns_not_found_for_missing_custom_type() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -304,7 +304,7 @@ async fn test_account_data_contract_returns_not_found_for_missing_custom_type() 
 
 #[tokio::test]
 async fn test_room_key_distribution_contract_rejects_client_access_without_session() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -334,7 +334,7 @@ async fn test_room_key_distribution_contract_rejects_client_access_without_sessi
 
 #[tokio::test]
 async fn test_room_key_distribution_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -418,7 +418,7 @@ async fn test_room_key_distribution_contract_rejects_members_even_with_session()
 
 #[tokio::test]
 async fn test_change_password_uia_rejects_dummy_auth() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -599,7 +599,7 @@ async fn test_password_reset_email_flow_consumes_sid_after_success() {
 
 #[tokio::test]
 async fn test_key_rotation_management_contract_rejects_client_access() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -661,7 +661,7 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
 
 #[tokio::test]
 async fn test_admin_server_placeholder_contract_returns_not_implemented_for_admin() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -688,7 +688,7 @@ async fn test_admin_server_placeholder_contract_returns_not_implemented_for_admi
 
 #[tokio::test]
 async fn test_admin_experimental_features_returns_feature_map() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -712,7 +712,7 @@ async fn test_admin_experimental_features_returns_feature_map() {
 
 #[tokio::test]
 async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -777,7 +777,7 @@ async fn test_thirdparty_contract_rejects_builtin_irc_placeholders() {
 
 #[tokio::test]
 async fn test_report_room_contract_returns_success_payload() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -815,7 +815,7 @@ async fn test_report_room_contract_returns_success_payload() {
 #[tokio::test]
 async fn test_sync_events_contract_surfaces_service_errors() {
     let username = format!("sync_events_{}", rand::random::<u32>());
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let (token, _) = register_user(&app, &username).await;
@@ -838,7 +838,7 @@ async fn test_sync_events_contract_surfaces_service_errors() {
 
 #[tokio::test]
 async fn test_room_event_keys_contract_rejects_invalid_event_id() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -863,7 +863,7 @@ async fn test_room_event_keys_contract_rejects_invalid_event_id() {
 
 #[tokio::test]
 async fn test_room_thread_contract_rejects_invalid_event_id() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -888,7 +888,7 @@ async fn test_room_thread_contract_rejects_invalid_event_id() {
 
 #[tokio::test]
 async fn test_room_thread_contract_returns_replies_when_thread_exists() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -922,7 +922,7 @@ async fn test_room_thread_contract_returns_replies_when_thread_exists() {
 
 #[tokio::test]
 async fn test_room_initial_sync_contract_returns_state_members_and_messages() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -961,7 +961,7 @@ async fn test_room_initial_sync_contract_returns_state_members_and_messages() {
 
 #[tokio::test]
 async fn test_removed_private_room_placeholder_routes_return_404() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -1020,7 +1020,7 @@ async fn test_removed_private_room_placeholder_routes_return_404() {
 
 #[tokio::test]
 async fn test_receipt_contract_rejects_invalid_event_id_and_receipt_type() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 

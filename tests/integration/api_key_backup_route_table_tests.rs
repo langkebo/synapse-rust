@@ -20,7 +20,7 @@ use axum::{body::Body, http::Request};
 use hyper::StatusCode;
 use tower::ServiceExt;
 
-use super::{setup_test_app, with_local_connect_info};
+use super::{setup_fresh_test_app, with_local_connect_info};
 
 fn expected_methods(allow_header: &str) -> std::collections::HashSet<String> {
     allow_header.split(',').map(|s| s.trim().to_ascii_uppercase()).filter(|s| !s.is_empty()).collect()
@@ -63,7 +63,7 @@ async fn assert_route(app: &axum::Router, path: &str, expected: &[&str]) {
 
 #[tokio::test]
 async fn key_backup_routes_are_wired_under_v3() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         eprintln!("Skipping: integration test database is not available");
         return;
     };
@@ -91,7 +91,7 @@ async fn key_backup_routes_are_wired_under_v3() {
 
 #[tokio::test]
 async fn key_backup_routes_are_wired_under_v1_and_r0() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         eprintln!("Skipping: integration test database is not available");
         return;
     };

@@ -441,3 +441,218 @@ impl ApplicationServiceManager {
         Self::scheduler_state_value(states, state_key).and_then(|state_value| state_value.parse::<i64>().ok())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── source_event_id ───────────────────────────────────────────────
+
+    #[test]
+    fn source_event_id_strips_queue_suffix() {
+        assert_eq!(ApplicationServiceManager::source_event_id("$event123::queue456"), "$event123");
+    }
+
+    #[test]
+    fn source_event_id_no_suffix_returns_whole() {
+        assert_eq!(ApplicationServiceManager::source_event_id("$event123"), "$event123");
+    }
+
+    #[test]
+    fn source_event_id_multiple_separators() {
+        assert_eq!(ApplicationServiceManager::source_event_id("$a::b::c"), "$a::b");
+    }
+
+    // ── retry_backoff_ms ──────────────────────────────────────────────
+
+    #[test]
+    fn retry_backoff_zero_or_negative_returns_zero() {
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(0), 0);
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(-1), 0);
+    }
+
+    #[test]
+    fn retry_backoff_first_retry() {
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(1), 5_000);
+    }
+
+    #[test]
+    fn retry_backoff_exponential_growth() {
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(2), 10_000);
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(3), 20_000);
+        assert_eq!(ApplicationServiceManager::retry_backoff_ms(4), 40_000);
+    }
+
+    #[test]
+    fn retry_backoff_capped_at_max() {
+        // With large retry count, should cap at APPSERVICE_RETRY_BACKOFF_MAX_MS (5 min)
+        let backoff = ApplicationServiceManager::retry_backoff_ms(100);
+        assert_eq!(backoff, APPSERVICE_RETRY_BACKOFF_MAX_MS);
+    }
+
+    // ── classify_http_failure ─────────────────────────────────────────
+
+    #[test]
+    fn server_error_is_retryable() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::INTERNAL_SERVER_ERROR),
+            TransactionFailureKind::Retryable
+        );
+    }
+
+    #[test]
+    fn too_many_requests_is_retryable() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::TOO_MANY_REQUESTS),
+            TransactionFailureKind::Retryable
+        );
+    }
+
+    #[test]
+    fn request_timeout_is_retryable() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::REQUEST_TIMEOUT),
+            TransactionFailureKind::Retryable
+        );
+    }
+
+    #[test]
+    fn too_early_is_retryable() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::TOO_EARLY),
+            TransactionFailureKind::Retryable
+        );
+    }
+
+    #[test]
+    fn client_error_is_fatal() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::BAD_REQUEST),
+            TransactionFailureKind::Fatal
+        );
+    }
+
+    #[test]
+    fn not_found_is_fatal() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::NOT_FOUND),
+            TransactionFailureKind::Fatal
+        );
+    }
+
+    #[test]
+    fn unauthorized_is_fatal() {
+        assert_eq!(
+            ApplicationServiceManager::classify_http_failure(StatusCode::UNAUTHORIZED),
+            TransactionFailureKind::Fatal
+        );
+    }
+
+    // ── should_disable_service ────────────────────────────────────────
+
+    #[test]
+    fn fatal_below_threshold_keeps_service() {
+        assert!(!ApplicationServiceManager::should_disable_service(
+            TransactionFailureKind::Fatal,
+            APPSERVICE_FATAL_FAILURE_THRESHOLD - 1
+        ));
+    }
+
+    #[test]
+    fn fatal_at_threshold_disables_service() {
+        assert!(ApplicationServiceManager::should_disable_service(
+            TransactionFailureKind::Fatal,
+            APPSERVICE_FATAL_FAILURE_THRESHOLD
+        ));
+    }
+
+    #[test]
+    fn retryable_below_threshold_keeps_service() {
+        assert!(!ApplicationServiceManager::should_disable_service(
+            TransactionFailureKind::Retryable,
+            APPSERVICE_RETRYABLE_FAILURE_THRESHOLD - 1
+        ));
+    }
+
+    #[test]
+    fn retryable_at_threshold_disables_service() {
+        assert!(ApplicationServiceManager::should_disable_service(
+            TransactionFailureKind::Retryable,
+            APPSERVICE_RETRYABLE_FAILURE_THRESHOLD
+        ));
+    }
+
+    // ── is_transaction_ready_to_retry ─────────────────────────────────
+
+    fn make_transaction(sent_ts: i64, retry_count: i32) -> ApplicationServiceTransaction {
+        ApplicationServiceTransaction {
+            id: 1,
+            as_id: "test".into(),
+            txn_id: "txn1".into(),
+            transaction_id: None,
+            events: json!([]),
+            retry_count,
+            sent_ts,
+            completed_ts: None,
+            last_error: None,
+        }
+    }
+
+    #[test]
+    fn transaction_ready_when_backoff_elapsed() {
+        let txn = make_transaction(1000, 1); // first retry → 5s backoff
+        assert!(ApplicationServiceManager::is_transaction_ready_to_retry(&txn, 7000));
+    }
+
+    #[test]
+    fn transaction_not_ready_when_backoff_not_elapsed() {
+        let txn = make_transaction(1000, 1);
+        assert!(!ApplicationServiceManager::is_transaction_ready_to_retry(&txn, 3000));
+    }
+
+    #[test]
+    fn transaction_ready_at_exact_backoff_boundary() {
+        let txn = make_transaction(1000, 1);
+        assert!(ApplicationServiceManager::is_transaction_ready_to_retry(&txn, 6000));
+    }
+
+    #[test]
+    fn transaction_ready_with_no_retries() {
+        let txn = make_transaction(5000, 0);
+        assert!(ApplicationServiceManager::is_transaction_ready_to_retry(&txn, 5000));
+    }
+
+    // ── scheduler_statistics_from_states ──────────────────────────────
+
+    fn make_state(state_key: &str, state_value: &str) -> ApplicationServiceState {
+        ApplicationServiceState {
+            as_id: "test".into(),
+            state_key: state_key.into(),
+            state_value: state_value.into(),
+            updated_ts: 0,
+        }
+    }
+
+    #[test]
+    fn scheduler_statistics_no_states_shows_unavailable() {
+        let stats = ApplicationServiceManager::scheduler_statistics_from_states(&[]);
+        assert_eq!(stats["available"], false);
+    }
+
+    #[test]
+    fn scheduler_statistics_with_states_shows_available() {
+        let states = [make_state(SCHEDULER_STATE_LAST_TICK_TS, "1000")];
+        let stats = ApplicationServiceManager::scheduler_statistics_from_states(&states);
+        assert_eq!(stats["available"], true);
+        assert_eq!(stats["last_tick_ts"], 1000);
+    }
+
+    #[test]
+    fn scheduler_statistics_empty_value_is_skipped() {
+        let states = [make_state(SCHEDULER_STATE_LAST_RESULT, "  ")];
+        let stats = ApplicationServiceManager::scheduler_statistics_from_states(&states);
+        // Whitespace-only state value is trimmed and treated as missing
+        assert_eq!(stats["available"], false);
+    }
+}

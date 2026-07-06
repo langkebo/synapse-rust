@@ -1,0 +1,38 @@
+---
+source: tests/integration/api_route_snapshots_tests.rs
+expression: body
+---
+{
+  "unstable_features": {
+    "m.lazy_load_members": true,
+    "m.require_identity_server": false,
+    "m.supports_login_via_phone_number": false,
+    "org.matrix.msc3245": true,
+    "org.matrix.msc3266": true,
+    "org.matrix.msc3814": true,
+    "org.matrix.msc3882": true,
+    "org.matrix.msc3886.sliding_sync": true,
+    "org.matrix.msc3983": true,
+    "org.matrix.msc4143": true,
+    "uk.tcpip.msc4133": true
+  },
+  "versions": [
+    "r0.5.0",
+    "r0.6.0",
+    "r0.6.1",
+    "v1.1",
+    "v1.2",
+    "v1.3",
+    "v1.4",
+    "v1.5",
+    "v1.6",
+    "v1.7",
+    "v1.8",
+    "v1.9",
+    "v1.10",
+    "v1.11",
+    "v1.12",
+    "v1.13",
+    "v1.14"
+  ]
+}

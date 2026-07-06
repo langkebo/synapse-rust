@@ -11,6 +11,7 @@ pub mod secure_backup;
 pub mod signature;
 pub mod signed_json;
 pub mod ssss;
+pub mod test_mocks;
 pub mod to_device;
 pub mod vodozemac_megolm;
 

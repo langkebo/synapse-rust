@@ -8,11 +8,11 @@ use synapse_rust::cache::CacheManager;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
-    super::setup_test_app_with_pool().await
+    super::setup_fresh_test_app_with_pool().await
 }
 
 async fn promote_to_admin(pool: &sqlx::PgPool, cache: &CacheManager, user_id: &str) {

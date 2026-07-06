@@ -431,4 +431,322 @@ mod tests {
         let metrics = collector.collect_metrics();
         assert!(!metrics.is_empty());
     }
+
+    #[test]
+    fn test_gauge_with_labels() {
+        let mut labels = HashMap::new();
+        labels.insert("method".to_string(), "GET".to_string());
+        let gauge = Gauge::with_labels("test_gauge".to_string(), labels);
+        assert_eq!(gauge.get(), 0.0);
+        gauge.set(42.0);
+        assert_eq!(gauge.get(), 42.0);
+    }
+
+    #[test]
+    fn test_histogram_with_labels() {
+        let mut labels = HashMap::new();
+        labels.insert("endpoint".to_string(), "/api/v1".to_string());
+        let histogram = Histogram::with_labels("test_histogram".to_string(), labels);
+        histogram.observe(1.5);
+        assert_eq!(histogram.get_count(), 1);
+        assert_eq!(histogram.get_sum(), 1.5);
+    }
+
+    #[test]
+    fn test_histogram_get_values_returns_all_observed() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        histogram.observe(1.0);
+        histogram.observe(2.0);
+        histogram.observe(3.0);
+        let values = histogram.get_values();
+        assert_eq!(values.len(), 3);
+        assert!(values.contains(&1.0));
+        assert!(values.contains(&2.0));
+        assert!(values.contains(&3.0));
+    }
+
+    #[test]
+    fn test_histogram_get_percentile_empty_returns_zero() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        // Empty histogram should return Ok(0.0) rather than error.
+        let result = histogram.get_percentile(50.0).expect("percentile should succeed");
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_histogram_get_percentile_specific_percentiles() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        for v in [1.0, 2.0, 3.0, 4.0, 5.0] {
+            histogram.observe(v);
+        }
+
+        assert_eq!(histogram.get_percentile(0.0).unwrap(), 1.0);
+        assert_eq!(histogram.get_percentile(100.0).unwrap(), 5.0);
+        assert_eq!(histogram.get_percentile(50.0).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn test_histogram_reset_clears_all_values() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        histogram.observe(1.0);
+        histogram.observe(2.0);
+        assert_eq!(histogram.get_count(), 2);
+
+        histogram.reset();
+        assert_eq!(histogram.get_count(), 0);
+        assert_eq!(histogram.get_sum(), 0.0);
+        assert_eq!(histogram.get_avg(), 0.0);
+    }
+
+    #[test]
+    fn test_histogram_get_avg_empty_returns_zero() {
+        let histogram = Histogram::new("test_histogram".to_string());
+        // Empty histogram should return 0.0 average (avoids division by zero).
+        assert_eq!(histogram.get_avg(), 0.0);
+    }
+
+    #[test]
+    fn test_counter_with_labels_registered_via_collector() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("method".to_string(), "POST".to_string());
+        let counter = collector.register_counter_with_labels("labeled_counter".to_string(), labels);
+        counter.inc_by(3);
+        assert_eq!(collector.get_counter("labeled_counter").unwrap().get(), 3);
+    }
+
+    #[test]
+    fn test_register_gauge_with_labels_via_collector() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("env".to_string(), "prod".to_string());
+        let gauge = collector.register_gauge_with_labels("labeled_gauge".to_string(), labels);
+        gauge.set(99.5);
+        assert_eq!(collector.get_gauge("labeled_gauge").unwrap().get(), 99.5);
+    }
+
+    #[test]
+    fn test_register_histogram_with_labels_via_collector() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("unit".to_string(), "ms".to_string());
+        let histogram = collector.register_histogram_with_labels("labeled_histogram".to_string(), labels);
+        histogram.observe(42.0);
+        assert_eq!(collector.get_histogram("labeled_histogram").unwrap().get_count(), 1);
+    }
+
+    #[test]
+    fn test_get_counter_returns_none_when_not_registered() {
+        let collector = MetricsCollector::new();
+        assert!(collector.get_counter("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_get_gauge_returns_none_when_not_registered() {
+        let collector = MetricsCollector::new();
+        assert!(collector.get_gauge("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_get_histogram_returns_none_when_not_registered() {
+        let collector = MetricsCollector::new();
+        assert!(collector.get_histogram("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_collect_metrics_includes_counters_gauges_and_histograms() {
+        let collector = MetricsCollector::new();
+        collector.register_counter("c1".to_string()).inc();
+        collector.register_gauge("g1".to_string()).set(5.0);
+        let histogram = collector.register_histogram("h1".to_string());
+        histogram.observe(10.0);
+
+        let metrics = collector.collect_metrics();
+
+        // Counter (1) + Gauge (1) + Histogram metrics (count + sum + avg = 3) = 5 total.
+        assert_eq!(metrics.len(), 5);
+
+        // Verify histogram-derived metrics are emitted with proper suffixes.
+        let names: Vec<String> = metrics.iter().map(|m| m.name.clone()).collect();
+        assert!(names.contains(&"c1".to_string()));
+        assert!(names.contains(&"g1".to_string()));
+        assert!(names.contains(&"h1_count".to_string()));
+        assert!(names.contains(&"h1_sum".to_string()));
+        assert!(names.contains(&"h1_avg".to_string()));
+    }
+
+    #[test]
+    fn test_collect_metrics_empty_returns_empty_vec() {
+        let collector = MetricsCollector::new();
+        let metrics = collector.collect_metrics();
+        assert!(metrics.is_empty());
+    }
+
+    #[test]
+    fn test_inventory_returns_counts() {
+        let collector = MetricsCollector::new();
+        collector.register_counter("c1".to_string());
+        collector.register_counter("c2".to_string());
+        collector.register_gauge("g1".to_string());
+        collector.register_histogram("h1".to_string());
+
+        let inventory = collector.inventory();
+        assert_eq!(inventory.total_counters, 2);
+        assert_eq!(inventory.total_gauges, 1);
+        assert_eq!(inventory.total_histograms, 1);
+    }
+
+    #[test]
+    fn test_inventory_empty_returns_zero() {
+        let collector = MetricsCollector::new();
+        let inventory = collector.inventory();
+        assert_eq!(inventory.total_counters, 0);
+        assert_eq!(inventory.total_gauges, 0);
+        assert_eq!(inventory.total_histograms, 0);
+    }
+
+    #[test]
+    fn test_default_for_metrics_collector() {
+        let collector = MetricsCollector::default();
+        let inventory = collector.inventory();
+        assert_eq!(inventory.total_counters, 0);
+    }
+
+    #[test]
+    fn test_to_prometheus_format_includes_counter_help_and_type() {
+        let collector = MetricsCollector::new();
+        collector.register_counter("requests".to_string()).inc_by(5);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("# HELP requests"));
+        assert!(output.contains("# TYPE requests counter"));
+        assert!(output.contains("requests 5"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_includes_gauge_help_and_type() {
+        let collector = MetricsCollector::new();
+        collector.register_gauge("temperature".to_string()).set(23.5);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("# HELP temperature"));
+        assert!(output.contains("# TYPE temperature gauge"));
+        assert!(output.contains("temperature 23.5"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_includes_histogram_count_and_sum() {
+        let collector = MetricsCollector::new();
+        let histogram = collector.register_histogram("latency".to_string());
+        histogram.observe(10.0);
+        histogram.observe(20.0);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("latency_count 2"));
+        assert!(output.contains("latency_sum 30"));
+        assert!(output.contains("# TYPE latency_count counter"));
+        assert!(output.contains("# TYPE latency_sum counter"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_with_labeled_counter() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("method".to_string(), "GET".to_string());
+        collector.register_counter_with_labels("http_requests".to_string(), labels).inc_by(10);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("http_requests{method=\"GET\"} 10"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_with_labeled_gauge() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("env".to_string(), "prod".to_string());
+        collector.register_gauge_with_labels("active_users".to_string(), labels).set(500.0);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("active_users{env=\"prod\"} 500"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_with_labeled_histogram() {
+        let collector = MetricsCollector::new();
+        let mut labels = HashMap::new();
+        labels.insert("unit".to_string(), "ms".to_string());
+        let histogram = collector.register_histogram_with_labels("duration".to_string(), labels);
+        histogram.observe(50.0);
+
+        let output = collector.to_prometheus_format();
+        assert!(output.contains("duration_count{unit=\"ms\"} 1"));
+        assert!(output.contains("duration_sum{unit=\"ms\"} 50"));
+    }
+
+    #[test]
+    fn test_to_prometheus_format_empty_returns_empty_string() {
+        let collector = MetricsCollector::new();
+        let output = collector.to_prometheus_format();
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_counter_inc_by_large_delta() {
+        let counter = Counter::new("test".to_string());
+        counter.inc_by(u64::MAX);
+        assert_eq!(counter.get(), u64::MAX);
+        // Overflow wraps to 0 with fetch_add (Relaxed).
+        counter.inc();
+        assert_eq!(counter.get(), 0);
+    }
+
+    #[test]
+    fn test_gauge_subtraction_can_go_negative() {
+        let gauge = Gauge::new("test".to_string());
+        gauge.set(5.0);
+        gauge.sub(10.0);
+        assert_eq!(gauge.get(), -5.0);
+    }
+
+    #[test]
+    fn test_gauge_concurrent_additions_are_atomic() {
+        use std::thread;
+        let gauge = Gauge::new("test".to_string());
+        let gauge_clone = gauge.clone();
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                let g = gauge_clone.clone();
+                thread::spawn(move || {
+                    for _ in 0..1000 {
+                        g.add(1.0);
+                    }
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(gauge.get(), 4000.0);
+    }
+
+    #[test]
+    fn test_metric_struct_construction() {
+        let mut labels = HashMap::new();
+        labels.insert("key".to_string(), "value".to_string());
+        let metric =
+            Metric { name: "test_metric".to_string(), value: 42.0, timestamp: Instant::now(), labels: labels.clone() };
+        assert_eq!(metric.name, "test_metric");
+        assert_eq!(metric.value, 42.0);
+        assert_eq!(metric.labels, labels);
+    }
+
+    #[test]
+    fn test_metric_inventory_struct_debug() {
+        let inventory = MetricInventory { total_counters: 1, total_gauges: 2, total_histograms: 3 };
+        let debug = format!("{inventory:?}");
+        assert!(debug.contains("MetricInventory"));
+        assert!(debug.contains("1"));
+        assert!(debug.contains("2"));
+        assert!(debug.contains("3"));
+    }
 }

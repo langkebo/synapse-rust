@@ -157,12 +157,12 @@ impl Default for ModuleRegistry {
 }
 
 pub struct ModuleService {
-    storage: Arc<ModuleStorage>,
+    storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
     registry: Arc<tokio::sync::RwLock<ModuleRegistry>>,
 }
 
 impl ModuleService {
-    pub fn new(storage: Arc<ModuleStorage>) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::module::ModuleStoreApi>) -> Self {
         Self { storage, registry: Arc::new(tokio::sync::RwLock::new(ModuleRegistry::new())) }
     }
 
@@ -597,11 +597,11 @@ impl ModuleService {
 }
 
 pub struct AccountValidityService {
-    storage: Arc<ModuleStorage>,
+    storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
 }
 
 impl AccountValidityService {
-    pub fn new(storage: Arc<ModuleStorage>) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::module::ModuleStoreApi>) -> Self {
         Self { storage }
     }
 

@@ -218,13 +218,15 @@ async fn query_keys(
     let allowed_users = filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await;
 
     let device_keys = if requested_users.is_empty() {
-        let mut shared = state
-            .services
-            .rooms
-            .room_service
-            .get_shared_room_users(&auth_user.user_id)
-            .await
-            .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
+        let mut shared =
+            state
+                .services
+                .rooms
+                .room_service
+                .membership
+                .get_shared_room_users(&auth_user.user_id)
+                .await
+                .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;
         shared.push(auth_user.user_id.clone());
         let map: serde_json::Map<String, Value> = shared.into_iter().map(|uid| (uid, serde_json::json!([]))).collect();
         serde_json::Value::Object(map)

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::openclaw::{
     decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, AiChatRole, AiConversation,
-    AiGeneration, AiMessage, MessageCursor, OpenClawConnection, OpenClawStorage,
+    AiGeneration, AiMessage, MessageCursor, OpenClawConnection, OpenClawStoreApi,
 };
 use url::Url;
 
@@ -14,12 +14,12 @@ use url::Url;
 /// ownership checks, health probing) so that the route layer remains a
 /// thin HTTP adapter.
 pub struct OpenClawService {
-    storage: Arc<OpenClawStorage>,
+    storage: Arc<dyn OpenClawStoreApi>,
     api_key_encryption_key: Option<[u8; 32]>,
 }
 
 impl OpenClawService {
-    pub fn new(storage: Arc<OpenClawStorage>, api_key_encryption_key: Option<[u8; 32]>) -> Self {
+    pub fn new(storage: Arc<dyn OpenClawStoreApi>, api_key_encryption_key: Option<[u8; 32]>) -> Self {
         Self { storage, api_key_encryption_key }
     }
 

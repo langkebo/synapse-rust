@@ -5,12 +5,12 @@ use synapse_storage::user::{User, UserStore};
 use tracing::{info, instrument};
 
 pub struct ServerNotificationService {
-    storage: Arc<ServerNotificationStorage>,
+    storage: Arc<dyn ServerNotificationStoreApi>,
     user_storage: Arc<dyn UserStore>,
 }
 
 impl ServerNotificationService {
-    pub fn new(storage: Arc<ServerNotificationStorage>, user_storage: Arc<dyn UserStore>) -> Self {
+    pub fn new(storage: Arc<dyn ServerNotificationStoreApi>, user_storage: Arc<dyn UserStore>) -> Self {
         Self { storage, user_storage }
     }
 

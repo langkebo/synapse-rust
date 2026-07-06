@@ -3,7 +3,7 @@ use hyper::{Request, StatusCode};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::{get_admin_token, setup_test_app};
+use crate::{get_admin_token, setup_fresh_test_app};
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
     let request = Request::builder()
@@ -28,7 +28,7 @@ async fn register_user(app: &axum::Router, username: &str) -> (String, String) {
 
 #[tokio::test]
 async fn test_appservice_list_empty() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -52,7 +52,7 @@ async fn test_appservice_list_empty() {
 
 #[tokio::test]
 async fn test_appservice_register_and_query() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -108,7 +108,7 @@ async fn test_appservice_register_and_query() {
 
 #[tokio::test]
 async fn test_appservice_virtual_user() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -183,7 +183,7 @@ async fn test_appservice_virtual_user() {
 
 #[tokio::test]
 async fn test_user_appservice_endpoint_is_self_only() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 

@@ -1,3 +1,6 @@
+pub(crate) mod api;
+pub use api::PresenceStoreApi;
+
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::collections::HashMap;

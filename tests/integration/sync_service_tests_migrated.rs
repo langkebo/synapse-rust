@@ -388,7 +388,7 @@ async fn test_sync_success() {
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -400,11 +400,11 @@ async fn test_sync_success() {
 
     // Create a room and send a message
     let config = CreateRoomConfig { name: Some("Test Room".to_string()), ..Default::default() };
-    let room_val = room_service.create_room("@alice:localhost", config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room("@alice:localhost", config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
     let content = json!({"msgtype": "m.text", "body": "Hello"});
-    room_service.send_message(room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
+    room_service.messaging.send_message(room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
     let result = sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await;
     assert!(result.is_ok());
@@ -445,7 +445,7 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -456,11 +456,11 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
     );
 
     let config = CreateRoomConfig { name: Some("Incremental Room".to_string()), ..Default::default() };
-    let room_val = room_service.create_room("@alice:localhost", config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room("@alice:localhost", config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
     let content = json!({"msgtype": "m.text", "body": "Hello once"});
-    room_service.send_message(&room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
+    room_service.messaging.send_message(&room_id, "@alice:localhost", "m.room.message", &content).await.unwrap();
 
     let first_sync = sync_service.sync("@alice:localhost", None, 0, false, "offline", None, None).await.unwrap();
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
@@ -491,7 +491,7 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -528,7 +528,7 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -570,7 +570,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -583,6 +583,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { name: Some("Lazy Delta Room".to_string()), ..Default::default() },
@@ -592,6 +593,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -626,6 +628,7 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
     let since = first_sync["next_batch"].as_str().unwrap().to_string();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -671,7 +674,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -684,6 +687,7 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
@@ -788,7 +792,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -800,7 +804,7 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
-    let room_val = room_service.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
+    let room_val = room_service.lifecycle.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
     let filter = json!({
@@ -899,7 +903,7 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -911,10 +915,11 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
-    let room_val = room_service.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
+    let room_val = room_service.lifecycle.create_room("@alice:localhost", CreateRoomConfig::default()).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -924,6 +929,7 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         .await
         .unwrap();
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -983,7 +989,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -996,6 +1002,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
@@ -1004,7 +1011,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         .unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-    room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
+    room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
     let base_ts = chrono::Utc::now().timestamp_millis();
     event_storage
@@ -1041,6 +1048,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         .unwrap();
 
     room_service
+        .messaging
         .send_message(&room_id, "@bob:localhost", "m.room.message", &json!({"msgtype": "m.text", "body": "Warm cache"}))
         .await
         .unwrap();
@@ -1085,6 +1093,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         .unwrap();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -1094,6 +1103,7 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         .await
         .unwrap();
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@alice:localhost",
@@ -1157,7 +1167,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1171,6 +1181,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     device_storage.create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
@@ -1179,7 +1190,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         .unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-    room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
+    room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
     let base_ts = chrono::Utc::now().timestamp_millis();
     event_storage
@@ -1216,6 +1227,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         .unwrap();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",
@@ -1265,7 +1277,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         event_storage.clone(),
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1276,6 +1288,7 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
     );
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",
@@ -1332,7 +1345,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1345,6 +1358,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
@@ -1353,7 +1367,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         .unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-    room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
+    room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
     let base_ts = chrono::Utc::now().timestamp_millis();
     event_storage
@@ -1390,6 +1404,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         .unwrap();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",
@@ -1421,7 +1436,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1432,6 +1447,7 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
     );
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",
@@ -1499,7 +1515,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         event_storage.clone(),
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1512,6 +1528,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             "@alice:localhost",
             CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() },
@@ -1520,7 +1537,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         .unwrap();
     let room_id = room_val["room_id"].as_str().unwrap().to_string();
 
-    room_service.join_room(&room_id, "@bob:localhost").await.unwrap();
+    room_service.membership.join_room(&room_id, "@bob:localhost").await.unwrap();
 
     let base_ts = chrono::Utc::now().timestamp_millis();
     event_storage
@@ -1557,6 +1574,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         .unwrap();
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",
@@ -1578,7 +1596,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         event_storage,
         room_storage,
         RoomAccountDataStorage::new(&pool),
-        AccountDataStorage::new(&pool),
+        Arc::new(AccountDataStorage::new(&pool)),
         FilterStorage::new(&pool),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
@@ -1589,6 +1607,7 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
     );
 
     room_service
+        .messaging
         .send_message(
             &room_id,
             "@bob:localhost",

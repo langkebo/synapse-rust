@@ -1,4 +1,5 @@
 use super::models::*;
+use super::ROOM_EVENT_COLS;
 use sqlx::{Postgres, QueryBuilder};
 
 impl EventStorage {
@@ -8,16 +9,13 @@ impl EventStorage {
         since: i64,
         limit: i64,
     ) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
+        let events = sqlx::query_as(&format!(
+            "SELECT {ROOM_EVENT_COLS}
             FROM events WHERE room_id = $1 AND origin_server_ts > $2
             ORDER BY origin_server_ts ASC
             LIMIT $3
-            ",
-        )
+            "
+        ))
         .bind(room_id)
         .bind(since)
         .bind(limit)
@@ -27,16 +25,13 @@ impl EventStorage {
     }
 
     pub async fn get_events_since(&self, since: i64, limit: i64) -> Result<Vec<RoomEvent>, sqlx::Error> {
-        let events = sqlx::query_as(
-            r"
-            SELECT event_id, room_id, COALESCE(user_id, sender) as user_id, event_type, content, state_key,
-                   COALESCE(depth, 0) as depth, COALESCE(origin_server_ts, 0) as origin_server_ts, COALESCE(origin_server_ts, 0) as processed_at,
-                   COALESCE(not_before, 0) as not_before, status, reference_image, COALESCE(NULLIF(NULLIF(BTRIM(origin), ''), 'undefined'), 'self') as origin, stream_ordering, redacts
+        let events = sqlx::query_as(&format!(
+            "SELECT {ROOM_EVENT_COLS}
             FROM events WHERE origin_server_ts > $1
             ORDER BY origin_server_ts ASC
             LIMIT $2
-            ",
-        )
+            "
+        ))
         .bind(since)
         .bind(limit)
         .fetch_all(&*self.pool)
@@ -460,5 +455,88 @@ impl EventStorage {
         }
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_room_event(event_id: &str, room_id: &str) -> RoomEvent {
+        RoomEvent {
+            event_id: event_id.into(),
+            room_id: room_id.into(),
+            user_id: "@alice:ex.com".into(),
+            event_type: "m.room.message".into(),
+            content: json!({"body": "hello"}),
+            state_key: None,
+            depth: 1,
+            origin_server_ts: 1000,
+            processed_ts: 1000,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "self".into(),
+            stream_ordering: Some(1),
+            redacts: None,
+        }
+    }
+
+    // ── non_empty_filter_values ───────────────────────────────────────
+
+    #[test]
+    fn filter_none_returns_none() {
+        assert!(EventStorage::non_empty_filter_values(None).is_none());
+    }
+
+    #[test]
+    fn filter_empty_vec_returns_none() {
+        assert!(EventStorage::non_empty_filter_values(Some(&[])).is_none());
+    }
+
+    #[test]
+    fn filter_non_empty_vec_returns_some() {
+        let values = vec!["m.room.message".into()];
+        let result = EventStorage::non_empty_filter_values(Some(&values));
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), &["m.room.message"]);
+    }
+
+    // ── group_room_events ─────────────────────────────────────────────
+
+    #[test]
+    fn group_room_events_basic() {
+        let room_ids = vec!["!a:ex.com".into(), "!b:ex.com".into()];
+        let events = vec![make_room_event("$1", "!a:ex.com"), make_room_event("$2", "!b:ex.com")];
+        let result = EventStorage::group_room_events(&room_ids, events, 10);
+        assert_eq!(result.get("!a:ex.com").unwrap().len(), 1);
+        assert_eq!(result.get("!b:ex.com").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn group_room_events_empty_input() {
+        let result = EventStorage::group_room_events(&[], vec![], 10);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn group_room_events_respects_limit() {
+        let room_ids = vec!["!a:ex.com".into()];
+        let events = vec![
+            make_room_event("$1", "!a:ex.com"),
+            make_room_event("$2", "!a:ex.com"),
+            make_room_event("$3", "!a:ex.com"),
+        ];
+        let result = EventStorage::group_room_events(&room_ids, events, 2);
+        assert_eq!(result.get("!a:ex.com").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn group_room_events_unknown_room_gets_empty_vec() {
+        let room_ids = vec!["!a:ex.com".into()];
+        let events = vec![make_room_event("$1", "!other:ex.com")];
+        let result = EventStorage::group_room_events(&room_ids, events, 10);
+        assert_eq!(result.get("!a:ex.com").unwrap().len(), 0);
     }
 }

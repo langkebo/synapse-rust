@@ -87,3 +87,68 @@ impl SignatureService {
         Ok(public.verify_strict(message, &sig).is_ok())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn make_service() -> SignatureService {
+        let pool = sqlx::PgPool::connect_lazy("postgres:///test").expect("connect_lazy should not perform I/O");
+        let leaked: &'static sqlx::PgPool = Box::leak(Box::new(pool));
+        SignatureService::new(SignatureStorage::new(leaked))
+    }
+
+    #[tokio::test]
+    async fn verify_key_valid_signature() {
+        let svc = make_service();
+        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let message = "test-key-data";
+        let signature = signing_key.sign(message.as_bytes());
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+        let result = svc.verify_key(message, &encoded, verifying_key.as_bytes()).unwrap();
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn verify_key_tampered_message() {
+        let svc = make_service();
+        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let verifying_key = signing_key.verifying_key();
+        let signature = signing_key.sign(b"original");
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+        let result = svc.verify_key("tampered", &encoded, verifying_key.as_bytes()).unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn verify_key_wrong_public_key() {
+        let svc = make_service();
+        let signing_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let other_key = SigningKey::generate(&mut aes_gcm::aead::OsRng);
+        let message = "test";
+        let signature = signing_key.sign(message.as_bytes());
+        let encoded = base64::engine::general_purpose::STANDARD.encode(signature.to_bytes());
+        let result = svc.verify_key(message, &encoded, other_key.verifying_key().as_bytes()).unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn verify_key_rejects_invalid_base64() {
+        let svc = make_service();
+        let public_key = [0u8; 32];
+        let result = svc.verify_key("test", "not-valid-base64!!!", &public_key);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn verify_key_rejects_wrong_signature_length() {
+        let svc = make_service();
+        let public_key = [0u8; 32];
+        let short_sig = base64::engine::general_purpose::STANDARD.encode(&[0u8; 16]);
+        let result = svc.verify_key("test", &short_sig, &public_key);
+        assert!(result.is_err());
+    }
+}

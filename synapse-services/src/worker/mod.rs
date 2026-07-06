@@ -14,7 +14,7 @@ pub use health::{HealthCheckConfig, HealthCheckResult, HealthChecker, HealthStat
 pub use load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer, WorkerLoadStats};
 pub use manager::WorkerManager;
 pub use protocol::{ReplicationCommand, ReplicationEvent, ReplicationProtocol};
-pub use storage::WorkerStorage;
+pub use storage::WorkerStoreApi;
 pub use stream::StreamWriterManager;
 pub use topology_validator::{
     current_instance_worker_type, expected_route_owner_for_probe, global_maintenance_owner,

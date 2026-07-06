@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -11,6 +12,18 @@ pub struct RoomTag {
     pub order: Option<f64>,
     pub created_ts: i64,
 }
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait RoomTagStoreApi: Send + Sync {
+    async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error>;
+    async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error>;
+    async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error>;
+    async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct RoomTagStorage {
@@ -75,5 +88,26 @@ impl RoomTagStorage {
             .execute(&*self.pool)
             .await?;
         Ok(())
+    }
+}
+
+// ── Trait delegation ────────────────────────────────────────────────────
+
+#[async_trait]
+impl RoomTagStoreApi for RoomTagStorage {
+    async fn get_all_tags(&self, user_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
+        self.get_all_tags(user_id).await
+    }
+
+    async fn get_tags(&self, user_id: &str, room_id: &str) -> Result<Vec<RoomTag>, sqlx::Error> {
+        self.get_tags(user_id, room_id).await
+    }
+
+    async fn add_tag(&self, user_id: &str, room_id: &str, tag: &str, order: Option<f64>) -> Result<(), sqlx::Error> {
+        self.add_tag(user_id, room_id, tag, order).await
+    }
+
+    async fn remove_tag(&self, user_id: &str, room_id: &str, tag: &str) -> Result<(), sqlx::Error> {
+        self.remove_tag(user_id, room_id, tag).await
     }
 }

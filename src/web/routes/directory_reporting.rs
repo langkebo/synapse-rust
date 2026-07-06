@@ -37,6 +37,7 @@ async fn ensure_room_alias_write_allowed(
         .services
         .rooms
         .room_service
+        .state
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -185,7 +186,7 @@ pub(crate) async fn report_event(
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to report events in this room").await?;
 
-    let event = state.services.rooms.room_service.get_event_record(&event_id).await?;
+    let event = state.services.rooms.room_service.messaging.get_event_record(&event_id).await?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -197,6 +198,7 @@ pub(crate) async fn report_event(
         .services
         .rooms
         .room_service
+        .messaging
         .report_event(&event.event_id, &event.room_id, &auth_user.user_id, reason, score)
         .await?;
 
@@ -275,7 +277,7 @@ pub(crate) async fn get_scanner_info(
     validate_event_id(&event_id)?;
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view scanner info").await?;
 
-    let event = state.services.rooms.room_service.get_event_record(&event_id).await?;
+    let event = state.services.rooms.room_service.messaging.get_event_record(&event_id).await?;
     let Some(event) = event.filter(|event| event.room_id == room_id) else {
         return Err(ApiError::not_found("Event not found".to_string()));
     };
@@ -296,13 +298,13 @@ pub(crate) async fn get_room_aliases(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_member(&state, &auth_user, &room_id, "You must be a room member to view aliases").await?;
 
-    let aliases = state.services.rooms.room_service.get_room_aliases(&room_id).await?;
+    let aliases = state.services.rooms.room_service.state.get_room_aliases(&room_id).await?;
     Ok(Json(json!({ "aliases": aliases })))
 }
 
@@ -319,13 +321,13 @@ pub(crate) async fn set_room_alias(
         return Err(ApiError::bad_request("Alias too long (max 255 characters)".to_string()));
     }
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
 
-    state.services.rooms.room_service.set_room_alias(&room_id, &room_alias, &auth_user.user_id).await?;
+    state.services.rooms.room_service.state.set_room_alias(&room_id, &room_alias, &auth_user.user_id).await?;
     ::tracing::info!(
         request_id = %request_id,
         room_id = %room_id,
@@ -348,7 +350,7 @@ pub(crate) async fn delete_room_alias(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
-    state.services.rooms.room_service.remove_room_alias(&room_id).await?;
+    state.services.rooms.room_service.state.remove_room_alias(&room_id).await?;
     ::tracing::info!(request_id = %request_id, room_id = %room_id, user_id = %auth_user.user_id, "Deleted room alias by room id");
     Ok(Json(json!({})))
 }
@@ -359,7 +361,7 @@ pub(crate) async fn get_room_by_alias(
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
-    let room_id = state.services.rooms.room_service.get_room_by_alias(&room_alias).await?;
+    let room_id = state.services.rooms.room_service.state.get_room_by_alias(&room_alias).await?;
     match room_id {
         Some(rid) => Ok(Json(json!({ "room_id": rid }))),
         None => Err(ApiError::not_found("Room alias not found".to_string())),
@@ -385,13 +387,13 @@ pub(crate) async fn set_room_alias_direct(
         return Err(ApiError::bad_request("Invalid room_id format".to_string()));
     }
 
-    if !state.services.rooms.room_service.room_exists(room_id).await? {
+    if !state.services.rooms.room_service.state.room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
 
-    state.services.rooms.room_service.set_room_alias(room_id, &room_alias, &auth_user.user_id).await?;
+    state.services.rooms.room_service.state.set_room_alias(room_id, &room_alias, &auth_user.user_id).await?;
     ::tracing::info!(
         request_id = %request_id,
         room_id,
@@ -415,10 +417,10 @@ pub(crate) async fn delete_room_alias_direct(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_alias(&room_alias)?;
-    if let Some(room_id) = state.services.rooms.room_service.get_room_by_alias(&room_alias).await? {
+    if let Some(room_id) = state.services.rooms.room_service.state.get_room_by_alias(&room_alias).await? {
         ensure_room_alias_write_allowed(&state, &auth_user, &room_id).await?;
     }
-    state.services.rooms.room_service.remove_room_alias_by_name(&room_alias).await?;
+    state.services.rooms.room_service.state.remove_room_alias_by_name(&room_alias).await?;
     ::tracing::info!(request_id = %request_id, room_alias = %room_alias, user_id = %auth_user.user_id, "Deleted room alias by alias");
     Ok(Json(json!({
         "removed": true,
@@ -440,10 +442,11 @@ pub(crate) async fn get_public_rooms(
                 .services
                 .rooms
                 .room_service
+                .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.count_public_rooms().await }
+        async { state.services.rooms.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -518,10 +521,11 @@ pub(crate) async fn query_public_rooms(
                 .services
                 .rooms
                 .room_service
+                .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.count_public_rooms().await }
+        async { state.services.rooms.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {

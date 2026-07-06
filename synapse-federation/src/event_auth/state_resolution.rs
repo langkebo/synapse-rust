@@ -490,3 +490,174 @@ impl EventAuthChain {
         resolved
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_state_event(event_type: &str, state_key: &str, event_id: &str, origin_server_ts: i64) -> Value {
+        json!({
+            "type": event_type,
+            "state_key": state_key,
+            "event_id": event_id,
+            "origin_server_ts": origin_server_ts,
+            "sender": "@alice:ex.com",
+            "content": {"body": "test"},
+        })
+    }
+
+    // ── detect_conflicts ──────────────────────────────────────────────
+
+    #[test]
+    fn detect_conflicts_single_event_no_conflict() {
+        let chain = EventAuthChain::new();
+        let events = vec![make_state_event("m.room.name", "key1", "$e1", 1000)];
+        let conflicts = chain.detect_conflicts(&events);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_two_events_same_key_conflict() {
+        let chain = EventAuthChain::new();
+        let events = vec![
+            make_state_event("m.room.name", "key1", "$old", 1000),
+            make_state_event("m.room.name", "key1", "$new", 2000),
+        ];
+        let conflicts = chain.detect_conflicts(&events);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].winning_event, "$new"); // higher timestamp wins
+        assert_eq!(conflicts[0].losing_events, vec!["$old"]);
+    }
+
+    #[test]
+    fn detect_conflicts_different_keys_no_conflict() {
+        let chain = EventAuthChain::new();
+        let events = vec![
+            make_state_event("m.room.name", "key1", "$e1", 1000),
+            make_state_event("m.room.topic", "key2", "$e2", 1000),
+        ];
+        let conflicts = chain.detect_conflicts(&events);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_empty_state_key_skipped() {
+        let chain = EventAuthChain::new();
+        let mut event = make_state_event("m.room.name", "key1", "$e1", 1000);
+        event["state_key"] = json!("");
+        let events = vec![event];
+        let conflicts = chain.detect_conflicts(&events);
+        assert!(conflicts.is_empty());
+    }
+
+    #[test]
+    fn detect_conflicts_timestamp_tiebreaker_by_event_id() {
+        let chain = EventAuthChain::new();
+        let events = vec![
+            make_state_event("m.room.name", "key1", "$b", 1000),
+            make_state_event("m.room.name", "key1", "$a", 1000),
+        ];
+        let conflicts = chain.detect_conflicts(&events);
+        assert_eq!(conflicts.len(), 1);
+        // Same timestamp, sorted by timestamp desc then event_id ascending => $a wins
+        assert_eq!(conflicts[0].winning_event, "$a");
+        assert_eq!(conflicts[0].losing_events, vec!["$b"]);
+    }
+
+    // ── resolve_conflicts_power_based ─────────────────────────────────
+
+    #[test]
+    fn power_based_resolution_higher_power_wins() {
+        let chain = EventAuthChain::new();
+        let events = vec![
+            {
+                let mut e = make_state_event("m.room.name", "key1", "$low_power", 2000);
+                e["sender"] = json!("@low:ex.com");
+                e
+            },
+            {
+                let mut e = make_state_event("m.room.name", "key1", "$high_power", 1000);
+                e["sender"] = json!("@admin:ex.com");
+                e
+            },
+        ];
+        let mut power_levels = HashMap::new();
+        power_levels.insert("@low:ex.com".into(), 0);
+        power_levels.insert("@admin:ex.com".into(), 100);
+        let conflicts = chain.resolve_conflicts_power_based(&events, &power_levels);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].winning_event, "$high_power");
+    }
+
+    #[test]
+    fn power_based_resolution_equal_power_uses_timestamp() {
+        let chain = EventAuthChain::new();
+        let events = vec![
+            {
+                let mut e = make_state_event("m.room.name", "key1", "$old", 1000);
+                e["sender"] = json!("@a:ex.com");
+                e
+            },
+            {
+                let mut e = make_state_event("m.room.name", "key1", "$new", 2000);
+                e["sender"] = json!("@b:ex.com");
+                e
+            },
+        ];
+        let mut power_levels = HashMap::new();
+        power_levels.insert("@a:ex.com".into(), 0);
+        power_levels.insert("@b:ex.com".into(), 0);
+        let conflicts = chain.resolve_conflicts_power_based(&events, &power_levels);
+        assert_eq!(conflicts[0].winning_event, "$new"); // equal power, higher ts wins
+    }
+
+    // ── calculate_state_id ─────────────────────────────────────────────
+
+    #[test]
+    fn calculate_state_id_is_deterministic() {
+        let chain = EventAuthChain::new();
+        let mut state: HashMap<String, &Value> = HashMap::new();
+        let content = json!({"body": "hello"});
+        state.insert("m.room.name:".into(), &content);
+        let id1 = chain.calculate_state_id("!r:ex.com", &state);
+        let id2 = chain.calculate_state_id("!r:ex.com", &state);
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn calculate_state_id_differs_for_different_content() {
+        let chain = EventAuthChain::new();
+        let content_a = json!({"body": "a"});
+        let content_b = json!({"body": "b"});
+        let mut state_a: HashMap<String, &Value> = HashMap::new();
+        state_a.insert("m.room.name:".into(), &content_a);
+        let mut state_b: HashMap<String, &Value> = HashMap::new();
+        state_b.insert("m.room.name:".into(), &content_b);
+        let id1 = chain.calculate_state_id("!r:ex.com", &state_a);
+        let id2 = chain.calculate_state_id("!r:ex.com", &state_b);
+        assert_ne!(id1, id2);
+    }
+
+    // ── calculate_auth_difference ─────────────────────────────────────
+
+    #[test]
+    fn auth_difference_symmetric_returns_difference() {
+        let chain = EventAuthChain::new();
+        let events = HashMap::new();
+        let chain_a: Vec<String> = vec!["$a".into(), "$b".into()];
+        let chain_b: Vec<String> = vec!["$b".into(), "$c".into()];
+        let diff = chain.calculate_auth_difference(&events, &chain_a, &chain_b);
+        assert!(diff.contains("$a"));
+        assert!(diff.contains("$c"));
+        assert!(!diff.contains("$b"));
+    }
+
+    #[test]
+    fn auth_difference_identical_chains_empty_diff() {
+        let chain = EventAuthChain::new();
+        let events = HashMap::new();
+        let chain_a: Vec<String> = vec!["$a".into(), "$b".into()];
+        let diff = chain.calculate_auth_difference(&events, &chain_a, &chain_a);
+        assert!(diff.is_empty());
+    }
+}

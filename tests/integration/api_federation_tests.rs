@@ -7,7 +7,7 @@ use base64::Engine as _;
 use ed25519_dalek::Signer;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use synapse_rust::common::room_versions::DEFAULT_ROOM_VERSION;
+use synapse_common::room_versions::DEFAULT_ROOM_VERSION;
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use tower::ServiceExt;
 use wiremock::{
@@ -16,7 +16,7 @@ use wiremock::{
 };
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 async fn setup_federation_test_app_with_pool(

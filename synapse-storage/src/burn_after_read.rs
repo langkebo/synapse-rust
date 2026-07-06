@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -50,6 +51,43 @@ pub struct BurnStatsRow {
 #[derive(Clone)]
 pub struct BurnAfterReadStorage {
     pool: Arc<PgPool>,
+}
+
+/// Storage-agnostic API for burn-after-read persistence.
+///
+/// Implemented by [`BurnAfterReadStorage`] (Postgres) and
+/// [`crate::test_mocks::InMemoryBurnAfterReadStore`] (in-memory).
+#[async_trait]
+pub trait BurnAfterReadStoreApi: Send + Sync {
+    async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error>;
+    async fn set_settings(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        is_enabled: bool,
+        burn_after_ms: i64,
+    ) -> Result<BurnSettingsRow, sqlx::Error>;
+    async fn schedule_burn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        event_id: &str,
+        delete_ts: i64,
+    ) -> Result<BurnPendingRow, sqlx::Error>;
+    async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error>;
+    async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error>;
+    async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error>;
+    async fn log_burned_event(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        event_id: &str,
+        burned_ts: i64,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error>;
+    async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error>;
+    async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error>;
 }
 
 impl BurnAfterReadStorage {
@@ -264,6 +302,73 @@ impl BurnAfterReadStorage {
         .await?;
 
         Ok(())
+    }
+}
+
+// ── Delegation impl for the Postgres BurnAfterReadStorage ────────────
+
+#[async_trait]
+impl BurnAfterReadStoreApi for BurnAfterReadStorage {
+    async fn get_settings(&self, user_id: &str, room_id: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+        self.get_settings(user_id, room_id).await
+    }
+
+    async fn set_settings(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        is_enabled: bool,
+        burn_after_ms: i64,
+    ) -> Result<BurnSettingsRow, sqlx::Error> {
+        self.set_settings(user_id, room_id, is_enabled, burn_after_ms).await
+    }
+
+    async fn schedule_burn(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        event_id: &str,
+        delete_ts: i64,
+    ) -> Result<BurnPendingRow, sqlx::Error> {
+        self.schedule_burn(user_id, room_id, event_id, delete_ts).await
+    }
+
+    async fn cancel_burn(&self, user_id: &str, room_id: &str, event_id: &str) -> Result<(), sqlx::Error> {
+        self.cancel_burn(user_id, room_id, event_id).await
+    }
+
+    async fn get_pending_burns(&self, user_id: &str, room_id: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+        self.get_pending_burns(user_id, room_id).await
+    }
+
+    async fn get_expired_burns(&self, now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+        self.get_expired_burns(now_ms).await
+    }
+
+    async fn mark_burn_processed(&self, id: i64) -> Result<(), sqlx::Error> {
+        self.mark_burn_processed(id).await
+    }
+
+    async fn log_burned_event(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        event_id: &str,
+        burned_ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.log_burned_event(user_id, room_id, event_id, burned_ts).await
+    }
+
+    async fn get_user_stats(&self, user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
+        self.get_user_stats(user_id).await
+    }
+
+    async fn get_user_default(&self, user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
+        self.get_user_default(user_id).await
+    }
+
+    async fn set_user_default(&self, user_id: &str, default_burn_ms: i64) -> Result<(), sqlx::Error> {
+        self.set_user_default(user_id, default_burn_ms).await
     }
 }
 

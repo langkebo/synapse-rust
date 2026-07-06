@@ -2,7 +2,7 @@ use crate::worker::bus::{RedisBusConfig, WorkerBus};
 use crate::worker::health::{HealthCheckConfig, HealthChecker};
 use crate::worker::load_balancer::{LoadBalanceStrategy, WorkerLoadBalancer};
 use crate::worker::protocol::ReplicationCommand;
-use crate::worker::storage::WorkerStorage;
+use crate::worker::storage::WorkerStoreApi;
 use crate::worker::stream::StreamWriterManager;
 use crate::worker::tcp::ReplicationConnection;
 use crate::worker::types::*;
@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
 pub struct WorkerManager {
-    storage: Arc<WorkerStorage>,
+    storage: Arc<dyn WorkerStoreApi>,
     server_name: String,
     local_worker_id: Option<String>,
     connections: Arc<RwLock<HashMap<String, ReplicationConnection>>>,
@@ -113,7 +113,7 @@ impl WorkerManager {
         Ok(worker_type)
     }
 
-    pub fn new(storage: Arc<WorkerStorage>, server_name: String) -> Self {
+    pub fn new(storage: Arc<dyn WorkerStoreApi>, server_name: String) -> Self {
         Self {
             storage,
             server_name,

@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct CaptchaService {
-    storage: Arc<CaptchaStorage>,
+    storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
     task_queue: Option<Arc<RedisTaskQueue>>,
     smtp_enabled: bool,
     sms_provider: Option<Arc<dyn SmsProvider>>,
@@ -37,12 +37,12 @@ pub struct VerifyCaptchaRequest {
 }
 
 impl CaptchaService {
-    pub fn new(storage: Arc<CaptchaStorage>) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>) -> Self {
         Self::with_sms_provider(storage, None, false, None)
     }
 
     pub fn with_delivery(
-        storage: Arc<CaptchaStorage>,
+        storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
         task_queue: Option<Arc<RedisTaskQueue>>,
         smtp_enabled: bool,
     ) -> Self {
@@ -50,7 +50,7 @@ impl CaptchaService {
     }
 
     pub fn with_sms_provider(
-        storage: Arc<CaptchaStorage>,
+        storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
         task_queue: Option<Arc<RedisTaskQueue>>,
         smtp_enabled: bool,
         sms_provider: Option<Arc<dyn SmsProvider>>,
@@ -60,7 +60,7 @@ impl CaptchaService {
 
     /// Create a CaptchaService with SMS provider built from config.
     pub fn with_sms_config(
-        storage: Arc<CaptchaStorage>,
+        storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
         task_queue: Option<Arc<RedisTaskQueue>>,
         smtp_enabled: bool,
         sms_config: &SmsConfig,

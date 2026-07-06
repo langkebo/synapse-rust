@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
@@ -61,6 +62,25 @@ pub struct AuditEventFilters {
 #[derive(Clone)]
 pub struct AuditEventStorage {
     pool: Arc<PgPool>,
+}
+
+#[async_trait]
+pub trait AuditEventStoreApi: Send + Sync {
+    async fn create_event(
+        &self,
+        event_id: &str,
+        created_ts: i64,
+        request: &CreateAuditEventRequest,
+    ) -> Result<AuditEvent, sqlx::Error>;
+
+    async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error>;
+
+    async fn list_events(
+        &self,
+        filters: &AuditEventFilters,
+    ) -> Result<(Vec<AuditEvent>, i64, Option<String>), sqlx::Error>;
+
+    async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
 impl AuditEventStorage {
@@ -186,6 +206,33 @@ impl AuditEventStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl AuditEventStoreApi for AuditEventStorage {
+    async fn create_event(
+        &self,
+        event_id: &str,
+        created_ts: i64,
+        request: &CreateAuditEventRequest,
+    ) -> Result<AuditEvent, sqlx::Error> {
+        self.create_event(event_id, created_ts, request).await
+    }
+
+    async fn get_event(&self, event_id: &str) -> Result<Option<AuditEvent>, sqlx::Error> {
+        self.get_event(event_id).await
+    }
+
+    async fn list_events(
+        &self,
+        filters: &AuditEventFilters,
+    ) -> Result<(Vec<AuditEvent>, i64, Option<String>), sqlx::Error> {
+        self.list_events(filters).await
+    }
+
+    async fn delete_events_before(&self, cutoff_ts: i64) -> Result<u64, sqlx::Error> {
+        self.delete_events_before(cutoff_ts).await
     }
 }
 

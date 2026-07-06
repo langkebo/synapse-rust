@@ -159,7 +159,7 @@ async fn join_room(app: &axum::Router, token: &str, room_id: &str) {
 
 #[tokio::test]
 async fn test_v3_search_validation_is_preserved_after_router_refactor() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let token = super::create_test_user(&app).await;
@@ -193,7 +193,7 @@ async fn test_v3_search_validation_is_preserved_after_router_refactor() {
 
 #[tokio::test]
 async fn test_r0_search_recipients_route_still_works_after_nesting() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let token = super::create_test_user(&app).await;
@@ -222,7 +222,7 @@ async fn test_r0_search_recipients_route_still_works_after_nesting() {
 
 #[tokio::test]
 async fn test_room_context_rejects_non_member_and_admin_override() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let owner_token = super::create_test_user(&app).await;
@@ -262,7 +262,7 @@ async fn test_room_context_rejects_non_member_and_admin_override() {
 
 #[tokio::test]
 async fn test_thread_compat_route_is_available_from_thread_module() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -279,7 +279,7 @@ async fn test_thread_compat_route_is_available_from_thread_module() {
 
 #[tokio::test]
 async fn test_get_thread_returns_real_thread_details() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let token = super::create_test_user(&app).await;
@@ -305,7 +305,7 @@ async fn test_get_thread_returns_real_thread_details() {
 
 #[tokio::test]
 async fn test_get_thread_forbids_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let owner_token = super::create_test_user(&app).await;
@@ -320,7 +320,7 @@ async fn test_get_thread_forbids_non_members() {
 
 #[tokio::test]
 async fn test_thread_management_requires_room_creator() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let owner_token = super::create_test_user(&app).await;
@@ -389,7 +389,7 @@ async fn test_thread_management_requires_room_creator() {
 
 #[tokio::test]
 async fn test_global_thread_routes_return_real_data() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let token = super::create_test_user(&app).await;
@@ -476,7 +476,7 @@ async fn test_global_thread_routes_return_real_data() {
 
 #[tokio::test]
 async fn test_global_threads_only_include_joined_rooms() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
     let owner_token = super::create_test_user(&app).await;

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::ai_connection::{AiConnection, AiConnectionStorage};
+use synapse_storage::ai_connection::{AiConnection, AiConnectionStoreApi};
 use tracing::info;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,12 +47,12 @@ pub struct McpToolCallResponse {
 }
 
 pub struct MatrixAiConnectionService {
-    storage: Arc<AiConnectionStorage>,
+    storage: Arc<dyn AiConnectionStoreApi>,
     mcp_proxy: Arc<McpProxyService>,
 }
 
 impl MatrixAiConnectionService {
-    pub fn new(storage: Arc<AiConnectionStorage>, mcp_proxy: Arc<McpProxyService>) -> Self {
+    pub fn new(storage: Arc<dyn AiConnectionStoreApi>, mcp_proxy: Arc<McpProxyService>) -> Self {
         Self { storage, mcp_proxy }
     }
 

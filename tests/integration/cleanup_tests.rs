@@ -1,3 +1,5 @@
+use super::setup_fresh_test_app;
+use super::TestContext;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -5,8 +7,10 @@ use axum::{
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
-    let (app, pool, _cache) = super::setup_test_app_with_pool().await?;
+async fn setup_fresh_test_app_with_admin() -> Option<(axum::Router, String)> {
+    let ctx = TestContext::new().await?;
+    let app = ctx.app.clone();
+    let pool = ctx.pool.clone();
 
     let username = format!("admin_{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
     let password = "AdminPassword123!";
@@ -64,7 +68,7 @@ async fn setup_test_app_with_admin() -> Option<(axum::Router, String)> {
 
 #[tokio::test]
 async fn test_cleanup_api() {
-    let Some((app, admin_token)) = setup_test_app_with_admin().await else {
+    let Some((app, admin_token)) = setup_fresh_test_app_with_admin().await else {
         eprintln!("Skipping test because test database is unavailable");
         return;
     };
@@ -99,7 +103,7 @@ async fn test_cleanup_api() {
 
 #[tokio::test]
 async fn test_cleanup_api_unauthorized() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         eprintln!("Skipping test because test database is unavailable");
         return;
     };

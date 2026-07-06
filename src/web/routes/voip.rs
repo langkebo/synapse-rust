@@ -202,6 +202,7 @@ pub async fn call_invite(
         .services
         .rooms
         .room_service
+        .messaging
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -267,6 +268,7 @@ pub async fn call_answer(
         .services
         .rooms
         .room_service
+        .messaging
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),

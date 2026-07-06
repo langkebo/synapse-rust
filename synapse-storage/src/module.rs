@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -241,6 +242,62 @@ pub struct CreateAccountDataCallbackRequest {
 #[derive(Clone)]
 pub struct ModuleStorage {
     pool: Arc<PgPool>,
+}
+
+#[async_trait]
+pub trait ModuleStoreApi: Send + Sync {
+    async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error>;
+    async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error>;
+    async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error>;
+    async fn get_all_modules(
+        &self,
+        limit: i64,
+        from: Option<String>,
+    ) -> Result<(Vec<Module>, Option<String>), sqlx::Error>;
+    async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, sqlx::Error>;
+    async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error>;
+    async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error>;
+    async fn record_execution(&self, module_name: &str, success: bool, error: Option<&str>) -> Result<(), sqlx::Error>;
+    async fn create_spam_check_result(&self, request: CreateSpamCheckRequest) -> Result<SpamCheckResult, sqlx::Error>;
+    async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error>;
+    async fn get_spam_check_results_by_sender(
+        &self,
+        sender: &str,
+        limit: i64,
+    ) -> Result<Vec<SpamCheckResult>, sqlx::Error>;
+    async fn create_third_party_rule_result(
+        &self,
+        request: CreateThirdPartyRuleRequest,
+    ) -> Result<ThirdPartyRuleResult, sqlx::Error>;
+    async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error>;
+    async fn create_execution_log(&self, request: CreateExecutionLogRequest)
+        -> Result<ModuleExecutionLog, sqlx::Error>;
+    async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, sqlx::Error>;
+    async fn create_account_validity(
+        &self,
+        request: CreateAccountValidityRequest,
+    ) -> Result<AccountValidity, sqlx::Error>;
+    async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error>;
+    async fn renew_account(
+        &self,
+        user_id: &str,
+        renewal_token: &str,
+        new_expiration_at: i64,
+    ) -> Result<AccountValidity, sqlx::Error>;
+    async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error>;
+    async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error>;
+    async fn create_password_auth_provider(
+        &self,
+        _request: CreatePasswordAuthProviderRequest,
+    ) -> Result<PasswordAuthProvider, sqlx::Error>;
+    async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error>;
+    async fn create_media_callback(&self, request: CreateMediaCallbackRequest) -> Result<MediaCallback, sqlx::Error>;
+    async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error>;
+    async fn create_account_data_callback(
+        &self,
+        request: CreateAccountDataCallbackRequest,
+    ) -> Result<AccountDataCallback, sqlx::Error>;
+    async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error>;
 }
 
 impl ModuleStorage {
@@ -807,6 +864,141 @@ impl ModuleStorage {
         .await?;
 
         Ok(rows)
+    }
+}
+
+#[async_trait]
+impl ModuleStoreApi for ModuleStorage {
+    async fn register_module(&self, request: CreateModuleRequest) -> Result<Module, sqlx::Error> {
+        self.register_module(request).await
+    }
+
+    async fn get_module(&self, module_name: &str) -> Result<Option<Module>, sqlx::Error> {
+        self.get_module(module_name).await
+    }
+
+    async fn get_modules_by_type(&self, module_type: &str) -> Result<Vec<Module>, sqlx::Error> {
+        self.get_modules_by_type(module_type).await
+    }
+
+    async fn get_all_modules(
+        &self,
+        limit: i64,
+        from: Option<String>,
+    ) -> Result<(Vec<Module>, Option<String>), sqlx::Error> {
+        self.get_all_modules(limit, from).await
+    }
+
+    async fn update_module_config(&self, module_name: &str, config: serde_json::Value) -> Result<Module, sqlx::Error> {
+        self.update_module_config(module_name, config).await
+    }
+
+    async fn enable_module(&self, module_name: &str, is_enabled: bool) -> Result<Module, sqlx::Error> {
+        self.enable_module(module_name, is_enabled).await
+    }
+
+    async fn delete_module(&self, module_name: &str) -> Result<(), sqlx::Error> {
+        self.delete_module(module_name).await
+    }
+
+    async fn record_execution(&self, module_name: &str, success: bool, error: Option<&str>) -> Result<(), sqlx::Error> {
+        self.record_execution(module_name, success, error).await
+    }
+
+    async fn create_spam_check_result(&self, request: CreateSpamCheckRequest) -> Result<SpamCheckResult, sqlx::Error> {
+        self.create_spam_check_result(request).await
+    }
+
+    async fn get_spam_check_result(&self, event_id: &str) -> Result<Option<SpamCheckResult>, sqlx::Error> {
+        self.get_spam_check_result(event_id).await
+    }
+
+    async fn get_spam_check_results_by_sender(
+        &self,
+        sender: &str,
+        limit: i64,
+    ) -> Result<Vec<SpamCheckResult>, sqlx::Error> {
+        self.get_spam_check_results_by_sender(sender, limit).await
+    }
+
+    async fn create_third_party_rule_result(
+        &self,
+        request: CreateThirdPartyRuleRequest,
+    ) -> Result<ThirdPartyRuleResult, sqlx::Error> {
+        self.create_third_party_rule_result(request).await
+    }
+
+    async fn get_third_party_rule_results(&self, event_id: &str) -> Result<Vec<ThirdPartyRuleResult>, sqlx::Error> {
+        self.get_third_party_rule_results(event_id).await
+    }
+
+    async fn create_execution_log(
+        &self,
+        request: CreateExecutionLogRequest,
+    ) -> Result<ModuleExecutionLog, sqlx::Error> {
+        self.create_execution_log(request).await
+    }
+
+    async fn get_execution_logs(&self, module_name: &str, limit: i64) -> Result<Vec<ModuleExecutionLog>, sqlx::Error> {
+        self.get_execution_logs(module_name, limit).await
+    }
+
+    async fn create_account_validity(
+        &self,
+        request: CreateAccountValidityRequest,
+    ) -> Result<AccountValidity, sqlx::Error> {
+        self.create_account_validity(request).await
+    }
+
+    async fn get_account_validity(&self, user_id: &str) -> Result<Option<AccountValidity>, sqlx::Error> {
+        self.get_account_validity(user_id).await
+    }
+
+    async fn renew_account(
+        &self,
+        user_id: &str,
+        renewal_token: &str,
+        new_expiration_at: i64,
+    ) -> Result<AccountValidity, sqlx::Error> {
+        self.renew_account(user_id, renewal_token, new_expiration_at).await
+    }
+
+    async fn set_renewal_token(&self, user_id: &str, token: &str) -> Result<(), sqlx::Error> {
+        self.set_renewal_token(user_id, token).await
+    }
+
+    async fn get_expired_accounts(&self, before_ts: i64) -> Result<Vec<AccountValidity>, sqlx::Error> {
+        self.get_expired_accounts(before_ts).await
+    }
+
+    async fn create_password_auth_provider(
+        &self,
+        _request: CreatePasswordAuthProviderRequest,
+    ) -> Result<PasswordAuthProvider, sqlx::Error> {
+        self.create_password_auth_provider(_request).await
+    }
+
+    async fn get_password_auth_providers(&self) -> Result<Vec<PasswordAuthProvider>, sqlx::Error> {
+        self.get_password_auth_providers().await
+    }
+
+    async fn create_media_callback(&self, request: CreateMediaCallbackRequest) -> Result<MediaCallback, sqlx::Error> {
+        self.create_media_callback(request).await
+    }
+
+    async fn get_media_callbacks(&self, callback_type: Option<&str>) -> Result<Vec<MediaCallback>, sqlx::Error> {
+        self.get_media_callbacks(callback_type).await
+    }
+
+    async fn create_account_data_callback(
+        &self,
+        request: CreateAccountDataCallbackRequest,
+    ) -> Result<AccountDataCallback, sqlx::Error> {
+        self.create_account_data_callback(request).await
+    }
+
+    async fn get_account_data_callbacks(&self) -> Result<Vec<AccountDataCallback>, sqlx::Error> {
+        self.get_account_data_callbacks().await
     }
 }
 

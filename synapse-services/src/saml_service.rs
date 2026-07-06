@@ -71,7 +71,7 @@ pub struct SamlMetadata {
 
 pub struct SamlService {
     config: Arc<SamlConfig>,
-    storage: Arc<SamlStorage>,
+    storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
     http_client: reqwest::Client,
     server_name: String,
     cached_metadata: Option<SamlMetadata>,
@@ -80,7 +80,11 @@ pub struct SamlService {
 }
 
 impl SamlService {
-    pub fn new(config: Arc<SamlConfig>, storage: Arc<SamlStorage>, server_name: String) -> Self {
+    pub fn new(
+        config: Arc<SamlConfig>,
+        storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
+        server_name: String,
+    ) -> Self {
         let http_client = reqwest::Client::builder()
             .timeout(Duration::from_secs(config.timeout))
             .build()
@@ -1111,11 +1115,11 @@ impl SamlService {
 }
 
 pub struct SamlIdpManager {
-    storage: Arc<SamlStorage>,
+    storage: Arc<dyn synapse_storage::saml::SamlStoreApi>,
 }
 
 impl SamlIdpManager {
-    pub fn new(storage: Arc<SamlStorage>) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::saml::SamlStoreApi>) -> Self {
         Self { storage }
     }
 

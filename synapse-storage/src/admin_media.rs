@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use synapse_common::ApiError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +77,16 @@ fn map_media_row(row: AdminMediaRow) -> AdminMediaInfo {
 #[derive(Clone)]
 pub struct AdminMediaStorage {
     pool: sqlx::PgPool,
+}
+
+#[async_trait]
+pub trait AdminMediaStoreApi: Send + Sync {
+    async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError>;
+    async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError>;
+    async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError>;
+    async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError>;
+    async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError>;
+    async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError>;
 }
 
 impl AdminMediaStorage {
@@ -207,9 +218,38 @@ impl AdminMediaStorage {
     }
 }
 
+#[async_trait]
+impl AdminMediaStoreApi for AdminMediaStorage {
+    async fn get_all_media(&self, limit: i64, cursor: Option<MediaCursor>) -> Result<AdminMediaPage, ApiError> {
+        self.get_all_media(limit, cursor).await
+    }
+
+    async fn get_media_info(&self, media_id: &str) -> Result<Option<AdminMediaInfo>, ApiError> {
+        self.get_media_info(media_id).await
+    }
+
+    async fn delete_media(&self, media_id: &str) -> Result<bool, ApiError> {
+        self.delete_media(media_id).await
+    }
+
+    async fn get_media_quota(&self) -> Result<AdminMediaQuotaSummary, ApiError> {
+        self.get_media_quota().await
+    }
+
+    async fn get_user_media(&self, user_id: &str) -> Result<Vec<AdminMediaInfo>, ApiError> {
+        self.get_user_media(user_id).await
+    }
+
+    async fn delete_user_media(&self, user_id: &str) -> Result<u64, ApiError> {
+        self.delete_user_media(user_id).await
+    }
+}
+
 #[cfg(test)]
 mod cursor_tests {
-    use super::{decode_media_cursor, encode_media_cursor, MediaCursor};
+    use super::{
+        decode_media_cursor, encode_media_cursor, map_media_row, quarantine_status_to_bool, AdminMediaRow, MediaCursor,
+    };
 
     #[test]
     fn test_media_cursor_round_trip() {
@@ -225,5 +265,90 @@ mod cursor_tests {
     fn test_media_cursor_rejects_invalid_value() {
         assert_eq!(decode_media_cursor(Some("bad-cursor")), None);
         assert_eq!(decode_media_cursor(Some("123|")), None);
+    }
+
+    // ── quarantine_status_to_bool ──────────────────────────────────
+
+    #[test]
+    fn quarantine_status_quarantined_is_true() {
+        assert!(quarantine_status_to_bool(Some("quarantined")));
+    }
+
+    #[test]
+    fn quarantine_status_true_is_true() {
+        assert!(quarantine_status_to_bool(Some("true")));
+    }
+
+    #[test]
+    fn quarantine_status_1_is_true() {
+        assert!(quarantine_status_to_bool(Some("1")));
+    }
+
+    #[test]
+    fn quarantine_status_yes_is_true() {
+        assert!(quarantine_status_to_bool(Some("yes")));
+    }
+
+    #[test]
+    fn quarantine_status_other_is_false() {
+        assert!(!quarantine_status_to_bool(Some("no")));
+        assert!(!quarantine_status_to_bool(Some("false")));
+        assert!(!quarantine_status_to_bool(Some("")));
+    }
+
+    #[test]
+    fn quarantine_status_none_is_false() {
+        assert!(!quarantine_status_to_bool(None));
+    }
+
+    // ── map_media_row ──────────────────────────────────────────────
+
+    fn make_media_row() -> AdminMediaRow {
+        AdminMediaRow {
+            media_id: "media_1".to_string(),
+            content_type: Some("image/png".to_string()),
+            file_name: Some("photo.png".to_string()),
+            size: 1024,
+            uploader_user_id: Some("@alice:ex.com".to_string()),
+            created_ts: 1_700_000_000_000,
+            last_accessed_at: Some(1_700_000_001_000),
+            quarantine_status: None,
+        }
+    }
+
+    #[test]
+    fn map_media_row_transfers_fields() {
+        let row = make_media_row();
+        let info = map_media_row(row);
+        assert_eq!(info.media_id, "media_1");
+        assert_eq!(info.content_type, Some("image/png".to_string()));
+        assert_eq!(info.file_name, Some("photo.png".to_string()));
+        assert_eq!(info.size, 1024);
+        assert_eq!(info.uploader_user_id, Some("@alice:ex.com".to_string()));
+        assert_eq!(info.created_ts, 1_700_000_000_000);
+        assert_eq!(info.last_accessed_at, Some(1_700_000_001_000));
+        assert!(!info.quarantined);
+    }
+
+    #[test]
+    fn map_media_row_sets_quarantined_true() {
+        let mut row = make_media_row();
+        row.quarantine_status = Some("quarantined".to_string());
+        let info = map_media_row(row);
+        assert!(info.quarantined);
+    }
+
+    #[test]
+    fn map_media_row_handles_nulls() {
+        let mut row = make_media_row();
+        row.content_type = None;
+        row.file_name = None;
+        row.uploader_user_id = None;
+        row.last_accessed_at = None;
+        let info = map_media_row(row);
+        assert_eq!(info.content_type, None);
+        assert_eq!(info.file_name, None);
+        assert_eq!(info.uploader_user_id, None);
+        assert_eq!(info.last_accessed_at, None);
     }
 }

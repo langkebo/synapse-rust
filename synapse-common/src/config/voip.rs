@@ -331,3 +331,116 @@ impl UrlPreviewConfig {
         parse_size(&self.max_spider_size).unwrap_or(10 * 1024 * 1024)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_duration_empty() {
+        assert_eq!(parse_duration(""), None);
+        assert_eq!(parse_duration("   "), None);
+    }
+
+    #[test]
+    fn parse_duration_seconds() {
+        assert_eq!(parse_duration("0s"), Some(0));
+        assert_eq!(parse_duration("30s"), Some(30));
+        assert_eq!(parse_duration("3600s"), Some(3600));
+    }
+
+    #[test]
+    fn parse_duration_minutes() {
+        assert_eq!(parse_duration("0m"), Some(0));
+        assert_eq!(parse_duration("5m"), Some(300));
+        assert_eq!(parse_duration("90m"), Some(5400));
+    }
+
+    #[test]
+    fn parse_duration_hours() {
+        assert_eq!(parse_duration("1h"), Some(3600));
+        assert_eq!(parse_duration("24h"), Some(86400));
+    }
+
+    #[test]
+    fn parse_duration_days() {
+        assert_eq!(parse_duration("1d"), Some(86400));
+        assert_eq!(parse_duration("7d"), Some(604800));
+    }
+
+    #[test]
+    fn parse_duration_weeks() {
+        assert_eq!(parse_duration("1w"), Some(604800));
+        assert_eq!(parse_duration("2w"), Some(1209600));
+    }
+
+    #[test]
+    fn parse_duration_no_suffix_treated_as_seconds() {
+        assert_eq!(parse_duration("3600"), Some(3600));
+        assert_eq!(parse_duration("0"), Some(0));
+    }
+
+    #[test]
+    fn parse_duration_invalid() {
+        assert_eq!(parse_duration("abc"), None);
+        assert_eq!(parse_duration("10x"), None);
+        assert_eq!(parse_duration("-1h"), Some(-3600)); // negative is parseable
+    }
+
+    #[test]
+    fn parse_duration_whitespace() {
+        assert_eq!(parse_duration(" 1h "), Some(3600));
+        assert_eq!(parse_duration("\t30s"), Some(30));
+    }
+
+    #[test]
+    fn parse_duration_ms_not_treated_as_minutes() {
+        // "10ms" must not be parsed as "10m" (600s); strip_suffix('s') yields "10m" which fails to parse
+        assert_eq!(parse_duration("10ms"), None);
+    }
+
+    #[test]
+    fn parse_size_empty() {
+        assert_eq!(parse_size(""), None);
+        assert_eq!(parse_size("   "), None);
+    }
+
+    #[test]
+    fn parse_size_bytes() {
+        assert_eq!(parse_size("0"), Some(0));
+        assert_eq!(parse_size("1024"), Some(1024));
+        assert_eq!(parse_size("65536"), Some(65536));
+    }
+
+    #[test]
+    fn parse_size_kilobytes() {
+        assert_eq!(parse_size("1K"), Some(1024));
+        assert_eq!(parse_size("1k"), Some(1024));
+        assert_eq!(parse_size("10K"), Some(10240));
+    }
+
+    #[test]
+    fn parse_size_megabytes() {
+        assert_eq!(parse_size("1M"), Some(1048576));
+        assert_eq!(parse_size("1m"), Some(1048576));
+        assert_eq!(parse_size("10M"), Some(10485760));
+    }
+
+    #[test]
+    fn parse_size_gigabytes() {
+        assert_eq!(parse_size("1G"), Some(1073741824));
+        assert_eq!(parse_size("1g"), Some(1073741824));
+    }
+
+    #[test]
+    fn parse_size_invalid() {
+        assert_eq!(parse_size("abc"), None);
+        assert_eq!(parse_size("10X"), None);
+        assert_eq!(parse_size("1.5M"), None);
+    }
+
+    #[test]
+    fn parse_size_whitespace() {
+        assert_eq!(parse_size(" 10M "), Some(10485760));
+    }
+}

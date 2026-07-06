@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
@@ -13,6 +14,12 @@ pub struct AccessToken {
     pub user_agent: Option<String>,
     pub ip_address: Option<String>,
     pub is_revoked: bool,
+}
+
+#[async_trait]
+pub trait AccessTokenStoreApi: Send + Sync {
+    async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error>;
+    async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -297,6 +304,17 @@ impl AccessTokenStorage {
 
     fn hash_token_legacy(token: &str) -> String {
         synapse_common::crypto::hash_token_legacy(token)
+    }
+}
+
+#[async_trait]
+impl AccessTokenStoreApi for AccessTokenStorage {
+    async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error> {
+        self.get_user_tokens(user_id).await
+    }
+
+    async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error> {
+        self.delete_user_token_by_id(user_id, token_id).await
     }
 }
 

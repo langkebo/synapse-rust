@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_federation::friend::FriendFederationClient;
-use synapse_storage::{FriendRoomStorage, UserStore};
+use synapse_storage::UserStore;
 
 use crate::RoomService;
 
@@ -187,12 +187,205 @@ pub(crate) fn sort_letter_for(value: &str) -> String {
 }
 
 pub struct FriendRoomService {
-    pub(crate) friend_storage: FriendRoomStorage,
+    pub(crate) friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
     pub(crate) room_service: Arc<RoomService>,
     pub(crate) user_storage: Arc<dyn UserStore>,
-    pub(crate) presence_storage: std::sync::Arc<synapse_storage::presence::PresenceStorage>,
-    pub(crate) account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+    pub(crate) presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) cache: Arc<CacheManager>,
     pub(crate) server_name: String,
     pub(crate) federation_client: Arc<FriendFederationClient>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── encode_friend_list_cursor / decode_friend_list_cursor ──────────
+
+    #[test]
+    fn cursor_roundtrip() {
+        let cursor = FriendListCursor {
+            sort_by: "alphabet".into(),
+            sort_letter: "A".into(),
+            display_key: "Alice".into(),
+            online: true,
+            last_active_ts: Some(1700000000000),
+            added_ts: Some(1690000000000),
+            user_id: "@alice:example.com".into(),
+        };
+        let encoded = encode_friend_list_cursor(&cursor);
+        let decoded = decode_friend_list_cursor(Some(&encoded));
+        assert_eq!(decoded, Some(cursor));
+    }
+
+    #[test]
+    fn decode_friend_list_cursor_none_input() {
+        assert_eq!(decode_friend_list_cursor(None), None);
+    }
+
+    #[test]
+    fn decode_friend_list_cursor_empty_string() {
+        assert_eq!(decode_friend_list_cursor(Some("")), None);
+    }
+
+    #[test]
+    fn decode_friend_list_cursor_invalid_base64() {
+        assert_eq!(decode_friend_list_cursor(Some("!!!not-base64!!!")), None);
+    }
+
+    // ── ensure_room_in_direct_map ─────────────────────────────────────
+
+    #[test]
+    fn ensure_room_adds_new_entry() {
+        let mut map = serde_json::Map::new();
+        ensure_room_in_direct_map(&mut map, "@alice:ex.com", "!room1:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room1:ex.com"]));
+    }
+
+    #[test]
+    fn ensure_room_appends_to_existing_entry() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com"]));
+        ensure_room_in_direct_map(&mut map, "@alice:ex.com", "!room2:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room1:ex.com", "!room2:ex.com"]));
+    }
+
+    #[test]
+    fn ensure_room_no_duplicate() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com"]));
+        ensure_room_in_direct_map(&mut map, "@alice:ex.com", "!room1:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room1:ex.com"]));
+    }
+
+    #[test]
+    fn ensure_room_overwrites_non_array_with_array() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!("not-an-array"));
+        ensure_room_in_direct_map(&mut map, "@alice:ex.com", "!room1:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room1:ex.com"]));
+    }
+
+    // ── remove_room_from_direct_map ────────────────────────────────────
+
+    #[test]
+    fn remove_room_deletes_user_entry_when_last_room() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com"]));
+        remove_room_from_direct_map(&mut map, "!room1:ex.com");
+        assert!(!map.contains_key("@alice:ex.com"));
+    }
+
+    #[test]
+    fn remove_room_keeps_user_entry_when_other_rooms_exist() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com", "!room2:ex.com"]));
+        remove_room_from_direct_map(&mut map, "!room1:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room2:ex.com"]));
+    }
+
+    #[test]
+    fn remove_room_ignores_non_array_entries() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!("not-an-array"));
+        remove_room_from_direct_map(&mut map, "!room1:ex.com");
+        assert!(!map.contains_key("@alice:ex.com"));
+    }
+
+    #[test]
+    fn remove_room_nonexistent_room_noop() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com"]));
+        remove_room_from_direct_map(&mut map, "!other:ex.com");
+        assert_eq!(map["@alice:ex.com"], json!(["!room1:ex.com"]));
+    }
+
+    // ── merge_direct_links ─────────────────────────────────────────────
+
+    #[test]
+    fn merge_direct_links_adds_new_links() {
+        let mut map = serde_json::Map::new();
+        merge_direct_links(&mut map, vec![("@a:ex.com".into(), "!r1:ex.com".into())]);
+        assert_eq!(map["@a:ex.com"], json!(["!r1:ex.com"]));
+    }
+
+    #[test]
+    fn merge_direct_links_merges_with_existing() {
+        let mut map = serde_json::Map::new();
+        map.insert("@a:ex.com".into(), json!(["!r1:ex.com"]));
+        merge_direct_links(
+            &mut map,
+            vec![("@a:ex.com".into(), "!r2:ex.com".into()), ("@b:ex.com".into(), "!r3:ex.com".into())],
+        );
+        assert_eq!(map["@a:ex.com"], json!(["!r1:ex.com", "!r2:ex.com"]));
+        assert_eq!(map["@b:ex.com"], json!(["!r3:ex.com"]));
+    }
+
+    // ── get_room_direct_users ──────────────────────────────────────────
+
+    #[test]
+    fn get_room_direct_users_returns_matching_users() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com", "!room2:ex.com"]));
+        map.insert("@bob:ex.com".into(), json!(["!room1:ex.com"]));
+        map.insert("@charlie:ex.com".into(), json!(["!room3:ex.com"]));
+        let users = get_room_direct_users(&map, "!room1:ex.com");
+        assert_eq!(users.len(), 2);
+        assert!(users.contains(&"@alice:ex.com".to_string()));
+        assert!(users.contains(&"@bob:ex.com".to_string()));
+    }
+
+    #[test]
+    fn get_room_direct_users_no_match_returns_empty() {
+        let mut map = serde_json::Map::new();
+        map.insert("@alice:ex.com".into(), json!(["!room1:ex.com"]));
+        let users = get_room_direct_users(&map, "!nonexistent:ex.com");
+        assert!(users.is_empty());
+    }
+
+    #[test]
+    fn get_room_direct_users_empty_map() {
+        let map = serde_json::Map::new();
+        let users = get_room_direct_users(&map, "!room1:ex.com");
+        assert!(users.is_empty());
+    }
+
+    // ── sort_letter_for ────────────────────────────────────────────────
+
+    #[test]
+    fn sort_letter_alphabetic() {
+        assert_eq!(sort_letter_for("Alice"), "A");
+        assert_eq!(sort_letter_for("bob"), "B");
+        assert_eq!(sort_letter_for("Zoe"), "Z");
+    }
+
+    #[test]
+    fn sort_letter_handles_leading_whitespace() {
+        assert_eq!(sort_letter_for("  Alice"), "A");
+        assert_eq!(sort_letter_for("\tBob"), "B");
+    }
+
+    #[test]
+    fn sort_letter_non_alphabetic_first_char() {
+        assert_eq!(sort_letter_for("123User"), "#");
+        assert_eq!(sort_letter_for("@user"), "#");
+        assert_eq!(sort_letter_for("_test"), "#");
+    }
+
+    #[test]
+    fn sort_letter_empty_string() {
+        assert_eq!(sort_letter_for(""), "#");
+    }
+
+    #[test]
+    fn sort_letter_only_whitespace() {
+        assert_eq!(sort_letter_for("   "), "#");
+    }
+
+    #[test]
+    fn sort_letter_chinese_character() {
+        assert_eq!(sort_letter_for("中文"), "#");
+    }
 }

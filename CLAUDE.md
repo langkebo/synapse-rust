@@ -118,3 +118,43 @@ Key routing rules:
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
 - Author a backlog-ready spec/issue → invoke /spec
+- TDD/test-first development → invoke /tdd-rust
+
+## TDD Workflow
+
+This project follows Red-Green-Refactor TDD. Before implementing any new behavior or fixing a bug, consult:
+
+- **Workflow skill**: `.claude/skills/tdd-rust/SKILL.md` — mandatory Red-Green-Refactor self-check, Cargo command binding, Mock adapter decision tree, insta snapshot rules.
+- **Execution checklist**: `.trae/documents/TDD落地执行清单.md` — phased rollout plan (Phase 1–4) with concrete task IDs (P1-x, P2-x, STO-x, FED-x, SYNC-x, P4-x).
+
+### When TDD applies (mandatory)
+- Any new feature or route handler behavior
+- Bug fixes that touch service/storage logic
+- Refactors that change a public response shape
+
+### When TDD does not apply (exceptions)
+- Pure formatting / doc-only changes
+- Mechanical dependency bumps with no behavior change
+- Test infrastructure / fixture-only changes
+
+### Snapshot tests (insta)
+- Lock API output shapes for high-frequency routes (`login`, `register`, `sync`, `join`, `profile`).
+- Snapshots live under `tests/integration/snapshots/`.
+- Dynamic fields (access_token, refresh_token, expires_in, origin_server_ts, user_id suffixes) MUST be redacted via `.redact()` — see SKILL.md §5.
+- New snapshots: run `cargo insta test --review` to accept; never commit snapshots you did not review.
+
+### Pre-positioned Mocks
+- `synapse-storage::test_mocks`: `FakeUserStore` / `SharedFakeUserStore` / `seed_locked_users()`, `InMemoryEventStore`, `InMemoryRoomStore`, `InMemoryMemberStore`
+- `synapse-storage`: `EventStoreApi`, `RoomStoreApi`, `MemberStoreApi`, `PresenceStoreApi` traits with `Arc<dyn Trait>` injection
+- `synapse-federation::test_mocks::MockFederationClient` — implements `FederationClientApi`, seed responses via `seed_*()` methods
+- `synapse-federation::client_api::FederationClientApi` — trait seam, inject `Arc<dyn FederationClientApi>`
+- `synapse-services::test_mocks`: `MockSyncServiceDepsBuilder`, `FakeAuth` (configurable `validate_token`), `TestSyncContext`
+- `synapse-services::auth::Auth` — already a trait, mock via `FakeAuth`
+
+### TDD cycle commands (vertical slicing)
+```bash
+# RED: write one failing test, run it
+cargo nextest run -p <crate> <test_name> -P tdd  # or: cargo test -p <crate> <test_name> -- --nocapture
+# GREEN: minimal code to pass
+# REFACTOR: keep tests green; cargo clippy --all-features --locked -- -D warnings
+```

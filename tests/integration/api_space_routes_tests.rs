@@ -107,13 +107,13 @@ async fn add_child(app: &axum::Router, token: &str, space_room_id: &str, child_r
 }
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, std::sync::Arc<sqlx::PgPool>)> {
-    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    let (app, pool, _) = super::setup_fresh_test_app_with_pool().await?;
     Some((app, pool))
 }
 
 #[tokio::test]
 async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_verified() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -177,7 +177,7 @@ async fn test_space_summary_suite_keeps_summary_counts_and_child_projection_veri
 
 #[tokio::test]
 async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -266,7 +266,7 @@ async fn test_space_children_hierarchy_suite_keeps_nested_chain_verified() {
 
 #[tokio::test]
 async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verified() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -419,7 +419,7 @@ async fn test_space_membership_state_suite_keeps_invite_join_leave_closure_verif
 
 #[tokio::test]
 async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_verified() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -558,7 +558,7 @@ async fn test_space_lifecycle_query_suite_keeps_create_update_lookup_and_delete_
 
 #[tokio::test]
 async fn test_private_space_read_routes_reject_anonymous_and_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -724,7 +724,7 @@ async fn test_space_statistics_only_returns_visible_spaces() {
 
 #[tokio::test]
 async fn test_create_space_route_rejects_non_creator_for_foreign_room() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -754,7 +754,7 @@ async fn test_create_space_route_rejects_non_creator_for_foreign_room() {
 
 #[tokio::test]
 async fn test_space_shared_write_routes_reject_joined_non_creator() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 

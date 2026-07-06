@@ -1,5 +1,6 @@
 use crate::common::ApiError;
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -9,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_storage::retention::{CreateRoomRetentionPolicyRequest, UpdateServerRetentionPolicyRequest};
 
-pub fn create_retention_router(_state: AppState) -> Router<AppState> {
+pub fn create_retention_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/retention/policy", get(get_retention_policy))
         .route("/_synapse/admin/v1/retention/policy", post(set_retention_policy))
@@ -48,8 +49,8 @@ pub struct RunRetentionRequest {
 }
 
 #[axum::debug_handler]
-pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let policy = state.services.admin.modules.retention_service.get_server_policy_optional().await?;
+pub async fn get_retention_policy(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let policy = ctx.retention_service.get_server_policy_optional().await?;
 
     match policy {
         Some(policy) => Ok(Json(json!({
@@ -68,13 +69,10 @@ pub async fn get_retention_policy(_admin: AdminUser, State(state): State<AppStat
 #[axum::debug_handler]
 pub async fn set_retention_policy(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let policy = state
-        .services
-        .admin
-        .modules
+    let policy = ctx
         .retention_service
         .upsert_server_policy(UpdateServerRetentionPolicyRequest {
             max_lifetime: body.max_lifetime,
@@ -93,16 +91,16 @@ pub async fn set_retention_policy(
 #[axum::debug_handler]
 pub async fn get_room_retention_policy(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let policy = state.services.admin.modules.retention_service.get_room_policy(&room_id).await?;
+    let policy = ctx.retention_service.get_room_policy(&room_id).await?;
 
     match policy {
         Some(policy) => Ok(Json(json!({
@@ -123,18 +121,15 @@ pub async fn get_room_retention_policy(
 #[axum::debug_handler]
 pub async fn set_room_retention_policy(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
     Json(body): Json<RetentionPolicyRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !ctx.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let policy = state
-        .services
-        .admin
-        .modules
+    let policy = ctx
         .retention_service
         .set_room_policy(CreateRoomRetentionPolicyRequest {
             room_id: room_id.clone(),
@@ -155,16 +150,16 @@ pub async fn set_room_retention_policy(
 #[axum::debug_handler]
 pub async fn run_retention(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<RunRetentionRequest>,
 ) -> Result<Json<Value>, ApiError> {
     match body.room_id {
         Some(room_id) => {
-            if !state.services.rooms.room_service.room_exists(&room_id).await? {
+            if !ctx.room_service.state.room_exists(&room_id).await? {
                 return Err(ApiError::not_found("Room not found".to_string()));
             }
 
-            let log = state.services.admin.modules.retention_service.run_cleanup(&room_id).await?;
+            let log = ctx.retention_service.run_cleanup(&room_id).await?;
             Ok(Json(json!({
                 "started": true,
                 "room_id": room_id,
@@ -174,7 +169,7 @@ pub async fn run_retention(
             })))
         }
         None => {
-            let cleaned = state.services.admin.modules.retention_service.run_scheduled_cleanups().await?;
+            let cleaned = ctx.retention_service.run_scheduled_cleanups().await?;
             Ok(Json(json!({
                 "started": true,
                 "scope": "all_rooms",
@@ -185,8 +180,8 @@ pub async fn run_retention(
 }
 
 #[axum::debug_handler]
-pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let status = state.services.admin.modules.retention_service.get_status_summary().await?;
+pub async fn get_retention_status(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let status = ctx.retention_service.get_status_summary().await?;
 
     let last_run = status.last_run.map(|summary| {
         json!({
@@ -206,10 +201,10 @@ pub async fn get_retention_status(_admin: AdminUser, State(state): State<AppStat
     Ok(Json(json!({
         "server_policy_enabled": status.server_policy_enabled,
         "rooms_with_custom_policy": status.rooms_with_custom_policy,
-        "lifecycle_cleanup_enabled": state.services.core.config.retention.lifecycle_cleanup_enabled,
-        "cleanup_batch_size": state.services.core.config.retention.cleanup_batch_size,
-        "audit_retention_days": state.services.core.config.retention.audit_retention_days,
-        "queue_retention_days": state.services.core.config.retention.queue_retention_days,
+        "lifecycle_cleanup_enabled": ctx.config.retention.lifecycle_cleanup_enabled,
+        "cleanup_batch_size": ctx.config.retention.cleanup_batch_size,
+        "audit_retention_days": ctx.config.retention.audit_retention_days,
+        "queue_retention_days": ctx.config.retention.queue_retention_days,
         "last_run": last_run
     })))
 }

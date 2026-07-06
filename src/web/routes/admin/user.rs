@@ -1,7 +1,8 @@
 use super::audit::{record_audit_event, resolve_request_id};
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -14,7 +15,7 @@ use synapse_services::admin_user_service::{decode_user_cursor, encode_user_curso
 use synapse_storage::user::User as AdminUserRecord;
 use validator::Validate;
 
-pub fn create_user_router(_state: AppState) -> Router<AppState> {
+pub fn create_user_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/users", get(get_users))
         .route("/_synapse/admin/v1/users/{user_id}", get(get_user))
@@ -131,11 +132,11 @@ pub fn admin_user_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
 #[axum::debug_handler]
 async fn evict_user(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
-    let eviction = state.services.admin.user.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
+    let eviction = ctx.admin_user_service.evict_user_from_joined_rooms(&user.user_id).await?;
     let failures: Vec<Value> = eviction
         .failures
         .into_iter()
@@ -176,8 +177,8 @@ pub struct CreateUpdateUserRequest {
     pub password: Option<String>,
 }
 
-async fn resolve_user(state: &AppState, identifier: &str) -> Result<AdminUserRecord, ApiError> {
-    state.services.admin.user.admin_user_service.get_user_or_not_found(identifier).await
+async fn resolve_user(ctx: &AdminContext, identifier: &str) -> Result<AdminUserRecord, ApiError> {
+    ctx.admin_user_service.get_user_or_not_found(identifier).await
 }
 
 // Moved to admin/mod.rs
@@ -186,7 +187,7 @@ use super::ensure_super_admin_for_privilege_change;
 #[axum::debug_handler]
 pub async fn get_users(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
@@ -202,10 +203,7 @@ pub async fn get_users(
         ));
     }
 
-    let page = state
-        .services
-        .admin
-        .user
+    let page = ctx
         .admin_user_service
         .list_users_legacy(
             limit,
@@ -250,10 +248,10 @@ pub async fn get_users(
 #[axum::debug_handler]
 async fn get_user(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.user.admin_user_service.get_user_by_identifier(&user_id).await?;
+    let user = ctx.admin_user_service.get_user_by_identifier(&user_id).await?;
 
     match user {
         Some(u) => Ok(Json(json!({
@@ -273,11 +271,11 @@ async fn get_user(
 #[axum::debug_handler]
 async fn delete_user(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
     tracing::info!(
         admin_user = %admin.user_id,
@@ -285,7 +283,7 @@ async fn delete_user(
         "Admin deleting user"
     );
 
-    state.services.admin.user.admin_user_service.delete_user(&user.user_id).await.map_err(|e| {
+    ctx.admin_user_service.delete_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -298,7 +296,7 @@ async fn delete_user(
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
     if let Err(e) = record_audit_event(
-        &state,
+        &ctx,
         &admin.user_id,
         "delete_user",
         "user",
@@ -329,7 +327,7 @@ async fn delete_user(
 #[axum::debug_handler]
 pub async fn set_admin(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<Value>,
@@ -341,7 +339,7 @@ pub async fn set_admin(
         .and_then(|v| v.as_bool())
         .ok_or_else(|| ApiError::bad_request("Missing 'admin' field".to_string()))?;
 
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
     tracing::info!(
         admin_user = %admin.user_id,
@@ -350,7 +348,7 @@ pub async fn set_admin(
         "Admin changing user admin status"
     );
 
-    state.services.admin.user.admin_user_service.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
+    ctx.admin_user_service.set_admin_status(&user.user_id, admin_status).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -359,12 +357,12 @@ pub async fn set_admin(
         );
         e
     })?;
-    state.cache.set(&format!("user:admin:{}", user.user_id), admin_status, 3600).await?;
+    ctx.cache.set(&format!("user:admin:{}", user.user_id), admin_status, 3600).await?;
 
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
     if let Err(e) = record_audit_event(
-        &state,
+        &ctx,
         &admin.user_id,
         "set_admin_status",
         "user",
@@ -394,11 +392,11 @@ pub async fn set_admin(
 #[axum::debug_handler]
 pub async fn deactivate_user(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
     // P2 #33: 审计日志 - deactivate_user 操作
     tracing::warn!(
@@ -415,7 +413,7 @@ pub async fn deactivate_user(
         "Admin deactivating user"
     );
 
-    state.services.core.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
+    ctx.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -428,7 +426,7 @@ pub async fn deactivate_user(
     // 记录审计日志
     let request_id = resolve_request_id(&headers);
     if let Err(e) = record_audit_event(
-        &state,
+        &ctx,
         &admin.user_id,
         "deactivate_user",
         "user",
@@ -456,13 +454,13 @@ pub async fn deactivate_user(
 #[axum::debug_handler]
 pub async fn reset_user_password(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.core.auth_service.validator().validate_password(&body.new_password)?;
+    ctx.auth_service.validator().validate_password(&body.new_password)?;
 
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
     // P2 #33: 审计日志 - reset_password 操作
     tracing::warn!(
@@ -473,7 +471,7 @@ pub async fn reset_user_password(
         "Admin reset user password operation"
     );
 
-    state.services.core.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
+    ctx.registration_service.change_password(&user.user_id, None, &body.new_password, None).await?;
 
     Ok(Json(json!({})))
 }
@@ -481,17 +479,16 @@ pub async fn reset_user_password(
 #[axum::debug_handler]
 pub async fn get_user_rooms_admin(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100).clamp(1, 500);
     let from = params.get("from").map(|s| s.as_str());
 
-    let room_ids =
-        state.services.admin.user.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
+    let room_ids = ctx.admin_user_service.get_user_rooms_paginated(&user.user_id, limit, from).await?;
 
     let next_batch = if room_ids.len() as i64 == limit { room_ids.last().cloned() } else { None };
 
@@ -505,11 +502,11 @@ pub async fn get_user_rooms_admin(
 #[axum::debug_handler]
 pub async fn get_user_devices_admin(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
-    let devices = state.services.admin.user.admin_user_service.get_user_devices(&user.user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
+    let devices = ctx.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let device_list: Vec<Value> = devices
         .iter()
@@ -532,12 +529,12 @@ pub async fn get_user_devices_admin(
 #[axum::debug_handler]
 pub async fn delete_user_device_admin(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((user_id, device_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
-    let rows = state.services.core.auth_service.revoke_device(&user.user_id, &device_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
+    let rows = ctx.auth_service.revoke_device(&user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -545,7 +542,7 @@ pub async fn delete_user_device_admin(
 
     let request_id = resolve_request_id(&headers);
     if let Err(e) = record_audit_event(
-        &state,
+        &ctx,
         &admin.user_id,
         "admin.user.delete_device",
         "device",
@@ -568,7 +565,7 @@ pub async fn delete_user_device_admin(
 #[axum::debug_handler]
 pub async fn delete_user_device_admin_compat(
     admin: AdminUser,
-    state: State<AppState>,
+    state: State<AdminContext>,
     path: Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
@@ -578,10 +575,10 @@ pub async fn delete_user_device_admin_compat(
 #[axum::debug_handler]
 pub async fn login_as_user(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.user.admin_user_service.get_user_or_not_found(&user_id).await?;
+    let user = ctx.admin_user_service.get_user_or_not_found(&user_id).await?;
 
     if user.is_deactivated {
         return Err(ApiError::bad_request("User is deactivated".to_string()));
@@ -590,9 +587,7 @@ pub async fn login_as_user(
     let device_id = crate::common::random_string(10);
     let is_admin = user.is_admin;
 
-    let token = state
-        .services
-        .core
+    let token = ctx
         .auth_service
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
@@ -608,17 +603,17 @@ pub async fn login_as_user(
 #[axum::debug_handler]
 pub async fn logout_user_devices(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
-    let device_count = state.services.admin.user.admin_user_service.get_user_device_count(&user.user_id).await?;
+    let device_count = ctx.admin_user_service.get_user_device_count(&user.user_id).await?;
 
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
-    state.services.core.auth_service.logout_all(&user.user_id).await?;
+    ctx.auth_service.logout_all(&user.user_id).await?;
 
     Ok(Json(json!({
         "devices_deleted": device_count
@@ -628,7 +623,7 @@ pub async fn logout_user_devices(
 #[axum::debug_handler]
 pub async fn get_users_v2(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
@@ -644,13 +639,7 @@ pub async fn get_users_v2(
         ));
     }
 
-    let page = state
-        .services
-        .admin
-        .user
-        .admin_user_service
-        .list_users_v2(limit, cursor, params.get("name").map(String::as_str))
-        .await?;
+    let page = ctx.admin_user_service.list_users_v2(limit, cursor, params.get("name").map(String::as_str)).await?;
 
     let users: Vec<Value> = page
         .users
@@ -680,10 +669,10 @@ pub async fn get_users_v2(
 #[axum::debug_handler]
 pub async fn get_user_v2(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = state.services.admin.user.admin_user_service.get_user_v2(&user_id).await?;
+    let user = ctx.admin_user_service.get_user_v2(&user_id).await?;
 
     match user {
         Some(details) => {
@@ -721,7 +710,7 @@ pub async fn get_user_v2(
 #[axum::debug_handler]
 pub async fn create_or_update_user_v2(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     Json(body): Json<CreateUpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -729,11 +718,7 @@ pub async fn create_or_update_user_v2(
         ensure_super_admin_for_privilege_change(&admin)?;
     }
 
-    state
-        .services
-        .admin
-        .user
-        .admin_user_service
+    ctx.admin_user_service
         .create_or_update_user_v2(
             &user_id,
             body.displayname.as_deref(),
@@ -749,8 +734,8 @@ pub async fn create_or_update_user_v2(
 }
 
 #[axum::debug_handler]
-pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.admin.user.admin_user_service.get_user_stats().await?;
+pub async fn get_user_stats(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let stats = ctx.admin_user_service.get_user_stats().await?;
 
     Ok(Json(json!({
         "total_users": stats.total_users,
@@ -759,17 +744,17 @@ pub async fn get_user_stats(_admin: AdminUser, State(state): State<AppState>) ->
         "deactivated_users": stats.deactivated_users,
         "guest_users": stats.guest_users,
         "average_rooms_per_user": stats.average_rooms_per_user,
-        "user_registration_enabled": state.services.core.config.server.enable_registration
+        "user_registration_enabled": ctx.config.server.enable_registration
     })))
 }
 
 #[axum::debug_handler]
 pub async fn get_single_user_stats(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.admin.user.admin_user_service.get_single_user_stats(&user_id).await?;
+    let stats = ctx.admin_user_service.get_single_user_stats(&user_id).await?;
 
     Ok(Json(json!({
         "user_id": stats.user.user_id,
@@ -803,7 +788,7 @@ pub struct BatchCreateUser {
 #[axum::debug_handler]
 pub async fn batch_create_users(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<BatchCreateUsersRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let has_admin_request = body.users.iter().any(|u| u.admin.unwrap_or(false));
@@ -823,7 +808,7 @@ pub async fn batch_create_users(
             )
         })
         .collect();
-    let result = state.services.admin.user.admin_user_service.batch_create_users(&users).await?;
+    let result = ctx.admin_user_service.batch_create_users(&users).await?;
 
     Ok(Json(json!({
         "created": result.succeeded,
@@ -842,14 +827,14 @@ pub struct BatchDeactivateRequest {
 #[axum::debug_handler]
 pub async fn batch_deactivate_users(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<BatchDeactivateRequest>,
 ) -> Result<Json<Value>, ApiError> {
     if body.users.len() > 100 {
         return Err(ApiError::bad_request("Too many users in batch request (max 100)".to_string()));
     }
 
-    let result = state.services.admin.user.admin_user_service.batch_deactivate_users(&body.users).await?;
+    let result = ctx.admin_user_service.batch_deactivate_users(&body.users).await?;
 
     Ok(Json(json!({
         "deactivated": result.succeeded,
@@ -862,12 +847,12 @@ pub async fn batch_deactivate_users(
 #[axum::debug_handler]
 pub async fn get_user_sessions(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
 
-    let devices = state.services.admin.user.admin_user_service.get_user_devices(&user.user_id).await?;
+    let devices = ctx.admin_user_service.get_user_devices(&user.user_id).await?;
 
     let sessions: Vec<Value> = devices
         .iter()
@@ -893,15 +878,14 @@ pub async fn get_user_sessions(
 #[axum::debug_handler]
 pub async fn invalidate_user_sessions(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = user.user_id;
-    let sessions_removed =
-        state.services.admin.user.admin_user_service.get_user_device_count(&canonical_user_id).await?;
+    let sessions_removed = ctx.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
-    state.services.core.auth_service.logout_all(&canonical_user_id).await?;
+    ctx.auth_service.logout_all(&canonical_user_id).await?;
 
     Ok(Json(json!({
         "invalidated": true,
@@ -913,15 +897,15 @@ pub async fn invalidate_user_sessions(
 #[axum::debug_handler]
 pub async fn get_account_details(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
-    let device_count = state.services.admin.user.admin_user_service.get_user_device_count(canonical_user_id).await?;
+    let device_count = ctx.admin_user_service.get_user_device_count(canonical_user_id).await?;
 
-    let room_count = state.services.admin.user.admin_user_service.get_joined_room_count(canonical_user_id).await?;
+    let room_count = ctx.admin_user_service.get_joined_room_count(canonical_user_id).await?;
 
     Ok(Json(json!({
         "name": user.username,
@@ -946,32 +930,28 @@ pub struct UpdateAccountRequest {
 #[axum::debug_handler]
 pub async fn update_account(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<UpdateAccountRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let user = resolve_user(&state, &user_id).await?;
+    let user = resolve_user(&ctx, &user_id).await?;
     let canonical_user_id = &user.user_id;
 
     if body.admin.is_some() {
         ensure_super_admin_for_privilege_change(&admin)?;
     }
-    state
-        .services
-        .admin
-        .user
-        .admin_user_service
+    ctx.admin_user_service
         .update_account(canonical_user_id, body.displayname.as_deref(), body.avatar_url.as_deref(), body.admin)
         .await?;
 
     if let Some(admin_status) = body.admin {
-        state.cache.set(&format!("user:admin:{canonical_user_id}"), admin_status, 3600).await?;
+        ctx.cache.set(&format!("user:admin:{canonical_user_id}"), admin_status, 3600).await?;
     }
 
     let request_id = resolve_request_id(&headers);
     record_audit_event(
-        &state,
+        &ctx,
         &admin.user_id,
         "admin.user.update",
         "user",

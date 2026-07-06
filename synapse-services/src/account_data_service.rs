@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use synapse_common::crypto::random_string;
 use synapse_common::ApiError;
+use synapse_storage::account_data::AccountDataStoreApi;
 use synapse_storage::filter::{CreateFilterRequest, FilterStorage};
 use synapse_storage::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage};
 use synapse_storage::room_account_data::RoomAccountDataStorage;
@@ -11,7 +12,7 @@ use tracing::instrument;
 type AccountDataWithTimestamp = (Value, Option<i64>);
 
 pub struct AccountDataService {
-    account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+    account_data_storage: Arc<dyn AccountDataStoreApi>,
     user_storage: Arc<dyn UserStore>,
     room_account_data_storage: RoomAccountDataStorage,
     filter_storage: FilterStorage,
@@ -20,19 +21,13 @@ pub struct AccountDataService {
 
 impl AccountDataService {
     pub fn new(
-        pool: &Arc<sqlx::PgPool>,
+        account_data_storage: Arc<dyn AccountDataStoreApi>,
         user_storage: Arc<dyn UserStore>,
         room_account_data_storage: RoomAccountDataStorage,
         filter_storage: FilterStorage,
         openid_token_storage: OpenIdTokenStorage,
     ) -> Self {
-        Self {
-            account_data_storage: Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool)),
-            user_storage,
-            room_account_data_storage,
-            filter_storage,
-            openid_token_storage,
-        }
+        Self { account_data_storage, user_storage, room_account_data_storage, filter_storage, openid_token_storage }
     }
 
     #[instrument(skip(self))]

@@ -1,14 +1,27 @@
+use async_trait::async_trait;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::registration_token::*;
 use tracing::{info, instrument};
 
+#[async_trait]
+pub trait RegistrationTokenApi: Send + Sync {
+    async fn create_token(&self, request: CreateRegistrationTokenRequest) -> Result<RegistrationToken, ApiError>;
+    async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError>;
+    async fn delete_token(&self, id: i64) -> Result<(), ApiError>;
+    async fn update_token(
+        &self,
+        id: i64,
+        request: UpdateRegistrationTokenRequest,
+    ) -> Result<RegistrationToken, ApiError>;
+}
+
 pub struct RegistrationTokenService {
-    storage: Arc<RegistrationTokenStorage>,
+    storage: Arc<dyn RegistrationTokenStoreApi>,
 }
 
 impl RegistrationTokenService {
-    pub fn new(storage: Arc<RegistrationTokenStorage>) -> Self {
+    pub fn new(storage: Arc<dyn RegistrationTokenStoreApi>) -> Self {
         Self { storage }
     }
 
@@ -335,6 +348,29 @@ impl RegistrationTokenService {
         }
 
         Ok(true)
+    }
+}
+
+#[async_trait]
+impl RegistrationTokenApi for RegistrationTokenService {
+    async fn create_token(&self, request: CreateRegistrationTokenRequest) -> Result<RegistrationToken, ApiError> {
+        self.create_token(request).await
+    }
+
+    async fn get_token(&self, token: &str) -> Result<Option<RegistrationToken>, ApiError> {
+        self.get_token(token).await
+    }
+
+    async fn delete_token(&self, id: i64) -> Result<(), ApiError> {
+        self.delete_token(id).await
+    }
+
+    async fn update_token(
+        &self,
+        id: i64,
+        request: UpdateRegistrationTokenRequest,
+    ) -> Result<RegistrationToken, ApiError> {
+        self.update_token(id, request).await
     }
 }
 

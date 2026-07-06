@@ -124,7 +124,7 @@ pub async fn set_sticky_events(
         validate_event_id(event_id_str)?;
 
         let stored_event: serde_json::Value =
-            state.services.rooms.room_service.get_event(&room_id, event_id_str).await?;
+            state.services.rooms.room_service.messaging.get_event(&room_id, event_id_str).await?;
         let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
 
         // Set the sticky event

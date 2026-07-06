@@ -3,7 +3,7 @@ use crate::web::routes::{AdminUser, AppState};
 use axum::{extract::State, routing::post, Json, Router};
 use serde_json::{json, Value};
 
-pub fn create_cleanup_router(state: AppState) -> Router<AppState> {
+pub fn create_cleanup_router(state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/cleanup/all", post(cleanup_all))
         .route("/_synapse/admin/v1/cleanup/rooms", post(cleanup_rooms))

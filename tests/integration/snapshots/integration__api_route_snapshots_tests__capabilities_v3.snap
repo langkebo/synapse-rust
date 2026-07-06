@@ -1,0 +1,60 @@
+---
+source: tests/integration/api_route_snapshots_tests.rs
+expression: body
+---
+{
+  "capabilities": {
+    "io.element.msc4452.preview_url": {
+      "enabled": false
+    },
+    "m.3pid_changes": {
+      "enabled": true
+    },
+    "m.change_password": {
+      "enabled": true
+    },
+    "m.room.suggested": {
+      "enabled": true
+    },
+    "m.room.summary": {
+      "enabled": true
+    },
+    "m.room_versions": {
+      "available": {
+        "1": "stable",
+        "10": "stable",
+        "11": "stable",
+        "12": "stable",
+        "13": "stable",
+        "2": "stable",
+        "3": "stable",
+        "4": "stable",
+        "5": "stable",
+        "6": "stable",
+        "7": "stable",
+        "8": "stable",
+        "9": "stable"
+      },
+      "default": "10"
+    },
+    "m.set_avatar_url": {
+      "enabled": true
+    },
+    "m.set_displayname": {
+      "enabled": true
+    },
+    "m.thread": {
+      "enabled": true
+    },
+    "m.voice": {
+      "enabled": true
+    }
+  },
+  "unstable_features": {
+    "io.hula.burn_after_read": "[feature_gated]",
+    "io.hula.friends": "[feature_gated]",
+    "org.matrix.msc3245.voice": "[feature_gated]",
+    "org.matrix.msc3886.sliding_sync": "[feature_gated]",
+    "org.matrix.msc3983.thread": "[feature_gated]"
+  }
+}

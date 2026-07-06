@@ -265,7 +265,7 @@ pub(super) async fn send_transaction(
 
         if origin != state.services.core.config.server.name {
             if let Ok(create_events) =
-                state.services.rooms.room_service.get_state_events_by_type(room_id, "m.room.create").await
+                state.services.rooms.room_service.messaging.get_state_events_by_type(room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
                     if !crate::federation::signing::check_event_federate(
@@ -359,7 +359,8 @@ pub(super) async fn send_transaction(
         // persistence — the event graph will have a gap, but the PDU itself is
         // still stored.
         if !prev_events.is_empty() {
-            if let Ok(missing) = state.services.rooms.room_service.find_missing_event_ids(&prev_events).await {
+            if let Ok(missing) = state.services.rooms.room_service.messaging.find_missing_event_ids(&prev_events).await
+            {
                 if !missing.is_empty() {
                     ::tracing::debug!(
                         request_id = %request_id,
@@ -398,6 +399,7 @@ pub(super) async fn send_transaction(
                                             .services
                                             .rooms
                                             .room_service
+                                            .messaging
                                             .get_event_record(missing_event_id)
                                             .await
                                             .ok()
@@ -446,6 +448,7 @@ pub(super) async fn send_transaction(
                                             .services
                                             .rooms
                                             .room_service
+                                            .messaging
                                             .create_event_with_graph(
                                                 missing_params,
                                                 &missing_prev,
@@ -498,6 +501,7 @@ pub(super) async fn send_transaction(
             .services
             .rooms
             .room_service
+            .messaging
             .create_event_with_graph(params, &prev_events, &auth_events, depth, None)
             .await
         {
@@ -516,8 +520,13 @@ pub(super) async fn send_transaction(
                 // event itself is persisted so that the redaction is
                 // recorded even if the target is missing.
                 if let Some(target_event_id) = &redacts_target {
-                    if let Err(e) =
-                        state.services.rooms.room_service.redact_event_content(target_event_id, Some(user_id)).await
+                    if let Err(e) = state
+                        .services
+                        .rooms
+                        .room_service
+                        .messaging
+                        .redact_event_content(target_event_id, Some(user_id))
+                        .await
                     {
                         ::tracing::warn!(
                             target: "security_audit",

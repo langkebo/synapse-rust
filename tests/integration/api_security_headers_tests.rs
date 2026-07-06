@@ -5,7 +5,7 @@ use axum::{
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 /// Task 2.1: X-Content-Type-Options: nosniff on API responses

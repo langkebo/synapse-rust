@@ -308,7 +308,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 
 fn create_service(pool: &Arc<sqlx::PgPool>) -> SlidingSyncService {
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let storage = SlidingSyncStorage::new(pool.clone());
+    let storage = Arc::new(SlidingSyncStorage::new(pool.clone()));
     let event_storage = Arc::new(EventStorage::new(pool, "localhost".to_string()));
     let typing_service = Arc::new(TypingService::default());
     let presence_storage = Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));

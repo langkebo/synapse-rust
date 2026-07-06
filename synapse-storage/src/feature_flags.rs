@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool, Postgres, QueryBuilder};
 use std::collections::HashMap;
@@ -79,6 +80,28 @@ pub struct FeatureFlagFilters {
     pub cursor_updated_ts: Option<i64>,
     pub cursor_flag_key: Option<String>,
 }
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait FeatureFlagStoreApi: Send + Sync {
+    async fn create_flag(
+        &self,
+        request: &CreateFeatureFlagRequest,
+        created_by: &str,
+        created_ts: i64,
+    ) -> Result<FeatureFlag, sqlx::Error>;
+    async fn update_flag(
+        &self,
+        flag_key: &str,
+        request: &UpdateFeatureFlagRequest,
+        updated_ts: i64,
+    ) -> Result<Option<FeatureFlag>, sqlx::Error>;
+    async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error>;
+    async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct FeatureFlagStorage {
@@ -371,6 +394,34 @@ impl FeatureFlagStorage {
             filters.cursor_updated_ts.map_or_else(String::new, |ts| ts.to_string()),
             filters.cursor_flag_key.as_deref().unwrap_or(""),
         )
+    }
+}
+
+// ── Delegation impl ─────────────────────────────────────────────────────
+
+#[async_trait]
+impl FeatureFlagStoreApi for FeatureFlagStorage {
+    async fn create_flag(
+        &self,
+        request: &CreateFeatureFlagRequest,
+        created_by: &str,
+        created_ts: i64,
+    ) -> Result<FeatureFlag, sqlx::Error> {
+        self.create_flag(request, created_by, created_ts).await
+    }
+    async fn update_flag(
+        &self,
+        flag_key: &str,
+        request: &UpdateFeatureFlagRequest,
+        updated_ts: i64,
+    ) -> Result<Option<FeatureFlag>, sqlx::Error> {
+        self.update_flag(flag_key, request, updated_ts).await
+    }
+    async fn get_flag(&self, flag_key: &str) -> Result<Option<FeatureFlag>, sqlx::Error> {
+        self.get_flag(flag_key).await
+    }
+    async fn list_flags(&self, filters: &FeatureFlagFilters) -> Result<(Vec<FeatureFlag>, i64), sqlx::Error> {
+        self.list_flags(filters).await
     }
 }
 

@@ -9,7 +9,7 @@ const DEFAULT_LOCK_MAX_RETRIES: u32 = 3;
 const DEFAULT_LOCK_MAX_RETRY_INTERVAL_MS: u64 = 5000;
 
 pub struct BackgroundUpdateService {
-    storage: Arc<BackgroundUpdateStorage>,
+    storage: Arc<dyn BackgroundUpdateStoreApi>,
     /// Maximum retry attempts for lock acquisition (from WorkerConfig).
     lock_max_retries: u32,
     /// Maximum interval between lock retries in ms (from WorkerConfig).
@@ -17,7 +17,7 @@ pub struct BackgroundUpdateService {
 }
 
 impl BackgroundUpdateService {
-    pub fn new(storage: Arc<BackgroundUpdateStorage>) -> Self {
+    pub fn new(storage: Arc<dyn BackgroundUpdateStoreApi>) -> Self {
         Self {
             storage,
             lock_max_retries: DEFAULT_LOCK_MAX_RETRIES,
@@ -370,5 +370,301 @@ impl BackgroundUpdateService {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_storage::test_mocks::InMemoryBackgroundUpdateStore;
+
+    fn test_service() -> BackgroundUpdateService {
+        BackgroundUpdateService::new(Arc::new(InMemoryBackgroundUpdateStore::new()))
+    }
+
+    fn create_request(job_name: &str) -> CreateBackgroundUpdateRequest {
+        CreateBackgroundUpdateRequest {
+            job_name: job_name.to_string(),
+            job_type: "test".to_string(),
+            description: None,
+            table_name: None,
+            column_name: None,
+            total_items: None,
+            batch_size: None,
+            sleep_ms: None,
+            depends_on: None,
+            metadata: None,
+        }
+    }
+
+    // ── create_update ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn create_update_stores_pending_update() {
+        let svc = test_service();
+        let req = create_request("job1");
+        let update = svc.create_update(req).await.unwrap();
+        assert_eq!(update.job_name, "job1");
+        assert_eq!(update.status, "pending");
+    }
+
+    #[tokio::test]
+    async fn create_update_fails_on_duplicate_job_name() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        let err = svc.create_update(create_request("job1")).await.unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    // ── start_update ───────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn start_update_transitions_pending_to_running() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        let update = svc.start_update("job1").await.unwrap();
+        assert_eq!(update.status, "running");
+    }
+
+    #[tokio::test]
+    async fn start_update_fails_when_not_found() {
+        let svc = test_service();
+        let err = svc.start_update("nonexistent").await.unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn start_update_fails_when_not_pending() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap(); // now running
+        let err = svc.start_update("job1").await.unwrap_err();
+        assert!(err.to_string().contains("not in pending status"));
+    }
+
+    #[tokio::test]
+    async fn start_update_fails_when_locked() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        // Acquire the lock first
+        svc.storage.acquire_lock_with_retry("job1", "other", 300000, 0, 0).await.unwrap();
+        let err = svc.start_update("job1").await.unwrap_err();
+        assert!(err.to_string().contains("Failed to acquire lock"));
+    }
+
+    // ── update_progress ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn update_progress_updates_items() {
+        let svc = test_service();
+        svc.create_update(CreateBackgroundUpdateRequest { total_items: Some(100), ..create_request("job1") })
+            .await
+            .unwrap();
+        svc.start_update("job1").await.unwrap();
+        let update = svc.update_progress("job1", 50, None).await.unwrap();
+        assert_eq!(update.processed_items, 50);
+    }
+
+    #[tokio::test]
+    async fn update_progress_auto_completes_when_processed_equals_total() {
+        let svc = test_service();
+        svc.create_update(CreateBackgroundUpdateRequest { total_items: Some(10), ..create_request("job1") })
+            .await
+            .unwrap();
+        svc.start_update("job1").await.unwrap();
+        svc.update_progress("job1", 10, None).await.unwrap();
+        // Side effect: the update is now completed in storage
+        let stored = svc.get_update("job1").await.unwrap().unwrap();
+        assert_eq!(stored.status, "completed");
+        assert!(!svc.storage.is_locked("job1").await.unwrap());
+    }
+
+    // ── complete_update ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn complete_update_changes_status_and_releases_lock() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap();
+        let update = svc.complete_update("job1").await.unwrap();
+        assert_eq!(update.status, "completed");
+        assert!(!svc.storage.is_locked("job1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn complete_update_adds_history() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap();
+        svc.complete_update("job1").await.unwrap();
+        let history = svc.get_history("job1", 10).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].status, "completed");
+    }
+
+    // ── fail_update ────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn fail_update_sets_error_and_releases_lock() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap();
+        let update = svc.fail_update("job1", "something broke").await.unwrap();
+        assert_eq!(update.status, "failed");
+        assert_eq!(update.error_message.as_deref(), Some("something broke"));
+        assert!(!svc.storage.is_locked("job1").await.unwrap());
+    }
+
+    // ── cancel_update ──────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn cancel_update_changes_status_and_releases_lock() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap();
+        let update = svc.cancel_update("job1").await.unwrap();
+        assert_eq!(update.status, "cancelled");
+        assert!(!svc.storage.is_locked("job1").await.unwrap());
+    }
+
+    // ── get_next_pending_update ────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_next_pending_returns_unlocked_pending_update() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        let next = svc.get_next_pending_update().await.unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().job_name, "job1");
+    }
+
+    #[tokio::test]
+    async fn get_next_pending_skips_locked_update() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.create_update(create_request("job2")).await.unwrap();
+        // Lock job1
+        svc.storage.acquire_lock_with_retry("job1", "other", 300000, 0, 0).await.unwrap();
+        let next = svc.get_next_pending_update().await.unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().job_name, "job2");
+    }
+
+    #[tokio::test]
+    async fn get_next_pending_skips_when_dependency_not_completed() {
+        let svc = test_service();
+        svc.create_update(create_request("dep")).await.unwrap();
+        svc.create_update(CreateBackgroundUpdateRequest {
+            depends_on: Some(vec!["dep".to_string()]),
+            ..create_request("job1")
+        })
+        .await
+        .unwrap();
+        // dep is still pending → job1 should be skipped
+        let next = svc.get_next_pending_update().await.unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().job_name, "dep");
+    }
+
+    #[tokio::test]
+    async fn get_next_pending_returns_when_dependency_is_completed() {
+        let svc = test_service();
+        svc.create_update(create_request("dep")).await.unwrap();
+        svc.create_update(CreateBackgroundUpdateRequest {
+            depends_on: Some(vec!["dep".to_string()]),
+            ..create_request("job1")
+        })
+        .await
+        .unwrap();
+        // Complete the dependency
+        svc.start_update("dep").await.unwrap();
+        svc.complete_update("dep").await.unwrap();
+        // Now job1 should be available
+        let next = svc.get_next_pending_update().await.unwrap();
+        assert!(next.is_some());
+        assert_eq!(next.unwrap().job_name, "job1");
+    }
+
+    #[tokio::test]
+    async fn get_next_pending_returns_none_when_all_locked() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.storage.acquire_lock_with_retry("job1", "other", 300000, 0, 0).await.unwrap();
+        let next = svc.get_next_pending_update().await.unwrap();
+        assert!(next.is_none());
+    }
+
+    // ── passthrough methods ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn get_update_returns_stored_update() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        let found = svc.get_update("job1").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().job_name, "job1");
+    }
+
+    #[tokio::test]
+    async fn get_update_returns_none_for_unknown() {
+        let svc = test_service();
+        assert!(svc.get_update("unknown").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_all_updates_returns_page() {
+        let svc = test_service();
+        svc.create_update(create_request("a")).await.unwrap();
+        svc.create_update(create_request("b")).await.unwrap();
+        let (updates, _next) = svc.get_all_updates(10, None).await.unwrap();
+        assert_eq!(updates.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn delete_update_removes_it() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.delete_update("job1").await.unwrap();
+        assert!(svc.get_update("job1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn retry_failed_resets_to_pending() {
+        let svc = test_service();
+        svc.create_update(create_request("job1")).await.unwrap();
+        svc.start_update("job1").await.unwrap();
+        svc.fail_update("job1", "error").await.unwrap();
+        let count = svc.retry_failed().await.unwrap();
+        assert_eq!(count, 1);
+        let update = svc.get_update("job1").await.unwrap().unwrap();
+        assert_eq!(update.status, "pending");
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_locks_returns_count() {
+        let svc = test_service();
+        svc.storage.acquire_lock_with_retry("a", "x", 300000, 0, 0).await.unwrap();
+        svc.storage.acquire_lock_with_retry("b", "x", 300000, 0, 0).await.unwrap();
+        let count = svc.cleanup_expired_locks().await.unwrap();
+        assert_eq!(count, 2);
+        assert!(!svc.storage.is_locked("a").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn count_by_status_returns_accurate_count() {
+        let svc = test_service();
+        svc.create_update(create_request("a")).await.unwrap();
+        svc.create_update(create_request("b")).await.unwrap();
+        svc.start_update("a").await.unwrap();
+        assert_eq!(svc.count_by_status("pending").await.unwrap(), 1);
+        assert_eq!(svc.count_by_status("running").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn count_all_returns_total() {
+        let svc = test_service();
+        svc.create_update(create_request("a")).await.unwrap();
+        svc.create_update(create_request("b")).await.unwrap();
+        assert_eq!(svc.count_all().await.unwrap(), 2);
     }
 }

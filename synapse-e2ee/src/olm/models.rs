@@ -122,3 +122,84 @@ impl OlmAccountData {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn olm_session_new_sets_fields() {
+        let session = OlmSessionData::new(
+            "sid".into(),
+            "alice".into(),
+            "DEV1".into(),
+            "sender_key".into(),
+            "receiver_key".into(),
+            "state".into(),
+        );
+        assert_eq!(session.session_id, "sid");
+        assert_eq!(session.user_id, "alice");
+        assert_eq!(session.device_id, "DEV1");
+        assert_eq!(session.sender_key, "sender_key");
+        assert_eq!(session.receiver_key, "receiver_key");
+        assert_eq!(session.serialized_state, "state");
+        assert_eq!(session.message_index, 0);
+        assert!(session.created_ts > 0);
+        assert_eq!(session.created_ts, session.last_used_ts);
+        assert_eq!(session.expires_at, None);
+    }
+
+    #[test]
+    fn olm_session_touch_updates_last_used_ts() {
+        let mut session =
+            OlmSessionData::new("sid".into(), "alice".into(), "DEV1".into(), "sk".into(), "rk".into(), "state".into());
+        let old_ts = session.last_used_ts;
+        session.touch();
+        assert!(session.last_used_ts >= old_ts);
+    }
+
+    #[test]
+    fn olm_session_increment_message_index() {
+        let mut session =
+            OlmSessionData::new("sid".into(), "alice".into(), "DEV1".into(), "sk".into(), "rk".into(), "state".into());
+        assert_eq!(session.message_index, 0);
+        session.increment_message_index();
+        assert_eq!(session.message_index, 1);
+        session.increment_message_index();
+        assert_eq!(session.message_index, 2);
+    }
+
+    #[test]
+    fn olm_session_is_expired_no_expiry() {
+        let session =
+            OlmSessionData::new("sid".into(), "alice".into(), "DEV1".into(), "sk".into(), "rk".into(), "state".into());
+        assert!(!session.is_expired());
+    }
+
+    #[test]
+    fn olm_session_is_expired_past() {
+        let mut session =
+            OlmSessionData::new("sid".into(), "alice".into(), "DEV1".into(), "sk".into(), "rk".into(), "state".into());
+        session.expires_at = Some(1); // Unix epoch + 1ms — definitely in the past
+        assert!(session.is_expired());
+    }
+
+    #[test]
+    fn olm_session_is_expired_future() {
+        let mut session =
+            OlmSessionData::new("sid".into(), "alice".into(), "DEV1".into(), "sk".into(), "rk".into(), "state".into());
+        session.expires_at = Some(9999999999999i64); // far future
+        assert!(!session.is_expired());
+    }
+
+    #[test]
+    fn olm_account_data_new() {
+        let account = OlmAccountData::new("alice".into(), "DEV1".into(), "id_key".into(), "serial".into());
+        assert_eq!(account.user_id, "alice");
+        assert_eq!(account.device_id, "DEV1");
+        assert_eq!(account.identity_key, "id_key");
+        assert_eq!(account.serialized_account, "serial");
+        assert!(!account.has_published_one_time_keys);
+        assert!(!account.has_published_fallback_key);
+    }
+}

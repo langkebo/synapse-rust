@@ -1,8 +1,9 @@
 #[cfg(feature = "server-notifications")]
 use crate::common::ApiError;
 #[cfg(feature = "server-notifications")]
+use crate::web::routes::context::AdminContext;
+#[cfg(feature = "server-notifications")]
 use crate::web::routes::AdminUser;
-use crate::web::routes::AppState;
 #[cfg(feature = "server-notifications")]
 use axum::extract::Query;
 #[cfg(feature = "server-notifications")]
@@ -70,7 +71,7 @@ mod cursor_tests {
     }
 }
 
-pub fn create_notification_router(_state: AppState) -> Router<AppState> {
+pub fn create_notification_router() -> Router<crate::web::routes::AppState> {
     #[allow(unused_mut)]
     let mut router = Router::new();
 
@@ -135,13 +136,13 @@ pub fn admin_notification_route_manifest() -> Vec<crate::web::routes::route_ledg
 }
 
 #[cfg(feature = "server-notifications")]
-async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    state.services.extensions.server_notification_service.ensure_user_exists(user_id).await
+async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
+    ctx.server_notification_service.ensure_user_exists(user_id).await
 }
 
 #[cfg(feature = "server-notifications")]
-async fn ensure_target_users_exist(state: &AppState, user_ids: &[String]) -> Result<(), ApiError> {
-    state.services.extensions.server_notification_service.ensure_target_users_exist(user_ids).await
+async fn ensure_target_users_exist(ctx: &AdminContext, user_ids: &[String]) -> Result<(), ApiError> {
+    ctx.server_notification_service.ensure_target_users_exist(user_ids).await
 }
 
 #[cfg(feature = "server-notifications")]
@@ -191,13 +192,13 @@ pub struct NotificationQuery {
 #[axum::debug_handler]
 pub async fn create_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<CreateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
-    ensure_target_users_exist(&state, &requested_target_user_ids).await?;
+    ensure_target_users_exist(&ctx, &requested_target_user_ids).await?;
 
-    let notification = state.services.extensions.server_notification_service.create_notification(body).await?;
+    let notification = ctx.server_notification_service.create_notification(body).await?;
 
     Ok(Json(json!(notification)))
 }
@@ -206,7 +207,7 @@ pub async fn create_notification(
 #[axum::debug_handler]
 pub async fn list_notifications(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<NotificationQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = (query.limit.unwrap_or(50).min(100)) as i64;
@@ -216,12 +217,8 @@ pub async fn list_notifications(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (notifications, next_batch) = state
-        .services
-        .extensions
-        .server_notification_service
-        .list_all_notifications(query.audience.as_deref(), limit, cursor)
-        .await?;
+    let (notifications, next_batch) =
+        ctx.server_notification_service.list_all_notifications(query.audience.as_deref(), limit, cursor).await?;
 
     Ok(Json(json!({
         "notifications": notifications,
@@ -233,10 +230,10 @@ pub async fn list_notifications(
 #[axum::debug_handler]
 pub async fn get_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notification = state.services.extensions.server_notification_service.get_notification(notification_id).await?;
+    let notification = ctx.server_notification_service.get_notification(notification_id).await?;
 
     match notification {
         Some(n) => Ok(Json(json!(n))),
@@ -248,11 +245,11 @@ pub async fn get_notification(
 #[axum::debug_handler]
 pub async fn update_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notification_id): Path<i64>,
     Json(body): Json<UpdateNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state.services.extensions.server_notification_service.get_notification(notification_id).await?;
+    let existing = ctx.server_notification_service.get_notification(notification_id).await?;
 
     let existing = match existing {
         Some(n) => n,
@@ -260,7 +257,7 @@ pub async fn update_notification(
     };
 
     let requested_target_user_ids = body.target_user_ids.clone().unwrap_or_default();
-    ensure_target_users_exist(&state, &requested_target_user_ids).await?;
+    ensure_target_users_exist(&ctx, &requested_target_user_ids).await?;
 
     let update_request = CreateNotificationRequest {
         title: body.title.unwrap_or(existing.title),
@@ -277,12 +274,7 @@ pub async fn update_notification(
         created_by: existing.created_by,
     };
 
-    let notification = state
-        .services
-        .extensions
-        .server_notification_service
-        .update_notification(notification_id, update_request)
-        .await?;
+    let notification = ctx.server_notification_service.update_notification(notification_id, update_request).await?;
 
     Ok(Json(json!(notification)))
 }
@@ -291,10 +283,10 @@ pub async fn update_notification(
 #[axum::debug_handler]
 pub async fn delete_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deleted = state.services.extensions.server_notification_service.delete_notification(notification_id).await?;
+    let deleted = ctx.server_notification_service.delete_notification(notification_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -307,11 +299,10 @@ pub async fn delete_notification(
 #[axum::debug_handler]
 pub async fn deactivate_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notification_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let deactivated =
-        state.services.extensions.server_notification_service.deactivate_notification(notification_id).await?;
+    let deactivated = ctx.server_notification_service.deactivate_notification(notification_id).await?;
 
     if !deactivated {
         return Err(ApiError::not_found("Notification not found".to_string()));
@@ -324,9 +315,9 @@ pub async fn deactivate_notification(
 #[axum::debug_handler]
 pub async fn list_active_notifications(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
 ) -> Result<Json<Value>, ApiError> {
-    let notifications = state.services.extensions.server_notification_service.list_active_notifications().await?;
+    let notifications = ctx.server_notification_service.list_active_notifications().await?;
 
     Ok(Json(json!(notifications)))
 }
@@ -335,25 +326,22 @@ pub async fn list_active_notifications(
 #[axum::debug_handler]
 pub async fn send_server_notice(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<ServerNoticeRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let target_user =
-        state.services.extensions.server_notification_service.get_user_by_identifier(&body.user_id).await?;
+    let target_user = ctx.server_notification_service.get_user_by_identifier(&body.user_id).await?;
     let Some(target_user) = target_user else {
         return Err(ApiError::not_found("User not found".to_string()));
     };
 
-    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
+    let room_id = format!("!server_notice_{}:{}", uuid::Uuid::new_v4(), ctx.server_name);
     let now = chrono::Utc::now().timestamp_millis();
-    let server_user = format!("@server:{}", state.services.core.server_name);
-    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
-    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
-    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
+    let server_user = format!("@server:{}", ctx.server_name);
+    let message_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    let create_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
+    let membership_event_id = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
 
-    let notice_id = state
-        .services
-        .extensions
+    let notice_id = ctx
         .server_notification_service
         .send_server_notice(
             &room_id,
@@ -377,14 +365,14 @@ pub async fn send_server_notice(
 #[axum::debug_handler]
 pub async fn get_server_notices(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<ServerNoticesQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(10).min(50) as i64;
     let cursor = decode_notice_cursor(query.from.as_deref());
 
     let (notice_list, total, next_batch) =
-        state.services.extensions.server_notification_service.get_server_notices_paginated(cursor, limit).await?;
+        ctx.server_notification_service.get_server_notices_paginated(cursor, limit).await?;
 
     Ok(Json(json!({
         "notices": notice_list,
@@ -403,10 +391,10 @@ pub struct ServerNoticesQuery {
 #[axum::debug_handler]
 pub async fn get_server_notice(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let notice = state.services.extensions.server_notification_service.get_server_notice_by_id(notice_id).await?;
+    let notice = ctx.server_notification_service.get_server_notice_by_id(notice_id).await?;
 
     match notice {
         Some(notice) => Ok(Json(notice)),
@@ -418,10 +406,10 @@ pub async fn get_server_notice(
 #[axum::debug_handler]
 pub async fn delete_server_notice(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(notice_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.extensions.server_notification_service.delete_server_notice(notice_id).await?;
+    ctx.server_notification_service.delete_server_notice(notice_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -430,12 +418,12 @@ pub async fn delete_server_notice(
 #[axum::debug_handler]
 pub async fn get_user_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    let setting = state.services.extensions.server_notification_service.get_user_notification_setting(&user_id).await?;
+    let setting = ctx.server_notification_service.get_user_notification_setting(&user_id).await?;
 
     match setting {
         Some(enabled) => Ok(Json(json!({ "enabled": enabled }))),
@@ -447,18 +435,13 @@ pub async fn get_user_notification(
 #[axum::debug_handler]
 pub async fn update_user_notification(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     Json(body): Json<UserNotificationRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    state
-        .services
-        .extensions
-        .server_notification_service
-        .upsert_user_notification_setting(&user_id, body.is_enabled)
-        .await?;
+    ctx.server_notification_service.upsert_user_notification_setting(&user_id, body.is_enabled).await?;
 
     Ok(Json(json!({ "is_enabled": body.is_enabled })))
 }
@@ -467,12 +450,12 @@ pub async fn update_user_notification(
 #[axum::debug_handler]
 pub async fn get_user_pushers(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    let pusher_list = state.services.extensions.server_notification_service.get_user_pushers(&user_id).await?;
+    let pusher_list = ctx.server_notification_service.get_user_pushers(&user_id).await?;
 
     Ok(Json(json!({ "pushers": pusher_list, "total": pusher_list.len() })))
 }
@@ -481,12 +464,12 @@ pub async fn get_user_pushers(
 #[axum::debug_handler]
 pub async fn delete_user_pusher(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((user_id, pushkey)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    let deleted = state.services.extensions.server_notification_service.delete_user_pusher(&user_id, &pushkey).await?;
+    let deleted = ctx.server_notification_service.delete_user_pusher(&user_id, &pushkey).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Pusher not found".to_string()));

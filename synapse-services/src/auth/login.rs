@@ -238,7 +238,7 @@ impl AuthService {
             }
         } else {
             self.device_storage
-                .create_device(&user.user_id, &device_id, initial_display_name)
+                .create_device(&device_id, &user.user_id, initial_display_name)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to create device", &e))?;
         }

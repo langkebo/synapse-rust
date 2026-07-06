@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 use std::sync::Arc;
 
@@ -25,6 +26,41 @@ pub struct FederationCacheRecord {
     pub key: String,
     pub value: Option<String>,
     pub expiry_ts: Option<i64>,
+}
+
+#[async_trait]
+pub trait AdminFederationStoreApi: Send + Sync {
+    async fn count_destinations(&self) -> Result<i64, sqlx::Error>;
+    async fn list_destinations(
+        &self,
+        after_server_name: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<FederationDestinationRecord>, sqlx::Error>;
+    async fn get_destination(&self, server_name: &str) -> Result<Option<FederationDestinationRecord>, sqlx::Error>;
+    async fn reset_connection(&self, server_name: &str) -> Result<u64, sqlx::Error>;
+    async fn delete_destination(&self, server_name: &str) -> Result<u64, sqlx::Error>;
+    async fn destination_exists(&self, server_name: &str) -> Result<bool, sqlx::Error>;
+    async fn get_destination_rooms(&self, server_name: &str) -> Result<Vec<String>, sqlx::Error>;
+    async fn count_distinct_rooms_by_sender_server(&self, server_name: &str) -> Result<i64, sqlx::Error>;
+    async fn get_destination_status(&self, server_name: &str) -> Result<Option<String>, sqlx::Error>;
+    async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<Option<String>>, sqlx::Error>;
+    async fn insert_pending_server(&self, server_name: &str, now_ts: i64) -> Result<u64, sqlx::Error>;
+    async fn update_destination_status(
+        &self,
+        server_name: &str,
+        status: &str,
+        updated_ts: i64,
+    ) -> Result<u64, sqlx::Error>;
+    async fn list_pending_federation(
+        &self,
+        updated_ts: Option<i64>,
+        server_name: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<PendingFederationRecord>, sqlx::Error>;
+    async fn count_pending_federation(&self) -> Result<i64, sqlx::Error>;
+    async fn get_federation_cache(&self) -> Result<Vec<FederationCacheRecord>, sqlx::Error>;
+    async fn delete_federation_cache_entry(&self, key: &str) -> Result<u64, sqlx::Error>;
+    async fn clear_federation_cache(&self) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -240,6 +276,91 @@ impl AdminFederationStorage {
     pub async fn clear_federation_cache(&self) -> Result<u64, sqlx::Error> {
         let result = sqlx::query("DELETE FROM federation_cache").execute(&*self.pool).await?;
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl AdminFederationStoreApi for AdminFederationStorage {
+    async fn count_destinations(&self) -> Result<i64, sqlx::Error> {
+        self.count_destinations().await
+    }
+
+    async fn list_destinations(
+        &self,
+        after_server_name: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<FederationDestinationRecord>, sqlx::Error> {
+        self.list_destinations(after_server_name, limit).await
+    }
+
+    async fn get_destination(&self, server_name: &str) -> Result<Option<FederationDestinationRecord>, sqlx::Error> {
+        self.get_destination(server_name).await
+    }
+
+    async fn reset_connection(&self, server_name: &str) -> Result<u64, sqlx::Error> {
+        self.reset_connection(server_name).await
+    }
+
+    async fn delete_destination(&self, server_name: &str) -> Result<u64, sqlx::Error> {
+        self.delete_destination(server_name).await
+    }
+
+    async fn destination_exists(&self, server_name: &str) -> Result<bool, sqlx::Error> {
+        self.destination_exists(server_name).await
+    }
+
+    async fn get_destination_rooms(&self, server_name: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_destination_rooms(server_name).await
+    }
+
+    async fn count_distinct_rooms_by_sender_server(&self, server_name: &str) -> Result<i64, sqlx::Error> {
+        self.count_distinct_rooms_by_sender_server(server_name).await
+    }
+
+    async fn get_destination_status(&self, server_name: &str) -> Result<Option<String>, sqlx::Error> {
+        self.get_destination_status(server_name).await
+    }
+
+    async fn get_server_admission_status(&self, server_name: &str) -> Result<Option<Option<String>>, sqlx::Error> {
+        self.get_server_admission_status(server_name).await
+    }
+
+    async fn insert_pending_server(&self, server_name: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.insert_pending_server(server_name, now_ts).await
+    }
+
+    async fn update_destination_status(
+        &self,
+        server_name: &str,
+        status: &str,
+        updated_ts: i64,
+    ) -> Result<u64, sqlx::Error> {
+        self.update_destination_status(server_name, status, updated_ts).await
+    }
+
+    async fn list_pending_federation(
+        &self,
+        updated_ts: Option<i64>,
+        server_name: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<PendingFederationRecord>, sqlx::Error> {
+        self.list_pending_federation(updated_ts, server_name, limit).await
+    }
+
+    async fn count_pending_federation(&self) -> Result<i64, sqlx::Error> {
+        self.count_pending_federation().await
+    }
+
+    async fn get_federation_cache(&self) -> Result<Vec<FederationCacheRecord>, sqlx::Error> {
+        self.get_federation_cache().await
+    }
+
+    async fn delete_federation_cache_entry(&self, key: &str) -> Result<u64, sqlx::Error> {
+        self.delete_federation_cache_entry(key).await
+    }
+
+    async fn clear_federation_cache(&self) -> Result<u64, sqlx::Error> {
+        self.clear_federation_cache().await
     }
 }
 

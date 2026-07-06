@@ -54,6 +54,7 @@ pub mod sliding_sync;
 pub mod space;
 pub mod state_groups;
 pub mod sticky_event;
+pub mod test_mocks;
 pub mod thread;
 pub mod threepid;
 pub mod token;

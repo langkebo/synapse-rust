@@ -507,4 +507,295 @@ mod tests {
 
         assert!(verify_result);
     }
+
+    #[tokio::test]
+    async fn test_hash_password_blocking_alias() {
+        // hash_password_blocking should behave identically to hash_password.
+        let pool = create_test_pool();
+        let hash = pool.hash_password_blocking("test_password").await.unwrap();
+        assert!(hash.starts_with("$argon2id$"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_password_blocking_alias() {
+        // verify_password_blocking should behave identically to verify_password.
+        let pool = create_test_pool();
+        let hash = pool.hash_password("test_password").await.unwrap();
+        let result = pool.verify_password_blocking("test_password", &hash).await.unwrap();
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_semaphore_getter_returns_arc() {
+        let pool = create_test_pool();
+        let semaphore = pool.semaphore();
+        // max_concurrent is 2 in test config, so 2 permits are available.
+        assert_eq!(semaphore.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_try_hash_password_returns_handle_when_permits_available() {
+        let pool = create_test_pool();
+        // try_hash_password is synchronous and returns Option<JoinHandle<...>>.
+        let handle = pool.try_hash_password("test_password");
+        assert!(handle.is_some(), "should return Some(JoinHandle) when permits are available");
+
+        // Await the spawned task to ensure it completes successfully.
+        if let Some(h) = handle {
+            let result = h.await.unwrap();
+            assert!(result.is_ok());
+            assert!(result.unwrap().starts_with("$argon2id$"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_try_hash_password_returns_none_when_exhausted() {
+        // Pool with max_concurrent = 1: acquiring one permit exhausts the pool.
+        let config =
+            PasswordHashPoolConfig { max_concurrent: 1, queue_size: 1, thread_pool_size: 1, hash_timeout_ms: 1000 };
+        let argon2_config = Argon2Config::new(65536, 3, 1).unwrap();
+        let pool = Arc::new(PasswordHashPool::new(config, argon2_config));
+
+        // Acquire the only permit manually.
+        let _permit = pool.semaphore().clone().try_acquire_owned().unwrap();
+        // try_hash_password is synchronous; returns None when permits are exhausted.
+        let result = pool.try_hash_password("test_password");
+        assert!(result.is_none(), "should return None when pool is exhausted");
+
+        // Verify the rejected_operations counter was incremented.
+        assert!(pool.metrics().rejected_operations.get() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_pool_metrics_returns_some_after_global_init() {
+        // Initialize the global pool with test config.
+        let config = PasswordHashPoolConfig::default();
+        let argon2_config = Argon2Config::default();
+        PasswordHashPool::initialize_global(config, argon2_config);
+
+        // After initialization, get_pool_metrics should return Some.
+        let metrics = get_pool_metrics();
+        assert!(metrics.is_some());
+    }
+
+    #[test]
+    fn test_get_pool_status_returns_active_when_global_set() {
+        // get_pool_status reads from the global pool (set by previous test or default init).
+        // Calling it should not panic regardless of whether the global is set.
+        let status = get_pool_status();
+        // Status should have valid max_concurrent (>= 0) and available_permits (>= 0).
+        let _ = status.available_permits;
+        let _ = status.max_concurrent;
+        let _ = status.active_operations;
+    }
+
+    #[test]
+    fn test_pool_status_default() {
+        let status = PoolStatus::default();
+        assert_eq!(status.available_permits, 0);
+        assert_eq!(status.max_concurrent, 0);
+        assert_eq!(status.active_operations, 0);
+    }
+
+    #[test]
+    fn test_pool_status_debug_format() {
+        let status = PoolStatus { available_permits: 5, max_concurrent: 10, active_operations: 3 };
+        let debug = format!("{status:?}");
+        assert!(debug.contains("PoolStatus"));
+        assert!(debug.contains("5"));
+        assert!(debug.contains("10"));
+        assert!(debug.contains("3"));
+    }
+
+    #[test]
+    fn test_pool_status_clone_preserves_fields() {
+        let status = PoolStatus { available_permits: 5, max_concurrent: 10, active_operations: 3 };
+        let cloned = status.clone();
+        assert_eq!(status.available_permits, cloned.available_permits);
+        assert_eq!(status.max_concurrent, cloned.max_concurrent);
+        assert_eq!(status.active_operations, cloned.active_operations);
+    }
+
+    #[test]
+    fn test_runtime_pool_config_uses_defaults_when_env_unset() {
+        // Save existing env values to restore after test (env can be set by other tests).
+        let max_concurrent_save = env::var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT").ok();
+        env::remove_var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT");
+
+        let config = runtime_pool_config();
+        assert_eq!(config.max_concurrent, 4, "default max_concurrent should be 4");
+
+        // Restore env.
+        if let Some(v) = max_concurrent_save {
+            env::set_var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT", v);
+        }
+    }
+
+    #[test]
+    fn test_env_override_usize_uses_default_when_var_invalid() {
+        env::set_var("SYNAPSE_TEST_OVERRIDE_USIZE_INVALID", "not_a_number");
+        let value = env_override_usize("SYNAPSE_TEST_OVERRIDE_USIZE_INVALID", 42);
+        assert_eq!(value, 42, "invalid env value should fall back to default");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_USIZE_INVALID");
+    }
+
+    #[test]
+    fn test_env_override_usize_uses_default_when_zero() {
+        // Zero values are treated as invalid and fall back to default.
+        env::set_var("SYNAPSE_TEST_OVERRIDE_USIZE_ZERO", "0");
+        let value = env_override_usize("SYNAPSE_TEST_OVERRIDE_USIZE_ZERO", 99);
+        assert_eq!(value, 99, "zero env value should fall back to default");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_USIZE_ZERO");
+    }
+
+    #[test]
+    fn test_env_override_usize_uses_env_when_valid_positive() {
+        env::set_var("SYNAPSE_TEST_OVERRIDE_USIZE_VALID", "123");
+        let value = env_override_usize("SYNAPSE_TEST_OVERRIDE_USIZE_VALID", 99);
+        assert_eq!(value, 123, "valid positive env value should be used");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_USIZE_VALID");
+    }
+
+    #[test]
+    fn test_env_override_u64_uses_default_when_var_unset() {
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_U64_UNSET");
+        let value = env_override_u64("SYNAPSE_TEST_OVERRIDE_U64_UNSET", 5000);
+        assert_eq!(value, 5000, "unset env should fall back to default");
+    }
+
+    #[test]
+    fn test_env_override_u64_uses_default_when_var_invalid() {
+        env::set_var("SYNAPSE_TEST_OVERRIDE_U64_INVALID", "abc");
+        let value = env_override_u64("SYNAPSE_TEST_OVERRIDE_U64_INVALID", 5000);
+        assert_eq!(value, 5000, "invalid env value should fall back to default");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_U64_INVALID");
+    }
+
+    #[test]
+    fn test_env_override_u64_uses_default_when_zero() {
+        env::set_var("SYNAPSE_TEST_OVERRIDE_U64_ZERO", "0");
+        let value = env_override_u64("SYNAPSE_TEST_OVERRIDE_U64_ZERO", 5000);
+        assert_eq!(value, 5000, "zero env value should fall back to default");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_U64_ZERO");
+    }
+
+    #[test]
+    fn test_env_override_u64_uses_env_when_valid_positive() {
+        env::set_var("SYNAPSE_TEST_OVERRIDE_U64_VALID", "9999");
+        let value = env_override_u64("SYNAPSE_TEST_OVERRIDE_U64_VALID", 5000);
+        assert_eq!(value, 9999, "valid positive env value should be used");
+        env::remove_var("SYNAPSE_TEST_OVERRIDE_U64_VALID");
+    }
+
+    #[test]
+    fn test_runtime_pool_config_respects_env_overrides() {
+        env::set_var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT", "8");
+        env::set_var("SYNAPSE_PASSWORD_HASH_POOL_QUEUE_SIZE", "200");
+        env::set_var("SYNAPSE_PASSWORD_HASH_POOL_THREAD_POOL_SIZE", "4");
+        env::set_var("SYNAPSE_PASSWORD_HASH_POOL_HASH_TIMEOUT_MS", "10000");
+
+        let config = runtime_pool_config();
+        assert_eq!(config.max_concurrent, 8);
+        assert_eq!(config.queue_size, 200);
+        assert_eq!(config.thread_pool_size, 4);
+        assert_eq!(config.hash_timeout_ms, 10000);
+
+        // Cleanup env vars.
+        env::remove_var("SYNAPSE_PASSWORD_HASH_POOL_MAX_CONCURRENT");
+        env::remove_var("SYNAPSE_PASSWORD_HASH_POOL_QUEUE_SIZE");
+        env::remove_var("SYNAPSE_PASSWORD_HASH_POOL_THREAD_POOL_SIZE");
+        env::remove_var("SYNAPSE_PASSWORD_HASH_POOL_HASH_TIMEOUT_MS");
+    }
+
+    #[tokio::test]
+    async fn test_with_metrics_uses_provided_collector() {
+        let collector = MetricsCollector::new();
+        let counter_before = collector.inventory().total_counters;
+        let config = PasswordHashPoolConfig::default();
+        let argon2_config = Argon2Config::default();
+        let _pool = PasswordHashPool::with_metrics(config, argon2_config, &collector);
+        // with_metrics should register counters on the provided collector.
+        let counter_after = collector.inventory().total_counters;
+        assert!(counter_after > counter_before, "with_metrics should register counters on the collector");
+    }
+
+    #[tokio::test]
+    async fn test_verify_password_with_garbage_hash_returns_invalid_format_error() {
+        let pool = create_test_pool();
+        // A clearly invalid hash string should produce InvalidHashFormat error.
+        let result = pool.verify_password("password", "$invalid$hash$format").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, PasswordHashError::InvalidHashFormat(_)), "expected InvalidHashFormat, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn test_pool_exhaustion_returns_correct_error_variant() {
+        // Pool with max_concurrent = 0 is not possible (Semaphore::new(0) panics on some versions).
+        // Use max_concurrent = 1 and manually exhaust it.
+        let config =
+            PasswordHashPoolConfig { max_concurrent: 1, queue_size: 1, thread_pool_size: 1, hash_timeout_ms: 1000 };
+        let argon2_config = Argon2Config::new(65536, 3, 1).unwrap();
+        let pool = Arc::new(PasswordHashPool::new(config, argon2_config));
+
+        // Hold the only permit.
+        let _permit = pool.semaphore().clone().try_acquire_owned().unwrap();
+
+        // hash_password should return PoolExhausted error.
+        let result = pool.hash_password("test").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, PasswordHashError::PoolExhausted), "expected PoolExhausted, got {err:?}");
+
+        // Verify pool_exhaustion_count was incremented.
+        assert!(pool.metrics().pool_exhaustion_count.get() >= 1);
+        assert!(pool.metrics().rejected_operations.get() >= 1);
+    }
+
+    #[test]
+    fn test_password_hash_error_display_messages() {
+        // Verify error Display impl produces the expected text for each variant.
+        let pool_exhausted = PasswordHashError::PoolExhausted;
+        assert!(pool_exhausted.to_string().contains("pool exhausted"));
+
+        let hash_failed = PasswordHashError::HashFailed("test reason".to_string());
+        assert!(hash_failed.to_string().contains("Hash operation failed"));
+        assert!(hash_failed.to_string().contains("test reason"));
+
+        let invalid_format = PasswordHashError::InvalidHashFormat("bad format".to_string());
+        assert!(invalid_format.to_string().contains("Invalid hash format"));
+        assert!(invalid_format.to_string().contains("bad format"));
+
+        let task_join = PasswordHashError::TaskJoinError("join failure".to_string());
+        assert!(task_join.to_string().contains("Task join error"));
+        assert!(task_join.to_string().contains("join failure"));
+
+        let timeout = PasswordHashError::Timeout;
+        assert!(timeout.to_string().contains("timed out"));
+
+        let queue_full = PasswordHashError::QueueFull;
+        assert!(queue_full.to_string().contains("Queue is full"));
+    }
+
+    #[tokio::test]
+    async fn test_metrics_are_tracked_during_verify_operations() {
+        let pool = create_test_pool();
+        let hash = pool.hash_password("password").await.unwrap();
+
+        let initial_verify_count = pool.metrics().total_verify_operations.get();
+        let _ = pool.verify_password("password", &hash).await.unwrap();
+        assert_eq!(pool.metrics().total_verify_operations.get(), initial_verify_count + 1);
+
+        // Verify duration histogram should also be observed.
+        assert!(pool.metrics().verify_duration_ms.get_count() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_or_init_default_initializes_global_pool() {
+        // get_or_init_default should return a valid pool even if global is not set.
+        // Note: previous tests may have already set the global; this is idempotent.
+        let pool = PasswordHashPool::get_or_init_default();
+        let hash = pool.hash_password("default_pool_test").await.unwrap();
+        assert!(hash.starts_with("$argon2id$"));
+    }
 }

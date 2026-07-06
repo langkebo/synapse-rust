@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -36,6 +37,31 @@ pub struct CreateCallSessionParams {
     pub callee_id: Option<String>,
     pub offer_sdp: Option<String>,
     pub lifetime: Option<i64>,
+}
+
+#[async_trait]
+pub trait CallSessionStoreApi: Send + Sync {
+    async fn create_session(&self, params: CreateCallSessionParams) -> Result<CallSession, sqlx::Error>;
+
+    async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, sqlx::Error>;
+
+    async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error>;
+
+    async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error>;
+
+    async fn add_candidate(
+        &self,
+        call_id: &str,
+        room_id: &str,
+        sender_id: &str,
+        candidate: serde_json::Value,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<CallCandidate>, sqlx::Error>;
+
+    async fn end_session(&self, call_id: &str, room_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn cleanup_expired(&self) -> Result<u64, sqlx::Error>;
 }
 
 pub struct CallSessionStorage {
@@ -197,6 +223,47 @@ impl CallSessionStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl CallSessionStoreApi for CallSessionStorage {
+    async fn create_session(&self, params: CreateCallSessionParams) -> Result<CallSession, sqlx::Error> {
+        self.create_session(params).await
+    }
+
+    async fn get_session(&self, call_id: &str, room_id: &str) -> Result<Option<CallSession>, sqlx::Error> {
+        self.get_session(call_id, room_id).await
+    }
+
+    async fn update_state(&self, call_id: &str, room_id: &str, state: &str) -> Result<(), sqlx::Error> {
+        self.update_state(call_id, room_id, state).await
+    }
+
+    async fn set_answer(&self, call_id: &str, room_id: &str, answer_sdp: &str) -> Result<(), sqlx::Error> {
+        self.set_answer(call_id, room_id, answer_sdp).await
+    }
+
+    async fn add_candidate(
+        &self,
+        call_id: &str,
+        room_id: &str,
+        sender_id: &str,
+        candidate: serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        self.add_candidate(call_id, room_id, sender_id, candidate).await
+    }
+
+    async fn get_candidates(&self, call_id: &str, room_id: &str) -> Result<Vec<CallCandidate>, sqlx::Error> {
+        self.get_candidates(call_id, room_id).await
+    }
+
+    async fn end_session(&self, call_id: &str, room_id: &str) -> Result<(), sqlx::Error> {
+        self.end_session(call_id, room_id).await
+    }
+
+    async fn cleanup_expired(&self) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired().await
     }
 }
 

@@ -12,7 +12,7 @@ async fn is_member_via(
     user_id: &str,
     room_id: &str,
 ) -> Result<bool, ApiError> {
-    let membership = room_service.get_room_membership(room_id, user_id).await?;
+    let membership = room_service.membership.get_room_membership(room_id, user_id).await?;
     Ok(membership.is_some_and(|m| m == "join"))
 }
 

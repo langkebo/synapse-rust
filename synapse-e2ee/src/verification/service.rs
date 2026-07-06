@@ -346,3 +346,140 @@ fn generate_transaction_id() -> String {
 fn slice_from_ref<T>(val: &T) -> &[T] {
     std::slice::from_ref(val)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_service() -> VerificationService {
+        let pool = sqlx::PgPool::connect_lazy("postgres://synapse:synapse@localhost:15432/synapse_test")
+            .expect("connect_lazy should not perform I/O");
+        let pool = std::sync::Arc::new(pool);
+        VerificationService::new(Arc::new(VerificationStorage::new(&pool)))
+    }
+
+    #[tokio::test]
+    async fn generate_key_pair_produces_valid_base64_public_key() {
+        let svc = make_service();
+        let (_secret, public) = svc.generate_key_pair();
+        // Public key should be 32 bytes → 44 base64 chars (no padding for URL-safe)
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&public).unwrap();
+        assert_eq!(decoded.len(), 32);
+    }
+
+    #[tokio::test]
+    async fn derive_sas_is_deterministic() {
+        let svc = make_service();
+        let shared_secret = [0x42u8; 32];
+        let sas1 = svc.derive_sas(&shared_secret, "SAS");
+        let sas2 = svc.derive_sas(&shared_secret, "SAS");
+        assert_eq!(sas1, sas2);
+        assert_eq!(sas1.len(), 6);
+    }
+
+    #[tokio::test]
+    async fn derive_sas_different_info_produces_different_result() {
+        let svc = make_service();
+        let shared_secret = [0x42u8; 32];
+        let sas1 = svc.derive_sas(&shared_secret, "SAS");
+        let sas2 = svc.derive_sas(&shared_secret, "OTHER");
+        assert_ne!(sas1, sas2);
+    }
+
+    #[tokio::test]
+    async fn compute_mac_is_deterministic() {
+        let svc = make_service();
+        let shared_secret = [0xABu8; 32];
+        let keys = vec!["key1".to_string(), "key2".to_string()];
+        let mac1 = svc.compute_mac(&keys, &shared_secret, "test.info").unwrap();
+        let mac2 = svc.compute_mac(&keys, &shared_secret, "test.info").unwrap();
+        assert_eq!(mac1, mac2);
+    }
+
+    #[tokio::test]
+    async fn compute_mac_different_keys_produce_different_result() {
+        let svc = make_service();
+        let shared_secret = [0xABu8; 32];
+        let mac1 = svc.compute_mac(&["a".into()], &shared_secret, "info").unwrap();
+        let mac2 = svc.compute_mac(&["b".into()], &shared_secret, "info").unwrap();
+        assert_ne!(mac1, mac2);
+    }
+
+    #[tokio::test]
+    async fn compute_mac_valid_base64_output() {
+        let svc = make_service();
+        let shared_secret = [0xFFu8; 32];
+        let mac = svc.compute_mac(&["test".into()], &shared_secret, "info").unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&mac);
+        assert!(decoded.is_ok());
+    }
+
+    #[test]
+    fn generate_transaction_id_is_non_empty() {
+        let id = generate_transaction_id();
+        assert!(!id.is_empty());
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&id);
+        assert!(decoded.is_ok());
+        assert_eq!(decoded.unwrap().len(), 16);
+    }
+
+    #[test]
+    fn slice_from_ref_works() {
+        let val = 42i32;
+        let s = slice_from_ref(&val);
+        assert_eq!(s.len(), 1);
+        assert_eq!(s[0], 42);
+    }
+
+    #[tokio::test]
+    async fn compute_shared_secret_is_symmetric() {
+        let svc = make_service();
+        let a_secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
+        let a_public = PublicKey::from(&a_secret);
+        let b_secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
+        let b_public = PublicKey::from(&b_secret);
+        let a_sec_b64 = base64::engine::general_purpose::STANDARD.encode(a_secret.as_bytes());
+        let b_pub_b64 = base64::engine::general_purpose::STANDARD.encode(b_public.as_bytes());
+        let b_sec_b64 = base64::engine::general_purpose::STANDARD.encode(b_secret.as_bytes());
+        let a_pub_b64 = base64::engine::general_purpose::STANDARD.encode(a_public.as_bytes());
+        let ab = svc.compute_shared_secret(&a_sec_b64, &b_pub_b64).unwrap();
+        let ba = svc.compute_shared_secret(&b_sec_b64, &a_pub_b64).unwrap();
+        assert_eq!(ab, ba);
+        assert_ne!(ab, [0u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn compute_shared_secret_self_consistency() {
+        let svc = make_service();
+        let secret = StaticSecret::random_from_rng(aes_gcm::aead::OsRng);
+        let public = PublicKey::from(&secret);
+        let sec_b64 = base64::engine::general_purpose::STANDARD.encode(secret.as_bytes());
+        let pub_b64 = base64::engine::general_purpose::STANDARD.encode(public.as_bytes());
+        let shared = svc.compute_shared_secret(&sec_b64, &pub_b64).unwrap();
+        assert_eq!(shared.len(), 32);
+        assert_ne!(shared, [0u8; 32]);
+    }
+
+    #[tokio::test]
+    async fn compute_shared_secret_rejects_invalid_base64() {
+        let svc = make_service();
+        assert!(svc.compute_shared_secret("not-base64!!!", "also!!!bad").is_err());
+    }
+
+    #[tokio::test]
+    async fn compute_shared_secret_rejects_wrong_length() {
+        let svc = make_service();
+        let short = base64::engine::general_purpose::STANDARD.encode(&[0u8; 16]);
+        let valid = base64::engine::general_purpose::STANDARD.encode(&[0u8; 32]);
+        assert!(svc.compute_shared_secret(&short, &valid).is_err());
+        assert!(svc.compute_shared_secret(&valid, &short).is_err());
+    }
+
+    #[tokio::test]
+    async fn derive_sas_produces_6_byte_output() {
+        let svc = make_service();
+        let shared_secret = [0x00u8; 32];
+        let sas = svc.derive_sas(&shared_secret, "MATRIX_QR_CODE_LOGIN_INITIATE");
+        assert_eq!(sas.len(), 6);
+    }
+}

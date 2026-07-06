@@ -4,11 +4,11 @@ use synapse_storage::event_report::*;
 use tracing::{info, instrument};
 
 pub struct EventReportService {
-    storage: Arc<EventReportStorage>,
+    storage: Arc<dyn EventReportStoreApi>,
 }
 
 impl EventReportService {
-    pub fn new(storage: Arc<EventReportStorage>) -> Self {
+    pub fn new(storage: Arc<dyn EventReportStoreApi>) -> Self {
         Self { storage }
     }
 

@@ -1,8 +1,12 @@
 //! Room membership queries and shared utilities.
 //!
-//! Action methods live in [`membership_actions`].
-//! Moderation methods live in [`membership_moderation`].
+//! Action methods live in [`actions`].
+//! Federation membership lives in [`federation`].
+//! Moderation methods live in [`moderation`].
 
+pub mod actions;
+pub mod federation;
+pub mod moderation;
 pub mod service;
 
 use crate::common::error::{ApiError, ApiResult};

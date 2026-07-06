@@ -7,7 +7,7 @@ use synapse_common::error::ApiError;
 use synapse_common::metrics::MetricsCollector;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStorage};
+use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse, SlidingSyncStoreApi};
 
 mod extensions;
 mod filters;
@@ -32,14 +32,14 @@ const SLIDING_SYNC_SLOW_REQUESTS_COUNTER: &str = "sliding_sync_slow_requests_tot
 
 #[derive(Clone)]
 pub struct SlidingSyncService {
-    storage: SlidingSyncStorage,
+    storage: Arc<dyn SlidingSyncStoreApi>,
     cache: Arc<CacheManager>,
     event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     device_key_storage: DeviceKeyStorage,
     typing_service: Arc<crate::typing_service::TypingService>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-    device_storage: Arc<synapse_storage::device::DeviceStorage>,
+    device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     to_device_storage: ToDeviceStorage,
     /// Tracks last-access timestamp per (user_id, device_id, conn_id) for LRU + TTL GC.
     connection_tracker: Arc<moka::sync::Cache<String, i64>>,
@@ -74,14 +74,14 @@ pub(crate) struct SlidingListRangeSnapshot {
 impl SlidingSyncService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        storage: SlidingSyncStorage,
+        storage: Arc<dyn SlidingSyncStoreApi>,
         cache: Arc<CacheManager>,
         event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
         device_key_storage: DeviceKeyStorage,
         typing_service: Arc<crate::typing_service::TypingService>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
-        device_storage: Arc<synapse_storage::device::DeviceStorage>,
+        device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
         to_device_storage: ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: PerformanceConfig,

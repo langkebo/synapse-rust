@@ -318,3 +318,106 @@ pub fn to_matrix_event(session: &RTCSession, memberships: &[RTCMembership]) -> s
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_session() -> RTCSession {
+        RTCSession {
+            id: 1,
+            room_id: "!room:ex.com".into(),
+            session_id: "sess1".into(),
+            application: "m.call".into(),
+            call_id: Some("call1".into()),
+            creator: "@alice:ex.com".into(),
+            created_ts: 1000,
+            updated_ts: 2000,
+            is_active: true,
+            config: json!({"sdp_semantics": "unified-plan"}),
+        }
+    }
+
+    fn make_membership(user_id: &str, device_id: &str, membership_id: &str) -> RTCMembership {
+        RTCMembership {
+            id: 1,
+            room_id: "!room:ex.com".into(),
+            session_id: "sess1".into(),
+            user_id: user_id.into(),
+            device_id: device_id.into(),
+            membership_id: membership_id.into(),
+            application: "m.call".into(),
+            call_id: Some("call1".into()),
+            created_ts: 1000,
+            updated_ts: 2000,
+            expires_at: Some(9999),
+            foci_active: Some("true".into()),
+            foci_preferred: Some(json!(["focus1"])),
+            application_data: Some(json!({"streams": []})),
+            is_active: true,
+        }
+    }
+
+    #[test]
+    fn to_matrix_event_basic_structure() {
+        let session = make_session();
+        let result = to_matrix_event(&session, &[]);
+
+        assert_eq!(result["type"], "org.matrix.msc3401.call");
+        assert_eq!(result["room_id"], "!room:ex.com");
+        assert_eq!(result["content"]["session_id"], "sess1");
+        assert_eq!(result["content"]["application"], "m.call");
+        assert_eq!(result["content"]["call_id"], "call1");
+        assert_eq!(result["content"]["creator"], "@alice:ex.com");
+        assert_eq!(result["content"]["config"]["sdp_semantics"], "unified-plan");
+    }
+
+    #[test]
+    fn to_matrix_event_with_single_membership() {
+        let session = make_session();
+        let membership = make_membership("@bob:ex.com", "DEVICE1", "mem1");
+        let result = to_matrix_event(&session, &[membership]);
+
+        let memberships = result["content"]["memberships"].as_array().unwrap();
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0]["user_id"], "@bob:ex.com");
+        assert_eq!(memberships[0]["device_id"], "DEVICE1");
+        assert_eq!(memberships[0]["membership_id"], "mem1");
+        assert_eq!(memberships[0]["foci_active"], "true");
+        assert_eq!(memberships[0]["foci_preferred"], json!(["focus1"]));
+    }
+
+    #[test]
+    fn to_matrix_event_with_multiple_memberships() {
+        let session = make_session();
+        let m1 = make_membership("@bob:ex.com", "D1", "mem1");
+        let m2 = make_membership("@charlie:ex.com", "D2", "mem2");
+        let result = to_matrix_event(&session, &[m1, m2]);
+
+        let memberships = result["content"]["memberships"].as_array().unwrap();
+        assert_eq!(memberships.len(), 2);
+    }
+
+    #[test]
+    fn to_matrix_event_empty_memberships() {
+        let session = make_session();
+        let result = to_matrix_event(&session, &[]);
+        let memberships = result["content"]["memberships"].as_array().unwrap();
+        assert!(memberships.is_empty());
+    }
+
+    #[test]
+    fn to_matrix_event_none_foci_and_app_data() {
+        let session = make_session();
+        let mut m = make_membership("@alice:ex.com", "D1", "mem1");
+        m.foci_active = None;
+        m.foci_preferred = None;
+        m.application_data = None;
+        let result = to_matrix_event(&session, &[m]);
+        let mem = &result["content"]["memberships"].as_array().unwrap()[0];
+        assert!(mem["foci_active"].is_null());
+        assert!(mem["foci_preferred"].is_null());
+        assert!(mem["application_data"].is_null());
+    }
+}

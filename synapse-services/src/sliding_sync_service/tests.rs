@@ -2,7 +2,7 @@ use super::*;
 use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
-use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncRoom};
+use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]
@@ -82,7 +82,7 @@ fn create_test_service() -> SlidingSyncService {
         sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
     );
     SlidingSyncService {
-        storage: SlidingSyncStorage::new(pool.clone()),
+        storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
         event_storage: Arc::new(EventStorage::new(&pool, "localhost".to_string())),
         device_key_storage: DeviceKeyStorage::new(&pool),
@@ -344,6 +344,162 @@ fn state_event_to_json_includes_state_key() {
     let event = make_state_event(Some("m.room.member"), Some("@alice:ex.com"));
     let json = SlidingSyncService::state_event_to_json(&event);
     assert_eq!(json["state_key"], "@alice:ex.com");
+}
+
+// ── subscription_config_from_list ────────────────────────────────────
+
+#[test]
+fn subscription_config_from_list_copies_timeline_limit_and_required_state() {
+    let list_data = SlidingSyncListData {
+        ranges: vec![vec![0, 9]],
+        sort: vec!["by_notification_count".to_string()],
+        filters: None,
+        timeline_limit: Some(50),
+        required_state: Some(vec![vec!["m.room.name".to_string(), "".to_string()]]),
+        slow_by: None,
+        bump_event_types: None,
+    };
+    let config = SlidingSyncService::subscription_config_from_list(&list_data);
+    assert_eq!(config.timeline_limit, Some(50));
+    assert!(config.required_state.is_some());
+    assert_eq!(config.required_state.unwrap().len(), 1);
+}
+
+#[test]
+fn subscription_config_from_list_none_fields() {
+    let list_data = SlidingSyncListData {
+        ranges: vec![],
+        sort: vec![],
+        filters: None,
+        timeline_limit: None,
+        required_state: None,
+        slow_by: None,
+        bump_event_types: None,
+    };
+    let config = SlidingSyncService::subscription_config_from_list(&list_data);
+    assert!(config.timeline_limit.is_none());
+    assert!(config.required_state.is_none());
+}
+
+// ── build_sync_ops empty range ────────────────────────────────────────
+
+#[test]
+fn build_sync_ops_filters_out_empty_range() {
+    let ops = SlidingSyncService::build_sync_ops(&[
+        SlidingListRangeSnapshot { start: 0, end: 1, room_ids: vec![] },
+        SlidingListRangeSnapshot { start: 5, end: 6, room_ids: vec!["!r1:ex.com".to_string()] },
+    ]);
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0]["op"], "SYNC");
+    assert_eq!(ops[0]["range"][0], 5);
+}
+
+// ── build_incremental_ops edge cases ──────────────────────────────────
+
+#[test]
+fn build_incremental_ops_current_shorter_deletes_trailing() {
+    let previous = SlidingListWindowSnapshot {
+        ranges: vec![SlidingListRangeSnapshot {
+            start: 0,
+            end: 1,
+            room_ids: vec!["!r1:ex.com".to_string(), "!r2:ex.com".to_string()],
+        }],
+    };
+    let current = vec![SlidingListRangeSnapshot { start: 0, end: 1, room_ids: vec!["!r1:ex.com".to_string()] }];
+    let ops = SlidingSyncService::build_incremental_ops(&previous, &current).unwrap();
+    assert!(ops.iter().any(|op| op["op"] == "DELETE"));
+    assert_eq!(ops.iter().filter(|op| op["op"] == "DELETE").count(), 1);
+}
+
+#[test]
+fn build_incremental_ops_current_longer_inserts_new() {
+    let previous = SlidingListWindowSnapshot {
+        ranges: vec![SlidingListRangeSnapshot { start: 0, end: 1, room_ids: vec!["!r1:ex.com".to_string()] }],
+    };
+    let current = vec![SlidingListRangeSnapshot {
+        start: 0,
+        end: 1,
+        room_ids: vec!["!r1:ex.com".to_string(), "!r2:ex.com".to_string()],
+    }];
+    let ops = SlidingSyncService::build_incremental_ops(&previous, &current).unwrap();
+    assert!(ops.iter().any(|op| op["op"] == "INSERT"));
+    assert!(ops.iter().any(|op| op["room_id"] == "!r2:ex.com"));
+}
+
+#[test]
+fn build_incremental_ops_swap_room() {
+    let previous = SlidingListWindowSnapshot {
+        ranges: vec![SlidingListRangeSnapshot {
+            start: 0,
+            end: 1,
+            room_ids: vec!["!r1:ex.com".to_string(), "!r2:ex.com".to_string()],
+        }],
+    };
+    let current = vec![SlidingListRangeSnapshot {
+        start: 0,
+        end: 1,
+        room_ids: vec!["!r3:ex.com".to_string(), "!r2:ex.com".to_string()],
+    }];
+    let ops = SlidingSyncService::build_incremental_ops(&previous, &current).unwrap();
+    assert!(ops.iter().any(|op| op["op"] == "INSERT"));
+    assert!(ops.iter().any(|op| op["op"] == "DELETE"));
+}
+
+#[test]
+fn build_incremental_ops_multi_range_returns_none() {
+    let previous = SlidingListWindowSnapshot {
+        ranges: vec![
+            SlidingListRangeSnapshot { start: 0, end: 1, room_ids: vec!["!r1:ex.com".to_string()] },
+            SlidingListRangeSnapshot { start: 2, end: 3, room_ids: vec!["!r2:ex.com".to_string()] },
+        ],
+    };
+    let current = vec![SlidingListRangeSnapshot { start: 0, end: 1, room_ids: vec!["!r1:ex.com".to_string()] }];
+    assert!(SlidingSyncService::build_incremental_ops(&previous, &current).is_none());
+}
+
+// ── room_to_json edge cases ───────────────────────────────────────────
+
+#[test]
+fn room_to_json_none_name_and_avatar() {
+    let room = SlidingSyncRoom {
+        id: 1,
+        user_id: "@a:ex.com".to_string(),
+        device_id: "D1".to_string(),
+        room_id: "!r:ex.com".to_string(),
+        conn_id: None,
+        list_key: None,
+        bump_stamp: 0,
+        highlight_count: 0,
+        notification_count: 0,
+        is_dm: false,
+        is_encrypted: false,
+        is_tombstoned: false,
+        is_invited: false,
+        name: None,
+        avatar: None,
+        timestamp: 0,
+        created_ts: 0,
+        updated_ts: 0,
+    };
+    let json = SlidingSyncService::room_to_json(&room);
+    assert_eq!(json["name"], serde_json::Value::Null);
+    assert_eq!(json["avatar"], serde_json::Value::Null);
+}
+
+// ── state_event_to_json edge cases ────────────────────────────────────
+
+#[test]
+fn state_event_to_json_none_event_type_defaults_to_message() {
+    let event = make_state_event(None, Some(""));
+    let json = SlidingSyncService::state_event_to_json(&event);
+    assert_eq!(json["type"], "m.room.message");
+}
+
+#[test]
+fn state_event_to_json_none_state_key_no_field() {
+    let event = make_state_event(Some("m.room.name"), None);
+    let json = SlidingSyncService::state_event_to_json(&event);
+    assert!(json.get("state_key").is_none());
 }
 
 fn make_state_event(event_type: Option<&str>, state_key: Option<&str>) -> synapse_storage::StateEvent {

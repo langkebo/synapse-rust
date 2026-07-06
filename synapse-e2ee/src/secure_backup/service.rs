@@ -403,8 +403,7 @@ impl SecureBackupService {
     // Private helper methods
     // =====================================================
 
-    /// Derive encryption key from passphrase using Argon2
-    fn derive_key(passphrase: &str, salt: &[u8], _iterations: i64) -> Result<[u8; 32], ApiError> {
+    pub(crate) fn derive_key(passphrase: &str, salt: &[u8], _iterations: i64) -> Result<[u8; 32], ApiError> {
         let params = Params::new(65536, 3, 4, Some(32)).map_err(|e| {
             tracing::error!("Argon2 params error: {e}");
             ApiError::database("A database error occurred".to_string())
@@ -421,8 +420,7 @@ impl SecureBackupService {
         Ok(key)
     }
 
-    /// Encrypt data using AES-256-GCM
-    fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
+    pub(crate) fn encrypt_aes_gcm(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, ApiError> {
         let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| {
             tracing::error!("Cipher error: {e}");
             ApiError::database("A database error occurred".to_string())
@@ -446,8 +444,7 @@ impl SecureBackupService {
         Ok(result)
     }
 
-    /// Decrypt data using AES-256-GCM
-    fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
+    pub(crate) fn decrypt_aes_gcm(key: &[u8; 32], ciphertext: &[u8]) -> Result<Vec<u8>, ApiError> {
         if ciphertext.len() < 12 {
             return Err(ApiError::internal("Ciphertext too short".to_string()));
         }
@@ -474,4 +471,65 @@ struct SqlxSecureBackup {
     algorithm: String,
     auth_data: String,
     key_count: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encrypt_aes_gcm_produces_output_longer_than_input() {
+        let key = [0xABu8; 32];
+        let plaintext = b"hello world";
+        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
+        // 12-byte nonce + ciphertext + 16-byte tag
+        assert!(encrypted.len() > plaintext.len());
+        assert_eq!(encrypted.len(), 12 + plaintext.len() + 16);
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let key = [0x42u8; 32];
+        let plaintext = b"secret session key data";
+        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
+        let decrypted = SecureBackupService::decrypt_aes_gcm(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn decrypt_with_wrong_key_fails() {
+        let key = [0x11u8; 32];
+        let wrong_key = [0x22u8; 32];
+        let plaintext = b"test data";
+        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
+        let result = SecureBackupService::decrypt_aes_gcm(&wrong_key, &encrypted);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn decrypt_too_short_ciphertext() {
+        let key = [0x33u8; 32];
+        let result = SecureBackupService::decrypt_aes_gcm(&key, b"short");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encrypt_empty_plaintext() {
+        let key = [0x55u8; 32];
+        let encrypted = SecureBackupService::encrypt_aes_gcm(&key, b"").unwrap();
+        // 12-byte nonce + 16-byte tag
+        assert_eq!(encrypted.len(), 28);
+        let decrypted = SecureBackupService::decrypt_aes_gcm(&key, &encrypted).unwrap();
+        assert!(decrypted.is_empty());
+    }
+
+    #[test]
+    fn encrypt_different_nonce_each_time() {
+        let key = [0x77u8; 32];
+        let plaintext = b"same data";
+        let enc1 = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
+        let enc2 = SecureBackupService::encrypt_aes_gcm(&key, plaintext).unwrap();
+        // Same plaintext, same key, but different nonce → different ciphertext
+        assert_ne!(enc1, enc2);
+    }
 }

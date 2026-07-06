@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -67,6 +68,31 @@ pub struct StoreUploadChunkRequest {
     pub chunk_data: Vec<u8>,
     pub chunk_size: i64,
     pub created_ts: i64,
+}
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait ChunkedUploadStoreApi: Send + Sync {
+    async fn create_upload(&self, request: CreateChunkedUploadRequest) -> Result<(), ApiError>;
+
+    async fn store_chunk(&self, request: StoreUploadChunkRequest) -> Result<(), ApiError>;
+
+    async fn increment_upload_progress(&self, upload_id: &str, chunk_size: i64, now_ts: i64) -> Result<(), ApiError>;
+
+    async fn get_progress(&self, upload_id: &str) -> Result<Option<UploadProgress>, ApiError>;
+
+    async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError>;
+
+    async fn finalize_upload(&self, upload_id: &str, now_ts: i64) -> Result<(), ApiError>;
+
+    async fn delete_upload(&self, upload_id: &str) -> Result<(), ApiError>;
+
+    async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError>;
+
+    async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError>;
+
+    async fn cleanup_expired(&self) -> Result<u64, ApiError>;
 }
 
 #[derive(Clone)]
@@ -268,6 +294,51 @@ impl ChunkedUploadStorage {
         }
 
         Ok(cleaned)
+    }
+}
+
+// ── Delegation impl for ChunkedUploadStoreApi ─────────────────────────
+
+#[async_trait]
+impl ChunkedUploadStoreApi for ChunkedUploadStorage {
+    async fn create_upload(&self, request: CreateChunkedUploadRequest) -> Result<(), ApiError> {
+        self.create_upload(request).await
+    }
+
+    async fn store_chunk(&self, request: StoreUploadChunkRequest) -> Result<(), ApiError> {
+        self.store_chunk(request).await
+    }
+
+    async fn increment_upload_progress(&self, upload_id: &str, chunk_size: i64, now_ts: i64) -> Result<(), ApiError> {
+        self.increment_upload_progress(upload_id, chunk_size, now_ts).await
+    }
+
+    async fn get_progress(&self, upload_id: &str) -> Result<Option<UploadProgress>, ApiError> {
+        self.get_progress(upload_id).await
+    }
+
+    async fn load_chunk_data(&self, upload_id: &str) -> Result<Vec<Vec<u8>>, ApiError> {
+        self.load_chunk_data(upload_id).await
+    }
+
+    async fn finalize_upload(&self, upload_id: &str, now_ts: i64) -> Result<(), ApiError> {
+        self.finalize_upload(upload_id, now_ts).await
+    }
+
+    async fn delete_upload(&self, upload_id: &str) -> Result<(), ApiError> {
+        self.delete_upload(upload_id).await
+    }
+
+    async fn list_expired_upload_ids(&self, now_ts: i64) -> Result<Vec<String>, ApiError> {
+        self.list_expired_upload_ids(now_ts).await
+    }
+
+    async fn list_user_uploads(&self, user_id: &str) -> Result<Vec<UploadProgress>, ApiError> {
+        self.list_user_uploads(user_id).await
+    }
+
+    async fn cleanup_expired(&self) -> Result<u64, ApiError> {
+        self.cleanup_expired().await
     }
 }
 

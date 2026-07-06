@@ -21,6 +21,93 @@ pub(crate) struct AuthorizedAdmin {
     pub role: String,
 }
 
+/// Variant of `authorize_admin_request` that works with individual service
+/// references instead of `&AppState`. Used by typed-context `FromRequestParts`
+/// implementations.
+pub(crate) async fn authorize_admin_from_services(
+    auth_service: &(dyn synapse_services::auth::Auth + Send + Sync),
+    user_storage: &(dyn synapse_storage::UserStore + Send + Sync),
+    security: &synapse_common::config::SecurityConfig,
+    admin_audit_service: Option<&synapse_services::AdminAuditService>,
+    headers: &HeaderMap,
+    method: &Method,
+    path: &str,
+) -> Result<AuthorizedAdmin, ApiError> {
+    let access_token = super::auth::bearer_token(headers)?;
+    let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
+        auth_service.validate_token(&access_token).await?;
+
+    if !is_admin {
+        return Err(ApiError::forbidden("Admin access required".to_string()));
+    }
+
+    let user = user_storage
+        .get_user_by_id(&user_id)
+        .await
+        .map_err(|e| ApiError::internal_with_log("Failed to load admin user", &e))?
+        .ok_or_else(|| ApiError::unauthorized("Admin user not found".to_string()))?;
+
+    if !user.is_admin {
+        return Err(ApiError::forbidden("Admin access has been revoked".to_string()));
+    }
+
+    let normalized_path = normalize_admin_path(path);
+    let role = normalize_admin_role(user.user_type.as_deref());
+    let allowed = is_role_allowed(&role, method, &normalized_path);
+
+    let rbac_enabled = security.admin_rbac_enabled;
+    let rbac_allowed = !rbac_enabled || allowed;
+
+    ::tracing::info!(
+        target: "security_audit",
+        role = %role,
+        method = %method,
+        path = %normalized_path,
+        allowed = %allowed,
+        rbac_enabled = %rbac_enabled,
+        rbac_allowed = %rbac_allowed,
+        "RBAC check result"
+    );
+
+    let request_id = resolve_request_id(headers);
+
+    if let Some(audit_svc) = admin_audit_service {
+        let audit_request = CreateAuditEventRequest {
+            actor_id: user_id.clone(),
+            action: format!("admin.{}", method.as_str().to_lowercase()),
+            resource_type: "admin_api".to_string(),
+            resource_id: normalized_path.clone(),
+            result: if rbac_allowed { "success".to_string() } else { "denied".to_string() },
+            request_id,
+            details: Some(json!({
+                "role": role,
+                "path": path,
+                "method": method.as_str(),
+            })),
+        };
+        if let Err(e) = audit_svc.create_event(audit_request).await {
+            ::tracing::error!(target: "security_audit", "Failed to create audit event: {}", e);
+        }
+    }
+
+    if !rbac_allowed {
+        return Err(ApiError::forbidden(format!("Admin role '{role}' is not allowed to access this resource")));
+    }
+
+    if should_require_admin_mfa(security, method, &normalized_path) {
+        let mfa_code = headers
+            .get("x-admin-mfa-code")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ApiError::forbidden("Sensitive admin operation requires MFA code".to_string()))?;
+
+        verify_totp_code(security, mfa_code, Some(&user))?;
+    }
+
+    Ok(AuthorizedAdmin { user_id, device_id, access_token, role })
+}
+
 pub(crate) async fn authorize_admin_request(
     headers: &HeaderMap,
     method: &Method,

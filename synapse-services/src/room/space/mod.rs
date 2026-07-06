@@ -14,14 +14,14 @@ use synapse_storage::space::*;
 use tracing::{error, info, instrument, warn};
 
 pub struct SpaceService {
-    pub(crate) space_storage: Arc<SpaceStorage>,
+    pub(crate) space_storage: Arc<dyn SpaceStoreApi>,
     pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
     pub(crate) server_name: String,
 }
 
 impl SpaceService {
     pub fn new(
-        space_storage: Arc<SpaceStorage>,
+        space_storage: Arc<dyn SpaceStoreApi>,
         room_storage: Arc<synapse_storage::room::RoomStorage>,
         server_name: String,
     ) -> Self {

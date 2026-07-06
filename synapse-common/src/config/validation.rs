@@ -85,3 +85,78 @@ impl Config {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_config() -> Config {
+        let mut c = Config::default();
+        c.security.secret = "a-very-secure-secret-that-is-long-enough".to_string();
+        c
+    }
+
+    #[test]
+    fn validate_ok_with_valid_config() {
+        let config = valid_config();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_empty_secret() {
+        let mut config = Config::default();
+        config.security.secret = String::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("secret is not configured"));
+    }
+
+    #[test]
+    fn validate_rejects_short_secret() {
+        let mut config = Config::default();
+        config.security.secret = "too-short".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("at least 32 characters"));
+    }
+
+    #[test]
+    fn validate_rejects_admin_registration_without_shared_secret() {
+        let mut config = valid_config();
+        config.admin_registration.enabled = true;
+        config.admin_registration.shared_secret = String::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("shared_secret is not configured"));
+    }
+
+    #[test]
+    fn validate_allows_admin_registration_with_shared_secret() {
+        let mut config = valid_config();
+        config.admin_registration.enabled = true;
+        config.admin_registration.shared_secret = "a-shared-secret".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_admin_mfa_without_shared_secret() {
+        let mut config = valid_config();
+        config.security.admin_mfa_required = true;
+        config.security.admin_mfa_shared_secret = String::new();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("admin_mfa_shared_secret is not configured"));
+    }
+
+    #[test]
+    fn validate_allows_admin_mfa_with_shared_secret() {
+        let mut config = valid_config();
+        config.security.admin_mfa_required = true;
+        config.security.admin_mfa_shared_secret = "mfa-secret".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_short_secret_error_includes_actual_length() {
+        let mut config = Config::default();
+        config.security.secret = "abc".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("3"));
+    }
+}

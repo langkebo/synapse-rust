@@ -77,7 +77,7 @@ async fn create_filter(app: &axum::Router, token: &str, user_id: &str, filter: V
 
 #[tokio::test]
 async fn test_sync_filter_applies_room_timeline_matchers_before_limit() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 

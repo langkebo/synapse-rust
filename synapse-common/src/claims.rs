@@ -119,3 +119,97 @@ impl Default for ClaimsBuilder {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claims_builder_minimal() {
+        let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
+        assert_eq!(claims.sub, "@alice:ex.com");
+        assert_eq!(claims.user_id, "@alice:ex.com"); // defaults to sub
+        assert_eq!(claims.is_admin, false);
+        assert_eq!(claims.exp, 9999999999);
+        assert!(claims.iat > 0);
+        assert!(claims.device_id.is_none());
+    }
+
+    #[test]
+    fn claims_builder_full() {
+        let claims = ClaimsBuilder::new()
+            .sub("@alice:ex.com")
+            .user_id("@alice:ex.com")
+            .jti("jti-123")
+            .is_admin(true)
+            .exp(9999999999)
+            .iat(1000000)
+            .device_id(Some("DEVICE1".into()))
+            .iss("ex.com")
+            .aud("ex.com")
+            .build();
+        assert_eq!(claims.sub, "@alice:ex.com");
+        assert_eq!(claims.user_id, "@alice:ex.com");
+        assert_eq!(claims.jti, "jti-123");
+        assert!(claims.is_admin);
+        assert_eq!(claims.exp, 9999999999);
+        assert_eq!(claims.iat, 1000000);
+        assert_eq!(claims.device_id, Some("DEVICE1".into()));
+        assert_eq!(claims.iss, Some("ex.com".into()));
+        assert_eq!(claims.aud, Some("ex.com".into()));
+    }
+
+    #[test]
+    fn claims_builder_user_id_falls_back_to_sub() {
+        let claims = ClaimsBuilder::new().sub("@bob:ex.com").exp(9999999999).build();
+        assert_eq!(claims.user_id, "@bob:ex.com");
+    }
+
+    #[test]
+    fn claims_builder_jti_auto_generated() {
+        let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
+        // jti should be a valid UUID
+        assert!(uuid::Uuid::parse_str(&claims.jti).is_ok());
+    }
+
+    #[test]
+    fn claims_builder_iat_defaults_to_now() {
+        let now = chrono::Utc::now().timestamp();
+        let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
+        assert!((claims.iat - now).abs() < 5);
+    }
+
+    #[test]
+    fn claims_builder_is_admin_defaults_false() {
+        let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
+        assert!(!claims.is_admin);
+    }
+
+    #[test]
+    fn claims_serialization_roundtrip() {
+        let claims =
+            ClaimsBuilder::new().sub("@alice:ex.com").jti("jti-1").is_admin(false).exp(9999999999).iat(1000000).build();
+        let json = serde_json::to_string(&claims).unwrap();
+        let deserialized: Claims = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.sub, claims.sub);
+        assert_eq!(deserialized.jti, claims.jti);
+        assert_eq!(deserialized.exp, claims.exp);
+    }
+
+    #[test]
+    fn claims_serialization_skips_none_optional_fields() {
+        let claims = ClaimsBuilder::new().sub("@alice:ex.com").exp(9999999999).build();
+        let json = serde_json::to_string(&claims).unwrap();
+        // iss and aud have skip_serializing_if, device_id does not
+        assert!(!json.contains("\"iss\""));
+        assert!(!json.contains("\"aud\""));
+    }
+
+    #[test]
+    fn claims_default_builder() {
+        let builder = ClaimsBuilder::default();
+        assert!(builder.sub.is_none());
+        assert!(builder.user_id.is_none());
+        assert!(!builder.is_admin);
+    }
+}

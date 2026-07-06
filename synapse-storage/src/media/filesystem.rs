@@ -263,3 +263,92 @@ impl MediaStorageBackend for FilesystemBackend {
         Ok(self.base_path.exists() && self.base_path.is_dir())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_backend(base_path: &str, max_depth: u32) -> FilesystemBackend {
+        FilesystemBackend {
+            base_path: PathBuf::from(base_path),
+            thumbnail_path: PathBuf::from(base_path).join("thumbnails"),
+            max_path_depth: max_depth,
+        }
+    }
+
+    // ── get_media_path ────────────────────────────────────────────────
+
+    #[test]
+    fn media_path_basic() {
+        let backend = make_backend("/media", 0);
+        let path = backend.get_media_path("abc123");
+        assert_eq!(path, PathBuf::from("/media/abc123"));
+    }
+
+    #[test]
+    fn media_path_with_depth() {
+        let backend = make_backend("/media", 2);
+        let path = backend.get_media_path("abc123");
+        assert_eq!(path, PathBuf::from("/media/a/b/abc123"));
+    }
+
+    #[test]
+    fn media_path_depth_exceeds_id_length() {
+        let backend = make_backend("/media", 10);
+        let path = backend.get_media_path("ab");
+        // Only 2 chars available, depth=10 but media_id is only "ab", so 2 dirs
+        assert_eq!(path, PathBuf::from("/media/a/b/ab"));
+    }
+
+    #[test]
+    fn media_path_rejects_dot_dot_traversal() {
+        let backend = make_backend("/media", 2);
+        let path = backend.get_media_path("../etc/passwd");
+        // Returns just the base path (path traversal rejected)
+        assert_eq!(path, PathBuf::from("/media"));
+    }
+
+    #[test]
+    fn media_path_rejects_slash_traversal() {
+        let backend = make_backend("/media", 2);
+        let path = backend.get_media_path("foo/bar");
+        assert_eq!(path, PathBuf::from("/media"));
+    }
+
+    #[test]
+    fn media_path_rejects_backslash_traversal() {
+        let backend = make_backend("/media", 2);
+        let path = backend.get_media_path("foo\\bar");
+        assert_eq!(path, PathBuf::from("/media"));
+    }
+
+    #[test]
+    fn media_path_depth_zero_no_subdirs() {
+        let backend = make_backend("/media", 0);
+        let path = backend.get_media_path("abcdef");
+        assert_eq!(path, PathBuf::from("/media/abcdef"));
+    }
+
+    // ── get_thumbnail_path ────────────────────────────────────────────
+
+    #[test]
+    fn thumbnail_path_basic() {
+        let backend = make_backend("/media", 0);
+        let path = backend.get_thumbnail_path("abc123", 100, 200, "scale");
+        assert_eq!(path, PathBuf::from("/media/thumbnails/abc123_100x200_scale.jpg"));
+    }
+
+    #[test]
+    fn thumbnail_path_rejects_traversal() {
+        let backend = make_backend("/media", 0);
+        let path = backend.get_thumbnail_path("../bad", 100, 100, "crop");
+        assert_eq!(path, PathBuf::from("/media/thumbnails"));
+    }
+
+    #[test]
+    fn thumbnail_path_zero_dimensions() {
+        let backend = make_backend("/media", 0);
+        let path = backend.get_thumbnail_path("abc", 0, 0, "crop");
+        assert_eq!(path, PathBuf::from("/media/thumbnails/abc_0x0_crop.jpg"));
+    }
+}

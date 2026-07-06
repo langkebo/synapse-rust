@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},
@@ -10,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use synapse_storage::registration_token::decode_registration_token_cursor;
 
-pub fn create_token_router(_state: AppState) -> Router<AppState> {
+pub fn create_token_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/registration_tokens", get(get_registration_tokens))
         .route("/_synapse/admin/v1/registration_tokens", post(create_registration_token))
@@ -42,8 +43,8 @@ pub fn admin_token_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
     .collect()
 }
 
-async fn ensure_user_exists(state: &AppState, user_id: &str) -> Result<(), ApiError> {
-    let user = state.services.account.account_identity_service.get_user_by_identifier(user_id).await?;
+async fn ensure_user_exists(ctx: &AdminContext, user_id: &str) -> Result<(), ApiError> {
+    let user = ctx.account_identity_service.get_user_by_identifier(user_id).await?;
 
     if user.is_none() {
         return Err(ApiError::not_found("User not found".to_string()));
@@ -75,7 +76,7 @@ pub struct RegistrationTokenListQuery {
 #[axum::debug_handler]
 pub async fn get_registration_tokens(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<RegistrationTokenListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
@@ -85,7 +86,7 @@ pub async fn get_registration_tokens(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (tokens, next_batch) = state.services.admin.user.registration_token_service.get_all_tokens(limit, from).await?;
+    let (tokens, next_batch) = ctx.registration_token_service.get_all_tokens(limit, from).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -112,15 +113,12 @@ pub async fn get_registration_tokens(
 #[axum::debug_handler]
 pub async fn create_registration_token(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<CreateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let token = body.token.unwrap_or_else(|| crate::common::random_string(body.length.unwrap_or(16)));
     let max_uses = body.uses_allowed.unwrap_or(0);
-    let registration_token = state
-        .services
-        .admin
-        .user
+    let registration_token = ctx
         .admin_token_service
         .create_registration_token(Some(token), max_uses, body.expiry_time, &admin.user_id)
         .await?;
@@ -138,10 +136,10 @@ pub async fn create_registration_token(
 #[axum::debug_handler]
 pub async fn get_registration_token(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state.services.admin.user.admin_token_service.get_registration_token(&token).await?;
+    let result = ctx.admin_token_service.get_registration_token(&token).await?;
 
     match result {
         Some(row) => Ok(Json(json!({
@@ -159,10 +157,10 @@ pub async fn get_registration_token(
 #[axum::debug_handler]
 pub async fn delete_registration_token(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.user.admin_token_service.delete_registration_token(&token).await?;
+    ctx.admin_token_service.delete_registration_token(&token).await?;
 
     Ok(Json(json!({})))
 }
@@ -170,17 +168,11 @@ pub async fn delete_registration_token(
 #[axum::debug_handler]
 pub async fn update_registration_token(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(token): Path<String>,
     Json(body): Json<UpdateTokenRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let row = state
-        .services
-        .admin
-        .user
-        .admin_token_service
-        .update_registration_token(&token, body.uses_allowed, body.expiry_time)
-        .await?;
+    let row = ctx.admin_token_service.update_registration_token(&token, body.uses_allowed, body.expiry_time).await?;
 
     Ok(Json(json!({
         "token": &row.token,
@@ -195,12 +187,12 @@ pub async fn update_registration_token(
 #[axum::debug_handler]
 pub async fn get_user_tokens(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    let tokens = state.services.admin.user.admin_token_service.get_user_access_tokens(&user_id).await?;
+    let tokens = ctx.admin_token_service.get_user_access_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -221,12 +213,12 @@ pub async fn get_user_tokens(
 #[axum::debug_handler]
 pub async fn delete_user_token(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((user_id, token_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    state.services.admin.user.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
+    ctx.admin_token_service.delete_user_access_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -234,12 +226,12 @@ pub async fn delete_user_token(
 #[axum::debug_handler]
 pub async fn get_user_refresh_tokens(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    let tokens = state.services.admin.user.admin_token_service.get_user_refresh_tokens(&user_id).await?;
+    let tokens = ctx.admin_token_service.get_user_refresh_tokens(&user_id).await?;
 
     let token_list: Vec<Value> = tokens
         .iter()
@@ -260,12 +252,12 @@ pub async fn get_user_refresh_tokens(
 #[axum::debug_handler]
 pub async fn delete_refresh_token(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((user_id, token_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_user_exists(&state, &user_id).await?;
+    ensure_user_exists(&ctx, &user_id).await?;
 
-    state.services.admin.user.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
+    ctx.admin_token_service.delete_refresh_token(&user_id, token_id).await?;
 
     Ok(Json(json!({})))
 }

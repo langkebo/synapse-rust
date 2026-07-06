@@ -1,5 +1,92 @@
+use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
+
+/// Trait abstraction over [`PushStorage`] for testability and service wiring.
+#[async_trait]
+pub trait PushStoreApi {
+    async fn get_pushers(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_pusher(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        pushkey: &str,
+        kind: &str,
+        app_id: &str,
+        app_display_name: &str,
+        device_display_name: &str,
+        profile_tag: &Option<String>,
+        lang: &str,
+        data: &Option<Value>,
+        now: i64,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error>;
+
+    #[allow(clippy::too_many_arguments)]
+    async fn upsert_push_rule(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        pattern: &Option<String>,
+        conditions: &Option<Value>,
+        actions: &Value,
+        now: i64,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn delete_push_rule(&self, user_id: &str, scope: &str, kind: &str, rule_id: &str)
+        -> Result<u64, sqlx::Error>;
+
+    async fn update_push_rule_actions(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        actions: &Value,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn get_push_rule_enabled(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<Option<bool>, sqlx::Error>;
+
+    async fn set_push_rule_enabled(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn get_user_push_rules(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+
+    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>;
+
+    async fn ack_notification(
+        &self,
+        id: i64,
+        user_id: &str,
+        now: i64,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+}
 
 #[derive(Clone)]
 pub struct PushStorage {
@@ -243,6 +330,129 @@ impl PushStorage {
         .bind(now)
         .fetch_optional(&*self.pool)
         .await
+    }
+}
+
+#[async_trait]
+impl PushStoreApi for PushStorage {
+    async fn get_pushers(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.get_pushers(user_id, device_id).await
+    }
+
+    async fn upsert_pusher(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        pushkey: &str,
+        kind: &str,
+        app_id: &str,
+        app_display_name: &str,
+        device_display_name: &str,
+        profile_tag: &Option<String>,
+        lang: &str,
+        data: &Option<Value>,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_pusher(
+            user_id,
+            device_id,
+            pushkey,
+            kind,
+            app_id,
+            app_display_name,
+            device_display_name,
+            profile_tag,
+            lang,
+            data,
+            now,
+        )
+        .await
+    }
+
+    async fn delete_pusher(&self, user_id: &str, device_id: &str, pushkey: &str) -> Result<(), sqlx::Error> {
+        self.delete_pusher(user_id, device_id, pushkey).await
+    }
+
+    async fn upsert_push_rule(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        pattern: &Option<String>,
+        conditions: &Option<Value>,
+        actions: &Value,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_push_rule(user_id, scope, kind, rule_id, pattern, conditions, actions, now).await
+    }
+
+    async fn delete_push_rule(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<u64, sqlx::Error> {
+        self.delete_push_rule(user_id, scope, kind, rule_id).await
+    }
+
+    async fn update_push_rule_actions(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        actions: &Value,
+    ) -> Result<(), sqlx::Error> {
+        self.update_push_rule_actions(user_id, scope, kind, rule_id, actions).await
+    }
+
+    async fn get_push_rule_enabled(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+    ) -> Result<Option<bool>, sqlx::Error> {
+        self.get_push_rule_enabled(user_id, scope, kind, rule_id).await
+    }
+
+    async fn set_push_rule_enabled(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+        rule_id: &str,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error> {
+        self.set_push_rule_enabled(user_id, scope, kind, rule_id, enabled).await
+    }
+
+    async fn get_user_push_rules(
+        &self,
+        user_id: &str,
+        scope: &str,
+        kind: &str,
+    ) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.get_user_push_rules(user_id, scope, kind).await
+    }
+
+    async fn get_notifications(&self, user_id: &str, limit: i64) -> Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.get_notifications(user_id, limit).await
+    }
+
+    async fn ack_notification(
+        &self,
+        id: i64,
+        user_id: &str,
+        now: i64,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.ack_notification(id, user_id, now).await
     }
 }
 

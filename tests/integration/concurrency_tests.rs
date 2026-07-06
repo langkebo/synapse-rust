@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod concurrency_integration_tests {
-    use synapse_rust::concurrency::{ConcurrencyController, ConcurrencyLimiter};
+    use synapse_common::concurrency::{ConcurrencyController, ConcurrencyLimiter};
     use tokio::runtime::Runtime;
 
     #[test]

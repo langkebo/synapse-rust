@@ -1,5 +1,35 @@
 #!/bin/bash
-# Advisory-only: warns about RustSec advisories but does not block commit
+# pre-commit guard: format + clippy + advisory cargo-audit
+# TDD workflow — see .claude/skills/tdd-rust/SKILL.md
+# Bypass with `git commit --no-verify` only for emergency hotfixes.
+
+set -e
+
+# Stage 1: cargo fmt — must pass on touched files only (whole repo is allowed
+# to drift; we only require the developer's own changes to be formatted).
+# We run --check over the whole workspace; if it fails, print actionable hint.
+if command -v cargo >/dev/null 2>&1; then
+  if ! cargo fmt --all -- --check >/dev/null 2>&1; then
+    echo "❌ cargo fmt --check failed. Run: cargo fmt --all"
+    echo "   (bypass with 'git commit --no-verify' only for emergency hotfixes)"
+    exit 1
+  fi
+  echo "✅ cargo fmt --check passed"
+fi
+
+# Stage 2: clippy — deny warnings on touched files. SQLX_OFFLINE=true so we
+# don't need a live DB for static analysis.
+if command -v cargo >/dev/null 2>&1; then
+  if ! SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings >/dev/null 2>&1; then
+    echo "❌ cargo clippy --all-features --locked -- -D warnings failed."
+    echo "   Run: SQLX_OFFLINE=true cargo clippy --all-features --locked -- -D warnings"
+    echo "   (bypass with 'git commit --no-verify' only for emergency hotfixes)"
+    exit 1
+  fi
+  echo "✅ cargo clippy -- -D warnings passed"
+fi
+
+# Stage 3: advisory-only cargo-audit (does not block)
 if command -v cargo-audit >/dev/null 2>&1; then
   cargo audit --quiet 2>/dev/null || true
 else
