@@ -6,6 +6,7 @@ use super::scheduler::{
 use super::transaction::{TransactionFailureKind, APPSERVICE_STATE_DELIVERY_STATUS};
 use super::*;
 use reqwest::StatusCode;
+use synapse_storage::EventStorage;
 
 fn test_manager() -> ApplicationServiceManager {
     // sqlx 0.8 connect_lazy_with requires a Tokio runtime context to spawn

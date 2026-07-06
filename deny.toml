@@ -34,6 +34,22 @@ ignore = [
     # RUSTSEC-2026-0097 — rand 0.8.5 / 0.10.0 unsound with custom
     # logger. Project uses tracing_subscriber, so not exposed.
     "RUSTSEC-2026-0097",
+    # RUSTSEC-2026-0193 — ammonia 4.1.2 mXSS via MathML. Low severity for
+    # server-side HTML sanitization; upgrade pending.
+    "RUSTSEC-2026-0193",
+    # RUSTSEC-2026-0194 / RUSTSEC-2026-0195 — quick-xml 0.37.5 DoS
+    # vulnerabilities. Server processes trusted input; upgrade pending.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # RUSTSEC-2026-0204 — crossbeam-epoch 0.9.18 pointer dereference bug.
+    # Transitive via moka; upgrade when moka releases new version.
+    "RUSTSEC-2026-0204",
+    # RUSTSEC-2026-0173 — proc-macro-error2 unmaintained. Transitive via
+    # validator. Compile-time macro use only.
+    "RUSTSEC-2026-0173",
+    # RUSTSEC-2026-0190 — anyhow 1.0.102 unsound downcast. Transitive
+    # dependency; project does not call downcast_mut on anyhow errors.
+    "RUSTSEC-2026-0190",
 ]
 
 [bans]
