@@ -74,11 +74,7 @@ allow = [
     "0BSD",
 ]
 confidence-threshold = 0.8
-copyleft = "warn"
-allow-osi-fsf-free = "neither"
-default = "deny"
 unused-allowed-license = "allow"
-unlicensed = "deny"
 
 [sources]
 unknown-registry = "deny"
