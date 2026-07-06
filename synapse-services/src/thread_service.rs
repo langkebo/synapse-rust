@@ -2,7 +2,7 @@ use std::sync::Arc;
 use synapse_common::error::ApiError;
 use synapse_storage::thread::{
     CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadReply, ThreadRoot,
-    ThreadStorage, ThreadSubscription, ThreadSummary,
+    ThreadStoreApi, ThreadSubscription, ThreadSummary,
 };
 use tracing::{debug, info, warn};
 
@@ -89,11 +89,11 @@ pub struct SubscribedThreadsResponse {
 
 #[derive(Clone)]
 pub struct ThreadService {
-    storage: Arc<ThreadStorage>,
+    storage: Arc<dyn ThreadStoreApi>,
 }
 
 impl ThreadService {
-    pub fn new(storage: Arc<ThreadStorage>) -> Self {
+    pub fn new(storage: Arc<dyn ThreadStoreApi>) -> Self {
         Self { storage }
     }
 

@@ -7,12 +7,12 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let (app, pool, _) = super::setup_test_app_with_pool().await?;
+    let (app, pool, _) = super::setup_fresh_test_app_with_pool().await?;
     Some((app, pool))
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 async fn get_admin_token(app: &axum::Router) -> (String, String) {

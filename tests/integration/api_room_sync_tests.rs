@@ -1,21 +1,10 @@
+use super::setup_fresh_test_app;
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
-use synapse_rust::cache::{CacheConfig, CacheManager};
-use synapse_rust::web::routes::state::AppState;
-use synapse_services::ServiceContainer;
 use tower::ServiceExt;
-
-async fn setup_fresh_test_app() -> Option<axum::Router> {
-    let pool = synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?;
-    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
-    let container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
-    let state = AppState::new(container, cache);
-    Some(synapse_rust::web::create_router(state))
-}
 
 async fn register_user(app: &axum::Router, username: &str) -> String {
     let request = Request::builder()

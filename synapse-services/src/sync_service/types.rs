@@ -8,7 +8,6 @@ use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::account_data::AccountDataStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,14 +108,14 @@ pub struct RoomSyncCounts {
 }
 
 pub struct SyncServiceDeps {
-    pub presence_storage: std::sync::Arc<synapse_storage::presence::PresenceStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub presence_storage: std::sync::Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub room_account_data_storage: RoomAccountDataStorage,
-    pub account_data_storage: AccountDataStorage,
+    pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub filter_storage: FilterStorage,
-    pub device_storage: Arc<synapse_storage::device::DeviceStorage>,
+    pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub device_key_storage: DeviceKeyStorage,
     pub key_rotation_storage: KeyRotationStorage,
     pub to_device_storage: ToDeviceStorage,
@@ -301,4 +300,84 @@ pub struct StateEventsBatchParams<'a> {
     pub is_incremental: bool,
     pub lazy_load_members: bool,
     pub user_id: &'a str,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── SyncToken::parse / SyncToken::encode ──────────────────────────
+
+    #[test]
+    fn sync_token_roundtrip_simple() {
+        let token_str = "s42";
+        let token = SyncToken::parse(token_str).unwrap();
+        assert_eq!(token.stream_id, 42);
+        assert_eq!(token.to_device_stream_id, None);
+        assert_eq!(token.device_list_stream_id, None);
+        assert_eq!(token.encode(), "s42");
+    }
+
+    #[test]
+    fn sync_token_roundtrip_with_to_device_and_device_list() {
+        let token_str = "s100_200_300";
+        let token = SyncToken::parse(token_str).unwrap();
+        assert_eq!(token.stream_id, 100);
+        assert_eq!(token.to_device_stream_id, Some(200));
+        assert_eq!(token.device_list_stream_id, Some(300));
+        assert_eq!(token.encode(), "s100_200_300");
+    }
+
+    #[test]
+    fn sync_token_encode_simple() {
+        let token = SyncToken {
+            stream_id: 7,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: None,
+            device_list_stream_id: None,
+        };
+        assert_eq!(token.encode(), "s7");
+    }
+
+    #[test]
+    fn sync_token_encode_with_to_device() {
+        let token = SyncToken {
+            stream_id: 10,
+            room_id: None,
+            event_type: None,
+            to_device_stream_id: Some(20),
+            device_list_stream_id: Some(30),
+        };
+        assert_eq!(token.encode(), "s10_20_30");
+    }
+
+    #[test]
+    fn sync_token_parse_invalid_no_s_prefix() {
+        assert!(SyncToken::parse("42").is_none());
+    }
+
+    #[test]
+    fn sync_token_parse_invalid_empty() {
+        assert!(SyncToken::parse("").is_none());
+    }
+
+    #[test]
+    fn sync_token_parse_invalid_non_numeric() {
+        assert!(SyncToken::parse("sabc").is_none());
+    }
+
+    #[test]
+    fn sync_token_parse_partial_triplet_returns_none() {
+        // Only one underscore: triplet parsing requires two underscores
+        assert!(SyncToken::parse("s1_2").is_none());
+    }
+
+    #[test]
+    fn sync_token_parse_negative_stream_id() {
+        let token = SyncToken::parse("s-1_-2_-3").unwrap();
+        assert_eq!(token.stream_id, -1);
+        assert_eq!(token.to_device_stream_id, Some(-2));
+        assert_eq!(token.device_list_stream_id, Some(-3));
+    }
 }

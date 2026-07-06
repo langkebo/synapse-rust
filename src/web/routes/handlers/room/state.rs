@@ -18,7 +18,7 @@ pub(crate) async fn get_room_state(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = ctx.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -26,7 +26,7 @@ pub(crate) async fn get_room_state(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let state_events = ctx.room_service.get_state_events(&room_id).await?;
+    let state_events = ctx.room_service.messaging.get_state_events(&room_id).await?;
 
     Ok(Json(json!({
         "events": state_events
@@ -40,7 +40,7 @@ pub(crate) async fn get_state_by_type(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
 
-    let room_exists = ctx.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
@@ -50,7 +50,7 @@ pub(crate) async fn get_state_by_type(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event_with_empty_key =
         events.iter().find(|e| e.get("state_key").and_then(|v| v.as_str()) == Some("") || e.get("state_key").is_none());
@@ -77,7 +77,7 @@ pub(crate) async fn get_state_event(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -186,6 +186,7 @@ pub(crate) async fn send_state_event(
 
     let state_event = ctx
         .room_service
+        .messaging
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -292,6 +293,7 @@ pub(crate) async fn put_state_event(
 
     let event = ctx
         .room_service
+        .messaging
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -331,7 +333,7 @@ pub(crate) async fn get_state_event_empty_key(
 
     let final_event_type = normalize_room_event_type(&event_type);
 
-    let events = ctx.room_service.get_state_events_by_type(&room_id, &final_event_type).await?;
+    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, &final_event_type).await?;
 
     let event = events
         .iter()
@@ -350,7 +352,7 @@ pub(crate) async fn get_power_levels(
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+    let events = ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let event = events
         .iter()
@@ -378,6 +380,7 @@ pub(crate) async fn put_state_event_empty_key(
 
     let event = ctx
         .room_service
+        .messaging
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -417,6 +420,7 @@ pub(crate) async fn put_state_event_no_key(
 
     let event = ctx
         .room_service
+        .messaging
         .create_event(
             CreateEventParams {
                 event_id: new_event_id.clone(),
@@ -448,7 +452,8 @@ pub(crate) async fn get_room_permissions(
     validate_room_id(&room_id)?;
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let power_levels_events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
+    let power_levels_events =
+        ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.power_levels").await?;
 
     let pl_content = power_levels_events
         .iter()
@@ -456,7 +461,7 @@ pub(crate) async fn get_room_permissions(
         .and_then(|e| e.get("content").cloned())
         .unwrap_or(json!({}));
 
-    let join_rules_events = ctx.room_service.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
+    let join_rules_events = ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.join_rules").await?;
 
     let join_rule = join_rules_events
         .iter()

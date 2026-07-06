@@ -133,7 +133,7 @@ pub struct AdminUserService {
     user_storage: Arc<dyn UserStore>,
     device_storage: DeviceStorage,
     room_storage: RoomStorage,
-    member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     server_name: String,
 }
 
@@ -143,7 +143,7 @@ impl AdminUserService {
         user_storage: Arc<dyn UserStore>,
         device_storage: DeviceStorage,
         room_storage: RoomStorage,
-        member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+        member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         server_name: String,
     ) -> Self {
         Self { user_storage, device_storage, room_storage, member_storage, server_name }

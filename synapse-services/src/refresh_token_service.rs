@@ -4,12 +4,12 @@ use synapse_storage::refresh_token::*;
 use tracing::{info, instrument, warn};
 
 pub struct RefreshTokenService {
-    storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
+    storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     default_expiry_ms: i64,
 }
 
 impl RefreshTokenService {
-    pub fn new(storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>, default_expiry_ms: i64) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>, default_expiry_ms: i64) -> Self {
         Self { storage, default_expiry_ms }
     }
 
@@ -390,6 +390,28 @@ impl RefreshTokenService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_storage::refresh_token::CreateRefreshTokenRequest;
+    use synapse_storage::test_mocks::InMemoryRefreshTokenStore;
+
+    const DEFAULT_EXPIRY_MS: i64 = 3_600_000; // 1 hour
+
+    fn test_service() -> RefreshTokenService {
+        RefreshTokenService::new(Arc::new(InMemoryRefreshTokenStore::new()), DEFAULT_EXPIRY_MS)
+    }
+
+    fn make_request(token_hash: &str, user_id: &str, expires_at: i64) -> CreateRefreshTokenRequest {
+        CreateRefreshTokenRequest {
+            token_hash: token_hash.to_string(),
+            user_id: user_id.to_string(),
+            device_id: Some("DEV1".to_string()),
+            access_token_id: None,
+            scope: None,
+            expires_at,
+            client_info: None,
+            ip_address: None,
+            user_agent: None,
+        }
+    }
 
     #[test]
     fn test_hash_token() {
@@ -443,5 +465,326 @@ mod tests {
         assert!(!hash.contains('/'));
         assert!(!hash.contains('+'));
         assert!(!hash.contains('='));
+    }
+
+    // ── Trait-rewired DB-free unit tests (ARC-13 InMemory Mock) ──────────
+    // These tests exercise RefreshTokenService business logic via
+    // InMemoryRefreshTokenStore without touching PostgreSQL.
+    // Ref: TDD落地执行清单 §8.3 ARC-13.
+
+    #[tokio::test]
+    async fn create_token_returns_token_with_correct_fields() {
+        let svc = test_service();
+        let now = chrono::Utc::now().timestamp_millis();
+        let token_hash = RefreshTokenService::hash_token("raw-token-1");
+        let request = make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS);
+
+        let token = svc.create_token(request).await.unwrap();
+
+        assert_eq!(token.token_hash, token_hash);
+        assert_eq!(token.user_id, "@alice:example.com");
+        assert_eq!(token.device_id.as_deref(), Some("DEV1"));
+        assert!(!token.is_revoked);
+        assert_eq!(token.expires_at, Some(now + DEFAULT_EXPIRY_MS));
+    }
+
+    #[tokio::test]
+    async fn validate_token_returns_token_record_for_valid_token() {
+        let svc = test_service();
+        let raw = "valid-raw-token-abc";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        let token = svc.validate_token(raw).await.unwrap();
+
+        assert_eq!(token.user_id, "@alice:example.com");
+        assert!(!token.is_revoked);
+    }
+
+    #[tokio::test]
+    async fn validate_token_revoked_returns_unauthorized() {
+        let svc = test_service();
+        let raw = "to-be-revoked";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        svc.revoke_token(raw, "user logged out").await.unwrap();
+
+        let result = svc.validate_token(raw).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.is_unauthorized(), "expected Unauthorized, got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn validate_token_missing_returns_unauthorized() {
+        let svc = test_service();
+        let result = svc.validate_token("never-issued-token").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn validate_token_blacklisted_returns_unauthorized() {
+        let svc = test_service();
+        let raw = "blacklisted-token";
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Blacklist the token first, then attempt validation — should be rejected
+        // even though no token record exists.
+        svc.add_to_blacklist(raw, "refresh", "@alice:example.com", now + DEFAULT_EXPIRY_MS, Some("compromised"))
+            .await
+            .unwrap();
+
+        let result = svc.validate_token(raw).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn validate_token_expired_returns_unauthorized() {
+        let svc = test_service();
+        let raw = "expired-token";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        // Create a token with an expiry in the past.
+        let past = chrono::Utc::now().timestamp_millis() - 1000;
+        svc.create_token(make_request(&token_hash, "@alice:example.com", past)).await.unwrap();
+
+        let result = svc.validate_token(raw).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn revoke_token_marks_token_revoked() {
+        let svc = test_service();
+        let raw = "revoke-me";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        svc.revoke_token(raw, "rotation").await.unwrap();
+
+        let tokens = svc.get_user_tokens("@alice:example.com").await.unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert!(tokens[0].is_revoked);
+        assert_eq!(tokens[0].revoked_reason.as_deref(), Some("rotation"));
+    }
+
+    #[tokio::test]
+    async fn revoke_token_by_id_marks_token_revoked() {
+        let svc = test_service();
+        let token_hash = RefreshTokenService::hash_token("revoke-by-id");
+        let now = chrono::Utc::now().timestamp_millis();
+        let token =
+            svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        svc.revoke_token_by_id(token.id, "admin_action").await.unwrap();
+
+        let tokens = svc.get_user_tokens("@alice:example.com").await.unwrap();
+        assert!(tokens[0].is_revoked);
+        assert_eq!(tokens[0].revoked_reason.as_deref(), Some("admin_action"));
+    }
+
+    #[tokio::test]
+    async fn revoke_all_user_tokens_returns_revoked_count() {
+        let svc = test_service();
+        let now = chrono::Utc::now().timestamp_millis();
+        let user = "@bulk:example.com";
+
+        for i in 0..3 {
+            let hash = RefreshTokenService::hash_token(&format!("bulk-{i}"));
+            svc.create_token(make_request(&hash, user, now + DEFAULT_EXPIRY_MS)).await.unwrap();
+        }
+        // Create one token for a different user to ensure cross-user isolation.
+        let other_hash = RefreshTokenService::hash_token("other-user-token");
+        svc.create_token(make_request(&other_hash, "@other:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        let count = svc.revoke_all_user_tokens(user, "logout_all").await.unwrap();
+        assert_eq!(count, 3, "should revoke exactly 3 tokens for the target user");
+
+        let user_tokens = svc.get_user_tokens(user).await.unwrap();
+        assert!(user_tokens.iter().all(|t| t.is_revoked));
+
+        let other_tokens = svc.get_user_tokens("@other:example.com").await.unwrap();
+        assert!(other_tokens.iter().all(|t| !t.is_revoked), "other user tokens must remain active");
+    }
+
+    #[tokio::test]
+    async fn get_user_tokens_returns_all_tokens_for_user() {
+        let svc = test_service();
+        let now = chrono::Utc::now().timestamp_millis();
+        let user = "@alice:example.com";
+
+        for i in 0..3 {
+            let hash = RefreshTokenService::hash_token(&format!("list-{i}"));
+            svc.create_token(make_request(&hash, user, now + DEFAULT_EXPIRY_MS)).await.unwrap();
+        }
+
+        let tokens = svc.get_user_tokens(user).await.unwrap();
+        assert_eq!(tokens.len(), 3);
+        assert!(tokens.iter().all(|t| t.user_id == user));
+    }
+
+    #[tokio::test]
+    async fn get_active_tokens_excludes_revoked_and_expired() {
+        let svc = test_service();
+        let now = chrono::Utc::now().timestamp_millis();
+        let user = "@alice:example.com";
+
+        // Active token.
+        let active_hash = RefreshTokenService::hash_token("active");
+        svc.create_token(make_request(&active_hash, user, now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        // Revoked token.
+        let revoked_hash = RefreshTokenService::hash_token("revoked");
+        svc.create_token(make_request(&revoked_hash, user, now + DEFAULT_EXPIRY_MS)).await.unwrap();
+        svc.revoke_token("revoked", "test").await.unwrap();
+
+        // Expired token.
+        let expired_hash = RefreshTokenService::hash_token("expired");
+        svc.create_token(make_request(&expired_hash, user, now - 1000)).await.unwrap();
+
+        let active = svc.get_active_tokens(user).await.unwrap();
+        assert_eq!(active.len(), 1, "only the non-revoked, non-expired token should remain");
+        assert_eq!(active[0].token_hash, active_hash);
+    }
+
+    #[tokio::test]
+    async fn delete_token_removes_token_completely() {
+        let svc = test_service();
+        let raw = "delete-me";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        svc.delete_token(raw).await.unwrap();
+
+        let tokens = svc.get_user_tokens("@alice:example.com").await.unwrap();
+        assert!(tokens.is_empty(), "token should be deleted");
+    }
+
+    #[tokio::test]
+    async fn cleanup_expired_tokens_removes_only_expired_non_revoked() {
+        let svc = test_service();
+        let now = chrono::Utc::now().timestamp_millis();
+        let user = "@alice:example.com";
+
+        // Expired, non-revoked — should be cleaned up.
+        let expired_hash = RefreshTokenService::hash_token("expired");
+        svc.create_token(make_request(&expired_hash, user, now - 1000)).await.unwrap();
+
+        // Expired but revoked — should NOT be cleaned up (only !is_revoked are removed).
+        let expired_revoked_hash = RefreshTokenService::hash_token("expired-revoked");
+        svc.create_token(make_request(&expired_revoked_hash, user, now - 1000)).await.unwrap();
+        svc.revoke_token("expired-revoked", "test").await.unwrap();
+
+        // Active — should remain.
+        let active_hash = RefreshTokenService::hash_token("active");
+        svc.create_token(make_request(&active_hash, user, now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        let removed = svc.cleanup_expired_tokens().await.unwrap();
+        assert_eq!(removed, 1, "only the expired non-revoked token should be removed");
+
+        let tokens = svc.get_user_tokens(user).await.unwrap();
+        assert_eq!(tokens.len(), 2, "revoked-expired and active tokens should remain");
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_rotates_token_and_revokes_old() {
+        let svc = test_service();
+        let raw = "rotate-me";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        let old_token =
+            svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        let (new_raw, new_token) =
+            svc.refresh_access_token(raw, "new_access_id", Some("127.0.0.1"), Some("Mozilla/5.0")).await.unwrap();
+
+        // The new token string must differ from the original.
+        assert_ne!(new_raw, raw);
+        // The new token record should be active and belong to the same user.
+        assert_eq!(new_token.user_id, "@alice:example.com");
+        assert!(!new_token.is_revoked);
+        assert_eq!(new_token.access_token_id.as_deref(), Some("new_access_id"));
+
+        // The old token must be revoked.
+        let old_after = svc.validate_token(raw).await;
+        assert!(old_after.is_err(), "old token should no longer validate");
+        let user_tokens = svc.get_user_tokens("@alice:example.com").await.unwrap();
+        let old_record = user_tokens.iter().find(|t| t.id == old_token.id).unwrap();
+        assert!(old_record.is_revoked);
+
+        // The new token must validate.
+        let validated = svc.validate_token(&new_raw).await.unwrap();
+        assert_eq!(validated.id, new_token.id);
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_with_revoked_token_returns_unauthorized() {
+        let svc = test_service();
+        let raw = "already-revoked";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+        svc.revoke_token(raw, "prior_logout").await.unwrap();
+
+        let result = svc.refresh_access_token(raw, "new_access_id", None, None).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_with_missing_token_returns_unauthorized() {
+        let svc = test_service();
+        let result = svc.refresh_access_token("never-issued", "new_access_id", None, None).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn get_default_expiry_ms_returns_configured_value() {
+        let svc = test_service();
+        assert_eq!(svc.get_default_expiry_ms(), DEFAULT_EXPIRY_MS);
+    }
+
+    #[tokio::test]
+    async fn add_to_blacklist_blocks_future_validation() {
+        let svc = test_service();
+        let raw = "will-be-blacklisted";
+        let token_hash = RefreshTokenService::hash_token(raw);
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Create a valid token first.
+        svc.create_token(make_request(&token_hash, "@alice:example.com", now + DEFAULT_EXPIRY_MS)).await.unwrap();
+
+        // Blacklist it.
+        svc.add_to_blacklist(raw, "refresh", "@alice:example.com", now + DEFAULT_EXPIRY_MS, Some("compromised"))
+            .await
+            .unwrap();
+
+        // Validation should now fail due to blacklist.
+        let result = svc.validate_token(raw).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_unauthorized());
+    }
+
+    #[tokio::test]
+    async fn get_usage_history_returns_empty_for_unmocked_user() {
+        // InMemoryRefreshTokenStore returns empty Vec for usage history.
+        let svc = test_service();
+        let history = svc.get_usage_history("@alice:example.com", 10).await.unwrap();
+        assert!(history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_user_stats_returns_none_for_unmocked_user() {
+        // InMemoryRefreshTokenStore returns None for stats.
+        let svc = test_service();
+        let stats = svc.get_user_stats("@alice:example.com").await.unwrap();
+        assert!(stats.is_none());
     }
 }

@@ -34,7 +34,8 @@ async fn ensure_presence_access_or_shared_room(
         return Ok(());
     }
 
-    let shared = state.services.rooms.room_service.share_common_room(&auth_user.user_id, target_user_id).await?;
+    let shared =
+        state.services.rooms.room_service.membership.share_common_room(&auth_user.user_id, target_user_id).await?;
 
     if !shared {
         return Err(ApiError::forbidden("Access denied".to_string()));

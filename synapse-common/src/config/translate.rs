@@ -112,3 +112,158 @@ impl TranslateConfig {
         self.enabled && !self.api_key.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_expected_values() {
+        let cfg = TranslateConfig::default();
+        assert!(!cfg.enabled, "enabled should default to false");
+        assert_eq!(cfg.provider, "google", "provider should default to 'google'");
+        assert!(cfg.api_key.is_empty(), "api_key should default to empty");
+        assert!(cfg.api_url.is_empty(), "api_url should default to empty");
+        assert_eq!(cfg.default_target_lang, "en");
+        assert_eq!(cfg.cache_ttl_secs, 86400);
+        assert_eq!(cfg.timeout_secs, 10);
+        assert_eq!(cfg.max_text_length, 5000);
+    }
+
+    #[test]
+    fn default_helpers_return_expected_values() {
+        assert_eq!(default_translate_provider(), "google");
+        assert!(!default_translate_enabled());
+        assert_eq!(default_translate_cache_ttl_secs(), 86400);
+        assert_eq!(default_translate_timeout_secs(), 10);
+        assert_eq!(default_translate_max_text_length(), 5000);
+        assert_eq!(default_translate_target_lang(), "en");
+    }
+
+    #[test]
+    fn deserialize_empty_uses_defaults() {
+        let yaml = "{}\n";
+        let cfg: TranslateConfig = serde_yaml::from_str(yaml).expect("empty YAML should deserialize with defaults");
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.provider, "google");
+        assert!(cfg.api_key.is_empty());
+        assert_eq!(cfg.default_target_lang, "en");
+        assert_eq!(cfg.cache_ttl_secs, 86400);
+        assert_eq!(cfg.timeout_secs, 10);
+        assert_eq!(cfg.max_text_length, 5000);
+    }
+
+    #[test]
+    fn deserialize_explicit_values_override_defaults() {
+        let yaml = "\
+enabled: true
+provider: deepl
+api_key: secret-key-12345
+api_url: https://custom.api.example.com
+default_target_lang: zh
+cache_ttl_secs: 3600
+timeout_secs: 30
+max_text_length: 10000
+";
+        let cfg: TranslateConfig = serde_yaml::from_str(yaml).expect("explicit YAML should override defaults");
+        assert!(cfg.enabled);
+        assert_eq!(cfg.provider, "deepl");
+        assert_eq!(cfg.api_key, "secret-key-12345");
+        assert_eq!(cfg.api_url, "https://custom.api.example.com");
+        assert_eq!(cfg.default_target_lang, "zh");
+        assert_eq!(cfg.cache_ttl_secs, 3600);
+        assert_eq!(cfg.timeout_secs, 30);
+        assert_eq!(cfg.max_text_length, 10000);
+    }
+
+    #[test]
+    fn resolved_api_url_returns_custom_url_when_set() {
+        let cfg = TranslateConfig {
+            api_url: "https://custom.example.com".to_string(),
+            provider: "google".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(cfg.resolved_api_url(), "https://custom.example.com");
+    }
+
+    #[test]
+    fn resolved_api_url_returns_provider_default_for_google() {
+        let cfg = TranslateConfig { api_url: String::new(), provider: "google".to_string(), ..Default::default() };
+        assert_eq!(cfg.resolved_api_url(), "https://translation.googleapis.com");
+    }
+
+    #[test]
+    fn resolved_api_url_returns_provider_default_for_deepl() {
+        let cfg = TranslateConfig { api_url: String::new(), provider: "deepl".to_string(), ..Default::default() };
+        assert_eq!(cfg.resolved_api_url(), "https://api.deepl.com/v2");
+    }
+
+    #[test]
+    fn resolved_api_url_returns_provider_default_for_libretranslate() {
+        let cfg =
+            TranslateConfig { api_url: String::new(), provider: "libretranslate".to_string(), ..Default::default() };
+        assert_eq!(cfg.resolved_api_url(), "http://localhost:5000");
+    }
+
+    #[test]
+    fn resolved_api_url_returns_empty_for_unknown_provider_without_explicit_url() {
+        let cfg =
+            TranslateConfig { api_url: String::new(), provider: "unknown_provider".to_string(), ..Default::default() };
+        // Unknown provider with no explicit api_url falls through to empty string.
+        assert_eq!(cfg.resolved_api_url(), "");
+    }
+
+    #[test]
+    fn is_configured_returns_true_when_enabled_and_api_key_present() {
+        let cfg = TranslateConfig { enabled: true, api_key: "key-12345".to_string(), ..Default::default() };
+        assert!(cfg.is_configured());
+    }
+
+    #[test]
+    fn is_configured_returns_false_when_disabled() {
+        let cfg = TranslateConfig { enabled: false, api_key: "key-12345".to_string(), ..Default::default() };
+        assert!(!cfg.is_configured());
+    }
+
+    #[test]
+    fn is_configured_returns_false_when_enabled_but_no_api_key() {
+        let cfg = TranslateConfig { enabled: true, api_key: String::new(), ..Default::default() };
+        assert!(!cfg.is_configured());
+    }
+
+    #[test]
+    fn is_configured_returns_false_when_disabled_and_no_api_key() {
+        let cfg = TranslateConfig::default();
+        assert!(!cfg.is_configured());
+    }
+
+    #[test]
+    fn clone_preserves_all_fields() {
+        let cfg = TranslateConfig {
+            enabled: true,
+            provider: "deepl".to_string(),
+            api_key: "key".to_string(),
+            api_url: "https://example.com".to_string(),
+            default_target_lang: "fr".to_string(),
+            cache_ttl_secs: 7200,
+            timeout_secs: 25,
+            max_text_length: 2500,
+        };
+        let cloned = cfg.clone();
+        assert_eq!(cfg.enabled, cloned.enabled);
+        assert_eq!(cfg.provider, cloned.provider);
+        assert_eq!(cfg.api_key, cloned.api_key);
+        assert_eq!(cfg.api_url, cloned.api_url);
+        assert_eq!(cfg.default_target_lang, cloned.default_target_lang);
+        assert_eq!(cfg.cache_ttl_secs, cloned.cache_ttl_secs);
+        assert_eq!(cfg.timeout_secs, cloned.timeout_secs);
+        assert_eq!(cfg.max_text_length, cloned.max_text_length);
+    }
+
+    #[test]
+    fn debug_format_contains_struct_name() {
+        let cfg = TranslateConfig::default();
+        let debug_str = format!("{cfg:?}");
+        assert!(debug_str.contains("TranslateConfig"));
+    }
+}

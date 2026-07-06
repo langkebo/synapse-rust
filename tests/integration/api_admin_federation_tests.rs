@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 async fn setup_test_context() -> Option<(axum::Router, Arc<PgPool>)> {
-    let (app, state) = super::setup_test_app_with_config(|_| {}).await?;
+    let (app, state) = super::setup_fresh_test_app_with_config(|_| {}).await?;
     let pool = state.services.account.user_storage.pool().clone();
     Some((app, pool))
 }

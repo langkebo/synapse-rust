@@ -174,3 +174,158 @@ impl EventAuthChain {
         mainline.iter().position(|e| e == event_id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_event_data(
+        event_id: &str,
+        room_id: &str,
+        event_type: &str,
+        auth_events: Vec<&str>,
+        sender: &str,
+        depth: i64,
+    ) -> EventData {
+        EventData {
+            event_id: event_id.into(),
+            room_id: room_id.into(),
+            event_type: event_type.into(),
+            auth_events: auth_events.iter().map(|s| s.to_string()).collect(),
+            prev_events: Vec::new(),
+            state_key: Some(serde_json::Value::String("".into())),
+            content: Some(serde_json::json!({})),
+            sender: sender.into(),
+            origin_server_ts: depth * 1000,
+            depth,
+        }
+    }
+
+    // ── get_mainline_depth ────────────────────────────────────────────
+
+    #[test]
+    fn mainline_depth_finds_position() {
+        let chain = EventAuthChain::new();
+        let mainline: Vec<String> = vec!["$a".into(), "$b".into(), "$c".into()];
+        assert_eq!(chain.get_mainline_depth(&mainline, "$a"), Some(0));
+        assert_eq!(chain.get_mainline_depth(&mainline, "$b"), Some(1));
+        assert_eq!(chain.get_mainline_depth(&mainline, "$c"), Some(2));
+    }
+
+    #[test]
+    fn mainline_depth_missing_event_returns_none() {
+        let chain = EventAuthChain::new();
+        let mainline: Vec<String> = vec!["$a".into()];
+        assert_eq!(chain.get_mainline_depth(&mainline, "$x"), None);
+    }
+
+    #[test]
+    fn mainline_depth_empty_returns_none() {
+        let chain = EventAuthChain::new();
+        let mainline: Vec<String> = vec![];
+        assert_eq!(chain.get_mainline_depth(&mainline, "$a"), None);
+    }
+
+    // ── compute_mainline ──────────────────────────────────────────────
+
+    #[test]
+    fn compute_mainline_starts_with_create() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events
+            .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
+        let mainline = chain.compute_mainline(&events, "$create");
+        assert_eq!(mainline[0], "$create");
+    }
+
+    #[test]
+    fn compute_mainline_includes_power_levels_in_depth_order() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events
+            .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
+        events.insert(
+            "$pl1".into(),
+            make_event_data("$pl1", "!r:ex.com", "m.room.power_levels", vec!["$create"], "@a:ex.com", 2),
+        );
+        events.insert(
+            "$pl2".into(),
+            make_event_data("$pl2", "!r:ex.com", "m.room.power_levels", vec!["$pl1"], "@a:ex.com", 3),
+        );
+        let mainline = chain.compute_mainline(&events, "$create");
+        assert_eq!(mainline.len(), 3);
+        assert_eq!(mainline[0], "$create");
+        assert_eq!(mainline[1], "$pl1");
+        assert_eq!(mainline[2], "$pl2");
+    }
+
+    #[test]
+    fn compute_mainline_ignores_non_pl_and_non_create() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events
+            .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
+        events.insert(
+            "$msg".into(),
+            make_event_data("$msg", "!r:ex.com", "m.room.message", vec!["$create"], "@a:ex.com", 2),
+        );
+        let mainline = chain.compute_mainline(&events, "$create");
+        assert_eq!(mainline.len(), 1);
+        assert_eq!(mainline[0], "$create");
+    }
+
+    // ── build_auth_chain_from_events ──────────────────────────────────
+
+    #[test]
+    fn build_auth_chain_collects_auth_events_only() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events
+            .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
+        events.insert(
+            "$msg".into(),
+            make_event_data("$msg", "!r:ex.com", "m.room.message", vec!["$create"], "@a:ex.com", 2),
+        );
+        // build_auth_chain_from_events follows auth_events BFS and collects auth events
+        let auth_chain = chain.build_auth_chain_from_events(&events, "$msg");
+        // $msg has auth_event $create, which is an auth event type
+        assert!(auth_chain.contains(&"$create".to_string()));
+    }
+
+    #[test]
+    fn build_auth_chain_empty_for_nonexistent_event() {
+        let chain = EventAuthChain::new();
+        let events = HashMap::new();
+        let auth_chain = chain.build_auth_chain_from_events(&events, "$nonexistent");
+        assert!(auth_chain.is_empty());
+    }
+
+    // ── verify_auth_chain ─────────────────────────────────────────────
+
+    #[test]
+    fn verify_auth_chain_empty_returns_false() {
+        let chain = EventAuthChain::new();
+        let events = HashMap::new();
+        assert!(!chain.verify_auth_chain(&events, "!r:ex.com", &[]));
+    }
+
+    #[test]
+    fn verify_auth_chain_room_id_mismatch_returns_false() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events.insert(
+            "$create".into(),
+            make_event_data("$create", "!other:ex.com", "m.room.create", vec![], "@a:ex.com", 1),
+        );
+        assert!(!chain.verify_auth_chain(&events, "!r:ex.com", &["$create".into()]));
+    }
+
+    #[test]
+    fn verify_auth_chain_valid_returns_true() {
+        let chain = EventAuthChain::new();
+        let mut events = HashMap::new();
+        events
+            .insert("$create".into(), make_event_data("$create", "!r:ex.com", "m.room.create", vec![], "@a:ex.com", 1));
+        assert!(chain.verify_auth_chain(&events, "!r:ex.com", &["$create".into()]));
+    }
+}

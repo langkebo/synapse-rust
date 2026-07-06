@@ -6,9 +6,9 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use std::sync::Arc;
+use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
-use synapse_federation::FederationClient;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::UserStore;
@@ -26,7 +26,7 @@ pub struct MembershipService {
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: Arc<dyn crate::auth::Auth>,
     pub(crate) server_name: String,
-    pub(crate) federation_client: Arc<RwLock<Option<Arc<FederationClient>>>>,
+    pub(crate) federation_client: Arc<RwLock<Option<Arc<dyn FederationClientApi>>>>,
     pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
@@ -40,7 +40,7 @@ pub struct MembershipServiceConfig {
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn crate::auth::Auth>,
     pub server_name: String,
-    pub federation_client: Arc<RwLock<Option<Arc<FederationClient>>>>,
+    pub federation_client: Arc<RwLock<Option<Arc<dyn FederationClientApi>>>>,
     pub key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
     pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
@@ -89,7 +89,9 @@ impl MembershipService {
     }
 
     /// Get the federation client, returning an error if not configured.
-    pub(crate) async fn require_federation_client(&self) -> ApiResult<Arc<synapse_federation::FederationClient>> {
+    pub(crate) async fn require_federation_client(
+        &self,
+    ) -> ApiResult<Arc<dyn synapse_federation::client_api::FederationClientApi>> {
         self.federation_client
             .read()
             .await
@@ -252,5 +254,70 @@ impl MembershipService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── server_name_from_id ────────────────────────────────────────
+
+    #[test]
+    fn server_name_from_user_id() {
+        assert_eq!(MembershipService::server_name_from_id("@user:myserver.com"), Some("myserver.com"));
+    }
+
+    #[test]
+    fn server_name_from_room_id() {
+        assert_eq!(MembershipService::server_name_from_id("!room:myserver.com"), Some("myserver.com"));
+    }
+
+    #[test]
+    fn server_name_from_id_no_colon() {
+        assert_eq!(MembershipService::server_name_from_id("justastring"), None);
+    }
+
+    #[test]
+    fn server_name_from_id_empty() {
+        assert_eq!(MembershipService::server_name_from_id(""), None);
+    }
+
+    #[test]
+    fn server_name_from_id_multiple_colons() {
+        // rsplit_once picks the last colon
+        assert_eq!(MembershipService::server_name_from_id("@user:sub:server.com"), Some("server.com"));
+    }
+
+    #[test]
+    fn server_name_from_id_trailing_colon() {
+        assert_eq!(MembershipService::server_name_from_id("text:"), Some(""));
+    }
+
+    #[test]
+    fn server_name_from_id_leading_colon() {
+        assert_eq!(MembershipService::server_name_from_id(":text"), Some("text"));
+    }
+
+    // ── is_remote_id ───────────────────────────────────────────────
+
+    #[test]
+    fn is_remote_id_true_for_other_server() {
+        assert!(MembershipService::is_remote_id("@user:other.com", "myserver.com"));
+    }
+
+    #[test]
+    fn is_remote_id_false_for_local_server() {
+        assert!(!MembershipService::is_remote_id("@user:myserver.com", "myserver.com"));
+    }
+
+    #[test]
+    fn is_remote_id_false_when_no_server_name() {
+        assert!(!MembershipService::is_remote_id("no_colon", "myserver.com"));
+    }
+
+    #[test]
+    fn is_remote_id_false_for_empty_id() {
+        assert!(!MembershipService::is_remote_id("", "myserver.com"));
     }
 }

@@ -169,11 +169,11 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = state.services.rooms.room_service.get_joined_rooms(user_id).await {
+            if let Ok(shared_rooms) = state.services.rooms.room_service.membership.get_joined_rooms(user_id).await {
                 let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for room_id in &shared_rooms {
                     if let Ok(members) =
-                        state.services.rooms.room_service.get_joined_members_with_profiles(room_id).await
+                        state.services.rooms.room_service.membership.get_joined_members_with_profiles(room_id).await
                     {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {

@@ -26,7 +26,10 @@ impl CrossSigningService {
         }
     }
 
-    fn extract_ed25519_key(key_json: &serde_json::Value, field_name: &str) -> Result<(String, String), ApiError> {
+    pub(crate) fn extract_ed25519_key(
+        key_json: &serde_json::Value,
+        field_name: &str,
+    ) -> Result<(String, String), ApiError> {
         let keys = key_json
             .get("keys")
             .and_then(|v| v.as_object())
@@ -292,7 +295,7 @@ impl CrossSigningService {
         Ok(())
     }
 
-    fn verify_key_signature(
+    pub(crate) fn verify_key_signature(
         user_id: &str,
         key_json: &serde_json::Value,
         public_key_base64: &str,
@@ -313,7 +316,11 @@ impl CrossSigningService {
         verify_signed_json(user_id, signing_key_id, public_key_base64, signature, key_json).unwrap_or(false)
     }
 
-    fn verify_cross_key_signature(user_id: &str, key_json: &serde_json::Value, master_key: &CrossSigningKey) -> bool {
+    pub(crate) fn verify_cross_key_signature(
+        user_id: &str,
+        key_json: &serde_json::Value,
+        master_key: &CrossSigningKey,
+    ) -> bool {
         let master_key_id = master_key
             .key_json
             .as_ref()
@@ -631,7 +638,7 @@ impl CrossSigningService {
         })
     }
 
-    fn verify_cross_signing_signature(
+    pub(crate) fn verify_cross_signing_signature(
         signing_public_key: &str,
         signatures: &serde_json::Value,
         target_key_json: Option<&serde_json::Value>,
@@ -983,5 +990,267 @@ impl CrossSigningService {
             verification_method,
             verified_at: if is_verified { Some(Utc::now()) } else { None },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extract_ed25519_key_finds_first_ed25519_entry() {
+        let key_json = json!({
+            "keys": {
+                "ed25519:abc123": "base64publickey",
+                "curve25519:xyz": "otherkey"
+            }
+        });
+        let (key_id, public_key) = CrossSigningService::extract_ed25519_key(&key_json, "master_key").unwrap();
+        assert_eq!(key_id, "ed25519:abc123");
+        assert_eq!(public_key, "base64publickey");
+    }
+
+    #[test]
+    fn extract_ed25519_key_skips_non_ed25519_keys() {
+        let key_json = json!({
+            "keys": {
+                "curve25519:xyz": "otherkey",
+                "ed25519:def456": "edpublickey"
+            }
+        });
+        let (key_id, public_key) = CrossSigningService::extract_ed25519_key(&key_json, "self_signing_key").unwrap();
+        assert_eq!(key_id, "ed25519:def456");
+        assert_eq!(public_key, "edpublickey");
+    }
+
+    #[test]
+    fn extract_ed25519_key_missing_keys_field() {
+        let key_json = json!({"other": "data"});
+        let result = CrossSigningService::extract_ed25519_key(&key_json, "master_key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_ed25519_key_empty_keys_object() {
+        let key_json = json!({"keys": {}});
+        let result = CrossSigningService::extract_ed25519_key(&key_json, "master_key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_ed25519_key_no_ed25519_key_present() {
+        let key_json = json!({
+            "keys": {
+                "curve25519:xyz": "otherkey",
+                "signed_curve25519:abc": "signedkey"
+            }
+        });
+        let result = CrossSigningService::extract_ed25519_key(&key_json, "master_key");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn extract_ed25519_key_keys_not_object() {
+        let key_json = json!({"keys": "not_an_object"});
+        let result = CrossSigningService::extract_ed25519_key(&key_json, "master_key");
+        assert!(result.is_err());
+    }
+
+    // ── verify_key_signature ──────────────────────────────────────
+
+    #[test]
+    fn verify_key_signature_missing_signatures_field() {
+        let key_json = json!({"keys": {"ed25519:abc": "pubkey"}});
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    #[test]
+    fn verify_key_signature_missing_user_in_signatures() {
+        let key_json = json!({
+            "signatures": {"@bob:ex.com": {"ed25519:abc": "sig"}}
+        });
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    #[test]
+    fn verify_key_signature_missing_signing_key_id() {
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:xyz": "sig"}}
+        });
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    #[test]
+    fn verify_key_signature_non_string_signature_value() {
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:abc": 12345}}
+        });
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    #[test]
+    fn verify_key_signature_signatures_not_object() {
+        let key_json = json!({"signatures": "not_an_object"});
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    #[test]
+    fn verify_key_signature_user_signatures_not_object() {
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": "not_an_object"}
+        });
+        assert!(!CrossSigningService::verify_key_signature("@alice:ex.com", &key_json, "pubkey", "ed25519:abc"));
+    }
+
+    // ── verify_cross_key_signature ─────────────────────────────────
+
+    fn make_master_key() -> CrossSigningKey {
+        CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:ex.com".to_string(),
+            key_type: "master".to_string(),
+            public_key: "master_pub_key_base64".to_string(),
+            usage: vec!["master_key".to_string()],
+            signatures: json!({}),
+            key_json: None,
+            created_ts: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
+        }
+    }
+
+    fn make_master_key_with_key_json() -> CrossSigningKey {
+        CrossSigningKey {
+            id: uuid::Uuid::new_v4(),
+            user_id: "@alice:ex.com".to_string(),
+            key_type: "master".to_string(),
+            public_key: "master_pub_key_base64".to_string(),
+            usage: vec!["master_key".to_string()],
+            signatures: json!({}),
+            key_json: Some(json!({
+                "keys": {"ed25519:master_key_1": "master_pub_key_base64"}
+            })),
+            created_ts: chrono::Utc::now(),
+            updated_ts: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn verify_cross_key_signature_missing_signatures_field() {
+        let master_key = make_master_key();
+        let key_json = json!({"keys": {"ed25519:abc": "pubkey"}});
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    #[test]
+    fn verify_cross_key_signature_missing_user_in_signatures() {
+        let master_key = make_master_key();
+        let key_json = json!({
+            "signatures": {"@bob:ex.com": {"ed25519:master_key_1": "sig"}}
+        });
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    #[test]
+    fn verify_cross_key_signature_missing_signing_key_id() {
+        let master_key = make_master_key_with_key_json();
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:other_key": "sig"}}
+        });
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    #[test]
+    fn verify_cross_key_signature_non_string_signature_value() {
+        let master_key = make_master_key_with_key_json();
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:master_key_1": 12345}}
+        });
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    #[test]
+    fn verify_cross_key_signature_uses_key_json_when_available() {
+        let master_key = make_master_key_with_key_json();
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:master_key_1": "sig"}}
+        });
+        // verify_signed_json returns false with a fake signature, but
+        // the function should reach the crypto call (not bail early).
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    #[test]
+    fn verify_cross_key_signature_falls_back_to_format_key() {
+        let master_key = make_master_key();
+        let key_json = json!({
+            "signatures": {"@alice:ex.com": {"ed25519:master_pub_key_base64": "sig"}}
+        });
+        // Falls back to format!("ed25519:{}", master_key.public_key)
+        assert!(!CrossSigningService::verify_cross_key_signature("@alice:ex.com", &key_json, &master_key));
+    }
+
+    // ── verify_cross_signing_signature ─────────────────────────────
+
+    #[test]
+    fn verify_cross_signing_signature_not_object() {
+        assert!(!CrossSigningService::verify_cross_signing_signature(
+            "pubkey",
+            &json!("not_an_object"),
+            None,
+            "self_signing"
+        ));
+    }
+
+    #[test]
+    fn verify_cross_signing_signature_empty_signatures() {
+        assert!(!CrossSigningService::verify_cross_signing_signature("pubkey", &json!({}), None, "self_signing"));
+    }
+
+    #[test]
+    fn verify_cross_signing_signature_no_ed25519_prefix() {
+        let sigs = json!({
+            "@alice:ex.com": {
+                "curve25519:xyz": "signature_value"
+            }
+        });
+        assert!(!CrossSigningService::verify_cross_signing_signature("pubkey", &sigs, None, "self_signing"));
+    }
+
+    #[test]
+    fn verify_cross_signing_signature_non_string_value() {
+        let sigs = json!({
+            "@alice:ex.com": {
+                "ed25519:abc": 12345
+            }
+        });
+        assert!(!CrossSigningService::verify_cross_signing_signature("pubkey", &sigs, None, "self_signing"));
+    }
+
+    #[test]
+    fn verify_cross_signing_signature_null_target_key_json() {
+        let sigs = json!({
+            "@alice:ex.com": {
+                "ed25519:abc": "signature_value"
+            }
+        });
+        // Uses default json!({"key_type": "self_signing"}) as target
+        assert!(!CrossSigningService::verify_cross_signing_signature("pubkey", &sigs, None, "self_signing"));
+    }
+
+    #[test]
+    fn verify_cross_signing_signature_strips_signatures_and_unsigned() {
+        let target = json!({
+            "keys": {"ed25519:abc": "pubkey"},
+            "signatures": {"@other:ex.com": {"ed25519:xyz": "oldsig"}},
+            "unsigned": {"age": 1234}
+        });
+        let sigs = json!({
+            "@alice:ex.com": {
+                "ed25519:abc": "signature_value"
+            }
+        });
+        // Fails at crypto check, but signatures/unsigned were stripped
+        assert!(!CrossSigningService::verify_cross_signing_signature("pubkey", &sigs, Some(&target), "self_signing"));
     }
 }

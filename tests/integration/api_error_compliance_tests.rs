@@ -6,7 +6,7 @@ use serde_json::Value;
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 /// Task 1.1: Unknown path → 404 JSON with M_UNRECOGNIZED

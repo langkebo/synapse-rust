@@ -459,54 +459,495 @@ mod tests {
         assert!(session.consent_given);
     }
 
-    // DB-dependent tests marked with #[ignore]
-    // Run with: cargo test --features test-utils -- --ignored
+    // ===== Database-dependent tests =====
+    //
+    // These tests use `prepare_empty_isolated_test_pool()` to get an isolated
+    // PostgreSQL schema. The schema starts empty, so each test creates the
+    // `oidc_auth_sessions`, `oidc_refresh_tokens`, and `oidc_consent_sessions`
+    // tables matching the unified migration before running.
+
+    use sqlx::PgPool;
+    use std::sync::Arc;
+
+    async fn get_test_pool() -> Option<Arc<PgPool>> {
+        match crate::test_utils::prepare_empty_isolated_test_pool().await {
+            Ok(pool) => Some(pool),
+            Err(error) => {
+                tracing::warn!("Skipping oidc_session DB test because test database is unavailable: {error}");
+                None
+            }
+        }
+    }
+
+    async fn setup_oidc_session_db(pool: &Arc<PgPool>) {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS oidc_auth_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                session_key TEXT NOT NULL UNIQUE,
+                session_type TEXT NOT NULL,
+                client_id TEXT NOT NULL DEFAULT '',
+                redirect_uri TEXT NOT NULL DEFAULT '',
+                scope TEXT NOT NULL DEFAULT '',
+                state TEXT NOT NULL DEFAULT '',
+                nonce TEXT,
+                code_verifier TEXT,
+                code_challenge TEXT,
+                code_challenge_method TEXT,
+                user_id TEXT,
+                consent_given BOOLEAN NOT NULL DEFAULT FALSE,
+                created_ts BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&**pool)
+        .await
+        .expect("Failed to create oidc_auth_sessions table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS oidc_refresh_tokens (
+                id BIGSERIAL PRIMARY KEY,
+                token_hash TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '',
+                created_ts BIGINT NOT NULL,
+                expires_at BIGINT,
+                is_revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                revoked_at BIGINT
+            )
+            "#,
+        )
+        .execute(&**pool)
+        .await
+        .expect("Failed to create oidc_refresh_tokens table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS oidc_consent_sessions (
+                id BIGSERIAL PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                client_name TEXT,
+                redirect_uri TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT '',
+                state TEXT NOT NULL DEFAULT '',
+                nonce TEXT,
+                code_challenge TEXT,
+                user_id TEXT NOT NULL,
+                created_ts BIGINT NOT NULL,
+                expires_at BIGINT NOT NULL
+            )
+            "#,
+        )
+        .execute(&**pool)
+        .await
+        .expect("Failed to create oidc_consent_sessions table");
+    }
+
+    fn make_auth_session(session_key: String, created_ts: i64, expires_at: i64) -> OidcAuthSession {
+        OidcAuthSession {
+            id: 0,
+            session_key,
+            session_type: "pkce".to_string(),
+            client_id: "client1".to_string(),
+            redirect_uri: "https://app.example.com/callback".to_string(),
+            scope: "openid profile".to_string(),
+            state: "state".to_string(),
+            nonce: Some("nonce_abc".to_string()),
+            code_verifier: Some("verifier_xyz".to_string()),
+            code_challenge: Some("challenge_def".to_string()),
+            code_challenge_method: Some("S256".to_string()),
+            user_id: None,
+            consent_given: false,
+            created_ts,
+            expires_at,
+        }
+    }
+
+    fn make_refresh_token(token_hash: String, created_ts: i64, expires_at: Option<i64>) -> OidcRefreshToken {
+        OidcRefreshToken {
+            id: 0,
+            token_hash,
+            user_id: "@user:server".to_string(),
+            client_id: "client1".to_string(),
+            scope: "openid".to_string(),
+            created_ts,
+            expires_at,
+            is_revoked: false,
+            revoked_at: None,
+        }
+    }
+
+    fn make_consent_session(session_id: String, created_ts: i64, expires_at: i64) -> OidcConsentSession {
+        OidcConsentSession {
+            id: 0,
+            session_id,
+            client_id: "client1".to_string(),
+            client_name: Some("Test App".to_string()),
+            redirect_uri: "https://app.example.com/callback".to_string(),
+            scope: "openid profile".to_string(),
+            state: "state".to_string(),
+            nonce: Some("nonce_abc".to_string()),
+            code_challenge: Some("challenge_def".to_string()),
+            user_id: "@user:server".to_string(),
+            created_ts,
+            expires_at,
+        }
+    }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_save_and_get_auth_session() {
-        // Requires a running PostgreSQL with oidc_auth_sessions table
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let expires_at = now + 3_600_000;
+        let session = make_auth_session(session_key.clone(), now, expires_at);
+
+        storage.save_auth_session(&session).await.expect("save_auth_session should succeed");
+
+        // OidcSessionStorage only exposes the atomic get_and_delete retrieval for auth
+        // sessions; verify the saved row is returned with all fields intact.
+        let fetched = storage
+            .get_and_delete_auth_session(&session_key)
+            .await
+            .expect("get_and_delete_auth_session should succeed");
+        assert!(fetched.is_some(), "saved session should be retrievable");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.session_key, session_key);
+        assert_eq!(fetched.session_type, "pkce");
+        assert_eq!(fetched.client_id, "client1");
+        assert_eq!(fetched.redirect_uri, "https://app.example.com/callback");
+        assert_eq!(fetched.scope, "openid profile");
+        assert_eq!(fetched.state, "state");
+        assert_eq!(fetched.nonce.as_deref(), Some("nonce_abc"));
+        assert_eq!(fetched.code_verifier.as_deref(), Some("verifier_xyz"));
+        assert_eq!(fetched.code_challenge.as_deref(), Some("challenge_def"));
+        assert_eq!(fetched.code_challenge_method.as_deref(), Some("S256"));
+        assert!(fetched.user_id.is_none());
+        assert!(!fetched.consent_given);
+        assert_eq!(fetched.created_ts, now);
+        assert_eq!(fetched.expires_at, expires_at);
+        assert!(fetched.id > 0, "id should be populated by DB");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_get_and_delete_auth_session_atomic() {
-        // Requires a running PostgreSQL to test atomic DELETE ... RETURNING
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let session_key = format!("pkce_state_{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let session = make_auth_session(session_key.clone(), now, now + 3_600_000);
+
+        storage.save_auth_session(&session).await.expect("save_auth_session should succeed");
+
+        // First call should return the session.
+        let first =
+            storage.get_and_delete_auth_session(&session_key).await.expect("first get_and_delete should succeed");
+        assert!(first.is_some(), "first call should return the session");
+        assert_eq!(first.unwrap().session_key, session_key);
+
+        // Second call should return None — the row was atomically deleted.
+        let second =
+            storage.get_and_delete_auth_session(&session_key).await.expect("second get_and_delete should succeed");
+        assert!(second.is_none(), "second call should return None after atomic deletion");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_get_nonexistent_session_returns_none() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let missing = storage
+            .get_and_delete_auth_session("nonexistent_session_key")
+            .await
+            .expect("get_and_delete_auth_session should succeed");
+        assert!(missing.is_none(), "non-existent session should return None");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_cleanup_expired_sessions() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let now = chrono::Utc::now().timestamp_millis();
+        let past_ts = now - 3_600_000;
+        let future_ts = now + 3_600_000;
+
+        // Expired + active auth sessions.
+        storage
+            .save_auth_session(&make_auth_session(
+                format!("expired_auth_{}", uuid::Uuid::new_v4()),
+                past_ts - 3_600_000,
+                past_ts,
+            ))
+            .await
+            .expect("save_auth_session should succeed");
+        storage
+            .save_auth_session(&make_auth_session(format!("active_auth_{}", uuid::Uuid::new_v4()), now, future_ts))
+            .await
+            .expect("save_auth_session should succeed");
+
+        // Expired + active consent sessions.
+        storage
+            .save_consent_session(&make_consent_session(
+                format!("expired_consent_{}", uuid::Uuid::new_v4()),
+                past_ts - 3_600_000,
+                past_ts,
+            ))
+            .await
+            .expect("save_consent_session should succeed");
+        storage
+            .save_consent_session(&make_consent_session(
+                format!("active_consent_{}", uuid::Uuid::new_v4()),
+                now,
+                future_ts,
+            ))
+            .await
+            .expect("save_consent_session should succeed");
+
+        // Expired refresh token (past expires_at).
+        storage
+            .save_refresh_token(&make_refresh_token(
+                format!("expired_token_{}", uuid::Uuid::new_v4()),
+                past_ts - 3_600_000,
+                Some(past_ts),
+            ))
+            .await
+            .expect("save_refresh_token should succeed");
+        // Active refresh token (no expiry → not deleted).
+        storage
+            .save_refresh_token(&make_refresh_token(format!("no_expiry_token_{}", uuid::Uuid::new_v4()), now, None))
+            .await
+            .expect("save_refresh_token should succeed");
+        // Active refresh token (future expiry → not deleted).
+        storage
+            .save_refresh_token(&make_refresh_token(
+                format!("future_token_{}", uuid::Uuid::new_v4()),
+                now,
+                Some(future_ts),
+            ))
+            .await
+            .expect("save_refresh_token should succeed");
+
+        // cleanup_expired_sessions(now) should delete:
+        //   1 expired auth + 1 expired consent + 1 expired refresh token = 3
+        let deleted = storage.cleanup_expired_sessions(now).await.expect("cleanup_expired_sessions should succeed");
+        assert_eq!(deleted, 3, "should delete 1 expired auth session + 1 expired consent + 1 expired refresh token");
+
+        // Verify remaining rows via direct SQL counts.
+        let auth_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oidc_auth_sessions")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("auth count should succeed");
+        assert_eq!(auth_count, 1, "1 active auth session should remain");
+
+        let consent_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oidc_consent_sessions")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("consent count should succeed");
+        assert_eq!(consent_count, 1, "1 active consent session should remain");
+
+        let token_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oidc_refresh_tokens")
+            .fetch_one(pool.as_ref())
+            .await
+            .expect("token count should succeed");
+        assert_eq!(token_count, 2, "2 active refresh tokens should remain");
+
+        // Second cleanup should delete nothing.
+        let deleted_again = storage.cleanup_expired_sessions(now).await.expect("cleanup should succeed");
+        assert_eq!(deleted_again, 0, "no expired sessions on second cleanup");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_save_and_get_refresh_token() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let future_ts = now + 3_600_000;
+        let token = make_refresh_token(token_hash.clone(), now, Some(future_ts));
+
+        storage.save_refresh_token(&token).await.expect("save_refresh_token should succeed");
+
+        let fetched = storage.get_refresh_token(&token_hash).await.expect("get_refresh_token should succeed");
+        assert!(fetched.is_some(), "token should exist and not be revoked");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.token_hash, token_hash);
+        assert_eq!(fetched.user_id, "@user:server");
+        assert_eq!(fetched.client_id, "client1");
+        assert_eq!(fetched.scope, "openid");
+        assert_eq!(fetched.created_ts, now);
+        assert_eq!(fetched.expires_at, Some(future_ts));
+        assert!(!fetched.is_revoked);
+        assert!(fetched.revoked_at.is_none());
+        assert!(fetched.id > 0, "id should be populated by DB");
+
+        // Non-existent token returns None.
+        let missing = storage.get_refresh_token("nonexistent_hash").await.expect("get_refresh_token should succeed");
+        assert!(missing.is_none(), "non-existent token should return None");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_revoke_refresh_token() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let token_hash = format!("hash_{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let token = make_refresh_token(token_hash.clone(), now, Some(now + 3_600_000));
+
+        storage.save_refresh_token(&token).await.expect("save_refresh_token should succeed");
+
+        // Verify token exists before revocation.
+        let fetched = storage.get_refresh_token(&token_hash).await.expect("get_refresh_token should succeed");
+        assert!(fetched.is_some(), "token should exist and not be revoked");
+
+        // Revoke the token.
+        let revoked =
+            storage.revoke_refresh_token(&token_hash, now).await.expect("revoke_refresh_token should succeed");
+        assert!(revoked, "revoke should return true for active token");
+
+        // get_refresh_token returns None for revoked tokens (query has AND is_revoked = FALSE).
+        let after_revoke = storage.get_refresh_token(&token_hash).await.expect("get_refresh_token should succeed");
+        assert!(after_revoke.is_none(), "revoked token should not be returned by get_refresh_token");
+
+        // Revoke again should return false (already revoked).
+        let revoke_again = storage.revoke_refresh_token(&token_hash, now).await.expect("revoke should succeed");
+        assert!(!revoke_again, "revoke should return false for already-revoked token");
+
+        // Revoke non-existent token should return false.
+        let revoke_missing =
+            storage.revoke_refresh_token("nonexistent_hash", now).await.expect("revoke should succeed");
+        assert!(!revoke_missing, "revoke should return false for non-existent token");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_revoke_user_refresh_tokens() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let now = chrono::Utc::now().timestamp_millis();
+        let future_ts = now + 3_600_000;
+        let user_id = format!("@user_{}:server", uuid::Uuid::new_v4());
+
+        // Create 3 refresh tokens for the user.
+        for i in 0..3u8 {
+            let token = OidcRefreshToken {
+                id: 0,
+                token_hash: format!("hash_{}_{}", uuid::Uuid::new_v4(), i),
+                user_id: user_id.clone(),
+                client_id: "client1".to_string(),
+                scope: "openid".to_string(),
+                created_ts: now,
+                expires_at: Some(future_ts),
+                is_revoked: false,
+                revoked_at: None,
+            };
+            storage.save_refresh_token(&token).await.expect("save_refresh_token should succeed");
+        }
+
+        // Revoke all tokens for the user.
+        let revoked_count =
+            storage.revoke_user_refresh_tokens(&user_id, now).await.expect("revoke_user_refresh_tokens should succeed");
+        assert_eq!(revoked_count, 3, "should revoke 3 tokens");
+
+        // Second call should revoke 0 (already revoked).
+        let revoked_again = storage.revoke_user_refresh_tokens(&user_id, now).await.expect("revoke should succeed");
+        assert_eq!(revoked_again, 0, "no tokens to revoke on second call");
+
+        // Verify via SQL: 0 active, 3 revoked.
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM oidc_refresh_tokens WHERE user_id = $1 AND is_revoked = FALSE")
+                .bind(&user_id)
+                .fetch_one(pool.as_ref())
+                .await
+                .expect("active count should succeed");
+        assert_eq!(active_count, 0, "no active tokens should remain");
+
+        let revoked_db_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM oidc_refresh_tokens WHERE user_id = $1 AND is_revoked = TRUE")
+                .bind(&user_id)
+                .fetch_one(pool.as_ref())
+                .await
+                .expect("revoked count should succeed");
+        assert_eq!(revoked_db_count, 3, "3 tokens should be revoked");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_save_and_get_consent_session() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oidc_session_db(&pool).await;
+
+        let storage = OidcSessionStorage::new(&pool);
+        let session_id = format!("consent_{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let future_ts = now + 3_600_000;
+        let session = make_consent_session(session_id.clone(), now, future_ts);
+
+        storage.save_consent_session(&session).await.expect("save_consent_session should succeed");
+
+        // get_consent_session returns the session without deleting it.
+        let fetched = storage.get_consent_session(&session_id).await.expect("get_consent_session should succeed");
+        assert!(fetched.is_some(), "consent session should be retrievable");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.session_id, session_id);
+        assert_eq!(fetched.client_id, "client1");
+        assert_eq!(fetched.client_name.as_deref(), Some("Test App"));
+        assert_eq!(fetched.redirect_uri, "https://app.example.com/callback");
+        assert_eq!(fetched.scope, "openid profile");
+        assert_eq!(fetched.state, "state");
+        assert_eq!(fetched.nonce.as_deref(), Some("nonce_abc"));
+        assert_eq!(fetched.code_challenge.as_deref(), Some("challenge_def"));
+        assert_eq!(fetched.user_id, "@user:server");
+        assert_eq!(fetched.created_ts, now);
+        assert_eq!(fetched.expires_at, future_ts);
+        assert!(fetched.id > 0, "id should be populated by DB");
+
+        // get_consent_session does NOT delete — second call should still return the session.
+        let fetched_again = storage.get_consent_session(&session_id).await.expect("get_consent_session should succeed");
+        assert!(fetched_again.is_some(), "session should still exist after get (no delete)");
+
+        // Non-existent session returns None.
+        let missing =
+            storage.get_consent_session("nonexistent_session").await.expect("get_consent_session should succeed");
+        assert!(missing.is_none(), "non-existent session should return None");
     }
 }

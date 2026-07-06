@@ -278,3 +278,127 @@ impl SamlConfig {
         self.sp_sls_url.clone().or_else(|| Some(format!("https://{server_name}/_matrix/client/r0/logout/saml")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── OidcConfig::is_enabled ─────────────────────────────────────────
+
+    #[test]
+    fn oidc_disabled_by_default() {
+        let config = OidcConfig::default();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn oidc_disabled_when_flag_false() {
+        let mut config = OidcConfig::default();
+        config.enabled = false;
+        config.issuer = "https://idp.example.com".into();
+        config.client_id = "client-1".into();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn oidc_disabled_when_issuer_empty() {
+        let mut config = OidcConfig::default();
+        config.enabled = true;
+        config.issuer = "".into();
+        config.client_id = "client-1".into();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn oidc_disabled_when_client_id_empty() {
+        let mut config = OidcConfig::default();
+        config.enabled = true;
+        config.issuer = "https://idp.example.com".into();
+        config.client_id = "".into();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn oidc_enabled_when_all_conditions_met() {
+        let mut config = OidcConfig::default();
+        config.enabled = true;
+        config.issuer = "https://idp.example.com".into();
+        config.client_id = "client-1".into();
+        assert!(config.is_enabled());
+    }
+
+    // ── SamlConfig::is_enabled ─────────────────────────────────────────
+
+    #[test]
+    fn saml_disabled_by_default() {
+        let config = SamlConfig::default();
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn saml_disabled_when_flag_false() {
+        let mut config = SamlConfig::default();
+        config.enabled = false;
+        config.metadata_url = Some("https://idp.example.com/metadata".into());
+        assert!(!config.is_enabled());
+    }
+
+    #[test]
+    fn saml_enabled_with_metadata_url() {
+        let mut config = SamlConfig::default();
+        config.enabled = true;
+        config.metadata_url = Some("https://idp.example.com/metadata".into());
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn saml_enabled_with_metadata_xml() {
+        let mut config = SamlConfig::default();
+        config.enabled = true;
+        config.metadata_xml = Some("<xml>...</xml>".into());
+        assert!(config.is_enabled());
+    }
+
+    #[test]
+    fn saml_disabled_without_metadata() {
+        let mut config = SamlConfig::default();
+        config.enabled = true;
+        config.metadata_url = None;
+        config.metadata_xml = None;
+        assert!(!config.is_enabled());
+    }
+
+    // ── SamlConfig URL helpers ─────────────────────────────────────────
+
+    #[test]
+    fn saml_sp_acs_url_uses_custom_value() {
+        let mut config = SamlConfig::default();
+        config.sp_acs_url = Some("https://custom.example.com/acs".into());
+        assert_eq!(config.get_sp_acs_url("matrix.example.com"), "https://custom.example.com/acs");
+    }
+
+    #[test]
+    fn saml_sp_acs_url_falls_back_to_default_format() {
+        let config = SamlConfig::default();
+        assert_eq!(
+            config.get_sp_acs_url("matrix.example.com"),
+            "https://matrix.example.com/_matrix/client/r0/login/sso/redirect/saml"
+        );
+    }
+
+    #[test]
+    fn saml_sp_sls_url_uses_custom_value() {
+        let mut config = SamlConfig::default();
+        config.sp_sls_url = Some("https://custom.example.com/sls".into());
+        assert_eq!(config.get_sp_sls_url("matrix.example.com"), Some("https://custom.example.com/sls".into()));
+    }
+
+    #[test]
+    fn saml_sp_sls_url_falls_back_to_default_format() {
+        let config = SamlConfig::default();
+        assert_eq!(
+            config.get_sp_sls_url("matrix.example.com"),
+            Some("https://matrix.example.com/_matrix/client/r0/logout/saml".into())
+        );
+    }
+}

@@ -20,7 +20,7 @@ use synapse_common::traits::FriendRoomProvider;
 use synapse_common::{generate_event_id, ApiError, ApiResult};
 use synapse_federation::friend::FriendFederationClient;
 use synapse_federation::KeyRotationManager;
-use synapse_storage::{CreateEventParams, FriendRoomStorage, UserStore};
+use synapse_storage::{CreateEventParams, UserStore};
 
 const FRIEND_LIST_CACHE_TTL_SECS: u64 = 300;
 const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
@@ -28,11 +28,11 @@ const FRIEND_ROOM_ID_CACHE_TTL_SECS: u64 = 3600;
 impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        friend_storage: FriendRoomStorage,
+        friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
         room_service: Arc<RoomService>,
         user_storage: Arc<dyn UserStore>,
-        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
-        account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+        presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
         server_name: String,
         key_rotation_manager: Arc<KeyRotationManager>,
@@ -52,11 +52,11 @@ impl FriendRoomService {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
-        friend_storage: FriendRoomStorage,
+        friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
         room_service: Arc<RoomService>,
         user_storage: Arc<dyn UserStore>,
-        presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
-        account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+        presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         cache: Arc<CacheManager>,
         server_name: String,
         federation_client: Arc<FriendFederationClient>,
@@ -103,7 +103,7 @@ impl FriendRoomService {
             ..Default::default()
         };
 
-        let response = self.room_service.create_room(user_id, config.into()).await?;
+        let response = self.room_service.lifecycle.create_room(user_id, config.into()).await?;
         let room_id = response
             .get("room_id")
             .and_then(|v| v.as_str())
@@ -732,6 +732,7 @@ impl FriendRoomService {
 
         let result = self
             .room_service
+            .lifecycle
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -768,6 +769,7 @@ impl FriendRoomService {
 
         let response = self
             .room_service
+            .lifecycle
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -968,7 +970,7 @@ impl FriendRoomService {
 
     // --- Helpers ---
 
-    fn is_remote_user(&self, user_id: &str) -> bool {
+    pub(crate) fn is_remote_user(&self, user_id: &str) -> bool {
         !user_id.ends_with(&format!(":{}", self.server_name))
     }
 
@@ -982,6 +984,7 @@ impl FriendRoomService {
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
         self.room_service
+            .messaging
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),
@@ -1136,7 +1139,7 @@ impl FriendRoomService {
         self.ensure_direct_room(user_id, friend_id, config, Some(user_id)).await.map(|result| result.room_id)
     }
 
-    fn build_friend_entries(
+    pub(crate) fn build_friend_entries(
         raw_friends: Vec<serde_json::Value>,
         profiles: &HashMap<String, synapse_storage::UserProfile>,
         presence_map: &HashMap<String, synapse_storage::presence::PresenceSnapshot>,
@@ -1195,11 +1198,11 @@ impl FriendRoomService {
             .collect()
     }
 
-    fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
+    pub(crate) fn sort_friend_entries(items: &mut [FriendListEntry], sort_by: &str) {
         items.sort_by(|left, right| Self::compare_friend_entries(left, right, sort_by));
     }
 
-    fn compare_friend_entries(left: &FriendListEntry, right: &FriendListEntry, sort_by: &str) -> Ordering {
+    pub(crate) fn compare_friend_entries(left: &FriendListEntry, right: &FriendListEntry, sort_by: &str) -> Ordering {
         match sort_by {
             "activity" => right
                 .online
@@ -1220,7 +1223,11 @@ impl FriendRoomService {
         }
     }
 
-    fn compare_friend_entry_to_cursor(item: &FriendListEntry, cursor: &FriendListCursor, sort_by: &str) -> Ordering {
+    pub(crate) fn compare_friend_entry_to_cursor(
+        item: &FriendListEntry,
+        cursor: &FriendListCursor,
+        sort_by: &str,
+    ) -> Ordering {
         match sort_by {
             "activity" => cursor
                 .online
@@ -1241,7 +1248,7 @@ impl FriendRoomService {
         }
     }
 
-    fn cursor_from_friend_entry(item: &FriendListEntry, sort_by: &str) -> FriendListCursor {
+    pub(crate) fn cursor_from_friend_entry(item: &FriendListEntry, sort_by: &str) -> FriendListCursor {
         FriendListCursor {
             sort_by: sort_by.to_string(),
             sort_letter: item.sort_letter.clone(),
@@ -1253,11 +1260,11 @@ impl FriendRoomService {
         }
     }
 
-    fn friend_display_key(item: &FriendListEntry) -> &str {
+    pub(crate) fn friend_display_key(item: &FriendListEntry) -> &str {
         item.display_name.as_deref().or(item.username.as_deref()).unwrap_or(item.user_id.as_str())
     }
 
-    fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {
+    pub(crate) fn build_direct_room_snapshot(direct_map: Map<String, Value>, room_id: &str) -> DirectRoomSnapshot {
         let users = get_room_direct_users(&direct_map, room_id);
         let is_direct = !users.is_empty();
 
@@ -1279,25 +1286,44 @@ impl FriendRoomProvider for FriendRoomService {
 
 #[cfg(test)]
 mod tests {
+    use super::models::{FriendListCursor, FriendListEntry};
+    use super::FriendRoomService;
     use crate::ServiceContainer;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use serde_json::{json, Map, Value};
+    use std::cmp::Ordering;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     use std::sync::Arc;
     use synapse_cache::{CacheConfig, CacheManager};
 
     static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
+    /// Generate a globally unique suffix across test binary runs by combining:
+    /// - process PID (isolates concurrent test runs)
+    /// - nanosecond timestamp (isolates sequential test runs)
+    /// - monotonic counter (isolates calls within a single test run)
     fn unique_suffix() -> u64 {
-        TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
+        let counter = TEST_COUNTER.fetch_add(1, AtomicOrdering::SeqCst);
+        let pid = std::process::id() as u64;
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        // Mix all three components to ensure uniqueness across runs
+        nanos.wrapping_mul(31).wrapping_add(pid << 16).wrapping_add(counter)
     }
 
     async fn setup_test_container() -> Option<ServiceContainer> {
-        let pool = match crate::test_utils::prepare_shared_test_pool().await {
+        // Use isolated schema (each test gets its own fully-migrated schema)
+        // to avoid cross-test pollution from the shared template, which may
+        // accumulate leftover users/devices across test runs.
+        let pool = match crate::test_utils::prepare_isolated_test_pool().await {
             Ok(pool) => pool,
             Err(error) => {
                 eprintln!(
-                    "Shared schema setup failed for friend room service tests ({error}); retrying with isolated schema"
+                    "Isolated schema setup failed for friend room service tests ({error}); retrying with shared schema"
                 );
-                match crate::test_utils::prepare_isolated_test_pool().await {
+                match crate::test_utils::prepare_shared_test_pool().await {
                     Ok(pool) => pool,
                     Err(error) => {
                         eprintln!("Skipping friend room service tests because test database is unavailable: {error}");
@@ -1347,6 +1373,401 @@ mod tests {
     #[test]
     fn test_sort_letter_for_non_ascii_name() {
         assert_eq!(super::sort_letter_for("张三"), "#");
+    }
+
+    // ── friend_display_key ──────────────────────────────────────────
+
+    fn make_entry(display_name: Option<&str>, username: Option<&str>, user_id: &str) -> FriendListEntry {
+        FriendListEntry {
+            user_id: user_id.to_string(),
+            username: username.map(Into::into),
+            display_name: display_name.map(Into::into),
+            avatar_url: None,
+            note: None,
+            status: "normal".to_string(),
+            online: false,
+            presence: "offline".to_string(),
+            last_active_ts: None,
+            last_seen_ts: None,
+            added_ts: None,
+            sort_letter: "A".to_string(),
+            dm_room_id: None,
+            dm_room_active: false,
+            dm_room_state: None,
+            dm_room_updated_ts: None,
+            dm_room_affected_user_id: None,
+            dm_room_changed_by: None,
+            dm_room_reason: None,
+        }
+    }
+
+    #[test]
+    fn friend_display_key_prefers_display_name() {
+        let entry = make_entry(Some("Alice"), Some("alice99"), "@alice:example.com");
+        assert_eq!(FriendRoomService::friend_display_key(&entry), "Alice");
+    }
+
+    #[test]
+    fn friend_display_key_falls_back_to_username() {
+        let entry = make_entry(None, Some("bob_cat"), "@bob:example.com");
+        assert_eq!(FriendRoomService::friend_display_key(&entry), "bob_cat");
+    }
+
+    #[test]
+    fn friend_display_key_falls_back_to_user_id() {
+        let entry = make_entry(None, None, "@carol:example.com");
+        assert_eq!(FriendRoomService::friend_display_key(&entry), "@carol:example.com");
+    }
+
+    #[test]
+    fn friend_display_key_with_empty_strings() {
+        let entry = FriendListEntry {
+            display_name: Some("".to_string()),
+            username: Some("".to_string()),
+            ..make_entry(None, None, "@dave:example.com")
+        };
+        // "" is Some("") so should be returned
+        assert_eq!(FriendRoomService::friend_display_key(&entry), "");
+    }
+
+    // ── compare_friend_entries ───────────────────────────────────────
+
+    #[test]
+    fn compare_friend_entries_activity_online_first() {
+        let online =
+            FriendListEntry { online: true, last_active_ts: Some(1000), ..make_entry(None, None, "@a:ex.com") };
+        let offline =
+            FriendListEntry { online: false, last_active_ts: Some(2000), ..make_entry(None, None, "@b:ex.com") };
+        assert_eq!(FriendRoomService::compare_friend_entries(&online, &offline, "activity"), Ordering::Less);
+        // online < offline means online comes first
+    }
+
+    #[test]
+    fn compare_friend_entries_activity_by_last_active() {
+        let recent = FriendListEntry {
+            online: true,
+            last_active_ts: Some(2000),
+            added_ts: None,
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let older = FriendListEntry {
+            online: true,
+            last_active_ts: Some(1000),
+            added_ts: None,
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        assert_eq!(FriendRoomService::compare_friend_entries(&recent, &older, "activity"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_friend_entries_recent_by_added_ts() {
+        let newer =
+            FriendListEntry { added_ts: Some(2000), last_active_ts: None, ..make_entry(None, None, "@a:ex.com") };
+        let older =
+            FriendListEntry { added_ts: Some(1000), last_active_ts: None, ..make_entry(None, None, "@b:ex.com") };
+        assert_eq!(FriendRoomService::compare_friend_entries(&newer, &older, "recent"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_friend_entries_alphabet_by_sort_letter() {
+        let a = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Alice".into()),
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let b = FriendListEntry {
+            sort_letter: "B".into(),
+            display_name: Some("Bob".into()),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        assert_eq!(FriendRoomService::compare_friend_entries(&a, &b, "alphabet"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_friend_entries_alphabet_same_letter_falls_back_to_display_key() {
+        let a = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Alice".into()),
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let b = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Bob".into()),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        assert_eq!(FriendRoomService::compare_friend_entries(&a, &b, "alphabet"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_friend_entries_alphabet_same_falls_back_to_user_id() {
+        let a = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Same".into()),
+            user_id: "@a:ex.com".into(),
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let b = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Same".into()),
+            user_id: "@b:ex.com".into(),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        assert_eq!(FriendRoomService::compare_friend_entries(&a, &b, "alphabet"), Ordering::Less);
+    }
+
+    #[test]
+    fn compare_friend_entries_unknown_sort_defaults_to_alphabet() {
+        let a = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Alice".into()),
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let b = FriendListEntry {
+            sort_letter: "Z".into(),
+            display_name: Some("Zoe".into()),
+            ..make_entry(None, None, "@z:ex.com")
+        };
+        assert_eq!(FriendRoomService::compare_friend_entries(&a, &b, "unknown"), Ordering::Less);
+    }
+
+    // ── sort_friend_entries ──────────────────────────────────────────
+
+    #[test]
+    fn sort_friend_entries_by_alphabet() {
+        let b = FriendListEntry {
+            sort_letter: "B".into(),
+            display_name: Some("Bob".into()),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        let a = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Alice".into()),
+            ..make_entry(None, None, "@a:ex.com")
+        };
+        let mut items = vec![b.clone(), a.clone()];
+        FriendRoomService::sort_friend_entries(&mut items, "alphabet");
+        assert_eq!(items[0].user_id, a.user_id);
+        assert_eq!(items[1].user_id, b.user_id);
+    }
+
+    // ── cursor_from_friend_entry ─────────────────────────────────────
+
+    #[test]
+    fn cursor_from_friend_entry_captures_all_fields() {
+        let entry = FriendListEntry {
+            sort_letter: "C".into(),
+            display_name: Some("Carol".into()),
+            online: true,
+            last_active_ts: Some(1700000000000),
+            added_ts: Some(1690000000000),
+            user_id: "@carol:ex.com".into(),
+            ..make_entry(None, None, "@carol:ex.com")
+        };
+        let cursor = FriendRoomService::cursor_from_friend_entry(&entry, "activity");
+        assert_eq!(cursor.sort_by, "activity");
+        assert_eq!(cursor.sort_letter, "C");
+        assert_eq!(cursor.display_key, "Carol");
+        assert!(cursor.online);
+        assert_eq!(cursor.last_active_ts, Some(1700000000000));
+        assert_eq!(cursor.added_ts, Some(1690000000000));
+        assert_eq!(cursor.user_id, "@carol:ex.com");
+    }
+
+    // ── compare_friend_entry_to_cursor ───────────────────────────────
+
+    #[test]
+    fn compare_entry_to_cursor_activity() {
+        let entry =
+            FriendListEntry { online: false, last_active_ts: Some(1000), ..make_entry(None, None, "@b:ex.com") };
+        let cursor = FriendListCursor {
+            sort_by: "activity".into(),
+            sort_letter: "".into(),
+            display_key: "".into(),
+            online: true,
+            last_active_ts: Some(2000),
+            added_ts: None,
+            user_id: "@a:ex.com".into(),
+        };
+        // cursor.online(true) > item.online(false) → cursor > item → item after cursor
+        assert_eq!(FriendRoomService::compare_friend_entry_to_cursor(&entry, &cursor, "activity"), Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_entry_to_cursor_recent() {
+        let entry =
+            FriendListEntry { added_ts: Some(1000), last_active_ts: None, ..make_entry(None, None, "@b:ex.com") };
+        let cursor = FriendListCursor {
+            sort_by: "recent".into(),
+            sort_letter: "".into(),
+            display_key: "".into(),
+            online: false,
+            last_active_ts: None,
+            added_ts: Some(2000),
+            user_id: "@a:ex.com".into(),
+        };
+        // cursor (2000) > item (1000) → item after cursor
+        assert_eq!(FriendRoomService::compare_friend_entry_to_cursor(&entry, &cursor, "recent"), Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_entry_to_cursor_alphabet() {
+        let entry = FriendListEntry {
+            sort_letter: "B".into(),
+            display_name: Some("Bob".into()),
+            user_id: "@b:ex.com".into(),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        let cursor = FriendListCursor {
+            sort_by: "alphabet".into(),
+            sort_letter: "A".into(),
+            display_key: "Alice".into(),
+            online: false,
+            last_active_ts: None,
+            added_ts: None,
+            user_id: "@a:ex.com".into(),
+        };
+        assert_eq!(FriendRoomService::compare_friend_entry_to_cursor(&entry, &cursor, "alphabet"), Ordering::Greater);
+    }
+
+    #[test]
+    fn compare_entry_to_cursor_same_letter_falls_back_to_display_key() {
+        let entry = FriendListEntry {
+            sort_letter: "A".into(),
+            display_name: Some("Bob".into()),
+            user_id: "@b:ex.com".into(),
+            ..make_entry(None, None, "@b:ex.com")
+        };
+        let cursor = FriendListCursor {
+            sort_by: "alphabet".into(),
+            sort_letter: "A".into(),
+            display_key: "Alice".into(),
+            online: false,
+            last_active_ts: None,
+            added_ts: None,
+            user_id: "@a:ex.com".into(),
+        };
+        assert_eq!(FriendRoomService::compare_friend_entry_to_cursor(&entry, &cursor, "alphabet"), Ordering::Greater);
+    }
+
+    // ── build_direct_room_snapshot ────────────────────────────────────
+
+    #[test]
+    fn build_direct_room_snapshot_with_users() {
+        let direct_map =
+            serde_json::from_str::<Map<String, Value>>(r#"{"@alice:ex.com":["!room1:ex.com","!room2:ex.com"]}"#)
+                .unwrap();
+        let snapshot = FriendRoomService::build_direct_room_snapshot(direct_map, "!room1:ex.com");
+        assert!(snapshot.is_direct);
+        assert_eq!(snapshot.users, vec!["@alice:ex.com"]);
+    }
+
+    #[test]
+    fn build_direct_room_snapshot_empty() {
+        let direct_map: Map<String, Value> = Map::new();
+        let snapshot = FriendRoomService::build_direct_room_snapshot(direct_map, "!room1:ex.com");
+        assert!(!snapshot.is_direct);
+        assert!(snapshot.users.is_empty());
+    }
+
+    #[test]
+    fn build_direct_room_snapshot_room_not_in_map() {
+        let direct_map = serde_json::from_str::<Map<String, Value>>(r#"{"@alice:ex.com":["!other:ex.com"]}"#).unwrap();
+        let snapshot = FriendRoomService::build_direct_room_snapshot(direct_map, "!room1:ex.com");
+        assert!(!snapshot.is_direct);
+        assert!(snapshot.users.is_empty());
+    }
+
+    // ── build_friend_entries ─────────────────────────────────────────
+
+    #[test]
+    fn build_friend_entries_from_raw_data() {
+        let raw = vec![json!({
+            "user_id": "@alice:ex.com",
+            "displayname": "Alice",
+            "note": "best friend",
+            "status": "normal",
+            "added_at": 1690000000000_i64,
+            "dm_room_id": "!dm:ex.com",
+            "dm_room_active": true,
+            "dm_room_state": "invite",
+            "dm_room_updated_ts": 1700000000000_i64,
+            "dm_room_affected_user_id": "@bob:ex.com",
+            "dm_room_changed_by": "@bob:ex.com",
+            "dm_room_reason": "hello"
+        })];
+        let profiles = HashMap::new();
+        let presence_map = HashMap::new();
+        let entries = FriendRoomService::build_friend_entries(raw, &profiles, &presence_map);
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.user_id, "@alice:ex.com");
+        assert_eq!(e.display_name.as_deref(), Some("Alice"));
+        assert_eq!(e.note.as_deref(), Some("best friend"));
+        assert_eq!(e.presence, "offline");
+        assert_eq!(e.sort_letter, "A");
+    }
+
+    #[test]
+    fn build_friend_entries_falls_back_to_profile() {
+        let raw = vec![json!({"user_id": "@bob:ex.com"})];
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "@bob:ex.com".to_string(),
+            synapse_storage::UserProfile {
+                user_id: "@bob:ex.com".to_string(),
+                displayname: Some("Bob Display".to_string()),
+                avatar_url: Some("mxc://ex.com/avatar".to_string()),
+                username: "bob99".to_string(),
+                created_ts: 0,
+            },
+        );
+        let presence_map = HashMap::new();
+        let entries = FriendRoomService::build_friend_entries(raw, &profiles, &presence_map);
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.display_name.as_deref(), Some("Bob Display"));
+        assert_eq!(e.avatar_url.as_deref(), Some("mxc://ex.com/avatar"));
+        assert_eq!(e.username.as_deref(), Some("bob99"));
+    }
+
+    #[test]
+    fn build_friend_entries_with_presence() {
+        let raw = vec![json!({"user_id": "@carol:ex.com"})];
+        let profiles = HashMap::new();
+        let mut presence_map = HashMap::new();
+        presence_map.insert(
+            "@carol:ex.com".to_string(),
+            synapse_storage::presence::PresenceSnapshot {
+                user_id: "@carol:ex.com".to_string(),
+                presence: "online".to_string(),
+                status_msg: None,
+                last_active_ts: Some(1700000000000),
+            },
+        );
+        let entries = FriendRoomService::build_friend_entries(raw, &profiles, &presence_map);
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert!(e.online);
+        assert_eq!(e.presence, "online");
+        assert_eq!(e.last_active_ts, Some(1700000000000));
+    }
+
+    #[test]
+    fn build_friend_entries_skips_missing_user_id() {
+        let raw = vec![json!({"note": "no user_id here"})];
+        let profiles = HashMap::new();
+        let presence_map = HashMap::new();
+        let entries = FriendRoomService::build_friend_entries(raw, &profiles, &presence_map);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn build_friend_entries_dm_room_active_defaults_true_when_dm_room_id_present() {
+        let raw = vec![json!({"user_id": "@dave:ex.com", "dm_room_id": "!dm:ex.com"})];
+        let profiles = HashMap::new();
+        let presence_map = HashMap::new();
+        let entries = FriendRoomService::build_friend_entries(raw, &profiles, &presence_map);
+        assert!(entries[0].dm_room_active);
     }
 
     #[tokio::test]

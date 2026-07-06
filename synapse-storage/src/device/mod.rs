@@ -1,6 +1,107 @@
+use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
 use std::collections::HashSet;
 use std::sync::Arc;
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+/// Focused trait for the device-list methods used by
+/// [`AccountDeviceListService`](synapse_services::account_device_list_service::AccountDeviceListService).
+#[async_trait]
+pub trait DeviceListStoreApi: Send + Sync {
+    async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn create_device(
+        &self,
+        device_id: &str,
+        user_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<Device, sqlx::Error>;
+
+    async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error>;
+
+    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
+
+    async fn update_user_device_display_name(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        display_name: &str,
+    ) -> Result<u64, sqlx::Error>;
+
+    async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error>;
+
+    async fn get_device_list_changed_users(
+        &self,
+        from: i64,
+        to: i64,
+        requester_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error>;
+
+    async fn get_device_list_left_users(
+        &self,
+        from: i64,
+        to: i64,
+        requester_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error>;
+
+    async fn get_users_devices_batch(
+        &self,
+        users: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<Device>>, sqlx::Error>;
+
+    async fn get_device_list_changes(
+        &self,
+        since: i64,
+        to: i64,
+        users: &[String],
+    ) -> Result<Vec<(String, Option<String>, String, i64)>, sqlx::Error>;
+
+    async fn get_devices_by_user_device_pairs(
+        &self,
+        user_ids: &[&str],
+        device_ids: &[&str],
+    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error>;
+
+    async fn filter_existing_users(&self, users: &[String]) -> Result<Vec<String>, sqlx::Error>;
+
+    // ── incremental device-list polling ──────────────────────────────────
+
+    async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error>;
+
+    async fn get_device_lists_since_with_shared_rooms(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error>;
+
+    // ── lazy-loaded members ──────────────────────────────────────────────
+
+    async fn get_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<HashSet<String>, sqlx::Error>;
+
+    async fn upsert_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        member_user_ids: &HashSet<String>,
+    ) -> Result<u64, sqlx::Error>;
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Device {
@@ -957,6 +1058,140 @@ impl DeviceStorage {
     /// Adapter: trait `delete_all_devices(user_id)` → inherent `delete_user_devices`
     pub async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_user_devices(user_id).await
+    }
+}
+
+// ── Trait delegation ────────────────────────────────────────────────────
+
+#[async_trait]
+impl DeviceListStoreApi for DeviceStorage {
+    async fn insert_device_list_change(
+        &self,
+        user_id: &str,
+        device_id: Option<&str>,
+        change_type: &str,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.insert_device_list_change(user_id, device_id, change_type, stream_id).await
+    }
+
+    async fn create_device(
+        &self,
+        device_id: &str,
+        user_id: &str,
+        display_name: Option<&str>,
+    ) -> Result<Device, sqlx::Error> {
+        self.create_device(device_id, user_id, display_name).await
+    }
+
+    async fn delete_device(&self, device_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_device(device_id).await
+    }
+
+    async fn get_user_devices(&self, user_id: &str) -> Result<Vec<Device>, sqlx::Error> {
+        self.get_user_devices(user_id).await
+    }
+
+    async fn get_device(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        self.get_device(device_id).await
+    }
+
+    async fn update_user_device_display_name(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        display_name: &str,
+    ) -> Result<u64, sqlx::Error> {
+        self.update_user_device_display_name(user_id, device_id, display_name).await
+    }
+
+    async fn get_max_device_list_stream_id(&self) -> Result<i64, sqlx::Error> {
+        self.get_max_device_list_stream_id().await
+    }
+
+    async fn get_max_device_list_stream_id_for_user(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        self.get_max_device_list_stream_id_for_user(user_id).await
+    }
+
+    async fn get_device_list_changed_users(
+        &self,
+        from: i64,
+        to: i64,
+        requester_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.get_device_list_changed_users(from, to, requester_id).await
+    }
+
+    async fn get_device_list_left_users(
+        &self,
+        from: i64,
+        to: i64,
+        requester_id: &str,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.get_device_list_left_users(from, to, requester_id).await
+    }
+
+    async fn get_users_devices_batch(
+        &self,
+        users: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<Device>>, sqlx::Error> {
+        self.get_users_devices_batch(users).await
+    }
+
+    async fn get_device_list_changes(
+        &self,
+        since: i64,
+        to: i64,
+        users: &[String],
+    ) -> Result<Vec<(String, Option<String>, String, i64)>, sqlx::Error> {
+        self.get_device_list_changes(since, to, users).await
+    }
+
+    async fn get_devices_by_user_device_pairs(
+        &self,
+        user_ids: &[&str],
+        device_ids: &[&str],
+    ) -> Result<Vec<(String, String, Option<String>, Option<i64>)>, sqlx::Error> {
+        self.get_devices_by_user_device_pairs(user_ids, device_ids).await
+    }
+
+    async fn filter_existing_users(&self, users: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        self.filter_existing_users(users).await
+    }
+
+    // ── incremental device-list polling ──────────────────────────────────
+
+    async fn has_device_list_updates_since(&self, since_stream_id: i64) -> Result<bool, sqlx::Error> {
+        self.has_device_list_updates_since(since_stream_id).await
+    }
+
+    async fn get_device_lists_since_with_shared_rooms(
+        &self,
+        since_stream_id: i64,
+        exclude_user_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>), sqlx::Error> {
+        self.get_device_lists_since_with_shared_rooms(since_stream_id, exclude_user_id).await
+    }
+
+    // ── lazy-loaded members ──────────────────────────────────────────────
+
+    async fn get_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<HashSet<String>, sqlx::Error> {
+        self.get_lazy_loaded_members(user_id, device_id, room_id).await
+    }
+
+    async fn upsert_lazy_loaded_members(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        room_id: &str,
+        member_user_ids: &HashSet<String>,
+    ) -> Result<u64, sqlx::Error> {
+        self.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
     }
 }
 

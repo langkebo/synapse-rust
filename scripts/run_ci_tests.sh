@@ -220,6 +220,21 @@ if cargo nextest --version >/dev/null 2>&1; then
         if check_infra_ready; then
             echo ">>> Running integration test target (--test integration) ..."
             "${nextest_base[@]}" --test integration --all-features
+
+            # P4-2: Snapshot gate — fail if any insta snapshot drifted or is missing.
+            # Local devs run `cargo insta test --review` to accept new snapshots;
+            # CI runs in non-interactive --no-review mode and fails on pending .snap.new.
+            if cargo insta --version >/dev/null 2>&1; then
+                echo ">>> Running insta snapshot gate (--no-review) ..."
+                if ! cargo insta test --no-review --test-runner nextest -- --all-features --locked --test-threads "$TEST_THREADS"; then
+                    echo "❌ Snapshot drift detected. Run locally:"
+                    echo "   cargo insta test --review"
+                    exit 1
+                fi
+                echo "✅ All insta snapshots are up to date."
+            else
+                echo "⚠️  cargo-insta not installed; skipping snapshot gate. Install with: cargo install cargo-insta"
+            fi
         else
             echo ">>> SKIPPED: Integration tests require PostgreSQL + Redis."
         fi
@@ -238,6 +253,16 @@ else
         if check_infra_ready; then
             echo ">>> Running integration test target (--test integration) ..."
             run_cargo_test_with_retries "integration" --test integration --all-features --locked -- --test-threads="$TEST_THREADS"
+
+            # P4-2: Snapshot gate (cargo test fallback path).
+            if cargo insta --version >/dev/null 2>&1; then
+                echo ">>> Running insta snapshot gate (--no-review, cargo test runner) ..."
+                if ! INSTA_UPDATE=no cargo test --test integration --all-features --locked -- --test-threads="$TEST_THREADS"; then
+                    echo "❌ Snapshot drift detected. Run locally: cargo insta test --review"
+                    exit 1
+                fi
+                echo "✅ All insta snapshots are up to date."
+            fi
         else
             echo ">>> SKIPPED: Integration tests require PostgreSQL + Redis."
         fi

@@ -161,6 +161,9 @@ tempfile = "3"
 arbitrary = { version = "1", features = ["derive"] }
 mockall = "0.13"
 wiremock = "0.6"
+# insta: snapshot testing for locking API output shapes
+# Usage: see `.claude/skills/tdd-rust/SKILL.md` §5
+insta = { version = "1.41", features = ["json", "redactions", "filters"] }
 
 [profile.dev]
 opt-level = 1

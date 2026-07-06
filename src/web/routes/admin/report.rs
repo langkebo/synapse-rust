@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, State},
     routing::{delete, get},
@@ -9,7 +10,7 @@ use axum::{
 use serde_json::{json, Value};
 use synapse_storage::event_report::EventReport;
 
-pub fn create_report_router(_state: AppState) -> Router<AppState> {
+pub fn create_report_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/reports", get(get_all_reports))
         .route("/_synapse/admin/v1/reports/{report_id}", get(get_report))
@@ -55,7 +56,7 @@ fn report_to_json(report: &EventReport) -> Value {
 #[axum::debug_handler]
 pub async fn get_all_reports(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params
@@ -73,13 +74,7 @@ pub async fn get_all_reports(
         ));
     }
 
-    let reports = state
-        .services
-        .admin
-        .modules
-        .event_report_service
-        .get_all_reports(limit, since_score, since_ts, since_id)
-        .await?;
+    let reports = ctx.event_report_service.get_all_reports(limit, since_score, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -88,10 +83,10 @@ pub async fn get_all_reports(
 #[axum::debug_handler]
 pub async fn get_report(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
+    let report = ctx.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) => Ok(Json(report_to_json(&report))),
@@ -102,10 +97,10 @@ pub async fn get_report(
 #[axum::debug_handler]
 pub async fn delete_report(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(report_id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.modules.event_report_service.delete_report(report_id).await?;
+    ctx.event_report_service.delete_report(report_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -113,11 +108,11 @@ pub async fn delete_report(
 #[axum::debug_handler]
 pub async fn get_room_reports(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -137,13 +132,7 @@ pub async fn get_room_reports(
         ));
     }
 
-    let reports = state
-        .services
-        .admin
-        .modules
-        .event_report_service
-        .get_reports_by_room(&room_id, limit, since_ts, since_id)
-        .await?;
+    let reports = ctx.event_report_service.get_reports_by_room(&room_id, limit, since_ts, since_id).await?;
     let report_list: Vec<Value> = reports.iter().map(report_to_json).collect();
 
     Ok(Json(json!({ "reports": report_list, "total": report_list.len() })))
@@ -152,16 +141,16 @@ pub async fn get_room_reports(
 #[axum::debug_handler]
 pub async fn get_room_report(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
+    let report = ctx.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) if report.room_id == room_id => Ok(Json(report_to_json(&report))),
@@ -172,20 +161,20 @@ pub async fn get_room_report(
 #[axum::debug_handler]
 pub async fn delete_room_report(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((room_id, report_id)): Path<(String, i64)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists = state.services.rooms.room_service.room_exists(&room_id).await?;
+    let room_exists = ctx.room_service.state.room_exists(&room_id).await?;
 
     if !room_exists {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let report = state.services.admin.modules.event_report_service.get_report(report_id).await?;
+    let report = ctx.event_report_service.get_report(report_id).await?;
 
     match report {
         Some(report) if report.room_id == room_id => {
-            state.services.admin.modules.event_report_service.delete_report(report_id).await?;
+            ctx.event_report_service.delete_report(report_id).await?;
             Ok(Json(json!({})))
         }
         _ => Err(ApiError::not_found("Report not found".to_string())),

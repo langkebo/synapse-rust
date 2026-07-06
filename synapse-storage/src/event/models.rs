@@ -1,6 +1,28 @@
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
+/// Unifies `origin_server_ts` vs `stream_ordering` filtering in batch state queries.
+#[derive(Debug, Clone, Copy)]
+pub enum SinceFilter {
+    OriginServerTs(i64),
+    StreamOrdering(i64),
+}
+
+impl SinceFilter {
+    pub fn column(&self) -> &'static str {
+        match self {
+            SinceFilter::OriginServerTs(_) => "origin_server_ts",
+            SinceFilter::StreamOrdering(_) => "stream_ordering",
+        }
+    }
+
+    pub fn value(&self) -> i64 {
+        match self {
+            SinceFilter::OriginServerTs(v) | SinceFilter::StreamOrdering(v) => *v,
+        }
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RoomEvent {
     pub event_id: String,

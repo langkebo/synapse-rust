@@ -58,7 +58,7 @@ async fn add_reaction(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ReactionResponse>, ApiError> {
     // 验证房间存在
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 

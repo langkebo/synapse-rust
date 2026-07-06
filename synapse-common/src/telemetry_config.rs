@@ -123,3 +123,98 @@ impl Default for PrometheusConfig {
         Self { enabled: false, port: 9090, path: "/metrics".to_string(), include_namespace: true }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_otel() -> OpenTelemetryConfig {
+        OpenTelemetryConfig::default()
+    }
+
+    #[test]
+    fn otel_disabled_by_default() {
+        let config = make_otel();
+        assert!(!config.is_enabled());
+        assert!(!config.is_trace_enabled());
+        assert!(!config.is_metrics_enabled());
+        assert!(!config.is_logs_enabled());
+    }
+
+    #[test]
+    fn otel_trace_only_enabled_when_both_flags_set() {
+        let mut config = make_otel();
+        config.enabled = true;
+        config.trace_enabled = false;
+        assert!(config.is_enabled());
+        assert!(!config.is_trace_enabled());
+    }
+
+    #[test]
+    fn otel_sub_flags_all_false_when_master_false() {
+        let mut config = make_otel();
+        config.enabled = false;
+        config.trace_enabled = true;
+        config.metrics_enabled = true;
+        config.logs_enabled = true;
+        assert!(!config.is_trace_enabled());
+        assert!(!config.is_metrics_enabled());
+        assert!(!config.is_logs_enabled());
+    }
+
+    #[test]
+    fn otel_all_enabled_when_all_flags_set() {
+        let mut config = make_otel();
+        config.enabled = true;
+        config.trace_enabled = true;
+        config.metrics_enabled = true;
+        config.logs_enabled = true;
+        assert!(config.is_trace_enabled());
+        assert!(config.is_metrics_enabled());
+        assert!(config.is_logs_enabled());
+    }
+
+    #[test]
+    fn otel_get_endpoint_returns_none_by_default() {
+        let config = make_otel();
+        assert_eq!(config.get_otlp_endpoint(), None);
+    }
+
+    #[test]
+    fn otel_get_endpoint_returns_custom() {
+        let mut config = make_otel();
+        config.otlp_endpoint = Some("https://otel.example.com:4317".into());
+        assert_eq!(config.get_otlp_endpoint(), Some("https://otel.example.com:4317"));
+    }
+
+    #[test]
+    fn otel_resolve_endpoint_prefers_explicit_config() {
+        let mut config = make_otel();
+        config.otlp_endpoint = Some("https://custom.example.com".into());
+        let result = config.resolve_otlp_endpoint();
+        assert_eq!(result, Some("https://custom.example.com".into()));
+    }
+
+    #[test]
+    fn otel_resource_attributes_includes_service_metadata() {
+        let mut config = make_otel();
+        config.service_name = "test-service".into();
+        config.service_version = "1.2.3".into();
+        config.service_namespace = "testing".into();
+        let attrs = config.get_resource_attributes();
+        assert_eq!(attrs.get("service.name").map(|s| s.as_str()), Some("test-service"));
+        assert_eq!(attrs.get("service.version").map(|s| s.as_str()), Some("1.2.3"));
+        assert_eq!(attrs.get("service.namespace").map(|s| s.as_str()), Some("testing"));
+    }
+
+    #[test]
+    fn otel_resource_attributes_merges_custom() {
+        let mut config = make_otel();
+        let mut custom = std::collections::HashMap::new();
+        custom.insert("custom.key".into(), "custom-value".into());
+        config.resource_attributes = Some(custom);
+        let attrs = config.get_resource_attributes();
+        assert_eq!(attrs.get("custom.key").map(|s| s.as_str()), Some("custom-value"));
+        assert!(attrs.contains_key("service.name"));
+    }
+}

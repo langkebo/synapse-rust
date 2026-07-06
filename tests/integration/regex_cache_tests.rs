@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod regex_cache_integration_tests {
-    use synapse_rust::regex_cache::RegexCache;
+    use synapse_common::regex_cache::RegexCache;
 
     #[test]
     fn test_regex_cache_multiple_patterns() {

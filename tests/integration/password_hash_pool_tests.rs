@@ -3,8 +3,8 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use synapse_rust::argon2_config::Argon2Config;
-    use synapse_rust::password_hash_pool::{PasswordHashError, PasswordHashPool, PasswordHashPoolConfig};
+    use synapse_common::argon2_config::Argon2Config;
+    use synapse_common::password_hash_pool::{PasswordHashError, PasswordHashPool, PasswordHashPoolConfig};
     use tokio::sync::Barrier;
 
     fn create_test_pool_config() -> PasswordHashPoolConfig {

@@ -313,3 +313,79 @@ impl ServerConfig {
         self.get_server_name()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_config() -> ServerConfig {
+        ServerConfig::default()
+    }
+
+    #[test]
+    fn get_server_name_prefers_server_name_field() {
+        let mut config = make_config();
+        config.name = "fallback.example.com".into();
+        config.server_name = Some("primary.example.com".into());
+        assert_eq!(config.get_server_name(), "primary.example.com");
+    }
+
+    #[test]
+    fn get_server_name_falls_back_to_name() {
+        let mut config = make_config();
+        config.name = "example.com".into();
+        config.server_name = None;
+        assert_eq!(config.get_server_name(), "example.com");
+    }
+
+    #[test]
+    fn get_event_server_name_delegates_to_get_server_name() {
+        let mut config = make_config();
+        config.name = "events.example.com".into();
+        config.server_name = None;
+        assert_eq!(config.get_event_server_name(), "events.example.com");
+    }
+
+    #[test]
+    fn get_public_baseurl_uses_configured_value() {
+        let mut config = make_config();
+        config.public_baseurl = Some("https://matrix.example.com".into());
+        assert_eq!(config.get_public_baseurl(), "https://matrix.example.com");
+    }
+
+    #[test]
+    fn get_public_baseurl_empty_string_falls_back() {
+        let mut config = make_config();
+        config.public_baseurl = Some("".into());
+        config.host = "192.168.1.1".into();
+        config.port = 8448;
+        assert_eq!(config.get_public_baseurl(), "http://192.168.1.1:8448");
+    }
+
+    #[test]
+    fn get_public_baseurl_zero_zero_zero_zero_replaced_with_localhost() {
+        let mut config = make_config();
+        config.public_baseurl = None;
+        config.host = "0.0.0.0".into();
+        config.port = 8008;
+        assert_eq!(config.get_public_baseurl(), "http://localhost:8008");
+    }
+
+    #[test]
+    fn get_public_baseurl_double_colon_replaced_with_localhost() {
+        let mut config = make_config();
+        config.public_baseurl = None;
+        config.host = "::".into();
+        config.port = 443;
+        assert_eq!(config.get_public_baseurl(), "http://localhost:443");
+    }
+
+    #[test]
+    fn get_public_baseurl_uses_host_as_is_when_not_wildcard() {
+        let mut config = make_config();
+        config.public_baseurl = None;
+        config.host = "matrix.example.com".into();
+        config.port = 8080;
+        assert_eq!(config.get_public_baseurl(), "http://matrix.example.com:8080");
+    }
+}

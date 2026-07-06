@@ -124,3 +124,32 @@ fn default_timeout_ms() -> u64 {
 fn default_window_size_seconds() -> u64 {
     120 // 2 minutes (was 1 min) - larger window for better accuracy
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redis_connection_url_without_password() {
+        let config = RedisConfig { host: "localhost".into(), port: 6379, password: None, ..Default::default() };
+        assert_eq!(config.connection_url(), "redis://localhost:6379/");
+    }
+
+    #[test]
+    fn redis_connection_url_with_password() {
+        let config = RedisConfig {
+            host: "redis.example.com".into(),
+            port: 6380,
+            password: Some("secret".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.connection_url(), "redis://:secret@redis.example.com:6380/");
+    }
+
+    #[test]
+    fn redis_connection_url_empty_password_skipped() {
+        let config =
+            RedisConfig { host: "localhost".into(), port: 6379, password: Some("".into()), ..Default::default() };
+        assert_eq!(config.connection_url(), "redis://localhost:6379/");
+    }
+}

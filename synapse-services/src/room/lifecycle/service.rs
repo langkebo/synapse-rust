@@ -5,32 +5,32 @@
 
 use std::sync::Arc;
 use synapse_common::validation::Validator;
-use synapse_storage::UserStore;
+use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
 
 /// Domain service for room lifecycle operations — create, upgrade, and
 /// migration.
 #[derive(Clone)]
 pub struct LifecycleService {
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
+    pub(crate) member_storage: Arc<dyn MemberStoreApi>,
+    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) validator: Arc<Validator>,
     pub(crate) server_name: String,
     /// Direct reference to RoomSummaryService, injected during construction
     /// instead of via a back-reference to RoomService.
-    pub(crate) room_summary_service: Arc<crate::room::summary::RoomSummaryService>,
+    pub(crate) room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
 pub struct LifecycleServiceConfig {
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub room_storage: Arc<dyn RoomStoreApi>,
+    pub member_storage: Arc<dyn MemberStoreApi>,
+    pub event_storage: Arc<dyn EventStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub validator: Arc<Validator>,
     pub server_name: String,
-    pub room_summary_service: Arc<crate::room::summary::RoomSummaryService>,
+    pub room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
 }
 
 impl LifecycleService {

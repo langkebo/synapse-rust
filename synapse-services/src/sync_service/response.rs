@@ -5,6 +5,7 @@ use crate::*;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::*;
+use synapse_storage::event::SinceFilter;
 
 impl SyncService {
     pub(crate) async fn build_sync_response(
@@ -34,24 +35,24 @@ impl SyncService {
         let (changed_members_by_room, state_change_ts_by_room) = if is_incremental {
             let state_ts_result = if let Some(stream_ord) = since_stream_ordering {
                 self.event_storage
-                    .get_state_change_timestamps_since_stream_batch(room_ids, stream_ord)
+                    .get_state_change_timestamps_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                     .await
                     .map_err(ApiError::from)?
             } else {
                 self.event_storage
-                    .get_state_change_timestamps_batch(room_ids, since_ts)
+                    .get_state_change_timestamps_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                     .await
                     .map_err(ApiError::from)?
             };
             if lazy_load_members {
                 let changed_members = if let Some(stream_ord) = since_stream_ordering {
                     self.event_storage
-                        .get_membership_state_keys_since_stream_batch(room_ids, stream_ord)
+                        .get_membership_state_keys_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                         .await
                         .map_err(ApiError::from)?
                 } else {
                     self.event_storage
-                        .get_membership_state_keys_since_batch(room_ids, since_ts)
+                        .get_membership_state_keys_since_batch(room_ids, SinceFilter::OriginServerTs(since_ts))
                         .await
                         .map_err(ApiError::from)?
                 };
@@ -295,7 +296,10 @@ impl SyncService {
                 let lazy_load_members = Self::room_filter_requests_lazy_members(room_filter);
                 if is_incremental && lazy_load_members {
                     self.event_storage
-                        .get_membership_state_keys_since_batch(&[room_id.to_string()], since_ts)
+                        .get_membership_state_keys_since_batch(
+                            &[room_id.to_string()],
+                            SinceFilter::OriginServerTs(since_ts),
+                        )
                         .await
                         .map(|mut room_map| room_map.remove(room_id).unwrap_or_default())
                         .map_err(Into::into)
@@ -454,5 +458,118 @@ impl SyncService {
                 "notification_count": counts.notification_count
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use synapse_storage::event::{RoomEvent, StateEvent};
+
+    fn make_room_event() -> RoomEvent {
+        RoomEvent {
+            event_id: "$ev1:ex.com".into(),
+            room_id: "!room:ex.com".into(),
+            user_id: "@alice:ex.com".into(),
+            event_type: "m.room.message".into(),
+            content: json!({"body": "hello"}),
+            state_key: None,
+            depth: 5,
+            origin_server_ts: 1700000000000,
+            processed_ts: 1700000001000,
+            not_before: 0,
+            status: None,
+            reference_image: None,
+            origin: "ex.com".into(),
+            stream_ordering: Some(100),
+            redacts: None,
+        }
+    }
+
+    // ── event_to_json ────────────────────────────────────────────────
+
+    #[test]
+    fn event_to_json_client_format() {
+        let event = make_room_event();
+        let json = SyncService::event_to_json(&event, SyncEventFormat::Client);
+        assert_eq!(json["type"], "m.room.message");
+        assert_eq!(json["event_id"], "$ev1:ex.com");
+        assert_eq!(json["room_id"], "!room:ex.com");
+        assert_eq!(json["sender"], "@alice:ex.com");
+        assert_eq!(json["content"]["body"], "hello");
+        assert!(json["unsigned"]["age"].is_i64());
+        // Client format excludes depth/origin
+        assert!(json.get("depth").is_none());
+        assert!(json.get("origin").is_none());
+    }
+
+    #[test]
+    fn event_to_json_federation_format() {
+        let event = make_room_event();
+        let json = SyncService::event_to_json(&event, SyncEventFormat::Federation);
+        assert_eq!(json["depth"], 5);
+        assert_eq!(json["origin"], "ex.com");
+    }
+
+    #[test]
+    fn event_to_json_with_state_key() {
+        let mut event = make_room_event();
+        event.state_key = Some("".into());
+        let json = SyncService::event_to_json(&event, SyncEventFormat::Client);
+        assert_eq!(json["state_key"], "");
+    }
+
+    // ── state_event_to_json ──────────────────────────────────────────
+
+    fn make_state_event() -> StateEvent {
+        StateEvent {
+            event_id: "$se1:ex.com".into(),
+            room_id: "!room:ex.com".into(),
+            sender: "@alice:ex.com".into(),
+            event_type: Some("m.room.member".into()),
+            content: json!({"membership": "join"}),
+            state_key: Some("@alice:ex.com".into()),
+            unsigned: None,
+            is_redacted: None,
+            origin_server_ts: 1700000000000,
+            depth: Some(3),
+            processed_ts: Some(1700000001000),
+            not_before: None,
+            status: None,
+            reference_image: None,
+            origin: Some("ex.com".into()),
+            user_id: None,
+            stream_ordering: None,
+        }
+    }
+
+    #[test]
+    fn state_event_to_json_client_format() {
+        let event = make_state_event();
+        let json = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+        assert_eq!(json["type"], "m.room.member");
+        assert_eq!(json["event_id"], "$se1:ex.com");
+        assert_eq!(json["state_key"], "@alice:ex.com");
+        assert_eq!(json["sender"], "@alice:ex.com");
+        assert_eq!(json["content"]["membership"], "join");
+        assert!(json["unsigned"]["age"].is_i64());
+        assert!(json.get("depth").is_none());
+    }
+
+    #[test]
+    fn state_event_to_json_falls_back_to_sender() {
+        let mut event = make_state_event();
+        event.user_id = Some("@bob:ex.com".into());
+        let json = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+        assert_eq!(json["sender"], "@bob:ex.com");
+    }
+
+    #[test]
+    fn state_event_to_json_falls_back_to_default_event_type() {
+        let mut event = make_state_event();
+        event.event_type = None;
+        let json = SyncService::state_event_to_json(&event, SyncEventFormat::Client);
+        assert_eq!(json["type"], "m.room.message");
     }
 }

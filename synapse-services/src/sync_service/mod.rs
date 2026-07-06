@@ -24,20 +24,19 @@ use std::time::Instant;
 use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
-use synapse_storage::account_data::AccountDataStorage;
 use synapse_storage::room_account_data::RoomAccountDataStorage;
 use synapse_storage::UserRoomMembership;
 use tokio::sync::RwLock;
 
 pub struct SyncService {
-    pub(crate) presence_storage: Arc<synapse_storage::presence::PresenceStorage>,
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub(crate) presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
+    pub(crate) member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    pub(crate) event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub(crate) room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub(crate) room_account_data_storage: RoomAccountDataStorage,
-    pub(crate) account_data_storage: AccountDataStorage,
+    pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     pub(crate) filter_storage: FilterStorage,
-    pub(crate) device_storage: Arc<synapse_storage::device::DeviceStorage>,
+    pub(crate) device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub(crate) device_key_storage: DeviceKeyStorage,
     pub(crate) key_rotation_storage: KeyRotationStorage,
     pub(crate) to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
@@ -82,7 +81,7 @@ impl SyncService {
         event_storage: Arc<synapse_storage::event::EventStorage>,
         room_storage: Arc<synapse_storage::room::RoomStorage>,
         room_account_data_storage: RoomAccountDataStorage,
-        account_data_storage: AccountDataStorage,
+        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
         filter_storage: FilterStorage,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
         device_key_storage: DeviceKeyStorage,

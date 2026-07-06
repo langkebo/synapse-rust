@@ -215,7 +215,7 @@ async fn send_relation(
         )));
     }
 
-    if !state.services.rooms.room_service.room_exists(&room_id).await? {
+    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 

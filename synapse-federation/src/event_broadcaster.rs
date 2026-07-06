@@ -1,4 +1,5 @@
-use crate::client::{FederationClient, FederationTransaction};
+use crate::client::FederationTransaction;
+use crate::client_api::FederationClientApi;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,7 +41,7 @@ struct TransactionBatch {
 #[derive(Clone)]
 pub struct EventBroadcaster {
     server_name: String,
-    federation_client: Option<Arc<FederationClient>>,
+    federation_client: Option<Arc<dyn FederationClientApi>>,
     membership_storage: Option<Arc<synapse_storage::membership::RoomMemberStorage>>,
     pending_queue: Arc<RwLock<Vec<PendingTransaction>>>,
     backoff_schedule: Vec<u64>,
@@ -64,7 +65,7 @@ impl EventBroadcaster {
         }
     }
 
-    pub fn with_client(mut self, client: Arc<FederationClient>) -> Self {
+    pub fn with_client(mut self, client: Arc<dyn FederationClientApi>) -> Self {
         self.federation_client = Some(client);
         self
     }
@@ -79,7 +80,7 @@ impl EventBroadcaster {
         self
     }
 
-    pub fn set_client(&mut self, client: Arc<FederationClient>) {
+    pub fn set_client(&mut self, client: Arc<dyn FederationClientApi>) {
         self.federation_client = Some(client);
     }
 
@@ -412,7 +413,7 @@ impl EventBroadcaster {
         Vec::new()
     }
 
-    fn get_backoff_delay(&self, retry_count: u32) -> u64 {
+    pub(crate) fn get_backoff_delay(&self, retry_count: u32) -> u64 {
         let idx = (retry_count as usize).min(self.backoff_schedule.len() - 1);
         self.backoff_schedule[idx]
     }
@@ -600,7 +601,7 @@ impl EventBroadcaster {
 }
 
 async fn send_batch(
-    client: &Arc<FederationClient>,
+    client: &Arc<dyn FederationClientApi>,
     retry_queue: &Arc<RwLock<Vec<PendingTransaction>>>,
     pool_opt: &Option<sqlx::PgPool>,
     _backoff: &[u64],
@@ -738,5 +739,35 @@ impl From<FederationBroadcastError> for synapse_common::traits::BroadcastError {
             FederationBroadcastError::InvalidEvent(msg) => synapse_common::traits::BroadcastError::EncodingFailed(msg),
             FederationBroadcastError::NetworkError(msg) => synapse_common::traits::BroadcastError::Transport(msg),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_backoff_delay_first_retry() {
+        let broadcaster = EventBroadcaster::new("test.local".into());
+        assert_eq!(broadcaster.get_backoff_delay(0), 1000);
+        assert_eq!(broadcaster.get_backoff_delay(1), 5000);
+        assert_eq!(broadcaster.get_backoff_delay(2), 15000);
+    }
+
+    #[test]
+    fn get_backoff_delay_max_retries_clamped() {
+        let broadcaster = EventBroadcaster::new("test.local".into());
+        // Schedule: [1000, 5000, 15000, 30000, 60000, 300000, 900000] — 7 elements
+        assert_eq!(broadcaster.get_backoff_delay(6), 900_000); // last element
+        assert_eq!(broadcaster.get_backoff_delay(7), 900_000); // clamped
+        assert_eq!(broadcaster.get_backoff_delay(100), 900_000); // clamped
+    }
+
+    #[test]
+    fn get_backoff_delay_middle_elements() {
+        let broadcaster = EventBroadcaster::new("test.local".into());
+        assert_eq!(broadcaster.get_backoff_delay(3), 30_000);
+        assert_eq!(broadcaster.get_backoff_delay(4), 60_000);
+        assert_eq!(broadcaster.get_backoff_delay(5), 300_000);
     }
 }

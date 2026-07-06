@@ -43,6 +43,7 @@ pub async fn set_typing(
             .services
             .rooms
             .room_service
+            .messaging
             .set_typing_ephemeral_event(&room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64)
             .await?;
 
@@ -72,7 +73,7 @@ pub async fn set_typing(
     } else {
         state.services.rooms.typing_service.clear_typing(&room_id, &user_id).await?;
 
-        state.services.rooms.room_service.clear_typing_ephemeral_event(&room_id, &user_id).await?;
+        state.services.rooms.room_service.messaging.clear_typing_ephemeral_event(&room_id, &user_id).await?;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",

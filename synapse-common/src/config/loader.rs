@@ -179,6 +179,14 @@ impl Config {
 /// - `${VAR:?error}` — error if env var is unset
 #[allow(clippy::expect_used)]
 fn resolve_env_in_string(value: &str) -> Result<String, String> {
+    resolve_env_in_string_with(value, &|var| std::env::var(var))
+}
+
+#[allow(clippy::expect_used)]
+pub(crate) fn resolve_env_in_string_with<F>(value: &str, lookup: &F) -> Result<String, String>
+where
+    F: Fn(&str) -> Result<String, std::env::VarError>,
+{
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"\$\{([^}]+)\}").expect("static regex is valid"));
     let mut result = value.to_string();
@@ -192,7 +200,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let var_name = parts[0];
             let default_value = parts[1];
 
-            let resolved = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
+            let resolved = lookup(var_name).unwrap_or_else(|_| default_value.to_string());
             tracing::debug!("Resolved env var {} (with default): {} -> {}", var_name, full_match, resolved);
             resolved
         } else if inner.contains(":=") {
@@ -200,7 +208,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let var_name = parts[0];
             let default_value = parts[1];
 
-            let val = std::env::var(var_name).unwrap_or_else(|_| default_value.to_string());
+            let val = lookup(var_name).unwrap_or_else(|_| default_value.to_string());
             tracing::warn!(
                 "Config uses ':=' (assign) syntax for env var {} - this is a security risk and will be removed in a future version. Use ':-' (default) instead.",
                 var_name
@@ -211,7 +219,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             let var_name = parts[0];
             let error_msg = parts[1];
 
-            let val = match std::env::var(var_name) {
+            let val = match lookup(var_name) {
                 Ok(v) => v,
                 Err(_) => {
                     return Err(format!("Environment variable {var_name} is required: {error_msg}"));
@@ -220,7 +228,7 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
             tracing::debug!("Resolved required env var {}: {} -> {}", var_name, full_match, val);
             val
         } else {
-            let resolved = std::env::var(inner).unwrap_or_else(|_| "".to_string());
+            let resolved = lookup(inner).unwrap_or_else(|_| "".to_string());
             tracing::debug!("Resolved env var {}: {} -> {}", inner, full_match, resolved);
             resolved
         };
@@ -229,4 +237,126 @@ fn resolve_env_in_string(value: &str) -> Result<String, String> {
     }
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_env_in_string_with;
+    use std::collections::HashMap;
+    use std::env::VarError;
+
+    fn lookup_from<'a>(map: &'a HashMap<&str, &str>) -> impl Fn(&str) -> Result<String, VarError> + 'a {
+        |var: &str| map.get(var).map(|v| v.to_string()).ok_or(VarError::NotPresent)
+    }
+
+    // ── ${VAR} simple substitution ─────────────────────────────────
+
+    #[test]
+    fn resolves_env_var() {
+        let vars = HashMap::from([("HOST", "localhost")]);
+        let result = resolve_env_in_string_with("${HOST}:8080", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "localhost:8080");
+    }
+
+    #[test]
+    fn unresolved_var_becomes_empty() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("host=${MISSING}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "host=");
+    }
+
+    #[test]
+    fn no_placeholders_returns_unchanged() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("plain text", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "plain text");
+    }
+
+    #[test]
+    fn resolves_multiple_vars() {
+        let vars = HashMap::from([("HOST", "example.com"), ("PORT", "443")]);
+        let result = resolve_env_in_string_with("https://${HOST}:${PORT}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "https://example.com:443");
+    }
+
+    // ── ${VAR:-default} syntax ─────────────────────────────────────
+
+    #[test]
+    fn default_syntax_uses_var_when_set() {
+        let vars = HashMap::from([("HOST", "prod.example.com")]);
+        let result = resolve_env_in_string_with("${HOST:-localhost}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "prod.example.com");
+    }
+
+    #[test]
+    fn default_syntax_falls_back_to_default() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("${HOST:-localhost}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "localhost");
+    }
+
+    #[test]
+    fn default_syntax_with_empty_default() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("${HOST:-}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "");
+    }
+
+    // ── ${VAR:=assign} syntax ──────────────────────────────────────
+
+    #[test]
+    fn assign_syntax_uses_var_when_set() {
+        let vars = HashMap::from([("TOKEN", "secret123")]);
+        let result = resolve_env_in_string_with("${TOKEN:=fallback}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "secret123");
+    }
+
+    #[test]
+    fn assign_syntax_falls_back_to_default() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("${TOKEN:=fallback}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "fallback");
+    }
+
+    // ── ${VAR:?error} syntax ───────────────────────────────────────
+
+    #[test]
+    fn required_syntax_returns_value_when_set() {
+        let vars = HashMap::from([("SECRET", "key123")]);
+        let result = resolve_env_in_string_with("${SECRET:?Must set SECRET}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "key123");
+    }
+
+    #[test]
+    fn required_syntax_errors_when_unset() {
+        let vars = HashMap::new();
+        let err = resolve_env_in_string_with("${SECRET:?Must set SECRET}", &lookup_from(&vars)).unwrap_err();
+        assert!(err.contains("SECRET is required"));
+        assert!(err.contains("Must set SECRET"));
+    }
+
+    // ── Edge cases ─────────────────────────────────────────────────
+
+    #[test]
+    fn empty_string_input() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn adjacent_placeholders() {
+        let vars = HashMap::from([("A", "hello"), ("B", "world")]);
+        let result = resolve_env_in_string_with("${A}${B}", &lookup_from(&vars)).unwrap();
+        assert_eq!(result, "helloworld");
+    }
+
+    #[test]
+    fn nested_braces_in_default_value() {
+        let vars = HashMap::new();
+        let result = resolve_env_in_string_with("${VAR:-default{with}braces}", &lookup_from(&vars)).unwrap();
+        // Regex \$\{([^}]+)\} stops at the first }, so it captures
+        // "VAR:-default{with" and "braces}" remains as literal text.
+        assert_eq!(result, "default{withbraces}");
+    }
 }

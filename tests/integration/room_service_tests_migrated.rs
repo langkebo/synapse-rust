@@ -405,7 +405,7 @@ async fn test_create_room_success() {
         ..Default::default()
     };
 
-    let result = room_service.create_room(&alice_id, config).await;
+    let result = room_service.lifecycle.create_room(&alice_id, config).await;
     assert!(result.is_ok());
     let val = result.unwrap();
     assert!(val["room_id"].as_str().unwrap().starts_with('!'));
@@ -436,6 +436,7 @@ async fn test_create_room_enqueues_appservice_events_after_commit() {
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
     let room_val = room_service
+        .lifecycle
         .create_room(
             &alice_id,
             CreateRoomConfig {
@@ -485,7 +486,7 @@ async fn test_create_room_ignores_protected_creation_content_fields() {
         })),
         ..Default::default()
     };
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
     let event_storage = EventStorage::new(&pool, "localhost".to_string());
@@ -517,13 +518,13 @@ async fn test_join_room_success() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() };
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.join_room(room_id, &bob_id).await;
+    let result = room_service.membership.join_room(room_id, &bob_id).await;
     assert!(result.is_ok(), "join_room failed: {:?}", result.err());
 
-    let members = room_service.get_room_members(room_id, &alice_id).await.unwrap();
+    let members = room_service.membership.get_room_members(room_id, &alice_id).await.unwrap();
     let chunk = members["chunk"].as_array().unwrap();
     assert!(chunk.iter().any(|m| m["state_key"] == bob_id || m["user_id"] == bob_id));
 }
@@ -549,6 +550,7 @@ async fn test_join_room_enqueues_appservice_membership_event() {
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
     let room_val = room_service
+        .lifecycle
         .create_room(&alice_id, CreateRoomConfig { visibility: Some("public".to_string()), ..Default::default() })
         .await
         .expect("room creation should succeed");
@@ -562,7 +564,7 @@ async fn test_join_room_enqueues_appservice_membership_event() {
         .filter(|event| event.event_type == "m.room.member")
         .count();
 
-    room_service.join_room(room_id, &bob_id).await.expect("join_room should succeed");
+    room_service.membership.join_room(room_id, &bob_id).await.expect("join_room should succeed");
 
     let after_member_events = storage
         .get_pending_events(&as_id, 64)
@@ -589,16 +591,16 @@ async fn test_send_message_success() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig::default();
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
     let content = json!({"msgtype": "m.text", "body": "Hello world"});
-    let result = room_service.send_message(room_id, &alice_id, "m.room.message", &content).await;
+    let result = room_service.messaging.send_message(room_id, &alice_id, "m.room.message", &content).await;
     assert!(result.is_ok());
     let val = result.unwrap();
     assert!(val["event_id"].as_str().unwrap().starts_with('$'));
 
-    let messages = room_service.get_room_messages(room_id, &alice_id, 0, 10, "b").await.unwrap();
+    let messages = room_service.messaging.get_room_messages(room_id, &alice_id, 0, 10, "b").await.unwrap();
     let chunk = messages["chunk"].as_array().unwrap();
     let event = chunk
         .iter()
@@ -622,12 +624,13 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig::default();
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
     let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
+            .messaging
             .create_event(
                 CreateEventParams {
                     event_id: format!("$timeline_{id}_{ts}"),
@@ -645,7 +648,7 @@ async fn test_get_room_messages_supports_sync_prev_batch_token() {
             .unwrap();
     }
 
-    let messages = room_service.get_room_messages(room_id, &alice_id, base_ts + 3000, 2, "b").await.unwrap();
+    let messages = room_service.messaging.get_room_messages(room_id, &alice_id, base_ts + 3000, 2, "b").await.unwrap();
 
     assert_eq!(messages["start"], format!("t{}", base_ts + 3000));
     assert_eq!(messages["end"], format!("t{}", base_ts + 1000));
@@ -672,12 +675,13 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig::default();
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
     let base_ts = chrono::Utc::now().timestamp_millis() + 10_000;
 
     for ts in [base_ts + 1000, base_ts + 2000, base_ts + 3000] {
         room_service
+            .messaging
             .create_event(
                 CreateEventParams {
                     event_id: format!("$forward_timeline_{id}_{ts}"),
@@ -695,7 +699,7 @@ async fn test_get_room_messages_supports_forward_pagination_from_stream_token() 
             .unwrap();
     }
 
-    let messages = room_service.get_room_messages(room_id, &alice_id, base_ts + 1000, 2, "f").await.unwrap();
+    let messages = room_service.messaging.get_room_messages(room_id, &alice_id, base_ts + 1000, 2, "f").await.unwrap();
 
     assert_eq!(messages["start"], format!("t{}", base_ts + 1000));
     assert_eq!(messages["end"], format!("t{}", base_ts + 3000));
@@ -725,10 +729,10 @@ async fn test_invite_user_success() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig::default();
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.invite_user(room_id, &alice_id, &bob_id).await;
+    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id).await;
     assert!(result.is_ok(), "invite_user failed: {:?}", result.err());
 
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
@@ -756,8 +760,11 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
     let storage = ApplicationServiceStorage::new(&pool);
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
-    let room_val =
-        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
+    let room_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig::default())
+        .await
+        .expect("room creation should succeed");
     let room_id = room_val["room_id"].as_str().expect("room_id should be present");
 
     let before_member_events = storage
@@ -768,7 +775,7 @@ async fn test_invite_user_enqueues_appservice_membership_event() {
         .filter(|event| event.event_type == "m.room.member")
         .count();
 
-    room_service.invite_user(room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
+    room_service.membership.invite_user(room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
 
     let after_member_events = storage
         .get_pending_events(&as_id, 64)
@@ -798,10 +805,10 @@ async fn test_ban_user_success() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig::default();
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let room_id = room_val["room_id"].as_str().unwrap();
 
-    let result = room_service.ban_user(room_id, &bob_id, &alice_id, Some("Spam")).await;
+    let result = room_service.membership.ban_user(room_id, &bob_id, &alice_id, Some("Spam")).await;
     assert!(result.is_ok(), "ban_user failed: {:?}", result.err());
 
     let member_storage = RoomMemberStorage::new(&pool, "localhost");
@@ -824,7 +831,7 @@ async fn test_upgrade_room_success() {
     let room_service = create_room_service(&pool, cache.clone());
 
     let config = CreateRoomConfig { room_version: Some("9".to_string()), ..Default::default() };
-    let room_val = room_service.create_room(&alice_id, config).await.unwrap();
+    let room_val = room_service.lifecycle.create_room(&alice_id, config).await.unwrap();
     let old_room_id = room_val["room_id"].as_str().unwrap();
 
     let result = room_service.upgrade_room(old_room_id, "10", &alice_id).await;
@@ -875,8 +882,11 @@ async fn test_upgrade_room_enqueues_tombstone_and_replacement_create_events() {
     let storage = ApplicationServiceStorage::new(&pool);
     attach_test_appservice(&pool, &room_service, &as_id).await;
 
-    let room_val =
-        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
+    let room_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig::default())
+        .await
+        .expect("room creation should succeed");
     let old_room_id = room_val["room_id"].as_str().expect("room_id should be present").to_string();
 
     let before_pending = storage.get_pending_events(&as_id, 256).await.expect("pending events should load");
@@ -993,8 +1003,11 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache);
-    let room_val =
-        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
+    let room_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig::default())
+        .await
+        .expect("room creation should succeed");
     let room_id = room_val["room_id"].as_str().expect("room_id should be present").to_string();
 
     let mock_server = MockServer::start().await;
@@ -1028,6 +1041,7 @@ async fn test_bridge_e2e_send_message_delivers_real_room_event_payload() {
         "body": format!("bridge-e2e-body-{id}")
     });
     let send_result = room_service
+        .messaging
         .send_message(&room_id, &alice_id, "m.room.message", &content)
         .await
         .expect("send_message should succeed");
@@ -1099,8 +1113,11 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
 
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let room_service = create_room_service(&pool, cache);
-    let room_val =
-        room_service.create_room(&alice_id, CreateRoomConfig::default()).await.expect("room creation should succeed");
+    let room_val = room_service
+        .lifecycle
+        .create_room(&alice_id, CreateRoomConfig::default())
+        .await
+        .expect("room creation should succeed");
     let room_id = room_val["room_id"].as_str().expect("room_id should be present").to_string();
 
     let mock_server = MockServer::start().await;
@@ -1130,8 +1147,8 @@ async fn test_bridge_e2e_membership_events_deliver_real_room_member_payloads() {
     )
     .await;
 
-    room_service.invite_user(&room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
-    room_service.join_room(&room_id, &bob_id).await.expect("join_room should succeed");
+    room_service.membership.invite_user(&room_id, &alice_id, &bob_id).await.expect("invite_user should succeed");
+    room_service.membership.join_room(&room_id, &bob_id).await.expect("join_room should succeed");
 
     let dispatched =
         manager.process_pending_for_service(&bridge_as_id, 16).await.expect("membership delivery should succeed");

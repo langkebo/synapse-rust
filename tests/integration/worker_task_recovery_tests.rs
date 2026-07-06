@@ -2,8 +2,9 @@ use serde_json::json;
 use std::sync::Arc;
 use synapse_services::worker::{
     AssignTaskRequest, HealthCheckConfig, HealthChecker, LoadBalanceStrategy, RegisterWorkerRequest,
-    WorkerLoadBalancer, WorkerLoadStats, WorkerManager, WorkerStatus, WorkerStorage, WorkerType,
+    WorkerLoadBalancer, WorkerLoadStats, WorkerManager, WorkerStatus, WorkerType,
 };
+use synapse_storage::worker::WorkerStorage;
 
 async fn worker_test_pool() -> Arc<sqlx::PgPool> {
     synapse_rust::test_utils::prepare_isolated_test_pool()

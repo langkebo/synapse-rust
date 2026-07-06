@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use std::sync::Arc;
 
 use sqlx::PgPool;
@@ -7,6 +8,22 @@ pub struct RateLimitRecord {
     pub messages_per_second: Option<f64>,
     pub burst_count: Option<i32>,
 }
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait RateLimitStoreApi: Send + Sync {
+    async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error>;
+    async fn upsert_user_rate_limit(
+        &self,
+        user_id: &str,
+        messages_per_second: f64,
+        burst_count: i32,
+    ) -> Result<(), sqlx::Error>;
+    async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct RateLimitStorage {
@@ -65,5 +82,27 @@ impl RateLimitStorage {
         .execute(self.pool.as_ref())
         .await?;
         Ok(())
+    }
+}
+
+// ── Trait delegation ────────────────────────────────────────────────────
+
+#[async_trait]
+impl RateLimitStoreApi for RateLimitStorage {
+    async fn get_user_rate_limit(&self, user_id: &str) -> Result<Option<RateLimitRecord>, sqlx::Error> {
+        self.get_user_rate_limit(user_id).await
+    }
+
+    async fn upsert_user_rate_limit(
+        &self,
+        user_id: &str,
+        messages_per_second: f64,
+        burst_count: i32,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_user_rate_limit(user_id, messages_per_second, burst_count).await
+    }
+
+    async fn delete_user_rate_limit(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_user_rate_limit(user_id).await
     }
 }

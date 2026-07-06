@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::common::error::{ApiError, ApiResult};
-use synapse_federation::FederationClient;
+use synapse_federation::client_api::FederationClientApi;
 use synapse_storage::CreateEventParams;
 
 use super::service::RoomService;
@@ -85,7 +85,7 @@ impl RoomService {
     /// caller.
     pub async fn backfill_room_history(
         &self,
-        federation_client: &Arc<FederationClient>,
+        federation_client: &Arc<dyn FederationClientApi>,
         room_id: &str,
         limit: Option<u32>,
     ) -> ApiResult<BackfillOutcome> {
@@ -216,7 +216,9 @@ impl RoomService {
                     redacts: pdu_redacts,
                 };
 
-                if let Err(error) = self.create_event_with_graph(params, &pdu_prev, &pdu_auth, pdu_depth, None).await {
+                if let Err(error) =
+                    self.messaging.create_event_with_graph(params, &pdu_prev, &pdu_auth, pdu_depth, None).await
+                {
                     ::tracing::warn!(
                         room_id = %room_id,
                         candidate = %candidate,

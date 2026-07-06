@@ -11,9 +11,9 @@ use synapse_common::error::ApiError;
 use synapse_storage::push_notification::*;
 use tracing::info;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PushNotificationService {
-    storage: Arc<PushNotificationStorage>,
+    storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
     fcm_provider: Option<Arc<FcmProvider>>,
     apns_provider: Option<Arc<ApnsProvider>>,
     webpush_provider: Option<Arc<WebPushProvider>>,
@@ -21,7 +21,7 @@ pub struct PushNotificationService {
     queue: Option<Arc<PushQueue>>,
     /// Optional account_data storage for looking up `m.ignored_user_list`
     /// so that push notifications from ignored users are suppressed.
-    account_data_storage: Option<Arc<synapse_storage::account_data::AccountDataStorage>>,
+    account_data_storage: Option<Arc<dyn synapse_storage::account_data::AccountDataStoreApi>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -60,7 +60,7 @@ pub struct PushRuleResult {
 }
 
 impl PushNotificationService {
-    pub fn new(storage: Arc<PushNotificationStorage>) -> Self {
+    pub fn new(storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>) -> Self {
         Self {
             storage,
             fcm_provider: None,
@@ -104,7 +104,7 @@ impl PushNotificationService {
     /// sender is in that list (matching Synapse's behavior).
     pub fn with_account_data_storage(
         mut self,
-        account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage>,
+        account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
     ) -> Self {
         self.account_data_storage = Some(account_data_storage);
         self
@@ -528,7 +528,7 @@ impl PushNotificationService {
         Ok(PushRuleResult { notify: false, tweaks: serde_json::json!({}) })
     }
 
-    fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
+    pub(crate) fn matches_rule(rule: &PushRule, event: &JsonValue) -> Result<bool, ApiError> {
         let conditions: Vec<JsonValue> = serde_json::from_value(rule.conditions.clone())
             .map_err(|e| ApiError::internal_with_log("Invalid conditions", &e))?;
 
@@ -567,7 +567,7 @@ impl PushNotificationService {
         Ok(true)
     }
 
-    fn matches_event_match(condition: &JsonValue, event: &JsonValue) -> bool {
+    pub(crate) fn matches_event_match(condition: &JsonValue, event: &JsonValue) -> bool {
         let key = condition.get("key").and_then(|k| k.as_str()).unwrap_or("");
         let pattern = condition.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
 
@@ -587,7 +587,7 @@ impl PushNotificationService {
         true
     }
 
-    fn get_event_value<'a>(event: &'a JsonValue, key: &str) -> Option<&'a str> {
+    pub(crate) fn get_event_value<'a>(event: &'a JsonValue, key: &str) -> Option<&'a str> {
         let parts: Vec<&str> = key.split('.').collect();
         let mut current = event;
 
@@ -600,5 +600,120 @@ impl PushNotificationService {
 
     pub async fn cleanup_old_logs(&self, days: i32) -> Result<u64, ApiError> {
         self.storage.cleanup_old_logs(days).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // -- get_event_value --
+
+    #[test]
+    fn get_event_value_simple_key() {
+        let event = json!({"content": {"body": "hello"}});
+        let val = PushNotificationService::get_event_value(&event, "content.body");
+        assert_eq!(val, Some("hello"));
+    }
+
+    #[test]
+    fn get_event_value_missing_key() {
+        let event = json!({"content": {}});
+        let val = PushNotificationService::get_event_value(&event, "content.body");
+        assert_eq!(val, None);
+    }
+
+    #[test]
+    fn get_event_value_root_key() {
+        let event = json!({"type": "m.room.message"});
+        let val = PushNotificationService::get_event_value(&event, "type");
+        assert_eq!(val, Some("m.room.message"));
+    }
+
+    #[test]
+    fn get_event_value_nested_nonexistent() {
+        let event = json!({"a": {"b": "c"}});
+        let val = PushNotificationService::get_event_value(&event, "a.x.y");
+        assert_eq!(val, None);
+    }
+
+    #[test]
+    fn get_event_value_empty_key() {
+        let event = json!({"x": "y"});
+        let val = PushNotificationService::get_event_value(&event, "");
+        assert_eq!(val, None);
+    }
+
+    // -- matches_event_match --
+
+    #[test]
+    fn matches_event_match_matching_pattern() {
+        let condition = json!({"kind": "event_match", "key": "content.body", "pattern": "hello"});
+        let event = json!({"content": {"body": "hello world"}});
+        assert!(PushNotificationService::matches_event_match(&condition, &event));
+    }
+
+    #[test]
+    fn matches_event_match_non_matching() {
+        let condition = json!({"kind": "event_match", "key": "content.body", "pattern": "goodbye"});
+        let event = json!({"content": {"body": "hello world"}});
+        assert!(!PushNotificationService::matches_event_match(&condition, &event));
+    }
+
+    #[test]
+    fn matches_event_match_missing_key() {
+        let condition = json!({"kind": "event_match", "key": "content.body", "pattern": "hello"});
+        let event = json!({"content": {}});
+        assert!(!PushNotificationService::matches_event_match(&condition, &event));
+    }
+
+    // -- matches_rule --
+
+    fn make_test_rule(conditions: serde_json::Value) -> PushRule {
+        PushRule {
+            id: 1,
+            user_id: "@test:localhost".into(),
+            rule_id: "test.rule".into(),
+            scope: "global".into(),
+            kind: "override".into(),
+            priority: 5,
+            priority_class: 0,
+            conditions,
+            actions: json!([]),
+            is_enabled: true,
+            is_default: false,
+            created_ts: 0,
+            updated_ts: None,
+            pattern: None,
+        }
+    }
+
+    #[test]
+    fn matches_rule_empty_conditions_always_true() {
+        let rule = make_test_rule(json!([]));
+        let event = json!({"content": {"body": "anything"}});
+        assert!(PushNotificationService::matches_rule(&rule, &event).unwrap());
+    }
+
+    #[test]
+    fn matches_rule_event_match_passes() {
+        let rule = make_test_rule(json!([{"kind": "event_match", "key": "content.body", "pattern": "hello"}]));
+        let event = json!({"content": {"body": "hello world"}});
+        assert!(PushNotificationService::matches_rule(&rule, &event).unwrap());
+    }
+
+    #[test]
+    fn matches_rule_event_match_fails() {
+        let rule = make_test_rule(json!([{"kind": "event_match", "key": "content.body", "pattern": "xyz"}]));
+        let event = json!({"content": {"body": "hello world"}});
+        assert!(!PushNotificationService::matches_rule(&rule, &event).unwrap());
+    }
+
+    #[test]
+    fn matches_rule_unknown_kind_ignored() {
+        let rule = make_test_rule(json!([{"kind": "unknown_kind", "key": "x", "pattern": "y"}]));
+        let event = json!({"content": {"body": "hello"}});
+        assert!(PushNotificationService::matches_rule(&rule, &event).unwrap());
     }
 }

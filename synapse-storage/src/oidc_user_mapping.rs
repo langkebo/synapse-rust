@@ -1,4 +1,20 @@
+use async_trait::async_trait;
 use std::sync::Arc;
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+/// Storage-agnostic API for OIDC user mapping persistence.
+///
+/// Implemented by [`OidcUserMappingStorage`] (Postgres) and
+/// [`crate::test_mocks::InMemoryOidcUserMappingStore`] (in-memory).
+#[async_trait]
+pub trait OidcUserMappingStoreApi: Send + Sync {
+    async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error>;
+    async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error>;
+    async fn insert_mapping(&self, issuer: &str, subject: &str, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Clone)]
 pub struct OidcUserMappingStorage {
@@ -51,5 +67,22 @@ impl OidcUserMappingStorage {
         .execute(&*self.pool)
         .await?;
         Ok(())
+    }
+}
+
+// ── Trait delegation ────────────────────────────────────────────────────
+
+#[async_trait]
+impl OidcUserMappingStoreApi for OidcUserMappingStorage {
+    async fn get_bound_user_id(&self, issuer: &str, subject: &str) -> Result<Option<String>, sqlx::Error> {
+        self.get_bound_user_id(issuer, subject).await
+    }
+
+    async fn update_last_authenticated(&self, issuer: &str, subject: &str, now_ts: i64) -> Result<(), sqlx::Error> {
+        self.update_last_authenticated(issuer, subject, now_ts).await
+    }
+
+    async fn insert_mapping(&self, issuer: &str, subject: &str, user_id: &str, now_ts: i64) -> Result<(), sqlx::Error> {
+        self.insert_mapping(issuer, subject, user_id, now_ts).await
     }
 }

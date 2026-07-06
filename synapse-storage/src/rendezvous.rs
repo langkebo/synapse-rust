@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
@@ -92,6 +93,28 @@ pub struct RendezvousLoginFinish {
     pub access_token: String,
     pub device_id: String,
     pub user_id: String,
+}
+
+#[async_trait]
+pub trait RendezvousStoreApi: Send + Sync {
+    async fn create_session(&self, params: CreateRendezvousSessionParams) -> Result<RendezvousSession, sqlx::Error>;
+    async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error>;
+    async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error>;
+    async fn bind_user_to_session(&self, session_id: &str, user_id: &str, device_id: &str) -> Result<(), sqlx::Error>;
+    async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error>;
+    async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -253,6 +276,62 @@ impl RendezvousStorage {
     }
 }
 
+#[async_trait]
+impl RendezvousStoreApi for RendezvousStorage {
+    async fn create_session(&self, params: CreateRendezvousSessionParams) -> Result<RendezvousSession, sqlx::Error> {
+        self.create_session(params).await
+    }
+    async fn get_session(&self, session_id: &str) -> Result<Option<RendezvousSession>, sqlx::Error> {
+        self.get_session(session_id).await
+    }
+    async fn update_session_status(&self, session_id: &str, status: &str) -> Result<(), sqlx::Error> {
+        self.update_session_status(session_id, status).await
+    }
+    async fn bind_user_to_session(&self, session_id: &str, user_id: &str, device_id: &str) -> Result<(), sqlx::Error> {
+        self.bind_user_to_session(session_id, user_id, device_id).await
+    }
+    async fn complete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
+        self.complete_session(session_id).await
+    }
+    async fn delete_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_session(session_id).await
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_sessions().await
+    }
+    async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error> {
+        self.store_message(session_id, direction, message).await
+    }
+    async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
+        self.get_messages(session_id, after_id).await
+    }
+}
+
+#[async_trait]
+pub trait RendezvousMessageStoreApi: Send + Sync {
+    async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error>;
+    async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error>;
+    async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error>;
+}
+
 #[derive(Clone)]
 pub struct RendezvousMessageStorage {
     pool: Arc<Pool<Postgres>>,
@@ -344,6 +423,28 @@ impl RendezvousMessageStorage {
         .await?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl RendezvousMessageStoreApi for RendezvousMessageStorage {
+    async fn store_message(
+        &self,
+        session_id: &str,
+        direction: &str,
+        message: &RendezvousMessage,
+    ) -> Result<(), sqlx::Error> {
+        self.store_message(session_id, direction, message).await
+    }
+    async fn get_messages(
+        &self,
+        session_id: &str,
+        after_id: Option<i64>,
+    ) -> Result<Vec<StoredRendezvousMessage>, sqlx::Error> {
+        self.get_messages(session_id, after_id).await
+    }
+    async fn delete_messages(&self, session_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_messages(session_id).await
     }
 }
 

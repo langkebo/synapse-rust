@@ -29,7 +29,7 @@ use synapse_rust::web::routes::state::AppState;
 use tokio::sync::OnceCell;
 use tower::ServiceExt;
 
-use super::{setup_test_app_with_config, with_local_connect_info};
+use super::{setup_fresh_test_app_with_config, with_local_connect_info};
 
 type TestFixture = Option<(axum::Router, AppState)>;
 
@@ -45,7 +45,7 @@ static OPENCLAW_ENABLED_LEDGER: OnceCell<Option<RouteLedger>> = OnceCell::const_
 async fn default_fixture() -> TestFixture {
     DEFAULT_FIXTURE
         .get_or_init(|| async {
-            setup_test_app_with_config(|container| {
+            setup_fresh_test_app_with_config(|container| {
                 container.core.config.federation.allow_ingress = true;
                 #[cfg(feature = "openclaw-routes")]
                 {
@@ -61,7 +61,7 @@ async fn default_fixture() -> TestFixture {
 async fn worker_enabled_fixture() -> TestFixture {
     WORKER_ENABLED_FIXTURE
         .get_or_init(|| async {
-            setup_test_app_with_config(|container| {
+            setup_fresh_test_app_with_config(|container| {
                 container.core.config.federation.allow_ingress = true;
                 container.core.config.worker.enabled = true;
                 container.core.config.worker.replication.http.enabled = true;
@@ -78,7 +78,7 @@ async fn worker_enabled_fixture() -> TestFixture {
 async fn openclaw_enabled_fixture() -> TestFixture {
     OPENCLAW_ENABLED_FIXTURE
         .get_or_init(|| async {
-            setup_test_app_with_config(|container| {
+            setup_fresh_test_app_with_config(|container| {
                 container.core.config.federation.allow_ingress = true;
                 container.core.config.experimental.openclaw_routes_enabled = true;
             })

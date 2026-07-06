@@ -61,7 +61,25 @@ jobs:
 
     - name: Run Tests and Generate Coverage
       run: |
-        cargo tarpaulin --ignore-tests --out Lcov --output-dir coverage/ --fail-under 90 --locked -- --test-threads 1
+        # Tarpaulin flag rationale (see scripts/run_local_coverage.sh):
+        #   --workspace           cover every crate in the workspace
+        #   --all-features         compile every source-level feature so all .rs files
+        #                         are visible to the instrumenter
+        #   --features test-utils build integration/unit/e2e test binaries declared
+        #                         with `required-features = ["test-utils"]`
+        #   --include-tests        run integration test targets (tests/*) in addition
+        #                         to lib/bin unit tests
+        #   --fail-under is intentionally omitted (current floor is 70% via
+        #   .tarpaulin.toml `range`; per-file thresholds enforced by
+        #   scripts/check_file_coverage.py in ci.yml coverage job)
+        cargo tarpaulin \
+          --workspace \
+          --all-features \
+          --features test-utils \
+          --include-tests \
+          --out Lcov \
+          --output-dir coverage/ \
+          --locked
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4

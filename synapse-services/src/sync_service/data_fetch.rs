@@ -4,6 +4,7 @@ use crate::map_internal;
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_common::*;
+use synapse_storage::event::SinceFilter;
 
 impl SyncService {
     pub(crate) async fn update_presence(&self, user_id: &str, set_presence: &str) -> ApiResult<()> {
@@ -93,12 +94,12 @@ impl SyncService {
 
         let delta_state_by_room = if let Some(stream_ord) = params.since_stream_ordering {
             self.event_storage
-                .get_state_events_since_stream_batch(room_ids, stream_ord)
+                .get_state_events_since_batch(room_ids, SinceFilter::StreamOrdering(stream_ord))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         } else {
             self.event_storage
-                .get_state_events_since_batch(room_ids, params.since_ts)
+                .get_state_events_since_batch(room_ids, SinceFilter::OriginServerTs(params.since_ts))
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to get room state events", &e))?
         };

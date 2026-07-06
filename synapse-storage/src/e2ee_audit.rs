@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use synapse_common::ApiError;
@@ -25,6 +26,22 @@ pub struct KeyAuditEntry {
     pub details: Option<serde_json::Value>,
     pub ip_address: Option<String>,
     pub created_ts: i64,
+}
+
+#[async_trait]
+pub trait E2eeAuditStoreApi: Send + Sync {
+    async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError>;
+    async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    async fn get_key_history_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    async fn get_user_device_history(&self, user_id: &str, device_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError>;
+    async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError>;
 }
 
 #[derive(Clone)]
@@ -166,6 +183,39 @@ impl E2eeAuditStorage {
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup logs", &e))?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl E2eeAuditStoreApi for E2eeAuditStorage {
+    async fn log_key_operation(&self, event: &KeyEvent) -> Result<(), ApiError> {
+        self.log_key_operation(event).await
+    }
+
+    async fn get_key_history(&self, user_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        self.get_key_history(user_id).await
+    }
+
+    async fn get_key_history_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_ts: Option<i64>,
+        from_id: Option<i64>,
+    ) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        self.get_key_history_paginated(user_id, limit, from_ts, from_id).await
+    }
+
+    async fn get_operations_by_type(&self, operation: &str, limit: i64) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        self.get_operations_by_type(operation, limit).await
+    }
+
+    async fn get_user_device_history(&self, user_id: &str, device_id: &str) -> Result<Vec<KeyAuditEntry>, ApiError> {
+        self.get_user_device_history(user_id, device_id).await
+    }
+
+    async fn cleanup_old_logs(&self, days_to_keep: i64) -> Result<u64, ApiError> {
+        self.cleanup_old_logs(days_to_keep).await
     }
 }
 

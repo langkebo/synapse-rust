@@ -4,7 +4,7 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::{
     admin_federation::{AdminFederationStorage, FederationCacheRecord, FederationDestinationRecord},
-    federation_blacklist::FederationBlacklistStorage,
+    federation_blacklist::FederationBlacklistStoreApi,
 };
 use tracing::{info, instrument, warn};
 
@@ -94,14 +94,14 @@ type PendingFederationListResult = Result<(Vec<PendingFederationInfo>, i64, Opti
 
 pub struct AdminFederationService {
     storage: AdminFederationStorage,
-    federation_blacklist_storage: Arc<FederationBlacklistStorage>,
+    federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
     federation_blacklist_service: Arc<FederationBlacklistService>,
 }
 
 impl AdminFederationService {
     pub fn new(
         storage: AdminFederationStorage,
-        federation_blacklist_storage: Arc<FederationBlacklistStorage>,
+        federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
         federation_blacklist_service: Arc<FederationBlacklistService>,
     ) -> Self {
         Self { storage, federation_blacklist_storage, federation_blacklist_service }
@@ -470,8 +470,10 @@ fn map_cache_entry(row: &FederationCacheRecord) -> FederationCacheEntry {
 mod tests {
     use super::{
         decode_destination_cursor, decode_pending_federation_cursor, encode_destination_cursor,
-        encode_pending_federation_cursor, DestinationCursor, PendingFederationCursor,
+        encode_pending_federation_cursor, map_cache_entry, map_destination_row, DestinationCursor,
+        PendingFederationCursor,
     };
+    use synapse_storage::admin_federation::{FederationCacheRecord, FederationDestinationRecord};
 
     #[test]
     fn destination_cursor_round_trip() {
@@ -486,5 +488,77 @@ mod tests {
             PendingFederationCursor { updated_ts: 1_700_000_000_000, server_name: "matrix.example.com".to_string() };
         let encoded = encode_pending_federation_cursor(&cursor);
         assert_eq!(decode_pending_federation_cursor(Some(&encoded)), Some(cursor));
+    }
+
+    // ── map_destination_row ────────────────────────────────────────
+
+    fn make_dest_record() -> FederationDestinationRecord {
+        FederationDestinationRecord {
+            server_name: Some("matrix.example.com".to_string()),
+            last_failed_connect_at: Some(1_700_000_000_000),
+            last_successful_connect_at: Some(1_700_000_001_000),
+            failure_count: Some(3),
+            status: Some("active".to_string()),
+            updated_ts: Some(1_700_000_002_000),
+        }
+    }
+
+    #[test]
+    fn map_destination_row_transfers_all_fields() {
+        let row = make_dest_record();
+        let info = map_destination_row(&row);
+        assert_eq!(info.destination, Some("matrix.example.com".to_string()));
+        assert_eq!(info.retry_last_ts, Some(1_700_000_000_000));
+        assert_eq!(info.failure_ts, Some(1_700_000_000_000));
+        assert_eq!(info.last_successful_ts, Some(1_700_000_001_000));
+        assert_eq!(info.failure_count, 3);
+        assert_eq!(info.status, "active");
+        assert_eq!(info.updated_ts, Some(1_700_000_002_000));
+    }
+
+    #[test]
+    fn map_destination_row_defaults_for_nulls() {
+        let mut row = make_dest_record();
+        row.failure_count = None;
+        row.status = None;
+        let info = map_destination_row(&row);
+        assert_eq!(info.failure_count, 0);
+        assert_eq!(info.status, "active");
+    }
+
+    // ── map_cache_entry ────────────────────────────────────────────
+
+    #[test]
+    fn map_cache_entry_transfers_key_and_expiry() {
+        let row =
+            FederationCacheRecord { key: "cache_key_1".to_string(), value: None, expiry_ts: Some(1_700_000_000_000) };
+        let entry = map_cache_entry(&row);
+        assert_eq!(entry.key, "cache_key_1");
+        assert_eq!(entry.value, None);
+        assert_eq!(entry.expiry_ts, Some(1_700_000_000_000));
+    }
+
+    #[test]
+    fn map_cache_entry_parses_json_value() {
+        let row = FederationCacheRecord {
+            key: "key_1".to_string(),
+            value: Some(r#"{"foo":"bar"}"#.to_string()),
+            expiry_ts: None,
+        };
+        let entry = map_cache_entry(&row);
+        assert_eq!(entry.key, "key_1");
+        assert_eq!(entry.value, Some(serde_json::json!({"foo": "bar"})));
+        assert_eq!(entry.expiry_ts, None);
+    }
+
+    #[test]
+    fn map_cache_entry_handles_invalid_json() {
+        let row = FederationCacheRecord {
+            key: "key_1".to_string(),
+            value: Some("not valid json".to_string()),
+            expiry_ts: None,
+        };
+        let entry = map_cache_entry(&row);
+        assert_eq!(entry.value, None);
     }
 }

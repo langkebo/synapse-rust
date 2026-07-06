@@ -46,6 +46,7 @@ async fn ensure_room_alias_write_allowed(
         .services
         .rooms
         .room_service
+        .state
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -232,10 +233,11 @@ pub async fn get_public_rooms_handler(
                 .services
                 .rooms
                 .room_service
+                .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.count_public_rooms().await }
+        async { state.services.rooms.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -290,10 +292,11 @@ pub async fn search_public_rooms(
                 .services
                 .rooms
                 .room_service
+                .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.count_public_rooms().await }
+        async { state.services.rooms.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {

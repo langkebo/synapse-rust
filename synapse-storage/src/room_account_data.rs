@@ -1,8 +1,55 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use std::sync::Arc;
 use synapse_common::ApiError;
+
+#[async_trait]
+pub trait RoomAccountDataStoreApi {
+    async fn get_room_account_data_content(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<serde_json::Value>, ApiError>;
+    async fn get_room_account_data_with_ts(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<(serde_json::Value, Option<i64>)>, ApiError>;
+    async fn get_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+    async fn list_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
+    async fn list_room_account_data_batch(
+        &self,
+        user_id: &str,
+        room_ids: &[String],
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError>;
+    async fn get_room_vault_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error>;
+    async fn upsert_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+        data: &serde_json::Value,
+        now: i64,
+    ) -> Result<(), sqlx::Error>;
+    async fn delete_room_account_data(&self, user_id: &str, room_id: &str, data_type: &str) -> Result<bool, ApiError>;
+}
 
 pub struct RoomAccountDataStorage {
     pool: Arc<sqlx::PgPool>,
@@ -164,6 +211,75 @@ impl RoomAccountDataStorage {
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to delete room account data", &e))?;
         Ok(result.rows_affected() > 0)
+    }
+}
+
+#[async_trait]
+impl RoomAccountDataStoreApi for RoomAccountDataStorage {
+    async fn get_room_account_data_content(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<serde_json::Value>, ApiError> {
+        self.get_room_account_data_content(user_id, room_id, data_type).await
+    }
+
+    async fn get_room_account_data_with_ts(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<(serde_json::Value, Option<i64>)>, ApiError> {
+        self.get_room_account_data_with_ts(user_id, room_id, data_type).await
+    }
+
+    async fn get_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.get_room_account_data(user_id, room_id, data_type).await
+    }
+
+    async fn list_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        self.list_room_account_data(user_id, room_id).await
+    }
+
+    async fn list_room_account_data_batch(
+        &self,
+        user_id: &str,
+        room_ids: &[String],
+    ) -> Result<Vec<RoomAccountDataRecord>, ApiError> {
+        self.list_room_account_data_batch(user_id, room_ids).await
+    }
+
+    async fn get_room_vault_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {
+        self.get_room_vault_data(user_id, room_id).await
+    }
+
+    async fn upsert_room_account_data(
+        &self,
+        user_id: &str,
+        room_id: &str,
+        data_type: &str,
+        data: &serde_json::Value,
+        now: i64,
+    ) -> Result<(), sqlx::Error> {
+        self.upsert_room_account_data(user_id, room_id, data_type, data, now).await
+    }
+
+    async fn delete_room_account_data(&self, user_id: &str, room_id: &str, data_type: &str) -> Result<bool, ApiError> {
+        self.delete_room_account_data(user_id, room_id, data_type).await
     }
 }
 

@@ -1,6 +1,7 @@
 use crate::common::ApiError;
 use crate::common::{MAX_PAGINATION_LIMIT, MIN_PAGINATION_LIMIT};
-use crate::web::routes::{AdminUser, AppState};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::AdminUser;
 use axum::{
     extract::{Path, Query, State},
     routing::{delete, get, post},
@@ -15,7 +16,7 @@ use synapse_services::admin_federation_service::{
 use synapse_storage::federation_blacklist::decode_federation_blacklist_cursor;
 use tracing::info;
 
-pub fn create_federation_router(_state: AppState) -> Router<AppState> {
+pub fn create_federation_router() -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/federation/destinations", get(get_destinations))
         .route("/_synapse/admin/v1/federation/destinations/{destination}", get(get_destination))
@@ -144,13 +145,12 @@ fn validate_destinations_query(
 #[axum::debug_handler]
 pub async fn get_destinations(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<DestinationsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let (limit, cursor) = validate_destinations_query(&query)?;
 
-    let (destinations, total, next_batch) =
-        state.services.admin.federation.admin_federation_service.list_destinations(limit, cursor).await?;
+    let (destinations, total, next_batch) = ctx.admin_federation_service.list_destinations(limit, cursor).await?;
 
     Ok(Json(json!({
         "destinations": destinations,
@@ -163,10 +163,10 @@ pub async fn get_destinations(
 #[axum::debug_handler]
 pub async fn get_destination(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    match state.services.admin.federation.admin_federation_service.get_destination(&destination).await? {
+    match ctx.admin_federation_service.get_destination(&destination).await? {
         Some(row) => Ok(Json(json!(row))),
         None => Err(ApiError::not_found("Destination not found".to_string())),
     }
@@ -175,31 +175,30 @@ pub async fn get_destination(
 #[axum::debug_handler]
 pub async fn reset_connection(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.federation.admin_federation_service.reset_connection(&destination).await?;
+    ctx.admin_federation_service.reset_connection(&destination).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn delete_destination(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.federation.admin_federation_service.delete_destination(&destination).await?;
+    ctx.admin_federation_service.delete_destination(&destination).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn get_destination_rooms(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(destination): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_list =
-        state.services.admin.federation.admin_federation_service.get_destination_rooms(&destination).await?;
+    let room_list = ctx.admin_federation_service.get_destination_rooms(&destination).await?;
 
     Ok(Json(json!({ "rooms": room_list, "total": room_list.len() })))
 }
@@ -207,18 +206,12 @@ pub async fn get_destination_rooms(
 #[axum::debug_handler]
 pub async fn rewrite_federation(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<RewriteRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let from_server = &body.from;
     let to_server = &body.to;
-    let rooms_count = state
-        .services
-        .admin
-        .federation
-        .admin_federation_service
-        .rewrite_federation(from_server, to_server, &admin.user_id)
-        .await?;
+    let rooms_count = ctx.admin_federation_service.rewrite_federation(from_server, to_server, &admin.user_id).await?;
 
     info!(
         "Federation rewrite from {} to {}: {} rooms affected by {}",
@@ -237,11 +230,11 @@ pub async fn rewrite_federation(
 #[axum::debug_handler]
 pub async fn resolve_federation(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<ResolveRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let server_name = &body.server_name;
-    let result = state.services.admin.federation.admin_federation_service.resolve_federation(server_name).await?;
+    let result = ctx.admin_federation_service.resolve_federation(server_name).await?;
 
     info!("Federation resolve for {}: resolved={}, blacklisted={}", server_name, result.resolved, result.blacklisted);
 
@@ -257,16 +250,11 @@ pub async fn resolve_federation(
 #[axum::debug_handler]
 pub async fn confirm_federation(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<ConfirmRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state
-        .services
-        .admin
-        .federation
-        .admin_federation_service
-        .confirm_federation(&body.server_name, body.accept, &admin.user_id)
-        .await?;
+    let result =
+        ctx.admin_federation_service.confirm_federation(&body.server_name, body.accept, &admin.user_id).await?;
 
     info!(
         "Federation admission {} for server '{}' by admin '{}'",
@@ -287,13 +275,12 @@ pub async fn confirm_federation(
 #[axum::debug_handler]
 pub async fn list_pending_federation(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<ListPendingQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).min(500);
     let cursor = decode_pending_federation_cursor(query.from.as_deref());
-    let (list, total, next_batch) =
-        state.services.admin.federation.admin_federation_service.list_pending_federation(limit, cursor).await?;
+    let (list, total, next_batch) = ctx.admin_federation_service.list_pending_federation(limit, cursor).await?;
     let next_batch = next_batch.as_ref().map(encode_pending_federation_cursor);
 
     Ok(Json(json!({
@@ -307,7 +294,7 @@ pub async fn list_pending_federation(
 #[axum::debug_handler]
 pub async fn get_blacklist(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<BlacklistQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(MIN_PAGINATION_LIMIT as i32, MAX_PAGINATION_LIMIT as i32);
@@ -317,8 +304,7 @@ pub async fn get_blacklist(
         return Err(ApiError::bad_request("Invalid from cursor".to_string()));
     }
 
-    let (blacklist, next_batch) =
-        state.services.admin.federation.federation_blacklist_service.get_blacklist(limit, from).await?;
+    let (blacklist, next_batch) = ctx.federation_blacklist_service.get_blacklist(limit, from).await?;
 
     let list: Vec<Value> = blacklist
         .iter()
@@ -341,32 +327,26 @@ pub async fn get_blacklist(
 #[axum::debug_handler]
 pub async fn add_to_blacklist(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.federation.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
+    ctx.admin_federation_service.add_to_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
 pub async fn remove_from_blacklist(
     admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(server_name): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state
-        .services
-        .admin
-        .federation
-        .admin_federation_service
-        .remove_from_blacklist(&server_name, &admin.user_id)
-        .await?;
+    ctx.admin_federation_service.remove_from_blacklist(&server_name, &admin.user_id).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
-pub async fn get_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let entries = state.services.admin.federation.admin_federation_service.get_federation_cache().await?;
+pub async fn get_federation_cache(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
+    let entries = ctx.admin_federation_service.get_federation_cache().await?;
 
     Ok(Json(json!({ "cache": entries, "total": entries.len() })))
 }
@@ -374,16 +354,19 @@ pub async fn get_federation_cache(_admin: AdminUser, State(state): State<AppStat
 #[axum::debug_handler]
 pub async fn delete_federation_cache_entry(
     _admin: AdminUser,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(key): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    state.services.admin.federation.admin_federation_service.delete_federation_cache_entry(&key).await?;
+    ctx.admin_federation_service.delete_federation_cache_entry(&key).await?;
     Ok(Json(json!({})))
 }
 
 #[axum::debug_handler]
-pub async fn clear_federation_cache(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let deleted = state.services.admin.federation.admin_federation_service.clear_federation_cache().await?;
+pub async fn clear_federation_cache(
+    _admin: AdminUser,
+    State(ctx): State<AdminContext>,
+) -> Result<Json<Value>, ApiError> {
+    let deleted = ctx.admin_federation_service.clear_federation_cache().await?;
     Ok(Json(json!({ "deleted": deleted })))
 }
 

@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
-use synapse_storage::ThreepidStorage;
+use synapse_storage::ThreepidStoreApi;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiaSession {
@@ -342,7 +342,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        threepid_storage: &ThreepidStorage,
+        threepid_storage: &dyn ThreepidStoreApi,
     ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
@@ -404,7 +404,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        threepid_storage: &ThreepidStorage,
+        threepid_storage: &dyn ThreepidStoreApi,
     ) -> Result<(), ApiError> {
         let threepid_creds = auth.get("threepidCreds").or_else(|| auth.get("threepid_creds"));
 
@@ -474,7 +474,7 @@ impl UiaService {
         user_id: &str,
         flows: Vec<UiaFlow>,
         auth_service: &Arc<dyn crate::auth::Auth>,
-        threepid_storage: &ThreepidStorage,
+        threepid_storage: &dyn ThreepidStoreApi,
     ) -> Result<(), Value> {
         let auth_val = match auth {
             None => {

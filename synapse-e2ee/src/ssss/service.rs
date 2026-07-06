@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
+#[cfg(test)]
+use synapse_common::ApiErrorKind;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 const SSSS_KEY_LENGTH: usize = 32;
@@ -331,7 +333,7 @@ impl SecretStorageService {
     }
 }
 
-fn compute_hmac(data: &str, key: &[u8]) -> [u8; 32] {
+pub(crate) fn compute_hmac(data: &str, key: &[u8]) -> [u8; 32] {
     let digest = synapse_common::crypto::hmac_sha256(key, data.as_bytes());
     let mut result = [0u8; 32];
     result.copy_from_slice(&digest[..32]);
@@ -343,18 +345,90 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore]
-    async fn test_create_key() {
-        let pool = sqlx::PgPool::connect(
-            &std::env::var("TEST_DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string()),
-        )
-        .await
-        .expect("Failed to connect to test database");
+    async fn test_create_key_aes_hmac_sha2() {
+        // create_key is a pure cryptographic operation that does not touch the
+        // database, so a lazy (non-connecting) pool is sufficient.
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+        let pool = sqlx::PgPool::connect_lazy(&database_url).expect("connect_lazy should not perform I/O");
         let storage = SecretStorage::new(&pool);
         let service = SecretStorageService::new(storage);
 
         let result = service.create_key("@test:example.com", "aes-hmac-sha2");
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "aes-hmac-sha2 key creation should succeed: {:?}", result.err());
+
+        let key = result.unwrap();
+        assert!(!key.key_id.is_empty(), "key_id must be populated");
+        assert_eq!(key.algorithm, "aes-hmac-sha2");
+        // iv and mac are Some for the AES-HMAC variant
+        assert!(key.iv.is_some(), "iv must be populated for aes-hmac-sha2");
+        assert!(key.mac.is_some(), "mac must be populated for aes-hmac-sha2");
+        // Verify the inner key is the AesHmacSha2 variant
+        assert!(matches!(key.key, SecretStorageKeyCreationKey::AesHmacSha2(_)), "expected AesHmacSha2 key variant");
+    }
+
+    #[tokio::test]
+    async fn test_create_key_curve25519() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+        let pool = sqlx::PgPool::connect_lazy(&database_url).expect("connect_lazy should not perform I/O");
+        let storage = SecretStorage::new(&pool);
+        let service = SecretStorageService::new(storage);
+
+        let result = service.create_key("@test:example.com", "org.matrix.msc2697.v1.curve25519-aes-sha2");
+        assert!(result.is_ok(), "curve25519 key creation should succeed: {:?}", result.err());
+
+        let key = result.unwrap();
+        assert!(!key.key_id.is_empty(), "key_id must be populated");
+        assert_eq!(key.algorithm, "org.matrix.msc2697.v1.curve25519-aes-sha2");
+    }
+
+    #[tokio::test]
+    async fn test_create_key_unsupported_algorithm() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:5432/synapse_test".to_string());
+        let pool = sqlx::PgPool::connect_lazy(&database_url).expect("connect_lazy should not perform I/O");
+        let storage = SecretStorage::new(&pool);
+        let service = SecretStorageService::new(storage);
+
+        let result = service.create_key("@test:example.com", "unknown-algorithm");
+        assert!(result.is_err(), "unsupported algorithm should fail");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, ApiErrorKind::BadRequest, "expected BadRequest kind");
+        assert!(err.message.contains("Unsupported secret storage algorithm"), "unexpected message: {}", err.message);
+    }
+
+    // ── compute_hmac ─────────────────────────────────────────────────
+
+    #[test]
+    fn compute_hmac_produces_32_bytes() {
+        let key = [0x42u8; 32];
+        let result = compute_hmac("test data", &key);
+        assert_eq!(result.len(), 32);
+    }
+
+    #[test]
+    fn compute_hmac_is_deterministic() {
+        let key = [0xABu8; 32];
+        let a = compute_hmac("hello", &key);
+        let b = compute_hmac("hello", &key);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn compute_hmac_different_data_produces_different_output() {
+        let key = [0x01u8; 32];
+        let a = compute_hmac("alpha", &key);
+        let b = compute_hmac("beta", &key);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn compute_hmac_different_key_produces_different_output() {
+        let key_a = [0xAAu8; 32];
+        let key_b = [0xBBu8; 32];
+        let a = compute_hmac("data", &key_a);
+        let b = compute_hmac("data", &key_b);
+        assert_ne!(a, b);
     }
 }

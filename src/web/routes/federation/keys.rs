@@ -75,8 +75,13 @@ pub(super) async fn keys_claim(
             .cloned()
             .collect();
 
-        let allowed_local_users =
-            state.services.rooms.room_service.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
+        let allowed_local_users = state
+            .services
+            .rooms
+            .room_service
+            .membership
+            .filter_users_sharing_room_with_server(&local_users, &auth.origin)
+            .await?;
 
         one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -120,8 +125,13 @@ pub(super) async fn keys_query(
             .cloned()
             .collect();
 
-        let allowed_local_users =
-            state.services.rooms.room_service.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
+        let allowed_local_users = state
+            .services
+            .rooms
+            .room_service
+            .membership
+            .filter_users_sharing_room_with_server(&local_users, &auth.origin)
+            .await?;
 
         device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }

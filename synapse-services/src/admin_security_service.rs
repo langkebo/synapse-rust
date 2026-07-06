@@ -1,8 +1,8 @@
-use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_common::ApiError;
-use synapse_storage::{RateLimitStorage, UserStore};
+use synapse_storage::rate_limit::RateLimitStoreApi;
+use synapse_storage::UserStore;
 use tracing::instrument;
 
 #[derive(Debug, Clone)]
@@ -13,13 +13,17 @@ pub struct UserRateLimit {
 
 pub struct AdminSecurityService {
     user_storage: Arc<dyn UserStore>,
-    rate_limit_storage: RateLimitStorage,
+    rate_limit_storage: Arc<dyn RateLimitStoreApi>,
     cache: Arc<CacheManager>,
 }
 
 impl AdminSecurityService {
-    pub fn new(user_storage: Arc<dyn UserStore>, cache: Arc<CacheManager>, pool: &Arc<PgPool>) -> Self {
-        Self { user_storage, rate_limit_storage: RateLimitStorage::new(pool), cache }
+    pub fn new(
+        user_storage: Arc<dyn UserStore>,
+        rate_limit_storage: Arc<dyn RateLimitStoreApi>,
+        cache: Arc<CacheManager>,
+    ) -> Self {
+        Self { user_storage, rate_limit_storage, cache }
     }
 
     #[instrument(skip(self))]
@@ -77,5 +81,53 @@ impl AdminSecurityService {
             .await
             .map_err(|e| ApiError::internal_with_log("Database error", &e))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use synapse_storage::test_mocks::{InMemoryRateLimitStore, SharedFakeUserStore};
+
+    fn fake_user_store() -> SharedFakeUserStore {
+        Arc::new(synapse_storage::test_mocks::FakeUserStore::new())
+    }
+
+    fn fake_cache() -> Arc<CacheManager> {
+        Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default()))
+    }
+
+    fn test_service() -> AdminSecurityService {
+        AdminSecurityService::new(fake_user_store(), Arc::new(InMemoryRateLimitStore::new()), fake_cache())
+    }
+
+    #[tokio::test]
+    async fn get_rate_limit_returns_defaults_for_unknown_user() {
+        let svc = test_service();
+        let limit = svc.get_user_rate_limit("@unknown:example.com").await.unwrap();
+        assert_eq!(limit.messages_per_second, 5.0);
+        assert_eq!(limit.burst_count, 10);
+    }
+
+    #[tokio::test]
+    async fn set_and_get_rate_limit() {
+        let svc = test_service();
+        let set = svc.set_user_rate_limit("@alice:example.com", 20.0, 15).await.unwrap();
+        assert_eq!(set.messages_per_second, 20.0);
+        assert_eq!(set.burst_count, 15);
+
+        let got = svc.get_user_rate_limit("@alice:example.com").await.unwrap();
+        assert_eq!(got.messages_per_second, 20.0);
+        assert_eq!(got.burst_count, 15);
+    }
+
+    #[tokio::test]
+    async fn delete_rate_limit_resets_to_defaults() {
+        let svc = test_service();
+        svc.set_user_rate_limit("@alice:example.com", 20.0, 15).await.unwrap();
+        svc.delete_user_rate_limit("@alice:example.com").await.unwrap();
+        let limit = svc.get_user_rate_limit("@alice:example.com").await.unwrap();
+        assert_eq!(limit.messages_per_second, 5.0);
+        assert_eq!(limit.burst_count, 10);
     }
 }

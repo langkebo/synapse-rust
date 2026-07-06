@@ -32,6 +32,7 @@ mod api_rendezvous_routes_tests;
 mod api_room_summary_routes_tests;
 mod api_room_sync_tests;
 mod api_route_ledger_tests;
+mod api_route_snapshots_tests;
 mod api_search_thread_tests;
 mod api_security_headers_tests;
 mod api_space_routes_tests;
@@ -299,6 +300,183 @@ pub async fn setup_test_app_with_pool(
         let cache = state.cache.clone();
         (app.clone(), pool, cache)
     })
+}
+
+// ============================================================================
+// DB Isolation Infrastructure (Phase 4 — TestContext + setup_fresh_test_app)
+// ============================================================================
+//
+// Project memory mandates:
+// - "Integration tests must use TestContext for isolated database environments"
+// - "Test database connections must use acquire_with_retry with exponential backoff"
+// - "Destructive tests (e.g., DROP TABLE) must use SerialGuard for mutual exclusion"
+// - "Test setup must use setup_fresh_test_app() instead of setup_test_app()"
+//
+// These utilities provide per-test isolated schema pools (via
+// prepare_shared_test_pool / prepare_isolated_test_pool), bypassing the
+// OnceCell-cached DEFAULT_APP that causes parallel test data interference.
+
+/// Per-test isolated context: owns a fresh app + state + pool, each backed by
+/// a unique schema cloned from the template. Dropping the context closes the
+/// pool; schema orphaning is acceptable (PostgreSQL reclaims via namespace +
+/// PID naming in `next_test_schema_name`).
+///
+/// Usage:
+/// ```ignore
+/// #[tokio::test]
+/// async fn my_test() {
+///     let Some(ctx) = TestContext::new().await else { return };
+///     let app = &ctx.app;
+///     // ... test body ...
+/// }
+/// ```
+pub struct TestContext {
+    pub app: axum::Router,
+    pub state: synapse_rust::web::routes::state::AppState,
+    pub pool: Arc<sqlx::PgPool>,
+}
+
+impl TestContext {
+    /// Create a new isolated context using the shared template clone path
+    /// (fast — ~100x faster than re-running migrations).
+    pub async fn new() -> Option<Self> {
+        Self::build(false).await
+    }
+
+    /// Create a new isolated context using the isolated migration path (slow,
+    /// runs all migrations from scratch). Use for tests that modify schema.
+    pub async fn new_isolated() -> Option<Self> {
+        Self::build(true).await
+    }
+
+    async fn build(isolated: bool) -> Option<Self> {
+        let pool = if isolated {
+            synapse_rust::test_utils::prepare_isolated_test_pool().await.ok()?
+        } else {
+            synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?
+        };
+        let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
+        let container =
+            synapse_services::ServiceContainer::new_test_with_pool_and_cache(pool.clone(), cache.clone()).await;
+        let state = synapse_rust::web::routes::state::AppState::new(container, cache);
+        let app = synapse_rust::web::create_router(state.clone());
+        Some(Self { app, state, pool })
+    }
+}
+
+/// Build a fresh test app with an isolated schema pool, bypassing the OnceCell
+/// cache. Each call returns a NEW app + state + pool, so tests do not share data.
+///
+/// This is the mandated replacement for `setup_test_app()` per project memory:
+/// "Test setup must use setup_fresh_test_app() instead of setup_test_app() to
+/// ensure isolated AppState and CacheManager".
+pub async fn setup_fresh_test_app() -> Option<axum::Router> {
+    TestContext::new().await.map(|ctx| ctx.app)
+}
+
+/// Build a fresh test app with state, bypassing the OnceCell cache.
+pub async fn setup_fresh_test_app_with_state() -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)> {
+    TestContext::new().await.map(|ctx| (ctx.app, ctx.state))
+}
+
+/// Build a fresh test app with an isolated schema (runs migrations from scratch).
+/// Use for destructive tests that modify schema (DROP TABLE, ALTER, etc.).
+pub async fn setup_fresh_isolated_test_app() -> Option<axum::Router> {
+    TestContext::new_isolated().await.map(|ctx| ctx.app)
+}
+
+/// Build a fresh test app with pool + cache, bypassing the OnceCell cache.
+/// Drop-in replacement for `setup_test_app_with_pool()` — same return shape
+/// `(Router, Arc<PgPool>, Arc<CacheManager>)` but each call gets an isolated schema.
+pub async fn setup_fresh_test_app_with_pool(
+) -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<synapse_rust::cache::CacheManager>)> {
+    let ctx = TestContext::new().await?;
+    let cache = ctx.state.cache.clone();
+    Some((ctx.app, ctx.pool, cache))
+}
+
+/// Build a fresh test app with custom container configuration, bypassing the
+/// OnceCell cache. Drop-in replacement for `setup_test_app_with_config()` —
+/// same signature but uses an isolated schema pool instead of `get_test_pool()`.
+pub async fn setup_fresh_test_app_with_config<F>(
+    configure: F,
+) -> Option<(axum::Router, synapse_rust::web::routes::state::AppState)>
+where
+    F: FnOnce(&mut synapse_services::ServiceContainer),
+{
+    use synapse_rust::cache::{CacheConfig, CacheManager};
+    use synapse_rust::web::routes::state::AppState;
+    use synapse_services::ServiceContainer;
+
+    let pool = synapse_rust::test_utils::prepare_shared_test_pool().await.ok()?;
+    let cache = std::sync::Arc::new(CacheManager::new(&CacheConfig::default()));
+    let mut container = ServiceContainer::new_test_with_pool_and_cache(pool, cache.clone()).await;
+    configure(&mut container);
+    let state = AppState::new(container, cache);
+    let app = synapse_rust::web::create_router(state.clone());
+    Some((app, state))
+}
+
+/// Retry a pool-acquiring operation with exponential backoff. Handles
+/// PoolTimedOut and PoolClosed errors by retrying up to 5 times.
+///
+/// Project memory: "Test database connections must use acquire_with_retry
+/// with exponential backoff to handle connection pool contention".
+///
+/// Usage:
+/// ```ignore
+/// let pool = ctx.pool.clone();
+/// let result: sqlx::Result<i64> = acquire_with_retry(|| async move {
+///     sqlx::query_scalar("SELECT 1").fetch_one(&*pool).await
+/// }).await;
+/// ```
+pub async fn acquire_with_retry<F, Fut, T>(op: F) -> Result<T, sqlx::Error>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T, sqlx::Error>>,
+{
+    let mut delay = std::time::Duration::from_millis(100);
+    let max_attempts = 5;
+    for attempt in 0..max_attempts {
+        match op().await {
+            Ok(result) => return Ok(result),
+            Err(ref e) if attempt < max_attempts - 1 && is_retryable_pool_error(e) => {
+                eprintln!("acquire_with_retry: attempt {} failed with {}, retrying after {:?}", attempt + 1, e, delay);
+                tokio::time::sleep(delay).await;
+                delay = delay.saturating_mul(2);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+
+fn is_retryable_pool_error(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed) || error.to_string().contains("connection")
+}
+
+/// Mutual exclusion guard for destructive tests (DROP TABLE, TRUNCATE, etc.)
+/// that cannot run in parallel with other tests.
+///
+/// Project memory: "Destructive tests (e.g., DROP TABLE) must use SerialGuard
+/// for mutual exclusion".
+///
+/// Usage:
+/// ```ignore
+/// #[tokio::test]
+/// async fn destructive_test() {
+///     let _guard = serial_guard().await;
+///     // ... destructive operations ...
+/// }
+/// ```
+static SERIAL_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+pub struct SerialGuard {
+    _guard: tokio::sync::MutexGuard<'static, ()>,
+}
+
+pub async fn serial_guard() -> SerialGuard {
+    SerialGuard { _guard: SERIAL_TEST_LOCK.lock().await }
 }
 
 pub async fn get_admin_token(app: &axum::Router) -> (String, String) {

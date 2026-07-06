@@ -8,7 +8,7 @@ use serde_json::Value;
 use synapse_rust::e2ee::signed_json::{canonical_json_bytes, remove_signatures_and_unsigned};
 use tower::ServiceExt;
 
-use crate::{get_admin_token, setup_test_app};
+use crate::{get_admin_token, setup_fresh_test_app};
 
 fn matrix_signature(value: &Value, signing_key: &SigningKey) -> String {
     let mut json_for_signing = value.clone();
@@ -30,7 +30,7 @@ fn attach_matrix_signature(value: &mut Value, signer_user_id: &str, key_id: &str
 /// 验证：用户可以创建密钥备份、存储会话密钥、恢复备份
 #[tokio::test]
 async fn test_e2ee_key_backup_lifecycle() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -233,7 +233,7 @@ async fn test_e2ee_key_backup_lifecycle() {
 /// 验证：用户可以上传 master/self-signing/user-signing keys，并进行交叉签名
 #[tokio::test]
 async fn test_e2ee_cross_signing_flow() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -472,7 +472,7 @@ async fn test_e2ee_cross_signing_flow() {
 /// 验证：错误的密码被拒绝，不存在的备份返回 404
 #[tokio::test]
 async fn test_e2ee_key_backup_error_handling() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 

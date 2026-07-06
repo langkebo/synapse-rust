@@ -579,4 +579,83 @@ mod tests {
         let result = hash_token_legacy("");
         assert!(!result.is_empty(), "legacy hash of empty string must still produce output");
     }
+
+    // ── decode_base64_32 ─────────────────────────────────────────────
+
+    #[test]
+    fn decode_base64_32_standard_padded() {
+        // "A" * 32 bytes → base64 with padding
+        let result = decode_base64_32("QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), [b'A'; 32]);
+    }
+
+    #[test]
+    fn decode_base64_32_standard_no_pad() {
+        let result = decode_base64_32("QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), [b'A'; 32]);
+    }
+
+    #[test]
+    fn decode_base64_32_url_safe() {
+        // 32 bytes where the standard encoding would produce '+' and '/'
+        // \xFB\xFF... produces -/_ in URL-safe encoding
+        let mut bytes = [0u8; 32];
+        bytes[0] = 0xFB;
+        bytes[1] = 0xFF;
+        let encoded = URL_SAFE_NO_PAD.encode(bytes);
+        let result = decode_base64_32(&encoded);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), bytes);
+    }
+
+    #[test]
+    fn decode_base64_32_wrong_length() {
+        // "A" * 31 bytes → base64 will decode to 31 bytes, not 32
+        let result = decode_base64_32("QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQ");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn decode_base64_32_empty() {
+        let result = decode_base64_32("");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn decode_base64_32_invalid() {
+        let result = decode_base64_32("!!!invalid!!!");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn decode_base64_32_trims_whitespace() {
+        let result = decode_base64_32(" QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE= ");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), [b'A'; 32]);
+    }
+
+    // ── encode_hex / decode_hex ──────────────────────────────────────
+
+    #[test]
+    fn encode_hex_roundtrip() {
+        let data = [0x00u8, 0xFF, 0xAB, 0x12];
+        let encoded = encode_hex(data);
+        assert_eq!(encoded, "00ffab12");
+        let decoded = decode_hex(&encoded).unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn decode_hex_invalid() {
+        let result = decode_hex("xyz");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn encode_hex_empty() {
+        let result = encode_hex([]);
+        assert!(result.is_empty());
+    }
 }

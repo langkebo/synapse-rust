@@ -2,3 +2,13 @@
 fail-fast = false
 retries = 2
 flaky-result = "fail"
+
+# P4-3: TDD profile for fast Red-Green-Refactor cycles.
+# Usage: cargo nextest run -p <crate> <test_name> -P tdd
+# - fail-fast=true: stop on first failure (RED should be immediate)
+# - retries=0: no flaky masking; if RED fails, it fails now
+# - flaky-result=fail: treat flaky as failure (don't hide real bugs)
+[profile.tdd]
+fail-fast = true
+retries = 0
+flaky-result = "fail"

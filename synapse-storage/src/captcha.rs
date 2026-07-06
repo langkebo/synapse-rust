@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
@@ -103,6 +104,31 @@ pub struct CreateSendLogRequest {
     pub provider: Option<String>,
     pub provider_response: Option<String>,
 }
+
+// ── Trait ───────────────────────────────────────────────────────────────
+
+#[async_trait]
+pub trait CaptchaStoreApi: Send + Sync {
+    async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError>;
+    async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError>;
+    async fn get_latest_captcha(
+        &self,
+        target: &str,
+        captcha_type: &str,
+    ) -> Result<Option<RegistrationCaptcha>, ApiError>;
+    async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError>;
+    async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError>;
+    async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError>;
+    async fn check_rate_limit(&self, target: &str, captcha_type: &str, max_per_hour: i32) -> Result<bool, ApiError>;
+    async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError>;
+    async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError>;
+    async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError>;
+    async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError>;
+    async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError>;
+    async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError>;
+}
+
+// ── Postgres implementation ─────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct CaptchaStorage {
@@ -376,6 +402,55 @@ impl CaptchaStorage {
 
         info!("Cleaned up {} expired captchas", result.rows_affected());
         Ok(result.rows_affected())
+    }
+}
+
+// ── Delegation impl ─────────────────────────────────────────────────────
+
+#[async_trait]
+impl CaptchaStoreApi for CaptchaStorage {
+    async fn create_captcha(&self, request: CreateCaptchaRequest) -> Result<RegistrationCaptcha, ApiError> {
+        self.create_captcha(request).await
+    }
+    async fn get_captcha(&self, captcha_id: &str) -> Result<Option<RegistrationCaptcha>, ApiError> {
+        self.get_captcha(captcha_id).await
+    }
+    async fn get_latest_captcha(
+        &self,
+        target: &str,
+        captcha_type: &str,
+    ) -> Result<Option<RegistrationCaptcha>, ApiError> {
+        self.get_latest_captcha(target, captcha_type).await
+    }
+    async fn verify_captcha(&self, captcha_id: &str, code: &str) -> Result<bool, ApiError> {
+        self.verify_captcha(captcha_id, code).await
+    }
+    async fn invalidate_captcha(&self, captcha_id: &str) -> Result<(), ApiError> {
+        self.invalidate_captcha(captcha_id).await
+    }
+    async fn create_send_log(&self, request: CreateSendLogRequest) -> Result<CaptchaSendLog, ApiError> {
+        self.create_send_log(request).await
+    }
+    async fn check_rate_limit(&self, target: &str, captcha_type: &str, max_per_hour: i32) -> Result<bool, ApiError> {
+        self.check_rate_limit(target, captcha_type, max_per_hour).await
+    }
+    async fn check_ip_rate_limit(&self, ip_address: &str, max_per_hour: i32) -> Result<bool, ApiError> {
+        self.check_ip_rate_limit(ip_address, max_per_hour).await
+    }
+    async fn get_template(&self, template_name: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
+        self.get_template(template_name).await
+    }
+    async fn get_default_template(&self, captcha_type: &str) -> Result<Option<CaptchaTemplate>, ApiError> {
+        self.get_default_template(captcha_type).await
+    }
+    async fn get_config(&self, config_key: &str) -> Result<Option<String>, ApiError> {
+        self.get_config(config_key).await
+    }
+    async fn get_config_as_int(&self, config_key: &str, default: i32) -> Result<i32, ApiError> {
+        self.get_config_as_int(config_key, default).await
+    }
+    async fn cleanup_expired_captchas(&self) -> Result<u64, ApiError> {
+        self.cleanup_expired_captchas().await
     }
 }
 

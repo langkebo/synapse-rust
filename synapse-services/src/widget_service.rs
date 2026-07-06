@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use synapse_common::error::ApiError;
-use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage};
+use synapse_storage::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStoreApi};
 use tracing::info;
 use uuid::Uuid;
 
@@ -61,11 +61,11 @@ pub struct SessionListResponse {
 }
 
 pub struct WidgetService {
-    storage: Arc<WidgetStorage>,
+    storage: Arc<dyn WidgetStoreApi>,
 }
 
 impl WidgetService {
-    pub fn new(storage: Arc<WidgetStorage>) -> Self {
+    pub fn new(storage: Arc<dyn WidgetStoreApi>) -> Self {
         Self { storage }
     }
 

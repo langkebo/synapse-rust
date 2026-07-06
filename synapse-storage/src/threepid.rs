@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -45,6 +46,28 @@ pub struct ThreepidValidationSession {
 #[derive(Clone)]
 pub struct ThreepidStorage {
     pool: Arc<PgPool>,
+}
+
+#[async_trait]
+pub trait ThreepidStoreApi: Send + Sync {
+    async fn get_verified_threepid_by_address(
+        &self,
+        medium: &str,
+        address: &str,
+    ) -> Result<Option<UserThreepid>, ApiError>;
+
+    async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError>;
+
+    async fn add_verified_threepid(
+        &self,
+        user_id: &str,
+        medium: &str,
+        address: &str,
+        validated_at: i64,
+        added_ts: i64,
+    ) -> Result<u64, ApiError>;
+
+    async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError>;
 }
 
 impl ThreepidStorage {
@@ -465,6 +488,36 @@ impl ThreepidStorage {
             .await
             .map(|r| r.rows_affected())
             .map_err(|e| ApiError::internal_with_log("Failed to cleanup sessions", &e))
+    }
+}
+
+#[async_trait]
+impl ThreepidStoreApi for ThreepidStorage {
+    async fn get_verified_threepid_by_address(
+        &self,
+        medium: &str,
+        address: &str,
+    ) -> Result<Option<UserThreepid>, ApiError> {
+        self.get_verified_threepid_by_address(medium, address).await
+    }
+
+    async fn get_threepids_by_user(&self, user_id: &str) -> Result<Vec<UserThreepid>, ApiError> {
+        self.get_threepids_by_user(user_id).await
+    }
+
+    async fn add_verified_threepid(
+        &self,
+        user_id: &str,
+        medium: &str,
+        address: &str,
+        validated_at: i64,
+        added_ts: i64,
+    ) -> Result<u64, ApiError> {
+        self.add_verified_threepid(user_id, medium, address, validated_at, added_ts).await
+    }
+
+    async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
+        self.remove_threepid(user_id, medium, address).await
     }
 }
 

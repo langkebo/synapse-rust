@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -20,6 +21,17 @@ pub struct CreateOpenIdTokenRequest {
     pub user_id: String,
     pub device_id: Option<String>,
     pub expires_at: i64,
+}
+
+#[async_trait]
+pub trait OpenIdTokenStoreApi {
+    async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError>;
+    async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;
+    async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;
+    async fn revoke_token(&self, token: &str) -> Result<bool, ApiError>;
+    async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError>;
+    async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError>;
+    async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError>;
 }
 
 #[derive(Clone)]
@@ -153,6 +165,37 @@ impl OpenIdTokenStorage {
         .map_err(|e| ApiError::internal_with_log("Failed to get user OpenID tokens", &e))?;
 
         Ok(tokens)
+    }
+}
+
+#[async_trait]
+impl OpenIdTokenStoreApi for OpenIdTokenStorage {
+    async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError> {
+        self.create_token(request).await
+    }
+
+    async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
+        self.get_token(token).await
+    }
+
+    async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError> {
+        self.validate_token(token).await
+    }
+
+    async fn revoke_token(&self, token: &str) -> Result<bool, ApiError> {
+        self.revoke_token(token).await
+    }
+
+    async fn revoke_user_tokens(&self, user_id: &str) -> Result<u64, ApiError> {
+        self.revoke_user_tokens(user_id).await
+    }
+
+    async fn cleanup_expired_tokens(&self) -> Result<u64, ApiError> {
+        self.cleanup_expired_tokens().await
+    }
+
+    async fn get_tokens_by_user(&self, user_id: &str) -> Result<Vec<OpenIdToken>, ApiError> {
+        self.get_tokens_by_user(user_id).await
     }
 }
 

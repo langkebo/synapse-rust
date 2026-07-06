@@ -139,14 +139,14 @@ pub struct ServiceHealthStatus {
 }
 
 pub struct ExternalServiceIntegration {
-    storage: Arc<ApplicationServiceStorage>,
+    storage: Arc<dyn ApplicationServiceStoreApi>,
     http_client: Client,
     server_name: String,
     health_status: Arc<tokio::sync::RwLock<HashMap<String, ServiceHealthStatus>>>,
 }
 
 impl ExternalServiceIntegration {
-    pub fn new(storage: Arc<ApplicationServiceStorage>, server_name: String) -> Self {
+    pub fn new(storage: Arc<dyn ApplicationServiceStoreApi>, server_name: String) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))

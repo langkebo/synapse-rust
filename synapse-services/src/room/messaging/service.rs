@@ -9,7 +9,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::signing::sign_and_hash_event;
-use synapse_storage::event::RoomEvent;
+use synapse_storage::event::{EventStoreApi, RoomEvent};
+use synapse_storage::membership::MemberStoreApi;
+use synapse_storage::relations::RelationsStoreApi;
+use synapse_storage::room::RoomStoreApi;
 use tokio::sync::RwLock;
 
 use crate::room::summary::RoomSummaryService;
@@ -18,9 +21,9 @@ use crate::room::summary::RoomSummaryService;
 /// read markers, burn-after-read, and federation broadcast.
 #[derive(Clone)]
 pub struct MessagingService {
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) event_storage: Arc<dyn EventStoreApi>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
+    pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub(crate) server_name: String,
     #[cfg(feature = "beacons")]
     pub(crate) beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
@@ -30,7 +33,7 @@ pub struct MessagingService {
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
-    pub(crate) relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
+    pub(crate) relations_storage: Arc<dyn RelationsStoreApi>,
     /// Application service manager for dispatching events to bridges.
     pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     /// Server signing key manager for signing locally-produced PDUs.
@@ -41,16 +44,16 @@ pub struct MessagingService {
 
 /// Configuration for constructing a [`MessagingService`].
 pub struct MessagingServiceConfig {
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub event_storage: Arc<dyn EventStoreApi>,
+    pub room_storage: Arc<dyn RoomStoreApi>,
+    pub member_storage: Arc<dyn MemberStoreApi>,
     pub server_name: String,
     #[cfg(feature = "beacons")]
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
+    pub relations_storage: Arc<dyn RelationsStoreApi>,
     pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
     pub app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
     pub key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,

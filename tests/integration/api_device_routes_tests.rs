@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tower::ServiceExt;
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {

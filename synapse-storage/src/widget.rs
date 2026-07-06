@@ -2,6 +2,7 @@
 // Implements embedded application support for Matrix rooms
 // Following project field naming standards
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -53,6 +54,48 @@ pub struct WidgetSession {
     pub last_active_ts: Option<i64>,
     pub expires_at: Option<i64>,
     pub is_active: bool,
+}
+
+#[async_trait]
+pub trait WidgetStoreApi: Send + Sync {
+    async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error>;
+    async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, sqlx::Error>;
+    async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, sqlx::Error>;
+    async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, sqlx::Error>;
+    async fn update_widget(
+        &self,
+        widget_id: &str,
+        url: Option<&str>,
+        name: Option<&str>,
+        data: Option<&serde_json::Value>,
+    ) -> Result<Option<Widget>, sqlx::Error>;
+    async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error>;
+    async fn set_widget_permission(
+        &self,
+        widget_id: &str,
+        user_id: &str,
+        permissions: serde_json::Value,
+    ) -> Result<WidgetPermission, sqlx::Error>;
+    async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error>;
+    async fn get_user_widget_permission(
+        &self,
+        widget_id: &str,
+        user_id: &str,
+    ) -> Result<Option<WidgetPermission>, sqlx::Error>;
+    async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn create_session(
+        &self,
+        session_id: &str,
+        widget_id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_in_ms: Option<i64>,
+    ) -> Result<WidgetSession, sqlx::Error>;
+    async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error>;
+    async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error>;
+    async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error>;
+    async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error>;
+    async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -350,6 +393,80 @@ impl WidgetStorage {
         .await?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl WidgetStoreApi for WidgetStorage {
+    async fn create_widget(&self, params: CreateWidgetParams) -> Result<Widget, sqlx::Error> {
+        self.create_widget(params).await
+    }
+    async fn get_widget(&self, widget_id: &str) -> Result<Option<Widget>, sqlx::Error> {
+        self.get_widget(widget_id).await
+    }
+    async fn get_room_widgets(&self, room_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
+        self.get_room_widgets(room_id).await
+    }
+    async fn get_user_widgets(&self, user_id: &str) -> Result<Vec<Widget>, sqlx::Error> {
+        self.get_user_widgets(user_id).await
+    }
+    async fn update_widget(
+        &self,
+        widget_id: &str,
+        url: Option<&str>,
+        name: Option<&str>,
+        data: Option<&serde_json::Value>,
+    ) -> Result<Option<Widget>, sqlx::Error> {
+        self.update_widget(widget_id, url, name, data).await
+    }
+    async fn delete_widget(&self, widget_id: &str) -> Result<bool, sqlx::Error> {
+        self.delete_widget(widget_id).await
+    }
+    async fn set_widget_permission(
+        &self,
+        widget_id: &str,
+        user_id: &str,
+        permissions: serde_json::Value,
+    ) -> Result<WidgetPermission, sqlx::Error> {
+        self.set_widget_permission(widget_id, user_id, permissions).await
+    }
+    async fn get_widget_permissions(&self, widget_id: &str) -> Result<Vec<WidgetPermission>, sqlx::Error> {
+        self.get_widget_permissions(widget_id).await
+    }
+    async fn get_user_widget_permission(
+        &self,
+        widget_id: &str,
+        user_id: &str,
+    ) -> Result<Option<WidgetPermission>, sqlx::Error> {
+        self.get_user_widget_permission(widget_id, user_id).await
+    }
+    async fn delete_widget_permission(&self, widget_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.delete_widget_permission(widget_id, user_id).await
+    }
+    async fn create_session(
+        &self,
+        session_id: &str,
+        widget_id: &str,
+        user_id: &str,
+        device_id: Option<&str>,
+        expires_in_ms: Option<i64>,
+    ) -> Result<WidgetSession, sqlx::Error> {
+        self.create_session(session_id, widget_id, user_id, device_id, expires_in_ms).await
+    }
+    async fn get_session(&self, session_id: &str) -> Result<Option<WidgetSession>, sqlx::Error> {
+        self.get_session(session_id).await
+    }
+    async fn update_session_activity(&self, session_id: &str) -> Result<bool, sqlx::Error> {
+        self.update_session_activity(session_id).await
+    }
+    async fn terminate_session(&self, session_id: &str) -> Result<bool, sqlx::Error> {
+        self.terminate_session(session_id).await
+    }
+    async fn get_widget_sessions(&self, widget_id: &str) -> Result<Vec<WidgetSession>, sqlx::Error> {
+        self.get_widget_sessions(widget_id).await
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_sessions().await
     }
 }
 

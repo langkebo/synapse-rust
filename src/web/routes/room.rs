@@ -328,7 +328,7 @@ async fn get_anti_screenshot(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
     let events: Vec<serde_json::Value> =
-        state.services.rooms.room_service.get_state_events_by_type(&room_id, "com.hula.privacy").await?;
+        state.services.rooms.room_service.messaging.get_state_events_by_type(&room_id, "com.hula.privacy").await?;
 
     let enabled = events
         .into_iter()
@@ -354,6 +354,7 @@ async fn set_anti_screenshot(
         .services
         .rooms
         .room_service
+        .messaging
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),

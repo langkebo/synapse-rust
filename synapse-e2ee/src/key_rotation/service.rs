@@ -3,6 +3,7 @@
 
 use crate::megolm::{MegolmProvider, MegolmSession};
 use crate::olm::OlmService;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -258,6 +259,20 @@ impl KeyRotationService {
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
         self.storage.get_rooms_needing_key_rotation(user_id).await
     }
+}
+
+#[async_trait]
+pub trait KeyRotationStorageApi: Send + Sync {
+    async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError>;
+    async fn get_device_rotation_history(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError>;
+    async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError>;
+    async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError>;
+    async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError>;
+    async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError>;
 }
 
 #[derive(Clone)]
@@ -635,5 +650,36 @@ impl KeyRotationStorage {
             .flatten();
 
         Ok(result)
+    }
+}
+
+#[async_trait]
+impl KeyRotationStorageApi for KeyRotationStorage {
+    async fn get_user_last_rotation_ts(&self, user_id: &str) -> Result<Option<i64>, ApiError> {
+        self.get_user_last_rotation_ts(user_id).await
+    }
+
+    async fn get_device_rotation_history(
+        &self,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Vec<(Option<String>, Option<i64>)>, ApiError> {
+        self.get_device_rotation_history(user_id, device_id).await
+    }
+
+    async fn set_rotation_config(&self, key: &str, value: &str) -> Result<(), ApiError> {
+        self.set_rotation_config(key, value).await
+    }
+
+    async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError> {
+        self.get_rotation_config(key).await
+    }
+
+    async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError> {
+        self.get_last_rotation_for_key(user_id, key_id).await
+    }
+
+    async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
+        self.get_max_rotation_ts(user_id).await
     }
 }

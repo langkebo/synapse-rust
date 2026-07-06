@@ -252,23 +252,159 @@ mod tests {
         assert!(base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(&secret1).is_ok());
     }
 
-    // DB-dependent tests marked with #[ignore]
+    // ===== Database-dependent tests =====
+    //
+    // These tests use `prepare_empty_isolated_test_pool()` to get an isolated
+    // PostgreSQL schema. The schema starts empty, so each test creates the
+    // `oauth_clients` table matching the unified migration before running.
+
+    use sqlx::PgPool;
+    use std::sync::Arc;
+
+    async fn get_test_pool() -> Option<Arc<PgPool>> {
+        match crate::test_utils::prepare_empty_isolated_test_pool().await {
+            Ok(pool) => Some(pool),
+            Err(error) => {
+                tracing::warn!("Skipping oauth_client DB test because test database is unavailable: {error}");
+                None
+            }
+        }
+    }
+
+    async fn setup_oauth_client_db(pool: &Arc<PgPool>) {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS oauth_clients (
+                client_id TEXT NOT NULL PRIMARY KEY,
+                client_secret TEXT NOT NULL,
+                client_name TEXT,
+                redirect_uris JSONB NOT NULL DEFAULT '[]',
+                grant_types JSONB NOT NULL DEFAULT '["authorization_code"]',
+                response_types JSONB NOT NULL DEFAULT '["code"]',
+                scope TEXT NOT NULL DEFAULT 'openid profile email',
+                created_ts BIGINT NOT NULL,
+                is_confidential BOOLEAN NOT NULL DEFAULT TRUE
+            )
+            "#,
+        )
+        .execute(&**pool)
+        .await
+        .expect("Failed to create oauth_clients table");
+    }
+
+    fn make_client(client_id: String, now: i64) -> OAuthClient {
+        OAuthClient {
+            client_id,
+            client_secret: "test-secret".to_string(),
+            client_name: Some("Test Client".to_string()),
+            redirect_uris: serde_json::json!(["https://example.com/callback"]),
+            grant_types: serde_json::json!(["authorization_code", "refresh_token"]),
+            response_types: serde_json::json!(["code"]),
+            scope: "openid profile".to_string(),
+            created_ts: now,
+            is_confidential: true,
+        }
+    }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_register_client() {
-        // Requires a running PostgreSQL with oauth_clients table
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oauth_client_db(&pool).await;
+
+        let storage = OAuthClientStorage::new(&pool);
+        let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let client = make_client(client_id.clone(), now);
+
+        storage.register_client(&client).await.expect("register_client should succeed");
+
+        // Verify by fetching the row back through the storage layer.
+        let fetched = storage.get_client(&client_id).await.expect("get_client should succeed");
+        assert!(fetched.is_some(), "client should exist after register");
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.client_id, client_id);
+        assert_eq!(fetched.client_secret, "test-secret");
+        assert_eq!(fetched.client_name.as_deref(), Some("Test Client"));
+        assert_eq!(fetched.scope, "openid profile");
+        assert!(fetched.is_confidential);
+        assert_eq!(fetched.created_ts, now);
+        // Verify JSON arrays round-trip correctly through JSONB.
+        assert_eq!(fetched.redirect_uris_vec(), vec!["https://example.com/callback".to_string()]);
+        assert_eq!(fetched.grant_types_vec(), vec!["authorization_code".to_string(), "refresh_token".to_string()]);
+        assert_eq!(fetched.response_types_vec(), vec!["code".to_string()]);
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_get_client() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oauth_client_db(&pool).await;
+
+        let storage = OAuthClientStorage::new(&pool);
+        let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let client = OAuthClient {
+            client_id: client_id.clone(),
+            client_secret: "secret".to_string(),
+            client_name: None,
+            redirect_uris: serde_json::json!(["https://example.com/callback"]),
+            grant_types: serde_json::json!(["authorization_code"]),
+            response_types: serde_json::json!(["code"]),
+            scope: "openid".to_string(),
+            created_ts: now,
+            is_confidential: false,
+        };
+        storage.register_client(&client).await.expect("register_client should succeed");
+
+        // Get existing client.
+        let fetched = storage.get_client(&client_id).await.expect("get_client should succeed");
+        assert!(fetched.is_some());
+        let fetched = fetched.unwrap();
+        assert_eq!(fetched.client_id, client_id);
+        assert!(!fetched.is_confidential);
+        assert!(fetched.client_name.is_none());
+        assert_eq!(fetched.scope, "openid");
+
+        // Get non-existent client returns None.
+        let missing = storage.get_client("nonexistent-client-id").await.expect("get_client should succeed");
+        assert!(missing.is_none(), "non-existent client should return None");
     }
 
     #[tokio::test]
-    #[ignore = "requires PostgreSQL database"]
     async fn test_delete_client() {
-        // Requires a running PostgreSQL
+        let pool = match get_test_pool().await {
+            Some(p) => p,
+            None => return,
+        };
+        setup_oauth_client_db(&pool).await;
+
+        let storage = OAuthClientStorage::new(&pool);
+        let client_id = format!("test-client-{}", uuid::Uuid::new_v4());
+        let now = chrono::Utc::now().timestamp_millis();
+        let client = make_client(client_id.clone(), now);
+
+        storage.register_client(&client).await.expect("register_client should succeed");
+
+        // Verify it exists before deletion.
+        let before = storage.get_client(&client_id).await.expect("get_client should succeed");
+        assert!(before.is_some(), "client should exist before delete");
+
+        // OAuthClientStorage has no dedicated delete_client method; delete via SQL
+        // to verify the storage layer's row can be removed and subsequent reads return None.
+        let result = sqlx::query("DELETE FROM oauth_clients WHERE client_id = $1")
+            .bind(&client_id)
+            .execute(pool.as_ref())
+            .await
+            .expect("DELETE should succeed");
+        assert_eq!(result.rows_affected(), 1, "exactly one row should be deleted");
+
+        // Verify it's gone.
+        let after = storage.get_client(&client_id).await.expect("get_client should succeed");
+        assert!(after.is_none(), "client should not exist after delete");
     }
 }

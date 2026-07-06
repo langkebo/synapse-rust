@@ -2026,10 +2026,11 @@ CREATE TABLE IF NOT EXISTS worker_commands (
     CONSTRAINT uq_worker_commands_id UNIQUE (command_id)
 );
 
+CREATE SEQUENCE IF NOT EXISTS worker_events_stream_id_seq;
 CREATE TABLE IF NOT EXISTS worker_events (
     id BIGSERIAL,
     event_id TEXT NOT NULL,
-    stream_id BIGINT NOT NULL,
+    stream_id BIGINT NOT NULL DEFAULT nextval('worker_events_stream_id_seq'),
     event_type TEXT NOT NULL,
     room_id TEXT,
     sender TEXT,

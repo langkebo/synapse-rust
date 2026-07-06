@@ -2,8 +2,22 @@
 // Allows room admins to control who can be invited to a room
 // Following project field naming standards
 
+use async_trait::async_trait;
 use sqlx::PgPool;
 use std::sync::Arc;
+
+#[async_trait]
+pub trait InviteBlocklistStoreApi: Send + Sync {
+    async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error>;
+    async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error>;
+    async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
+    async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error>;
+    async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error>;
+    async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+    async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error>;
+}
 
 #[derive(Clone)]
 pub struct InviteBlocklistStorage {
@@ -190,6 +204,37 @@ impl InviteBlocklistStorage {
                 })
             })
             .collect())
+    }
+}
+
+#[async_trait]
+impl InviteBlocklistStoreApi for InviteBlocklistStorage {
+    async fn set_invite_blocklist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
+        self.set_invite_blocklist(room_id, user_ids).await
+    }
+    async fn get_invite_blocklist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_invite_blocklist(room_id).await
+    }
+    async fn is_user_blocked(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.is_user_blocked(room_id, user_id).await
+    }
+    async fn set_invite_allowlist(&self, room_id: &str, user_ids: Vec<String>) -> Result<(), sqlx::Error> {
+        self.set_invite_allowlist(room_id, user_ids).await
+    }
+    async fn get_invite_allowlist(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {
+        self.get_invite_allowlist(room_id).await
+    }
+    async fn is_user_allowed(&self, room_id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+        self.is_user_allowed(room_id, user_id).await
+    }
+    async fn has_any_invite_restriction(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        self.has_any_invite_restriction(room_id).await
+    }
+    async fn get_global_invite_blocklist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        self.get_global_invite_blocklist().await
+    }
+    async fn get_global_invite_allowlist(&self) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        self.get_global_invite_allowlist().await
     }
 }
 

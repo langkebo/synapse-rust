@@ -3,7 +3,7 @@ use serde_json::json;
 use synapse_common::{ApiError, ApiResult};
 
 impl FriendRoomService {
-    fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {
+    pub(crate) fn calculate_suggestion_score(suggestion: &serde_json::Value) -> f64 {
         let mut score = 0.0;
 
         if let Some(mutual_count) = suggestion.get("mutual_friends_count").and_then(|c| c.as_i64()) {
@@ -483,5 +483,57 @@ impl FriendRoomService {
         }
 
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn calculate_suggestion_score_full() {
+        let suggestion = json!({
+            "mutual_friends_count": 5,
+            "shared_rooms_count": 3,
+            "displayname": "Alice",
+            "avatar_url": "mxc://ex.com/avatar"
+        });
+        let score = FriendRoomService::calculate_suggestion_score(&suggestion);
+        // 5*2 + 3*1 + 0.5 + 0.3 = 13.8
+        assert!((score - 13.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn calculate_suggestion_score_no_mutual_friends() {
+        let suggestion = json!({
+            "shared_rooms_count": 3,
+            "displayname": "Alice"
+        });
+        let score = FriendRoomService::calculate_suggestion_score(&suggestion);
+        assert!((score - 3.5).abs() < 0.001); // 3*1 + 0.5
+    }
+
+    #[test]
+    fn calculate_suggestion_score_only_avatar() {
+        let suggestion = json!({"avatar_url": "mxc://ex.com/avatar"});
+        let score = FriendRoomService::calculate_suggestion_score(&suggestion);
+        assert!((score - 0.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn calculate_suggestion_score_empty() {
+        let suggestion = json!({});
+        let score = FriendRoomService::calculate_suggestion_score(&suggestion);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn calculate_suggestion_score_sorts_higher_score_first() {
+        let a = json!({"mutual_friends_count": 10, "shared_rooms_count": 0});
+        let b = json!({"mutual_friends_count": 2, "shared_rooms_count": 2});
+        let score_a = FriendRoomService::calculate_suggestion_score(&a);
+        let score_b = FriendRoomService::calculate_suggestion_score(&b);
+        assert!(score_a > score_b); // 20 > 6
     }
 }

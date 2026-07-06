@@ -1,7 +1,10 @@
 use crate::common::ApiError;
-use crate::web::routes::context::{AuthContext, DeviceContext, E2eeRoomContext, RoomContext, SyncContext};
+use crate::web::routes::context::{
+    AdminContext, AuthContext, DeviceContext, E2eeRoomContext, FederationContext, MediaContext, RoomContext,
+    SyncContext,
+};
 use crate::web::routes::AppState;
-use crate::web::utils::admin_auth::authorize_admin_request;
+use crate::web::utils::admin_auth::{authorize_admin_from_services, authorize_admin_request};
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::FromRequestParts,
@@ -499,6 +502,322 @@ impl FromRequestParts<AuthContext> for OptionalAuthenticatedUser {
                     access_token: None,
                 }),
             }
+        }
+    }
+}
+
+// AuthenticatedUser for AdminContext, FederationContext, MediaContext
+impl FromRequestParts<AdminContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AdminContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+
+            audit_user_action(&state.admin_audit_service, &user_id, &method, &path, &headers, is_admin).await;
+
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+impl FromRequestParts<FederationContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &FederationContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+
+            if let Some(ref audit_svc) = state.admin_audit_service {
+                audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
+            }
+
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+impl FromRequestParts<MediaContext> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &MediaContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+        let headers = parts.headers.clone();
+
+        async move {
+            let token = token_result?;
+            let (user_id, device_id, is_admin, is_shadow_banned, is_guest) =
+                state.auth_service.validate_token(&token).await?;
+
+            if let Some(ref audit_svc) = state.admin_audit_service {
+                audit_user_action(audit_svc, &user_id, &method, &path, &headers, is_admin).await;
+            }
+
+            Ok(Self { user_id, device_id, is_admin, is_shadow_banned, is_guest, access_token: token })
+        }
+    }
+}
+
+// OptionalAuthenticatedUser for AdminContext, FederationContext, MediaContext
+impl FromRequestParts<AdminContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AdminContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<FederationContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &FederationContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+impl FromRequestParts<MediaContext> for OptionalAuthenticatedUser {
+    type Rejection = std::convert::Infallible;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &MediaContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let uri = parts.uri.to_string();
+        let token_result = crate::web::utils::auth::extract_token(&parts.headers, &uri);
+        let state = state.clone();
+
+        async move {
+            match token_result {
+                Ok(token) => match state.auth_service.validate_token(&token).await {
+                    Ok((user_id, device_id, is_admin, is_shadow_banned, is_guest)) => Ok(Self {
+                        user_id: Some(user_id),
+                        device_id,
+                        is_admin,
+                        is_shadow_banned,
+                        is_guest,
+                        access_token: Some(token),
+                    }),
+                    Err(_) => Ok(Self {
+                        user_id: None,
+                        device_id: None,
+                        is_admin: false,
+                        is_shadow_banned: false,
+                        is_guest: false,
+                        access_token: None,
+                    }),
+                },
+                Err(_) => Ok(Self {
+                    user_id: None,
+                    device_id: None,
+                    is_admin: false,
+                    is_shadow_banned: false,
+                    is_guest: false,
+                    access_token: None,
+                }),
+            }
+        }
+    }
+}
+
+// AdminUser for AdminContext, FederationContext, MediaContext
+impl FromRequestParts<AdminContext> for AdminUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &AdminContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let state = state.clone();
+        let headers = parts.headers.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+
+        async move {
+            let admin = authorize_admin_from_services(
+                state.auth_service.as_ref(),
+                state.user_storage.as_ref(),
+                &state.config.security,
+                Some(state.admin_audit_service.as_ref()),
+                &headers,
+                &method,
+                &path,
+            )
+            .await?;
+            Ok(Self {
+                user_id: admin.user_id,
+                device_id: admin.device_id,
+                access_token: admin.access_token,
+                role: admin.role,
+            })
+        }
+    }
+}
+
+impl FromRequestParts<FederationContext> for AdminUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &FederationContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let state = state.clone();
+        let headers = parts.headers.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+
+        async move {
+            let admin = authorize_admin_from_services(
+                state.auth_service.as_ref(),
+                state.user_storage.as_ref(),
+                &state.config.security,
+                state.admin_audit_service.as_deref(),
+                &headers,
+                &method,
+                &path,
+            )
+            .await?;
+            Ok(Self {
+                user_id: admin.user_id,
+                device_id: admin.device_id,
+                access_token: admin.access_token,
+                role: admin.role,
+            })
+        }
+    }
+}
+
+impl FromRequestParts<MediaContext> for AdminUser {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &MediaContext,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        let state = state.clone();
+        let headers = parts.headers.clone();
+        let method = parts.method.clone();
+        let path = parts.uri.path().to_string();
+
+        async move {
+            let admin = authorize_admin_from_services(
+                state.auth_service.as_ref(),
+                state.user_storage.as_ref(),
+                &state.config.security,
+                state.admin_audit_service.as_deref(),
+                &headers,
+                &method,
+                &path,
+            )
+            .await?;
+            Ok(Self {
+                user_id: admin.user_id,
+                device_id: admin.device_id,
+                access_token: admin.access_token,
+                role: admin.role,
+            })
         }
     }
 }

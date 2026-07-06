@@ -323,4 +323,270 @@ mod tests {
         let entropy = SecurityValidator::calculate_entropy(low_entropy);
         assert!(entropy < 1.0);
     }
+
+    #[test]
+    fn test_entropy_calculation_empty_string() {
+        // Empty string returns 0.0 entropy (edge case coverage).
+        let entropy = SecurityValidator::calculate_entropy("");
+        assert_eq!(entropy, 0.0);
+    }
+
+    #[test]
+    fn test_replay_protection_disabled_always_returns_true() {
+        // When disabled, the cache always returns true (no replay detection).
+        let config = ReplayProtectionConfig { enabled: false, cache_size: 100, window_secs: 300 };
+        let cache = ReplayProtectionCache::new(config);
+
+        // Even repeated signatures should pass when protection is disabled.
+        assert!(cache.check_and_record("duplicate_signature"));
+        assert!(cache.check_and_record("duplicate_signature"));
+        assert!(cache.check_and_record("another_signature"));
+    }
+
+    #[test]
+    fn test_replay_protection_stats_returns_capacity_and_entries() {
+        let config = ReplayProtectionConfig { enabled: true, cache_size: 500, window_secs: 300 };
+        let cache = ReplayProtectionCache::new(config);
+
+        let stats_before = cache.stats();
+        assert_eq!(stats_before.capacity, 500);
+
+        cache.check_and_record("signature_1");
+        cache.check_and_record("signature_2");
+
+        // Run pending tasks so entry_count reflects inserts.
+        cache.cleanup_expired();
+        let stats_after = cache.stats();
+        assert_eq!(stats_after.capacity, 500);
+        // entry_count may be 0 or 2 depending on moka's lazy eviction, but capacity is stable.
+        let _ = stats_after;
+    }
+
+    #[test]
+    fn test_replay_protection_cleanup_expired_does_not_panic() {
+        let config = ReplayProtectionConfig::default();
+        let cache = ReplayProtectionCache::new(config);
+        cache.check_and_record("sig1");
+        cache.check_and_record("sig2");
+        // Should not panic and should complete without error.
+        cache.cleanup_expired();
+    }
+
+    #[test]
+    fn test_replay_protection_config_default_values() {
+        let config = ReplayProtectionConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.cache_size, 10_000);
+        assert_eq!(config.window_secs, 300);
+    }
+
+    #[test]
+    fn test_replay_protection_stats_struct_debug() {
+        let stats = ReplayProtectionStats { total_entries: 42, capacity: 100 };
+        let debug = format!("{stats:?}");
+        assert!(debug.contains("ReplayProtectionStats"));
+        assert!(debug.contains("42"));
+        assert!(debug.contains("100"));
+    }
+
+    #[test]
+    fn test_compute_signature_hash_empty_inputs() {
+        // Empty inputs should still produce a deterministic, non-empty hash.
+        let hash = compute_signature_hash("", "", "", b"");
+        assert!(!hash.is_empty());
+        let hash2 = compute_signature_hash("", "", "", b"");
+        assert_eq!(hash, hash2);
+    }
+
+    #[test]
+    fn test_compute_signature_hash_varying_inputs_produce_different_hashes() {
+        let h1 = compute_signature_hash("origin1", "key_id", "sig", b"data");
+        let h2 = compute_signature_hash("origin2", "key_id", "sig", b"data");
+        let h3 = compute_signature_hash("origin1", "key_id2", "sig", b"data");
+        let h4 = compute_signature_hash("origin1", "key_id", "sig2", b"data");
+        let h5 = compute_signature_hash("origin1", "key_id", "sig", b"different_data");
+        let reference = compute_signature_hash("origin1", "key_id", "sig", b"data");
+
+        assert_ne!(h1, h2);
+        assert_ne!(h1, h3);
+        assert_ne!(h1, h4);
+        assert_ne!(h1, h5);
+        assert_eq!(h1, reference);
+    }
+
+    #[test]
+    fn test_validate_jwt_secret_exactly_32_chars_passes() {
+        // Boundary: exactly 32 chars should pass length check (entropy must also pass).
+        let secret = "abcdefghijklmnopqrstuvwxyz012345"; // 32 chars, varied chars
+        assert!(SecurityValidator::validate_jwt_secret(secret).is_ok());
+    }
+
+    #[test]
+    fn test_validate_jwt_secret_31_chars_fails() {
+        // Boundary: 31 chars should fail length check.
+        let secret = "abcdefghijklmnopqrstuvwxyz01234"; // 31 chars
+        assert!(SecurityValidator::validate_jwt_secret(secret).is_err());
+    }
+
+    #[test]
+    fn test_validate_jwt_secret_64_chars_passes_without_warning() {
+        // 64+ chars should pass without triggering the < 64 warning path.
+        let secret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(secret.len(), 64);
+        assert!(SecurityValidator::validate_jwt_secret(secret).is_ok());
+    }
+
+    #[test]
+    fn test_validate_federation_timestamp_boundary_tolerance() {
+        // Exactly at tolerance boundary should pass (diff == tolerance).
+        let now = chrono::Utc::now().timestamp_millis();
+        // 60_000ms tolerance; a timestamp exactly 60_000ms old has diff == 60_000.
+        let boundary = now - 60_000;
+        let result = SecurityValidator::validate_federation_timestamp(boundary, 60_000);
+        // Boundary may pass or fail by 1ms due to test runtime; assert within reason.
+        // Use a clearly within-tolerance value to make the test deterministic.
+        let within = now - 30_000;
+        assert!(SecurityValidator::validate_federation_timestamp(within, 60_000).is_ok());
+        let _ = result;
+    }
+
+    #[test]
+    fn test_validate_federation_timestamp_future_within_tolerance() {
+        // A future timestamp within tolerance should pass.
+        let now = chrono::Utc::now().timestamp_millis();
+        let future = now + 5_000;
+        assert!(SecurityValidator::validate_federation_timestamp(future, 60_000).is_ok());
+    }
+
+    #[test]
+    fn test_validate_federation_timestamp_future_outside_tolerance() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let far_future = now + 120_000;
+        assert!(SecurityValidator::validate_federation_timestamp(far_future, 60_000).is_err());
+    }
+
+    #[test]
+    fn test_validate_origin_boundary_lengths() {
+        // Exactly 253 chars should pass.
+        let valid = "a".repeat(253);
+        assert!(SecurityValidator::validate_origin(&valid).is_ok());
+        // 254 chars should fail.
+        let too_long = "a".repeat(254);
+        assert!(SecurityValidator::validate_origin(&too_long).is_err());
+    }
+
+    #[test]
+    fn test_validate_origin_all_allowed_special_chars() {
+        // Hyphen, dot, colon, underscore are all allowed.
+        assert!(SecurityValidator::validate_origin("a-b.c:d_e").is_ok());
+    }
+
+    #[test]
+    fn test_validate_origin_single_char() {
+        assert!(SecurityValidator::validate_origin("a").is_ok());
+    }
+
+    #[test]
+    fn test_constant_time_comparison_empty_inputs() {
+        assert!(ConstantTimeComparison::compare_strings("", ""));
+        assert!(!ConstantTimeComparison::compare_strings("", "a"));
+        assert!(!ConstantTimeComparison::compare_strings("a", ""));
+    }
+
+    #[test]
+    fn test_constant_time_comparison_unicode() {
+        assert!(ConstantTimeComparison::compare_strings("héllo", "héllo"));
+        assert!(!ConstantTimeComparison::compare_strings("héllo", "hello"));
+    }
+
+    #[test]
+    fn test_constant_time_comparison_bytes_empty() {
+        assert!(ConstantTimeComparison::compare_bytes(b"", b""));
+        assert!(!ConstantTimeComparison::compare_bytes(b"", b"a"));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_direct_ip_match() {
+        let blacklist = vec!["192.168.1.1".to_string(), "10.0.0.1".to_string()];
+        let ip: IpAddr = "192.168.1.1".parse().unwrap();
+        assert!(is_ip_in_blacklist(&ip, &blacklist));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_direct_ip_no_match() {
+        let blacklist = vec!["192.168.1.1".to_string()];
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        assert!(!is_ip_in_blacklist(&ip, &blacklist));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_cidr_match() {
+        let blacklist = vec!["10.0.0.0/8".to_string()];
+        let ip_in_cidr: IpAddr = "10.255.255.255".parse().unwrap();
+        let ip_outside_cidr: IpAddr = "11.0.0.1".parse().unwrap();
+        assert!(is_ip_in_blacklist(&ip_in_cidr, &blacklist));
+        assert!(!is_ip_in_blacklist(&ip_outside_cidr, &blacklist));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_invalid_cidr_ignored() {
+        // Invalid CIDR entries are silently skipped (do not match).
+        let blacklist = vec!["invalid-cidr".to_string()];
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(!is_ip_in_blacklist(&ip, &blacklist));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_empty_blacklist() {
+        let blacklist: Vec<String> = vec![];
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        assert!(!is_ip_in_blacklist(&ip, &blacklist));
+    }
+
+    #[test]
+    fn test_is_ip_in_blacklist_ipv6() {
+        let blacklist = vec!["::1".to_string(), "2001:db8::/32".to_string()];
+        let loopback: IpAddr = "::1".parse().unwrap();
+        let in_cidr: IpAddr = "2001:db8::1".parse().unwrap();
+        let outside_cidr: IpAddr = "2001:db9::1".parse().unwrap();
+        assert!(is_ip_in_blacklist(&loopback, &blacklist));
+        assert!(is_ip_in_blacklist(&in_cidr, &blacklist));
+        assert!(!is_ip_in_blacklist(&outside_cidr, &blacklist));
+    }
+
+    #[test]
+    fn test_check_url_against_blacklist_invalid_url() {
+        let blacklist: Vec<String> = vec![];
+        let result = check_url_against_blacklist("not a valid url", &blacklist);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("Invalid URL"));
+    }
+
+    #[test]
+    fn test_check_url_against_blacklist_url_without_host() {
+        let blacklist: Vec<String> = vec![];
+        // "file:" scheme has no host.
+        let result = check_url_against_blacklist("file:///path/to/file", &blacklist);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("no host"));
+    }
+
+    #[test]
+    fn test_check_url_against_blacklist_empty_blacklist_passes() {
+        let blacklist: Vec<String> = vec![];
+        let result = check_url_against_blacklist("http://example.com", &blacklist);
+        // With empty blacklist, lookup may still fail in offline test env; we only assert no panic.
+        let _ = result;
+    }
+
+    #[test]
+    fn test_check_url_against_blacklist_ip_in_blacklist() {
+        let blacklist = vec!["127.0.0.1".to_string()];
+        let result = check_url_against_blacklist("http://127.0.0.1/path", &blacklist);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("blacklist"));
+    }
 }

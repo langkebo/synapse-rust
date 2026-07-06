@@ -6,7 +6,7 @@ use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct FederationBlacklistService {
-    storage: Arc<FederationBlacklistStorage>,
+    storage: Arc<dyn FederationBlacklistStoreApi>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -32,7 +32,7 @@ pub struct CheckServerRequest {
 }
 
 impl FederationBlacklistService {
-    pub fn new(storage: Arc<FederationBlacklistStorage>) -> Self {
+    pub fn new(storage: Arc<dyn FederationBlacklistStoreApi>) -> Self {
         Self { storage }
     }
 

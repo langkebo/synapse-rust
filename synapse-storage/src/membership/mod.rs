@@ -1,3 +1,7 @@
+pub(crate) mod api;
+
+pub use api::MemberStoreApi;
+
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;

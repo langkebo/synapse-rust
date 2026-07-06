@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
@@ -17,6 +18,15 @@ pub struct CreateFilterRequest {
     pub user_id: String,
     pub filter_id: String,
     pub content: serde_json::Value,
+}
+
+#[async_trait]
+pub trait FilterStoreApi {
+    async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError>;
+    async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError>;
+    async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError>;
+    async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError>;
+    async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError>;
 }
 
 #[derive(Clone)]
@@ -113,6 +123,29 @@ impl FilterStorage {
         .map_err(|e| ApiError::internal_with_log("Failed to delete filters", &e))?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl FilterStoreApi for FilterStorage {
+    async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError> {
+        self.create_filter(request).await
+    }
+
+    async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError> {
+        self.get_filter(user_id, filter_id).await
+    }
+
+    async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError> {
+        self.get_filters_by_user(user_id).await
+    }
+
+    async fn delete_filter(&self, user_id: &str, filter_id: &str) -> Result<bool, ApiError> {
+        self.delete_filter(user_id, filter_id).await
+    }
+
+    async fn delete_filters_by_user(&self, user_id: &str) -> Result<u64, ApiError> {
+        self.delete_filters_by_user(user_id).await
     }
 }
 

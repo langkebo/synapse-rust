@@ -14,11 +14,11 @@ type RoomSummaryCounts = (i64, i64, Option<String>, Option<i64>, Option<i64>);
 
 #[cfg(feature = "server-notifications")]
 async fn setup_test_app_with_pool() -> Option<(axum::Router, Arc<sqlx::PgPool>, Arc<CacheManager>)> {
-    super::setup_test_app_with_pool().await
+    super::setup_fresh_test_app_with_pool().await
 }
 
 async fn setup_test_app() -> Option<axum::Router> {
-    super::setup_test_app().await
+    super::setup_fresh_test_app().await
 }
 
 async fn register_user(app: &axum::Router, username: &str) -> (String, String) {

@@ -1,7 +1,7 @@
 use super::types::*;
 use super::SyncService;
 use crate::*;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use synapse_storage::UserRoomMembership;
 
@@ -1305,4 +1305,555 @@ fn test_device_list_since_stream_id_with_device_list_id() {
         device_list_stream_id: Some(99),
     });
     assert_eq!(SyncService::device_list_since_stream_id(&since), 99);
+}
+
+// ---------------------------------------------------------------------------
+// apply_lazy_load_members_with_cache tests
+// ---------------------------------------------------------------------------
+
+fn make_member_event(state_key: &str) -> Value {
+    json!({
+        "type": "m.room.member",
+        "state_key": state_key,
+        "content": {"membership": "join"},
+        "sender": state_key,
+        "event_id": format!("$ev_{}", state_key)
+    })
+}
+
+fn make_non_member_event(event_type: &str) -> Value {
+    json!({
+        "type": event_type,
+        "state_key": "",
+        "content": {},
+        "sender": "@a:b",
+        "event_id": format!("$ev_{}", event_type.replace('.', "_"))
+    })
+}
+
+fn make_timeline_event(user_id: &str, event_type: &str, state_key: Option<&str>) -> synapse_storage::RoomEvent {
+    synapse_storage::RoomEvent {
+        event_id: format!("$tl_{}", user_id),
+        room_id: "!room1:matrix.org".into(),
+        user_id: user_id.into(),
+        event_type: event_type.into(),
+        content: json!({}),
+        state_key: state_key.map(|s| s.to_string()),
+        depth: 1,
+        origin_server_ts: 1700000000000,
+        processed_ts: 1700000001000,
+        not_before: 0,
+        status: None,
+        reference_image: None,
+        origin: "matrix.org".into(),
+        stream_ordering: Some(1),
+        redacts: None,
+    }
+}
+
+#[test]
+fn test_lazy_load_timeline_limited_non_members_pass_through() {
+    let state_events = vec![make_non_member_event("m.room.topic"), make_non_member_event("m.room.name")];
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events.clone(),
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        true,
+    );
+    assert_eq!(filtered.len(), 2);
+    assert!(known_now.is_empty());
+}
+
+#[test]
+fn test_lazy_load_timeline_limited_filters_known_members() {
+    let state_events = vec![make_member_event("@alice:b"), make_member_event("@bob:b")];
+    let mut known = HashSet::new();
+    known.insert("@alice:b".to_string());
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &known,
+        false,
+        &HashSet::new(),
+        true,
+    );
+    // Only @bob:b passes (not in known_members)
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0]["state_key"], json!("@bob:b"));
+    // known_now collects all member state_keys
+    assert_eq!(known_now.len(), 2);
+}
+
+#[test]
+fn test_lazy_load_timeline_limited_include_redundant_keeps_all() {
+    let state_events = vec![make_member_event("@alice:b"), make_member_event("@bob:b")];
+    let mut known = HashSet::new();
+    known.insert("@alice:b".to_string());
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &known,
+        true, // include_redundant_members
+        &HashSet::new(),
+        true,
+    );
+    assert_eq!(filtered.len(), 2);
+    assert_eq!(known_now.len(), 2);
+}
+
+#[test]
+fn test_lazy_load_timeline_limited_member_without_state_key_filtered() {
+    let mut ev = make_member_event("@alice:b");
+    ev["state_key"] = Value::Null;
+    let state_events = vec![ev, make_non_member_event("m.room.topic")];
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        true,
+    );
+    // Non-member passes, member without state_key is filtered out
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0]["type"], json!("m.room.topic"));
+}
+
+#[test]
+fn test_lazy_load_required_members_from_user_id() {
+    let state_events = vec![make_member_event("@alice:b")];
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    // @alice:b is required (the user themselves)
+    assert_eq!(filtered.len(), 1);
+    assert!(known_now.contains("@alice:b"));
+}
+
+#[test]
+fn test_lazy_load_required_members_from_timeline_senders() {
+    let state_events = vec![make_member_event("@bob:b")];
+    let tl = make_timeline_event("@bob:b", "m.room.message", None);
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    // @bob:b is required because they sent a timeline event
+    assert_eq!(filtered.len(), 1);
+}
+
+#[test]
+fn test_lazy_load_required_members_from_timeline_member_state_keys() {
+    let tl = make_timeline_event("@bob:b", "m.room.member", Some("@charlie:b"));
+    let state_events = vec![make_member_event("@charlie:b"), make_member_event("@dave:b")];
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    // @charlie:b is required (timeline member state_key), @dave:b is not
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0]["state_key"], json!("@charlie:b"));
+    assert_eq!(known_now.len(), 1); // @charlie:b from timeline's member event
+}
+
+#[test]
+fn test_lazy_load_required_members_from_changed_member_ids() {
+    let state_events = vec![make_member_event("@dave:b"), make_member_event("@eve:b")];
+    let mut changed = HashSet::new();
+    changed.insert("@dave:b".to_string());
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &changed,
+        false,
+    );
+    // @dave:b is required (changed member), @eve:b is not
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0]["state_key"], json!("@dave:b"));
+}
+
+#[test]
+fn test_lazy_load_non_member_events_always_pass() {
+    let state_events = vec![
+        make_non_member_event("m.room.topic"),
+        make_non_member_event("m.room.name"),
+        make_non_member_event("m.room.canonical_alias"),
+    ];
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    assert_eq!(filtered.len(), 3);
+}
+
+#[test]
+fn test_lazy_load_known_members_filtered_when_not_redundant() {
+    let state_events = vec![make_member_event("@bob:b")];
+    let mut known = HashSet::new();
+    known.insert("@bob:b".to_string());
+    // Make @bob:b required via timeline
+    let tl = make_timeline_event("@bob:b", "m.room.message", None);
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &known,
+        false, // not include_redundant
+        &HashSet::new(),
+        false,
+    );
+    // @bob:b is required but known and not changed → filtered out
+    assert_eq!(filtered.len(), 0);
+}
+
+#[test]
+fn test_lazy_load_changed_member_included_even_if_known() {
+    let state_events = vec![make_member_event("@bob:b")];
+    let mut known = HashSet::new();
+    known.insert("@bob:b".to_string());
+    let mut changed = HashSet::new();
+    changed.insert("@bob:b".to_string());
+    // Make @bob:b required via timeline
+    let tl = make_timeline_event("@bob:b", "m.room.message", None);
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &known,
+        false,
+        &changed,
+        false,
+    );
+    // @bob:b is known but changed → still included
+    assert_eq!(filtered.len(), 1);
+}
+
+#[test]
+fn test_lazy_load_empty_state_events() {
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        vec![],
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    assert!(filtered.is_empty());
+    assert!(known_now.is_empty());
+}
+
+#[test]
+fn test_lazy_load_no_member_events_in_state() {
+    let state_events = vec![make_non_member_event("m.room.topic"), make_non_member_event("m.room.name")];
+    let tl = make_timeline_event("@bob:b", "m.room.message", None);
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        false,
+    );
+    assert_eq!(filtered.len(), 2);
+    assert!(known_now.is_empty());
+}
+
+#[test]
+fn test_lazy_load_timeline_limited_empty_state_and_timeline() {
+    let (filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        vec![],
+        &[],
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &HashSet::new(),
+        true,
+    );
+    assert!(filtered.is_empty());
+    assert!(known_now.is_empty());
+}
+
+#[test]
+fn test_lazy_load_known_now_excludes_non_members() {
+    let timeline = vec![
+        make_timeline_event("@bob:b", "m.room.message", None),
+        make_timeline_event("@charlie:b", "m.room.member", Some("@charlie:b")),
+    ];
+    let state_events = vec![make_member_event("@charlie:b"), make_member_event("@dave:b")];
+    // @dave:b is required via changed
+    let mut changed = HashSet::new();
+    changed.insert("@dave:b".to_string());
+
+    let (_filtered, known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &timeline,
+        "@alice:b",
+        &HashSet::new(),
+        false,
+        &changed,
+        false,
+    );
+    // known_now = members from timeline, so @charlie:b
+    assert!(known_now.contains("@charlie:b"));
+    // @bob:b is in timeline but NOT a member event → not in known_now
+    assert!(!known_now.contains("@bob:b"));
+}
+
+#[test]
+fn test_lazy_load_include_redundant_keeps_known_members() {
+    let state_events = vec![make_member_event("@bob:b")];
+    let mut known = HashSet::new();
+    known.insert("@bob:b".to_string());
+    // Make @bob:b required
+    let tl = make_timeline_event("@bob:b", "m.room.message", None);
+    let (filtered, _known_now) = SyncService::apply_lazy_load_members_with_cache(
+        state_events,
+        &[tl],
+        "@alice:b",
+        &known,
+        true, // include_redundant_members
+        &HashSet::new(),
+        false,
+    );
+    // @bob:b is known but include_redundant → still passes
+    assert_eq!(filtered.len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// count_events_by_room tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_count_events_by_room_empty() {
+    let map: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    assert_eq!(SyncService::count_events_by_room(&map), 0);
+}
+
+// ---------------------------------------------------------------------------
+// is_slow_request_for tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_is_slow_request_for_below_threshold() {
+    assert!(!SyncService::is_slow_request_for(99.0, 100));
+}
+
+#[test]
+fn test_is_slow_request_for_at_threshold() {
+    assert!(SyncService::is_slow_request_for(100.0, 100));
+}
+
+#[test]
+fn test_is_slow_request_for_above_threshold() {
+    assert!(SyncService::is_slow_request_for(500.0, 100));
+}
+
+#[test]
+fn test_is_slow_request_for_zero_threshold() {
+    // Zero threshold: any non-negative value is "slow"
+    assert!(SyncService::is_slow_request_for(0.0, 0));
+    assert!(SyncService::is_slow_request_for(1.0, 0));
+}
+
+// ---------------------------------------------------------------------------
+// event_since_ts tests
+// ---------------------------------------------------------------------------
+
+fn make_token(stream_id: i64) -> SyncToken {
+    SyncToken { stream_id, room_id: None, event_type: None, to_device_stream_id: None, device_list_stream_id: None }
+}
+
+#[test]
+fn test_event_since_ts_none_token_returns_zero() {
+    assert_eq!(SyncService::event_since_ts(&None), 0);
+}
+
+#[test]
+fn test_event_since_ts_timestamp_token_returns_stream_id() {
+    let token = make_token(1700000000000);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 1700000000000);
+}
+
+#[test]
+fn test_event_since_ts_below_timestamp_min_returns_zero() {
+    let token = make_token(999_999_999_999);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 0);
+}
+
+#[test]
+fn test_event_since_ts_below_min_with_to_device_returns_stream_id() {
+    let mut token = make_token(100);
+    token.to_device_stream_id = Some(200);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 100);
+}
+
+#[test]
+fn test_event_since_ts_below_min_with_device_list_returns_stream_id() {
+    let mut token = make_token(50);
+    token.device_list_stream_id = Some(150);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 50);
+}
+
+#[test]
+fn test_event_since_ts_negative_stream_id_clamped_to_zero() {
+    let mut token = make_token(-5);
+    token.to_device_stream_id = Some(1);
+    assert_eq!(SyncService::event_since_ts(&Some(token)), 0);
+}
+
+// ---------------------------------------------------------------------------
+// next_event_stream_id tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_next_event_stream_id_no_events_no_token_returns_current_time() {
+    let room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let result = SyncService::next_event_stream_id(&None, &room_events, None);
+    assert!(result > 1_700_000_000_000);
+}
+
+#[test]
+fn test_next_event_stream_id_uses_max_stream_ordering() {
+    let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
+    event1.stream_ordering = Some(100);
+    let mut event2 = make_timeline_event("@b:b", "m.room.message", None);
+    event2.stream_ordering = Some(200);
+    room_events.insert("!r1:b".into(), vec![event1, event2]);
+    let result = SyncService::next_event_stream_id(&None, &room_events, None);
+    assert_eq!(result, 200);
+}
+
+#[test]
+fn test_next_event_stream_id_respects_since_token() {
+    let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
+    event1.stream_ordering = Some(100);
+    room_events.insert("!r1:b".into(), vec![event1]);
+    let result = SyncService::next_event_stream_id(&Some(make_token(300)), &room_events, None);
+    assert_eq!(result, 300);
+}
+
+#[test]
+fn test_next_event_stream_id_event_max_exceeds_token() {
+    let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
+    event1.stream_ordering = Some(500);
+    room_events.insert("!r1:b".into(), vec![event1]);
+    let result = SyncService::next_event_stream_id(&Some(make_token(300)), &room_events, None);
+    assert_eq!(result, 500);
+}
+
+#[test]
+fn test_next_event_stream_id_falls_back_to_origin_server_ts() {
+    let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
+    event1.stream_ordering = None;
+    event1.origin_server_ts = 1700000000500;
+    let mut event2 = make_timeline_event("@b:b", "m.room.message", None);
+    event2.stream_ordering = None;
+    event2.origin_server_ts = 1700000001000;
+    room_events.insert("!r1:b".into(), vec![event1, event2]);
+    let result = SyncService::next_event_stream_id(&None, &room_events, None);
+    assert_eq!(result, 1700000001000);
+}
+
+#[test]
+fn test_next_event_stream_id_uses_state_change_ts() {
+    let room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut state_ts: HashMap<String, i64> = HashMap::new();
+    state_ts.insert("!r1:b".into(), 1700000002000);
+    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
+    assert_eq!(result, 1700000002000);
+}
+
+#[test]
+fn test_next_event_stream_id_event_origin_ts_over_state_ts() {
+    let mut room_events: HashMap<String, Vec<synapse_storage::RoomEvent>> = HashMap::new();
+    let mut event1 = make_timeline_event("@a:b", "m.room.message", None);
+    event1.stream_ordering = None;
+    event1.origin_server_ts = 1700000003000;
+    room_events.insert("!r1:b".into(), vec![event1]);
+    let mut state_ts: HashMap<String, i64> = HashMap::new();
+    state_ts.insert("!r1:b".into(), 1700000002000);
+    let result = SyncService::next_event_stream_id(&None, &room_events, Some(&state_ts));
+    assert_eq!(result, 1700000003000);
+}
+
+// ---------------------------------------------------------------------------
+// room_sections_from_memberships tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_room_sections_join_membership_maps_to_join() {
+    let memberships = vec![UserRoomMembership { room_id: "!r1:b".into(), membership: "join".into() }];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections.get("!r1:b").copied(), Some(SyncRoomSection::Join));
+}
+
+#[test]
+fn test_room_sections_leave_membership_maps_to_leave() {
+    let memberships = vec![UserRoomMembership { room_id: "!r2:b".into(), membership: "leave".into() }];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections.get("!r2:b").copied(), Some(SyncRoomSection::Leave));
+}
+
+#[test]
+fn test_room_sections_invite_membership_maps_to_join() {
+    let memberships = vec![UserRoomMembership { room_id: "!r3:b".into(), membership: "invite".into() }];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.get("!r3:b").copied(), Some(SyncRoomSection::Join));
+}
+
+#[test]
+fn test_room_sections_mixed_memberships() {
+    let memberships = vec![
+        UserRoomMembership { room_id: "!r1:b".into(), membership: "join".into() },
+        UserRoomMembership { room_id: "!r2:b".into(), membership: "leave".into() },
+    ];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert_eq!(sections.len(), 2);
+    assert_eq!(sections.get("!r1:b").copied(), Some(SyncRoomSection::Join));
+    assert_eq!(sections.get("!r2:b").copied(), Some(SyncRoomSection::Leave));
+}
+
+#[test]
+fn test_room_sections_empty() {
+    let memberships: Vec<UserRoomMembership> = vec![];
+    let sections = SyncService::room_sections_from_memberships(&memberships);
+    assert!(sections.is_empty());
 }

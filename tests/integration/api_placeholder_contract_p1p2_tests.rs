@@ -169,7 +169,7 @@ async fn assert_matrix_error(
 
 #[tokio::test]
 async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -235,7 +235,7 @@ async fn test_power_levels_contract_allows_explicit_room_admin_to_kick() {
 
 #[tokio::test]
 async fn test_power_levels_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -263,7 +263,7 @@ async fn test_power_levels_contract_rejects_non_members() {
 
 #[tokio::test]
 async fn test_membership_events_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -292,7 +292,7 @@ async fn test_membership_events_contract_rejects_non_members() {
 
 #[tokio::test]
 async fn test_pinned_events_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -320,7 +320,7 @@ async fn test_pinned_events_contract_rejects_non_members() {
 
 #[tokio::test]
 async fn test_pin_event_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -350,7 +350,7 @@ async fn test_pin_event_contract_rejects_non_members() {
 
 #[tokio::test]
 async fn test_pin_event_contract_rejects_regular_members_without_power() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -382,7 +382,7 @@ async fn test_pin_event_contract_rejects_regular_members_without_power() {
 
 #[tokio::test]
 async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -419,7 +419,7 @@ async fn test_search_rooms_contract_hides_private_rooms_from_outsiders() {
 
 #[tokio::test]
 async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -458,7 +458,7 @@ async fn test_search_rooms_contract_allows_members_to_find_joined_private_rooms(
 
 #[tokio::test]
 async fn test_protected_state_events_contract_rejects_regular_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -505,7 +505,7 @@ async fn test_protected_state_events_contract_rejects_regular_members() {
 
 #[tokio::test]
 async fn test_state_default_contract_rejects_regular_member_topic_write() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -535,7 +535,7 @@ async fn test_state_default_contract_rejects_regular_member_topic_write() {
 
 #[tokio::test]
 async fn test_get_state_event_empty_key_returns_raw_content_only() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -568,7 +568,7 @@ async fn test_get_state_event_empty_key_returns_raw_content_only() {
 
 #[tokio::test]
 async fn test_get_state_event_with_state_key_returns_raw_content_only() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -608,7 +608,7 @@ async fn test_get_state_event_with_state_key_returns_raw_content_only() {
 
 #[tokio::test]
 async fn test_invite_only_join_contract_rejects_uninvited_user() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -644,7 +644,7 @@ async fn test_invite_only_join_contract_rejects_uninvited_user() {
 
 #[tokio::test]
 async fn test_room_info_contract_reflects_invites_and_guest_access() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -693,7 +693,7 @@ async fn test_room_info_contract_reflects_invites_and_guest_access() {
 
 #[tokio::test]
 async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -755,7 +755,7 @@ async fn test_room_members_recent_contract_uses_coherent_index_tokens() {
 
 #[tokio::test]
 async fn test_scanner_info_contract_is_not_empty_success() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -791,7 +791,7 @@ async fn test_scanner_info_contract_is_not_empty_success() {
 
 #[tokio::test]
 async fn test_scanner_info_contract_rejects_non_members() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 
@@ -821,7 +821,7 @@ async fn test_scanner_info_contract_rejects_non_members() {
 
 #[tokio::test]
 async fn test_room_account_data_write_ack_persists_value() {
-    let Some(app) = super::setup_test_app().await else {
+    let Some(app) = super::setup_fresh_test_app().await else {
         return;
     };
 

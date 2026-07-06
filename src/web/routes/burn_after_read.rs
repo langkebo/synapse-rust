@@ -89,6 +89,7 @@ pub async fn enable_burn(
         .services
         .rooms
         .room_service
+        .state
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -126,6 +127,7 @@ pub async fn get_burn_settings(
         .services
         .rooms
         .room_service
+        .state
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -165,6 +167,7 @@ pub async fn mark_burn_read(
         .services
         .rooms
         .room_service
+        .state
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -217,6 +220,7 @@ pub async fn get_pending_burns(
         .services
         .rooms
         .room_service
+        .state
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -260,6 +264,7 @@ pub async fn cancel_burn(
         .services
         .rooms
         .room_service
+        .state
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;

@@ -7,7 +7,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-pub fn create_server_router(_state: AppState) -> Router<AppState> {
+pub fn create_server_router(_state: AppState) -> Router<crate::web::routes::AppState> {
     Router::new()
         .route("/_synapse/admin/v1/server", get(get_admin_info_compat))
         .route("/_synapse/admin/v1/server_version", get(get_server_version))
@@ -162,7 +162,7 @@ pub async fn restart_server(
 #[axum::debug_handler]
 pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let total_users = state.services.account.account_identity_service.get_user_count().await?;
-    let total_rooms = state.services.rooms.room_service.get_room_count().await?;
+    let total_rooms = state.services.rooms.room_service.state.get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
     let daily_active_users =
@@ -172,7 +172,7 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let r30_users = state.services.account.account_identity_service.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.
-    let room_stats = state.services.rooms.room_service.get_room_stats_overview().await.unwrap_or_else(|e| {
+    let room_stats = state.services.rooms.room_service.state.get_room_stats_overview().await.unwrap_or_else(|e| {
         ::tracing::warn!(error = %e, "Failed to fetch room stats overview for /statistics");
         json!({})
     });
@@ -181,7 +181,7 @@ pub async fn get_statistics(_admin: AdminUser, State(state): State<AppState>) ->
     let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
     let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let daily_messages = state.services.rooms.room_service.get_daily_message_count().await.unwrap_or(0);
+    let daily_messages = state.services.rooms.room_service.messaging.get_daily_message_count().await.unwrap_or(0);
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = state.services.core.metrics.get_gauge("synapse_total_users") {

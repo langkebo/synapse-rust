@@ -157,3 +157,88 @@ impl Default for MemoryBackend {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn memory_store_and_retrieve() {
+        let backend = MemoryBackend::new();
+        backend.store("media-1", b"hello world", "text/plain").await.unwrap();
+        let data = backend.retrieve("media-1").await.unwrap();
+        assert_eq!(data.as_deref(), Some(&b"hello world"[..]));
+    }
+
+    #[tokio::test]
+    async fn memory_retrieve_nonexistent() {
+        let backend = MemoryBackend::new();
+        let data = backend.retrieve("nonexistent").await.unwrap();
+        assert!(data.is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_delete_returns_true_if_existed() {
+        let backend = MemoryBackend::new();
+        backend.store("media-1", b"data", "text/plain").await.unwrap();
+        assert!(backend.delete("media-1").await.unwrap());
+        assert!(!backend.delete("media-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn memory_exists_check() {
+        let backend = MemoryBackend::new();
+        assert!(!backend.exists("media-1").await.unwrap());
+        backend.store("media-1", b"data", "text/plain").await.unwrap();
+        assert!(backend.exists("media-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn memory_get_size() {
+        let backend = MemoryBackend::new();
+        backend.store("media-1", b"1234567890", "text/plain").await.unwrap();
+        assert_eq!(backend.get_size("media-1").await.unwrap(), Some(10));
+        assert_eq!(backend.get_size("nonexistent").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn memory_thumbnail_store_and_retrieve() {
+        let backend = MemoryBackend::new();
+        backend.store_thumbnail("media-1", 100, 100, "crop", b"thumb").await.unwrap();
+        let thumb = backend.retrieve_thumbnail("media-1", 100, 100, "crop").await.unwrap();
+        assert_eq!(thumb.as_deref(), Some(&b"thumb"[..]));
+    }
+
+    #[tokio::test]
+    async fn memory_thumbnail_key_isolation() {
+        let backend = MemoryBackend::new();
+        backend.store_thumbnail("media-1", 100, 100, "crop", b"small").await.unwrap();
+        let thumb = backend.retrieve_thumbnail("media-1", 200, 200, "scale").await.unwrap();
+        assert!(thumb.is_none());
+    }
+
+    #[tokio::test]
+    async fn memory_delete_thumbnails_removes_all_for_media() {
+        let backend = MemoryBackend::new();
+        backend.store_thumbnail("media-1", 100, 100, "crop", b"a").await.unwrap();
+        backend.store_thumbnail("media-1", 200, 200, "scale", b"b").await.unwrap();
+        let deleted = backend.delete_thumbnails("media-1").await.unwrap();
+        assert_eq!(deleted, 2);
+    }
+
+    #[tokio::test]
+    async fn memory_get_stats_counts_correctly() {
+        let backend = MemoryBackend::new();
+        backend.store("a", b"12345", "text/plain").await.unwrap();
+        backend.store("b", b"1234567890", "image/png").await.unwrap();
+        let stats = backend.get_stats().await.unwrap();
+        assert_eq!(stats.total_files, 2);
+        assert_eq!(stats.total_size, 15);
+    }
+
+    #[tokio::test]
+    async fn memory_health_check() {
+        let backend = MemoryBackend::new();
+        assert!(backend.health_check().await.unwrap());
+    }
+}

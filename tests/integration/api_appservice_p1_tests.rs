@@ -3,13 +3,13 @@ use hyper::{Request, StatusCode};
 use serde_json::json;
 use tower::ServiceExt;
 
-use crate::{get_admin_token, setup_test_app};
+use crate::{get_admin_token, setup_fresh_test_app};
 
 /// P1-1: 事务推送与事件处理闭环
 /// 验证：AppService 可以接收事件推送，事件正确存储到数据库
 #[tokio::test]
 async fn test_appservice_transaction_push() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -94,7 +94,7 @@ async fn test_appservice_transaction_push() {
 /// 验证：使用 as_token 可以访问 AppService API，无效 token 被拒绝
 #[tokio::test]
 async fn test_appservice_as_token_authentication() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -157,7 +157,7 @@ async fn test_appservice_as_token_authentication() {
 /// 注意：这个测试验证 hs_token 的存储和查询，实际的 HTTP 调用需要真实的 AppService 服务器
 #[tokio::test]
 async fn test_appservice_hs_token_storage() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -208,7 +208,7 @@ async fn test_appservice_hs_token_storage() {
 /// 验证：exclusive namespace 只能被一个 AppService 使用
 #[tokio::test]
 async fn test_appservice_namespace_exclusivity() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -326,7 +326,7 @@ async fn test_appservice_namespace_exclusivity() {
 /// P1-4b: virtual user 注册必须落在本地 exclusive user namespace 内
 #[tokio::test]
 async fn test_appservice_virtual_user_requires_exclusive_local_namespace() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -395,7 +395,7 @@ async fn test_appservice_virtual_user_requires_exclusive_local_namespace() {
 /// P1-4c: 管理面显式写入事件必须落在 AppService namespace 内
 #[tokio::test]
 async fn test_appservice_admin_push_event_requires_namespace_ownership() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -474,7 +474,7 @@ async fn test_appservice_admin_push_event_requires_namespace_ownership() {
 /// P0-02: 管理面统计接口需要显式暴露 scheduler 聚合状态
 #[tokio::test]
 async fn test_appservice_statistics_expose_scheduler_summary() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 
@@ -561,7 +561,7 @@ async fn test_appservice_statistics_expose_scheduler_summary() {
 /// 验证：用户/房间别名查询能正确返回所属的 AppService
 #[tokio::test]
 async fn test_appservice_namespace_query() {
-    let Some(app) = setup_test_app().await else {
+    let Some(app) = setup_fresh_test_app().await else {
         return;
     };
 

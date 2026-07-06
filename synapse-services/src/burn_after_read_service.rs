@@ -1,7 +1,7 @@
 use chrono::Utc;
 use std::sync::Arc;
 use synapse_common::ApiResult;
-use synapse_storage::burn_after_read::BurnAfterReadStorage;
+use synapse_storage::burn_after_read::BurnAfterReadStoreApi;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
@@ -32,20 +32,20 @@ struct BurnProcessorState {
 }
 
 pub struct BurnAfterReadService {
-    storage: Arc<BurnAfterReadStorage>,
-    event_storage: Arc<synapse_storage::event::EventStorage>,
+    storage: Arc<dyn BurnAfterReadStoreApi>,
+    event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     server_name: String,
     processor_state: Arc<RwLock<BurnProcessorState>>,
 }
 
 impl BurnAfterReadService {
     pub fn new(
-        storage: BurnAfterReadStorage,
-        event_storage: Arc<synapse_storage::event::EventStorage>,
+        storage: Arc<dyn BurnAfterReadStoreApi>,
+        event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
         server_name: String,
     ) -> Self {
         Self {
-            storage: Arc::new(storage),
+            storage,
             event_storage,
             server_name,
             processor_state: Arc::new(RwLock::new(BurnProcessorState { is_running: false })),

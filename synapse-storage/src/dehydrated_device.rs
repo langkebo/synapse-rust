@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use std::sync::Arc;
@@ -23,6 +24,27 @@ pub struct UpsertDehydratedDeviceParams {
     pub algorithm: String,
     pub account: Option<Value>,
     pub expires_at: Option<i64>,
+}
+
+#[async_trait]
+pub trait DehydratedDeviceStoreApi: Send + Sync {
+    async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error>;
+    async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error>;
+    async fn delete_by_user(&self, user_id: &str) -> Result<u64, sqlx::Error>;
+    async fn sweep_expired(&self) -> Result<u64, sqlx::Error>;
+    async fn claim_to_device_events(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<(Vec<Value>, i64), sqlx::Error>;
+    async fn claim_one_time_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        algorithm: &str,
+    ) -> Result<Option<(String, Value)>, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -307,6 +329,44 @@ impl DehydratedDeviceStorage {
 
         tx.rollback().await?;
         Ok(None)
+    }
+}
+
+#[async_trait]
+impl DehydratedDeviceStoreApi for DehydratedDeviceStorage {
+    async fn get_by_user(&self, user_id: &str) -> Result<Option<DehydratedDevice>, sqlx::Error> {
+        self.get_by_user(user_id).await
+    }
+
+    async fn upsert_for_user(&self, params: UpsertDehydratedDeviceParams) -> Result<DehydratedDevice, sqlx::Error> {
+        self.upsert_for_user(params).await
+    }
+
+    async fn delete_by_user(&self, user_id: &str) -> Result<u64, sqlx::Error> {
+        self.delete_by_user(user_id).await
+    }
+
+    async fn sweep_expired(&self) -> Result<u64, sqlx::Error> {
+        self.sweep_expired().await
+    }
+
+    async fn claim_to_device_events(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        since_stream_id: i64,
+        limit: i64,
+    ) -> Result<(Vec<Value>, i64), sqlx::Error> {
+        self.claim_to_device_events(user_id, device_id, since_stream_id, limit).await
+    }
+
+    async fn claim_one_time_key(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        algorithm: &str,
+    ) -> Result<Option<(String, Value)>, sqlx::Error> {
+        self.claim_one_time_key(user_id, device_id, algorithm).await
     }
 }
 

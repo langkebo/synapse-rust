@@ -8,8 +8,21 @@ artifacts = true
 exclude_files = ["src/tests/**", "**/tests/**", "**/migrations/**"]
 fail_ci_if_error = true
 precision = 2
+# Global coverage floor (70%) + ceiling tracking (90%).
+# File-level thresholds are enforced by scripts/check_file_coverage.py
+# (P4-1: per-file ≥80% for new/touched files; see .trae/documents/TDD落地执行清单.md).
 range = "70..90"
 
 [flags]
 unit = "src/**/*.rs"
 integration = "tests/**/*.rs"
+
+# P4-1: file-level coverage thresholds.
+# Tarpaulin's TOML config does not natively support per-file fail-under, but the
+# CLI flag `--fail-under-file path:threshold` does. The CI coverage job
+# (.github/workflows/ci.yml `coverage` job) post-processes tarpaulin's JSON
+# output via scripts/check_file_coverage.py to enforce:
+#   - new files (no prior coverage baseline): ≥60% (ramp-up grace)
+#   - existing touched files: must not regress below prior baseline
+#   - TDD-mandated files (Phase 3 trait seams): ≥80%
+# See .trae/documents/TDD落地执行清单.md P4-1 for the policy.

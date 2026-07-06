@@ -347,3 +347,170 @@ impl ApplicationServiceManager {
             .is_some_and(|(localpart, user_server_name)| !localpart.is_empty() && user_server_name == server_name)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── is_local_user_id ──────────────────────────────────────────────
+
+    #[test]
+    fn local_user_id_matches_server_name() {
+        assert!(ApplicationServiceManager::is_local_user_id("@alice:myserver.com", "myserver.com"));
+    }
+
+    #[test]
+    fn remote_user_id_different_server() {
+        assert!(!ApplicationServiceManager::is_local_user_id("@alice:other.com", "myserver.com"));
+    }
+
+    #[test]
+    fn user_id_without_at_prefix_is_not_local() {
+        assert!(!ApplicationServiceManager::is_local_user_id("alice:myserver.com", "myserver.com"));
+    }
+
+    #[test]
+    fn user_id_without_server_part_is_not_local() {
+        assert!(!ApplicationServiceManager::is_local_user_id("@alice", "myserver.com"));
+    }
+
+    #[test]
+    fn empty_localpart_is_not_local() {
+        assert!(!ApplicationServiceManager::is_local_user_id("@:myserver.com", "myserver.com"));
+    }
+
+    #[test]
+    fn empty_user_id_is_not_local() {
+        assert!(!ApplicationServiceManager::is_local_user_id("", "myserver.com"));
+    }
+
+    // ── namespace_matches ─────────────────────────────────────────────
+
+    fn make_namespaces() -> serde_json::Value {
+        json!({
+            "users": [
+                {"exclusive": true, "regex": "@.*:myserver\\.com", "group_id": null},
+                {"exclusive": false, "regex": "@_webhook_.*", "group_id": "webhooks"},
+            ],
+            "rooms": [
+                {"exclusive": true, "regex": "!bridge_.*:myserver\\.com"},
+            ],
+            "aliases": [
+                {"exclusive": false, "regex": "#bridge_.*:myserver\\.com"},
+            ]
+        })
+    }
+
+    #[test]
+    fn namespace_matches_user_by_regex() {
+        let ns = make_namespaces();
+        assert!(ApplicationServiceManager::namespace_matches(&ns, "users", "@alice:myserver.com", false));
+    }
+
+    #[test]
+    fn namespace_matches_room_by_regex() {
+        let ns = make_namespaces();
+        assert!(ApplicationServiceManager::namespace_matches(&ns, "rooms", "!bridge_test:myserver.com", false));
+    }
+
+    #[test]
+    fn namespace_matches_alias_by_regex() {
+        let ns = make_namespaces();
+        assert!(ApplicationServiceManager::namespace_matches(&ns, "aliases", "#bridge_test:myserver.com", false));
+    }
+
+    #[test]
+    fn namespace_does_not_match_unrelated_candidate() {
+        let ns = make_namespaces();
+        assert!(!ApplicationServiceManager::namespace_matches(&ns, "users", "@bob:other.com", false));
+    }
+
+    #[test]
+    fn namespace_matches_exclusive_only_filters_non_exclusive() {
+        let ns = make_namespaces();
+        // @_webhook_* is non-exclusive, so exclusive_only=true should not match it
+        assert!(!ApplicationServiceManager::namespace_matches(&ns, "users", "@_webhook_test", true));
+        // But @.*:myserver\.com IS exclusive, so it should match
+        assert!(ApplicationServiceManager::namespace_matches(&ns, "users", "@alice:myserver.com", true));
+    }
+
+    #[test]
+    fn namespace_matches_missing_kind_returns_false() {
+        let ns = make_namespaces();
+        assert!(!ApplicationServiceManager::namespace_matches(&ns, "nonexistent", "@alice:myserver.com", false));
+    }
+
+    #[test]
+    fn namespace_matches_empty_namespaces_returns_false() {
+        let empty = json!({});
+        assert!(!ApplicationServiceManager::namespace_matches(&empty, "users", "@alice:myserver.com", false));
+    }
+
+    #[test]
+    fn namespace_matches_invalid_regex_returns_false() {
+        let ns = json!({
+            "users": [
+                {"exclusive": false, "regex": "[unclosed_group"},
+            ]
+        });
+        assert!(!ApplicationServiceManager::namespace_matches(&ns, "users", "test", false));
+    }
+
+    // ── exclusive_namespace_patterns ──────────────────────────────────
+
+    #[test]
+    fn exclusive_patterns_returns_only_exclusive_regexes() {
+        let ns = make_namespaces();
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&ns), "users");
+        assert_eq!(patterns.len(), 1);
+        assert_eq!(patterns[0], "@.*:myserver\\.com");
+    }
+
+    #[test]
+    fn exclusive_patterns_filters_non_exclusive() {
+        let ns = make_namespaces();
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&ns), "aliases");
+        // The aliases rule is non-exclusive, so nothing returned
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn exclusive_patterns_none_input_returns_empty() {
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(None, "users");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn exclusive_patterns_missing_kind_returns_empty() {
+        let ns = make_namespaces();
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&ns), "nonexistent");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn exclusive_patterns_filters_empty_regex() {
+        let ns = json!({
+            "users": [
+                {"exclusive": true, "regex": "  "},
+            ]
+        });
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&ns), "users");
+        assert!(patterns.is_empty());
+    }
+
+    #[test]
+    fn exclusive_patterns_multiple_exclusive() {
+        let ns = json!({
+            "users": [
+                {"exclusive": true, "regex": "@a.*"},
+                {"exclusive": false, "regex": "@b.*"},
+                {"exclusive": true, "regex": "@c.*"},
+            ]
+        });
+        let patterns = ApplicationServiceManager::exclusive_namespace_patterns(Some(&ns), "users");
+        assert_eq!(patterns.len(), 2);
+        assert_eq!(patterns[0], "@a.*");
+        assert_eq!(patterns[1], "@c.*");
+    }
+}
