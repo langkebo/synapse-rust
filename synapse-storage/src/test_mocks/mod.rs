@@ -95,6 +95,7 @@ use synapse_common::ApiError;
 
 pub mod access_token;
 pub mod account_data;
+pub mod admin_federation;
 pub mod admin_media;
 #[cfg(feature = "openclaw-routes")]
 pub mod ai_connection;
@@ -102,16 +103,21 @@ pub mod audit_event;
 pub mod background_update;
 #[cfg(feature = "cas-sso")]
 pub mod cas;
+pub mod dehydrated_device;
 pub mod device_list;
 pub mod event;
+pub mod filter;
 pub mod member;
 pub mod oidc_user_mapping;
+pub mod openid_token;
 pub mod presence;
+pub mod push;
 pub mod rate_limit;
 pub mod refresh_token;
 pub mod registration_token;
 pub mod relations;
 pub mod room;
+pub mod room_account_data;
 pub mod room_summary;
 pub mod room_tag;
 pub mod sliding_sync;
@@ -124,6 +130,7 @@ pub mod worker;
 
 pub use access_token::InMemoryAccessTokenStore;
 pub use account_data::InMemoryAccountDataStore;
+pub use admin_federation::InMemoryAdminFederationStore;
 pub use admin_media::InMemoryAdminMediaStore;
 #[cfg(feature = "openclaw-routes")]
 pub use ai_connection::InMemoryAiConnectionStore;
@@ -131,16 +138,21 @@ pub use audit_event::InMemoryAuditEventStore;
 pub use background_update::InMemoryBackgroundUpdateStore;
 #[cfg(feature = "cas-sso")]
 pub use cas::InMemoryCasStore;
+pub use dehydrated_device::InMemoryDehydratedDeviceStore;
 pub use device_list::InMemoryDeviceListStore;
 pub use event::InMemoryEventStore;
+pub use filter::InMemoryFilterStore;
 pub use member::InMemoryMemberStore;
 pub use oidc_user_mapping::InMemoryOidcUserMappingStore;
+pub use openid_token::InMemoryOpenIdTokenStore;
 pub use presence::InMemoryPresenceStore;
+pub use push::InMemoryPushStore;
 pub use rate_limit::InMemoryRateLimitStore;
 pub use refresh_token::InMemoryRefreshTokenStore;
 pub use registration_token::InMemoryRegistrationTokenStore;
 pub use relations::InMemoryRelationsStore;
 pub use room::InMemoryRoomStore;
+pub use room_account_data::InMemoryRoomAccountDataStore;
 pub use room_summary::InMemoryRoomSummaryStore;
 pub use room_tag::InMemoryRoomTagStore;
 pub use sliding_sync::InMemorySlidingSyncStore;
