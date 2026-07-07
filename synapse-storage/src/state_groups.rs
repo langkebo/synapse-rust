@@ -3,6 +3,23 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tracing;
 
+/// SELECT list for the `state_groups` table.
+const STATE_GROUP_COLS: &str = "id, room_id, event_id, state_hash, created_ts";
+
+/// SELECT list for the `state_group_edges` table.
+#[allow(dead_code)]
+const STATE_GROUP_EDGE_COLS: &str = "state_group_id, prev_state_group_id";
+
+/// Columns for `event_to_state_groups`.
+#[allow(dead_code)]
+const EVENT_TO_STATE_GROUP_COLS: &str = "event_id, state_group_id";
+
+/// Columns for `state_group_state`.
+const STATE_GROUP_STATE_COLS: &str = "state_group_id, event_type, state_key, event_id";
+
+/// Inner columns for `state_group_state` (without state_group_id).
+const STATE_GROUP_STATE_INNER_COLS: &str = "event_type, state_key, event_id";
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct StateGroup {
     pub id: i64,
@@ -78,28 +95,25 @@ impl StateGroupStorage {
     }
 
     pub async fn get_state_group(&self, id: i64) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(
-            r#"SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE id = $1"#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
+        sqlx::query_as::<_, StateGroup>(&format!("SELECT {} FROM state_groups WHERE id = $1", STATE_GROUP_COLS))
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
     }
 
     pub async fn get_state_group_by_event(&self, event_id: &str) -> Result<Option<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(
-            r#"SELECT id, room_id, event_id, state_hash, created_ts FROM state_groups WHERE event_id = $1"#,
-        )
-        .bind(event_id)
-        .fetch_optional(&self.pool)
-        .await
+        sqlx::query_as::<_, StateGroup>(&format!("SELECT {} FROM state_groups WHERE event_id = $1", STATE_GROUP_COLS))
+            .bind(event_id)
+            .fetch_optional(&self.pool)
+            .await
     }
 
     pub async fn get_room_state_groups(&self, room_id: &str, limit: i64) -> Result<Vec<StateGroup>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroup>(
-            r#"SELECT id, room_id, event_id, state_hash, created_ts
-               FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT $2"#,
-        )
+        sqlx::query_as::<_, StateGroup>(&format!(
+            "SELECT {}
+                 FROM state_groups WHERE room_id = $1 ORDER BY id DESC LIMIT $2",
+            STATE_GROUP_COLS
+        ))
         .bind(room_id)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -288,10 +302,11 @@ impl StateGroupStorage {
     }
 
     pub async fn get_state_at_group(&self, state_group_id: i64) -> Result<Vec<StateGroupState>, sqlx::Error> {
-        sqlx::query_as::<_, StateGroupState>(
-            r#"SELECT state_group_id, event_type, state_key, event_id
-               FROM state_group_state WHERE state_group_id = $1"#,
-        )
+        sqlx::query_as::<_, StateGroupState>(&format!(
+            "SELECT {}
+                 FROM state_group_state WHERE state_group_id = $1",
+            STATE_GROUP_STATE_COLS
+        ))
         .bind(state_group_id)
         .fetch_all(&self.pool)
         .await
@@ -347,10 +362,11 @@ impl StateGroupStorage {
             }
 
             // Load state entries for this group
-            let state_rows: Vec<(String, String, String)> = sqlx::query_as(
-                r#"SELECT event_type, state_key, event_id
-                   FROM state_group_state WHERE state_group_id = $1"#,
-            )
+            let state_rows: Vec<(String, String, String)> = sqlx::query_as(&format!(
+                "SELECT {}
+                     FROM state_group_state WHERE state_group_id = $1",
+                STATE_GROUP_STATE_INNER_COLS
+            ))
             .bind(sg_id)
             .fetch_all(&self.pool)
             .await?;
