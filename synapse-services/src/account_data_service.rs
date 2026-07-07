@@ -218,8 +218,30 @@ fn validate_account_data_payload(data_type: &str, body: &Value) -> Result<(), Ap
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
+    use synapse_storage::test_mocks::{
+        shared_fake_user_store, InMemoryAccountDataStore, InMemoryFilterStore, InMemoryOpenIdTokenStore,
+        InMemoryRoomAccountDataStore,
+    };
+    use synapse_storage::{
+        account_data::AccountDataStoreApi, filter::FilterStoreApi, openid_token::OpenIdTokenStoreApi,
+        room_account_data::RoomAccountDataStoreApi, user::UserStore,
+    };
+
+    fn make_service() -> AccountDataService {
+        let account_data: Arc<dyn AccountDataStoreApi> = Arc::new(InMemoryAccountDataStore::new());
+        let user_storage: Arc<dyn UserStore> = shared_fake_user_store();
+        let room_account_data: Arc<dyn RoomAccountDataStoreApi> = Arc::new(InMemoryRoomAccountDataStore::new());
+        let filter: Arc<dyn FilterStoreApi> = Arc::new(InMemoryFilterStore::new());
+        let openid_token: Arc<dyn OpenIdTokenStoreApi> = Arc::new(InMemoryOpenIdTokenStore::new());
+        AccountDataService::new(account_data, user_storage, room_account_data, filter, openid_token)
+    }
+
+    // ── Purely-functional validation tests (existing) ──
 
     #[test]
     fn test_validate_account_data_ok() {
@@ -330,5 +352,119 @@ mod tests {
         let result = validate_account_data_payload("m.ignored_user_list", &body);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid user ID"));
+    }
+
+    // ========== AccountDataService mock-backed behavioural tests ==========
+
+    // ── Filter round-trip ──
+
+    #[tokio::test]
+    async fn create_and_get_filter_roundtrip() {
+        let service = make_service();
+
+        let content = json!({"room": {"timeline": {"limit": 50}}});
+        let filter_id = service.create_filter("@alice:localhost", content.clone()).await.unwrap();
+        assert!(!filter_id.is_empty(), "filter_id should not be empty");
+
+        let retrieved = service.get_filter("@alice:localhost", &filter_id).await.unwrap();
+        let saved = retrieved.expect("expected Some after create_filter");
+        assert_eq!(saved, content, "round-tripped filter content must match");
+    }
+
+    #[tokio::test]
+    async fn get_filter_returns_none_for_unknown_id() {
+        let service = make_service();
+
+        let result = service.get_filter("@alice:localhost", "nonexistent-filter").await.unwrap();
+        assert!(result.is_none(), "unknown filter_id should return None");
+    }
+
+    #[tokio::test]
+    async fn get_filter_scoped_to_user() {
+        let service = make_service();
+
+        let content = json!({"presence": {"types": ["m.presence"]}});
+        let filter_id = service.create_filter("@alice:localhost", content).await.unwrap();
+
+        // Different user should not see the filter
+        let result = service.get_filter("@bob:localhost", &filter_id).await.unwrap();
+        assert!(result.is_none(), "filter should be scoped to the creating user");
+    }
+
+    // ── OpenID token round-trip ──
+
+    #[tokio::test]
+    async fn create_and_validate_openid_token_roundtrip() {
+        let service = make_service();
+
+        let (token, expires_in) = service.create_openid_token("@alice:localhost", None, 3600).await.unwrap();
+        assert!(!token.is_empty(), "token should not be empty");
+        assert!(expires_in > 0, "expires_in should be positive");
+
+        let validated = service.validate_openid_token(&token).await.unwrap();
+        let token_info = validated.expect("freshly created token should validate");
+        assert_eq!(token_info.user_id, "@alice:localhost");
+        assert!(token_info.is_valid, "freshly created token should be valid");
+    }
+
+    #[tokio::test]
+    async fn validate_returns_none_for_unknown_token() {
+        let service = make_service();
+
+        let result = service.validate_openid_token("nonexistent-token").await.unwrap();
+        assert!(result.is_none(), "unknown token should return None");
+    }
+
+    #[tokio::test]
+    async fn immediately_expired_openid_token_not_valid() {
+        let service = make_service();
+
+        // expires_in_seconds=0 means expires_at = now, which is already past/equal
+        // when validate runs its own now() call.
+        let (token, _) = service.create_openid_token("@alice:localhost", None, 0).await.unwrap();
+
+        let validated = service.validate_openid_token(&token).await.unwrap();
+        assert!(validated.is_none(), "token with 0-second expiry should not pass validation");
+    }
+
+    // ── Room account data round-trip ──
+
+    #[tokio::test]
+    async fn set_and_get_room_account_data_roundtrip() {
+        let service = make_service();
+        let room_id = "!room1:localhost";
+
+        let payload = json!({"tags": {"m.favourite": {"order": 0.5}}});
+        service.set_room_account_data("@alice:localhost", room_id, "m.tag", &payload).await.unwrap();
+
+        let retrieved = service.get_room_account_data("@alice:localhost", room_id, "m.tag").await.unwrap();
+        let saved = retrieved.expect("expected Some after set_room_account_data");
+        assert_eq!(saved, payload, "round-tripped room account data content must match");
+    }
+
+    #[tokio::test]
+    async fn get_room_account_data_returns_none_for_wrong_type() {
+        let service = make_service();
+        let room_id = "!room2:localhost";
+
+        service.set_room_account_data("@alice:localhost", room_id, "m.tag", &json!({"key": "val"})).await.unwrap();
+
+        let result = service.get_room_account_data("@alice:localhost", room_id, "m.other_type").await.unwrap();
+        assert!(result.is_none(), "wrong data_type should return None");
+    }
+
+    #[tokio::test]
+    async fn delete_room_account_data_removes_it() {
+        let service = make_service();
+        let room_id = "!room3:localhost";
+        let user_id = "@alice:localhost";
+
+        service.set_room_account_data(user_id, room_id, "m.tag", &json!({"k": "v"})).await.unwrap();
+
+        let deleted = service.delete_room_account_data(user_id, room_id, "m.tag").await.unwrap();
+        assert!(deleted, "delete should return true for existing data");
+
+        let after = service.get_room_account_data(user_id, room_id, "m.tag").await.unwrap();
+        assert!(after.is_none(), "expected None after delete");
     }
 }

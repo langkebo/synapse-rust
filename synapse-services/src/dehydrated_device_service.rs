@@ -285,8 +285,25 @@ impl DehydratedDeviceProvider for DehydratedDeviceService {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use serde_json::json;
+    use std::sync::Arc;
+    use synapse_storage::test_mocks::dehydrated_device::InMemoryDehydratedDeviceStore;
+
+    fn make_valid_device_body() -> Value {
+        json!({
+            "device_keys": {
+                "user_id": "@alice:localhost",
+                "device_id": "DEV123",
+                "algorithms": ["m.olm.v1.curve25519-aes-sha2"]
+            },
+            "device_data": {
+                "algorithm": "org.matrix.msc3814.v1.olm"
+            }
+        })
+    }
 
     // ========== generate_device_id tests ==========
 
@@ -442,5 +459,89 @@ mod tests {
         assert_eq!(result["device_id"], json!("DEV789"));
         assert_eq!(result["device_data"]["raw"], json!("non_object_data"));
         assert_eq!(result["device_data"]["algorithm"], json!("m.olm.v1.curve25519-aes-sha2"));
+    }
+
+    // ========== DehydratedDeviceService mock-backed behavioural tests ==========
+
+    #[tokio::test]
+    async fn get_device_returns_none_when_no_device_stored() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let result = service.get_device("@alice:localhost").await.unwrap();
+        assert!(result.is_none(), "expected None when no device exists");
+    }
+
+    #[tokio::test]
+    async fn get_status_shows_not_found_when_no_device_stored() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let status = service.get_status("@alice:localhost").await.unwrap();
+        assert_eq!(status["exists"], json!(false));
+    }
+
+    #[tokio::test]
+    async fn put_then_get_device_roundtrip() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let device_id = service.put_device("@alice:localhost", make_valid_device_body()).await.unwrap();
+        assert!(device_id.starts_with("DEHYDRATED"), "expected generated device_id, got: {device_id}");
+
+        let result = service.get_device("@alice:localhost").await.unwrap();
+        let device = result.expect("expected Some after put_device");
+        assert_eq!(device["device_id"], json!(device_id));
+        assert_eq!(device["device_data"]["algorithm"], json!("org.matrix.msc3814.v1.olm"));
+    }
+
+    #[tokio::test]
+    async fn put_then_get_status_shows_details() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let device_id = service.put_device("@bob:localhost", make_valid_device_body()).await.unwrap();
+
+        let status = service.get_status("@bob:localhost").await.unwrap();
+        assert_eq!(status["exists"], json!(true));
+        assert_eq!(status["device_id"], json!(device_id));
+        assert_eq!(status["algorithm"], json!("org.matrix.msc3814.v1.olm"));
+    }
+
+    #[tokio::test]
+    async fn delete_returns_none_when_no_device_stored() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let result = service.delete_device("@nobody:localhost").await.unwrap();
+        assert!(result.is_none(), "expected None when deleting non-existent device");
+    }
+
+    #[tokio::test]
+    async fn put_delete_then_get_returns_none() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let device_id = service.put_device("@carol:localhost", make_valid_device_body()).await.unwrap();
+
+        let deleted = service.delete_device("@carol:localhost").await.unwrap();
+        assert_eq!(deleted, Some(device_id.clone()), "delete should return the removed device_id");
+
+        let after = service.get_device("@carol:localhost").await.unwrap();
+        assert!(after.is_none(), "expected None after delete");
+    }
+
+    #[tokio::test]
+    async fn put_device_preserves_explicit_device_id() {
+        let store = Arc::new(InMemoryDehydratedDeviceStore::new());
+        let service = DehydratedDeviceService::new(store);
+
+        let mut body = make_valid_device_body();
+        body["device_id"] = json!("CUSTOM-DEV-42");
+        let returned_id = service.put_device("@dave:localhost", body).await.unwrap();
+        assert_eq!(returned_id, "CUSTOM-DEV-42");
+
+        let result = service.get_device("@dave:localhost").await.unwrap();
+        assert_eq!(result.unwrap()["device_id"], json!("CUSTOM-DEV-42"));
     }
 }
