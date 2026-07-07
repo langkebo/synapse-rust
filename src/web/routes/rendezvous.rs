@@ -88,7 +88,7 @@ async fn create_session(
     ::tracing::info!(request_id = %request_id, session_id = %session.session_id, intent = ?session.intent, "Created rendezvous session");
 
     let rendezvous_url: String =
-        format!("matrix://rendezvous/{}/{}", &state.services.core.server_name, session.session_id);
+        format!("matrix://rendezvous://{}/{}", &state.services.core.server_name, session.session_id);
 
     Ok(Json(json!({
         "url": rendezvous_url,

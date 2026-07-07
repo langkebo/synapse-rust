@@ -1,4 +1,5 @@
 use crate::common::error::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -84,9 +85,12 @@ pub struct TelemetryAlertQuery {
     pub refresh: Option<bool>,
 }
 
-pub async fn get_status(State(state): State<AppState>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.core.config.telemetry;
-    let prometheus = &state.services.core.config.prometheus;
+pub async fn get_status(
+    State(ctx): State<AdminContext>,
+    _admin_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let config = &ctx.config.telemetry;
+    let prometheus = &ctx.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
@@ -104,11 +108,11 @@ pub async fn get_status(State(state): State<AppState>, _admin_user: AdminUser) -
 }
 
 pub async fn get_resource_attributes(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.core.config.telemetry;
-    let prometheus = &state.services.core.config.prometheus;
+    let config = &ctx.config.telemetry;
+    let prometheus = &ctx.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
@@ -118,13 +122,13 @@ pub async fn get_resource_attributes(
 }
 
 pub async fn get_metrics_summary(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let inventory = state.services.core.metrics.inventory();
-    let metrics = state.services.core.metrics.collect_metrics();
-    let rendered = state.services.core.metrics.to_prometheus_format();
-    let appservice_statistics = state.services.admin.modules.app_service_manager.get_statistics().await?;
+    let inventory = ctx.metrics.inventory();
+    let metrics = ctx.metrics.collect_metrics();
+    let rendered = ctx.metrics.to_prometheus_format();
+    let appservice_statistics = ctx.app_service_manager.get_statistics().await?;
 
     Ok(Json(MetricsSummaryResponse {
         total_metrics: metrics.len(),
@@ -191,16 +195,16 @@ pub(crate) fn summarize_appservice_scheduler_metrics(
 }
 
 pub async fn health_check(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let config = &state.services.core.config.telemetry;
-    let prometheus = &state.services.core.config.prometheus;
+    let config = &ctx.config.telemetry;
+    let prometheus = &ctx.config.prometheus;
 
     let telemetry_service = TelemetryService::new(Arc::new(config.clone()), Arc::new(prometheus.clone()));
 
-    let readiness = state.health_checker.check_readiness().await;
-    let (database_health, alerts) = state.services.admin.security.telemetry_alert_service.sync_with_health().await?;
+    let readiness = ctx.health_checker.check_readiness().await;
+    let (database_health, alerts) = ctx.telemetry_alert_service.sync_with_health().await?;
 
     Ok(Json(serde_json::json!({
         "status": readiness.status,
@@ -214,18 +218,15 @@ pub async fn health_check(
 }
 
 pub async fn list_alerts(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<TelemetryAlertQuery>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     if query.refresh.unwrap_or(true) {
-        let _ = state.services.admin.security.telemetry_alert_service.sync_with_health().await?;
+        let _ = ctx.telemetry_alert_service.sync_with_health().await?;
     }
 
-    let alerts = state
-        .services
-        .admin
-        .security
+    let alerts = ctx
         .telemetry_alert_service
         .list_alerts(&TelemetryAlertFilters { status: query.status, severity: query.severity })?;
 
@@ -233,19 +234,14 @@ pub async fn list_alerts(
 }
 
 pub async fn acknowledge_alert(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     Path(alert_id): Path<String>,
     admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let alert =
-        state.services.admin.security.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
+    let alert = ctx.telemetry_alert_service.acknowledge_alert(&alert_id, &admin_user.user_id)?;
 
-    state
-        .services
-        .admin
-        .security
-        .admin_audit_service
+    ctx.admin_audit_service
         .create_event(synapse_storage::CreateAuditEventRequest {
             actor_id: admin_user.user_id,
             action: "admin.telemetry.alert.ack".to_string(),

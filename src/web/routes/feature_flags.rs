@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Path, Query, State},
@@ -56,46 +57,39 @@ pub struct FeatureFlagListResponse<T> {
 }
 
 pub async fn create_feature_flag(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     admin_user: AdminUser,
     Json(body): Json<CreateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
-    let flag =
-        state.services.admin.modules.feature_flag_service.create_flag(&admin_user.user_id, &request_id, body).await?;
+    let flag = ctx.feature_flag_service.create_flag(&admin_user.user_id, &request_id, body).await?;
     Ok(Json(flag))
 }
 
 pub async fn update_feature_flag(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     admin_user: AdminUser,
     Path(flag_key): Path<String>,
     Json(body): Json<UpdateFeatureFlagRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request_id = request_id(&headers);
-    let flag = state
-        .services
-        .admin
-        .modules
-        .feature_flag_service
-        .update_flag(&admin_user.user_id, &request_id, &flag_key, body)
-        .await?;
+    let flag = ctx.feature_flag_service.update_flag(&admin_user.user_id, &request_id, &flag_key, body).await?;
     Ok(Json(flag))
 }
 
 pub async fn get_feature_flag(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(flag_key): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let flag = state.services.admin.modules.feature_flag_service.get_flag(&flag_key).await?;
+    let flag = ctx.feature_flag_service.get_flag(&flag_key).await?;
     Ok(Json(flag))
 }
 
 pub async fn list_feature_flags(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<FeatureFlagListQuery>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -111,7 +105,7 @@ pub async fn list_feature_flags(
         cursor_updated_ts: cursor.map(|(updated_ts, _)| updated_ts),
         cursor_flag_key: cursor.map(|(_, flag_key)| flag_key.to_string()),
     };
-    let (flags, total) = state.services.admin.modules.feature_flag_service.list_flags(filters).await?;
+    let (flags, total) = ctx.feature_flag_service.list_flags(filters).await?;
     let next_batch = flags
         .last()
         .map(|flag| encode_feature_flag_cursor(flag.updated_ts, &flag.flag_key))

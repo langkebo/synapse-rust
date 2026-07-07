@@ -1,4 +1,5 @@
 use crate::common::error::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AdminUser, AppState};
 use axum::{
     extract::{Query, State},
@@ -42,13 +43,13 @@ pub struct VerifyResponse {
 }
 
 pub async fn send_captcha(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<SendCaptchaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request =
         SendCaptchaRequest { captcha_type: body.captcha_type, target: body.target, template_name: body.template_name };
 
-    let response = state.services.admin.security.captcha_service.send_captcha(request, None, None).await?;
+    let response = ctx.captcha_service.send_captcha(request, None, None).await?;
 
     Ok(Json(CaptchaResponse {
         captcha_id: response.captcha_id,
@@ -58,24 +59,21 @@ pub async fn send_captcha(
 }
 
 pub async fn verify_captcha(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Json(body): Json<VerifyCaptchaBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = VerifyCaptchaRequest { captcha_id: body.captcha_id, code: body.code };
 
-    let verified = state.services.admin.security.captcha_service.verify_captcha(request).await?;
+    let verified = ctx.captcha_service.verify_captcha(request).await?;
 
     Ok(Json(VerifyResponse { is_verified: verified }))
 }
 
 pub async fn get_captcha_status(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<CaptchaIdQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let captcha = state
-        .services
-        .admin
-        .security
+    let captcha = ctx
         .captcha_service
         .get_captcha(&query.captcha_id)
         .await?
@@ -98,8 +96,11 @@ pub struct CaptchaIdQuery {
     pub captcha_id: String,
 }
 
-pub async fn cleanup_expired(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.admin.security.captcha_service.cleanup_expired().await?;
+pub async fn cleanup_expired(
+    State(ctx): State<AdminContext>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let count = ctx.captcha_service.cleanup_expired().await?;
 
     Ok(Json(serde_json::json!({
         "cleaned_count": count,

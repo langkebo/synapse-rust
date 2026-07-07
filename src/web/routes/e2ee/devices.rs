@@ -1,6 +1,7 @@
 use super::keys::parse_stream_id;
+use crate::web::routes::context::DeviceContext;
 use crate::web::routes::response_helpers::{empty_json, filter_users_with_shared_rooms};
-use crate::web::routes::{AppState, AuthenticatedUser, MatrixJson};
+use crate::web::routes::{AuthenticatedUser, MatrixJson};
 use crate::ApiError;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -14,7 +15,7 @@ use serde_json::{json, Value};
 
 #[axum::debug_handler]
 pub(crate) async fn device_list_update(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -26,13 +27,15 @@ pub(crate) async fn device_list_update(
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
 
-    let users: Vec<String> =
-        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
+    let users: Vec<String> = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users)
+        .await
+        .into_iter()
+        .collect();
 
     let since = body.get("since").or_else(|| body.get("from")).and_then(|v| v.as_str()).and_then(parse_stream_id);
 
     if since.is_none() {
-        let snapshot = state.services.account.account_device_list_service.get_device_list_snapshot(&users).await?;
+        let snapshot = ctx.account_device_list_service.get_device_list_snapshot(&users).await?;
         let changed: Vec<Value> = snapshot
             .changed
             .into_iter()
@@ -56,9 +59,7 @@ pub(crate) async fn device_list_update(
 
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(|v| v.as_str()).and_then(parse_stream_id).unwrap_or(0);
-    let delta = state
-        .services
-        .account
+    let delta = ctx
         .account_device_list_service
         .get_device_list_delta(since, if to > 0 { Some(to) } else { None }, &users)
         .await?;
@@ -97,7 +98,7 @@ pub(crate) async fn device_list_update(
 
 #[allow(clippy::unused_async)]
 pub(crate) async fn room_key_distribution(
-    State(_state): State<AppState>,
+    State(_ctx): State<DeviceContext>,
     _auth_user: AuthenticatedUser,
     Path(_room_id): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -108,7 +109,7 @@ pub(crate) async fn room_key_distribution(
 
 #[axum::debug_handler]
 pub(crate) async fn send_to_device(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path((event_type, transaction_id)): Path<(String, String)>,
     MatrixJson(body): MatrixJson<Value>,
@@ -169,10 +170,7 @@ pub(crate) async fn send_to_device(
         }
     }
 
-    state
-        .services
-        .e2ee
-        .to_device_service
+    ctx.to_device_service
         .send_messages(&auth_user.user_id, sender_device_id, &event_type, Some(&transaction_id), messages)
         .await?;
 
@@ -180,7 +178,7 @@ pub(crate) async fn send_to_device(
     // immediately instead of waiting for the next polling cycle.
     if let Some(msg_map) = body.get("messages").and_then(|m| m.as_object()) {
         for (user_id, _) in msg_map {
-            state.services.core.event_notifier.notify_user(user_id);
+            ctx.event_notifier.notify_user(user_id);
         }
     }
 
@@ -189,34 +187,27 @@ pub(crate) async fn send_to_device(
 
 #[axum::debug_handler]
 pub(crate) async fn upload_signatures(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.e2ee.device_keys_service.upload_signatures(&auth_user.user_id, body).await?;
+    let response = ctx.device_keys_service.upload_signatures(&auth_user.user_id, body).await?;
 
     Ok(Json(response))
 }
 
 #[axum::debug_handler]
 pub(crate) async fn upload_device_signing(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     // UIA (User-Interactive Authentication) is required for cross-signing key upload
     // per Matrix spec: POST /_matrix/client/v3/keys/device_signing/upload requires UIA
     let auth = body.get("auth");
-    if let Err(uia_response) = state
-        .services
-        .account
+    if let Err(uia_response) = ctx
         .account_identity_service
-        .require_cross_signing_uia(
-            &state.services.extensions.uia_service,
-            auth,
-            &auth_user.user_id,
-            &state.services.core.auth_service,
-        )
+        .require_cross_signing_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.auth_service)
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
@@ -234,12 +225,7 @@ pub(crate) async fn upload_device_signing(
     if let Some(master_key) = body.get("master_key") {
         if let Some(key_obj) = master_key.as_object() {
             if !key_obj.is_empty() {
-                state
-                    .services
-                    .e2ee
-                    .cross_signing_service
-                    .upload_device_signing_key(&auth_user.user_id, device_id, master_key)
-                    .await?;
+                ctx.cross_signing_service.upload_device_signing_key(&auth_user.user_id, device_id, master_key).await?;
             }
         }
     }
@@ -247,10 +233,7 @@ pub(crate) async fn upload_device_signing(
     if let Some(self_signing_key) = body.get("self_signing_key") {
         if let Some(key_obj) = self_signing_key.as_object() {
             if !key_obj.is_empty() {
-                state
-                    .services
-                    .e2ee
-                    .cross_signing_service
+                ctx.cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, self_signing_key)
                     .await?;
             }
@@ -260,10 +243,7 @@ pub(crate) async fn upload_device_signing(
     if let Some(user_signing_key) = body.get("user_signing_key") {
         if let Some(key_obj) = user_signing_key.as_object() {
             if !key_obj.is_empty() {
-                state
-                    .services
-                    .e2ee
-                    .cross_signing_service
+                ctx.cross_signing_service
                     .upload_device_signing_key(&auth_user.user_id, device_id, user_signing_key)
                     .await?;
             }
@@ -272,7 +252,7 @@ pub(crate) async fn upload_device_signing(
 
     // Wake long-polling sync/sliding-sync requests so the client sees the
     // updated cross-signing state immediately after a successful upload.
-    state.services.core.event_notifier.notify_user(&auth_user.user_id);
+    ctx.event_notifier.notify_user(&auth_user.user_id);
 
     Ok(Json(json!({})).into_response())
 }
@@ -285,7 +265,7 @@ pub(crate) fn has_upload_device_signing_keys(body: &Value) -> bool {
 
 #[axum::debug_handler]
 pub(crate) async fn create_room_key_request(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -294,9 +274,7 @@ pub(crate) async fn create_room_key_request(
     let body: CreateRoomKeyRequestBody =
         serde_json::from_value(body).map_err(|e| ApiError::bad_request(format!("Invalid room key request: {e}")))?;
 
-    let request = state
-        .services
-        .e2ee
+    let request = ctx
         .key_request_service
         .create_request(
             &auth_user.user_id,
@@ -328,16 +306,14 @@ pub(crate) fn decode_key_request_cursor(cursor: &str) -> Option<(i64, String)> {
 }
 
 pub(crate) async fn get_room_key_requests(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<GetRoomKeyRequestsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = params.limit.unwrap_or(100).clamp(1, 1000);
     let cursor = params.from.as_deref().and_then(decode_key_request_cursor);
 
-    let requests = state
-        .services
-        .e2ee
+    let requests = ctx
         .key_request_service
         .get_requests_paginated(crate::e2ee::key_request::KeyRequestPagination {
             user_id: &auth_user.user_id,
@@ -367,11 +343,11 @@ pub(crate) async fn get_room_key_requests(
 
 #[axum::debug_handler]
 pub(crate) async fn delete_room_key_request(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(request_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let existing = state.services.e2ee.key_request_service.get_request(&request_id).await?;
+    let existing = ctx.key_request_service.get_request(&request_id).await?;
 
     let request = existing.ok_or_else(|| ApiError::not_found("Room key request not found".to_string()))?;
 
@@ -379,7 +355,7 @@ pub(crate) async fn delete_room_key_request(
         return Err(ApiError::forbidden("Cannot delete another user's room key request".to_string()));
     }
 
-    state.services.e2ee.key_request_service.cancel_request(&request_id).await?;
+    ctx.key_request_service.cancel_request(&request_id).await?;
 
     Ok(empty_json())
 }
@@ -435,7 +411,7 @@ pub(crate) fn serialize_room_key_request(request: crate::e2ee::key_request::KeyR
 
 #[axum::debug_handler]
 pub(crate) async fn request_device_verification(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -453,9 +429,7 @@ pub(crate) async fn request_device_verification(
         _ => crate::e2ee::device_trust::VerificationMethod::Sas,
     };
 
-    let response = state
-        .services
-        .e2ee
+    let response = ctx
         .device_trust_service
         .request_device_verification(
             &auth_user.user_id,
@@ -476,7 +450,7 @@ pub(crate) async fn request_device_verification(
 
 #[axum::debug_handler]
 pub(crate) async fn respond_device_verification(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -488,12 +462,8 @@ pub(crate) async fn respond_device_verification(
 
     let approved = body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    let response = state
-        .services
-        .e2ee
-        .device_trust_service
-        .respond_to_verification(&auth_user.user_id, request_token, approved)
-        .await?;
+    let response =
+        ctx.device_trust_service.respond_to_verification(&auth_user.user_id, request_token, approved).await?;
 
     Ok(Json(serde_json::json!({
         "success": response.success,
@@ -503,11 +473,11 @@ pub(crate) async fn respond_device_verification(
 
 #[axum::debug_handler]
 pub(crate) async fn get_verification_status(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(token): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let response = state.services.e2ee.device_trust_service.get_verification_status(&auth_user.user_id, &token).await?;
+    let response = ctx.device_trust_service.get_verification_status(&auth_user.user_id, &token).await?;
 
     match response {
         Some(r) => Ok(Json(serde_json::json!({
@@ -525,10 +495,10 @@ pub(crate) async fn get_verification_status(
 
 #[axum::debug_handler]
 pub(crate) async fn get_device_trust_list(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let devices = state.services.e2ee.device_trust_service.get_all_devices_with_trust(&auth_user.user_id).await?;
+    let devices = ctx.device_trust_service.get_all_devices_with_trust(&auth_user.user_id).await?;
 
     let devices_json: Vec<Value> = devices
         .into_iter()
@@ -549,12 +519,11 @@ pub(crate) async fn get_device_trust_list(
 
 #[axum::debug_handler]
 pub(crate) async fn get_device_trust(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let status =
-        state.services.e2ee.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
+    let status = ctx.device_trust_service.get_device_trust_status(&auth_user.user_id, &device_id).await?;
 
     match status {
         Some(s) => Ok(Json(serde_json::json!({
@@ -569,10 +538,10 @@ pub(crate) async fn get_device_trust(
 
 #[axum::debug_handler]
 pub(crate) async fn get_security_summary(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let summary = state.services.e2ee.device_trust_service.get_security_summary(&auth_user.user_id).await?;
+    let summary = ctx.device_trust_service.get_security_summary(&auth_user.user_id).await?;
 
     Ok(Json(serde_json::json!({
         "verified_devices": summary.verified_devices,

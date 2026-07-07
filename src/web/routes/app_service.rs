@@ -1,3 +1,4 @@
+use crate::web::routes::context::AdminContext;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -194,65 +195,65 @@ fn extract_as_token(headers: &HeaderMap) -> Result<String, ApiError> {
 }
 
 pub async fn register_app_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
     Json(body): Json<RegisterAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request()?;
 
-    let service = state.services.admin.modules.app_service_manager.register(request).await?;
+    let service = ctx.app_service_manager.register(request).await?;
 
     Ok(created_json_from::<_, AppServiceResponse>(service))
 }
 
 pub async fn get_app_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let service = state.services.admin.modules.app_service_manager.get(&as_id).await?;
+    let service = ctx.app_service_manager.get(&as_id).await?;
 
     Ok(json_from::<_, AppServiceResponse>(require_found(service, "Application service not found")?))
 }
 
 pub async fn list_app_services(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let services = state.services.admin.modules.app_service_manager.get_all_active().await?;
+    let services = ctx.app_service_manager.get_all_active().await?;
 
     Ok(json_vec_from::<_, AppServiceResponse>(services))
 }
 
 pub async fn update_app_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
     Json(body): Json<UpdateAppServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request = body.into_request();
 
-    let service = state.services.admin.modules.app_service_manager.update(&as_id, request).await?;
+    let service = ctx.app_service_manager.update(&as_id, request).await?;
 
     Ok(json_from::<_, AppServiceResponse>(service))
 }
 
 pub async fn delete_app_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.app_service_manager.unregister(&as_id).await?;
+    ctx.app_service_manager.unregister(&as_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn ping_app_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let is_alive = state.services.admin.modules.app_service_manager.ping(&as_id).await?;
+    let is_alive = ctx.app_service_manager.ping(&as_id).await?;
 
     Ok(Json(serde_json::json!({
         "as_id": as_id,
@@ -261,47 +262,43 @@ pub async fn ping_app_service(
 }
 
 pub async fn set_app_service_state(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
     Json(body): Json<SetStateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state_entry =
-        state.services.admin.modules.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
+    let state_entry = ctx.app_service_manager.set_state(&as_id, &body.state_key, &body.state_value).await?;
 
     Ok(app_service_state_json(&state_entry))
 }
 
 pub async fn get_app_service_state(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((as_id, state_key)): Path<(String, String)>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let state_entry = state.services.admin.modules.app_service_manager.get_state(&as_id, &state_key).await?;
+    let state_entry = ctx.app_service_manager.get_state(&as_id, &state_key).await?;
 
     Ok(app_service_state_json(&require_found(state_entry, "State not found")?))
 }
 
 pub async fn get_app_service_states(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let states = state.services.admin.modules.app_service_manager.get_all_states(&as_id).await?;
+    let states = ctx.app_service_manager.get_all_states(&as_id).await?;
 
     Ok(Json(states))
 }
 
 pub async fn register_virtual_user(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
     Json(body): Json<RegisterVirtualUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let user = state
-        .services
-        .admin
-        .modules
+    let user = ctx
         .app_service_manager
         .register_virtual_user(&as_id, &body.user_id, body.displayname.as_deref(), body.avatar_url.as_deref())
         .await?;
@@ -310,47 +307,44 @@ pub async fn register_virtual_user(
 }
 
 pub async fn get_virtual_users(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let users = state.services.admin.modules.app_service_manager.get_virtual_users(&as_id).await?;
+    let users = ctx.app_service_manager.get_virtual_users(&as_id).await?;
 
     Ok(json_vec_from::<_, VirtualUserResponse>(users))
 }
 
 pub async fn get_namespaces(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let namespaces = state.services.admin.modules.app_service_manager.get_namespaces(&as_id).await?;
+    let namespaces = ctx.app_service_manager.get_namespaces(&as_id).await?;
 
     Ok(Json(namespaces))
 }
 
 pub async fn get_pending_events(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
-    let events = state.services.admin.modules.app_service_manager.get_pending_events(&as_id, limit).await?;
+    let events = ctx.app_service_manager.get_pending_events(&as_id, limit).await?;
 
     Ok(Json(events))
 }
 
 pub async fn push_event(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
     Json(body): Json<PushEventBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let event = state
-        .services
-        .admin
-        .modules
+    let event = ctx
         .app_service_manager
         .push_event(&as_id, &body.room_id, &body.event_type, &body.sender, body.content, body.state_key.as_deref())
         .await?;
@@ -367,11 +361,11 @@ pub async fn push_event(
 }
 
 pub async fn query_user(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
     Query(query): Query<QueryUser>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let as_id = state.services.admin.modules.app_service_manager.query_user(&query.user_id).await?;
+    let as_id = ctx.app_service_manager.query_user(&query.user_id).await?;
 
     Ok(Json(serde_json::json!({
         "user_id": query.user_id,
@@ -381,11 +375,11 @@ pub async fn query_user(
 }
 
 pub async fn query_room_alias(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
     Query(query): Query<QueryAlias>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let as_id = state.services.admin.modules.app_service_manager.query_room_alias(&query.alias).await?;
+    let as_id = ctx.app_service_manager.query_room_alias(&query.alias).await?;
 
     Ok(Json(serde_json::json!({
         "alias": query.alias,
@@ -394,19 +388,19 @@ pub async fn query_room_alias(
     })))
 }
 
-pub async fn get_statistics(State(state): State<AppState>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.admin.modules.app_service_manager.get_statistics().await?;
+pub async fn get_statistics(State(ctx): State<AdminContext>, _admin: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let stats = ctx.app_service_manager.get_statistics().await?;
 
     Ok(Json(stats))
 }
 
 pub async fn app_service_ping(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state.services.admin.modules.app_service_manager.validate_token(&as_token).await?;
+    let service = ctx.app_service_manager.validate_token(&as_token).await?;
 
     Ok(Json(serde_json::json!({
         "as_id": service.as_id
@@ -414,14 +408,14 @@ pub async fn app_service_ping(
 }
 
 pub async fn app_service_transactions(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((as_id, _txn_id)): Path<(String, String)>,
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state.services.admin.modules.app_service_manager.validate_token(&as_token).await?;
+    let service = ctx.app_service_manager.validate_token(&as_token).await?;
 
     if service.as_id != as_id {
         return Err(ApiError::forbidden("Application service ID mismatch"));
@@ -429,21 +423,21 @@ pub async fn app_service_transactions(
 
     let events = body.get("events").and_then(|e| e.as_array()).cloned().unwrap_or_default();
 
-    state.services.admin.modules.app_service_manager.send_transaction(&as_id, events).await?;
+    ctx.app_service_manager.send_transaction(&as_id, events).await?;
 
     Ok(empty_json())
 }
 
 pub async fn app_service_user_query(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(user_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state.services.admin.modules.app_service_manager.validate_token(&as_token).await?;
+    let service = ctx.app_service_manager.validate_token(&as_token).await?;
 
-    let namespace_as_id = state.services.admin.modules.app_service_manager.query_user(&user_id).await?;
+    let namespace_as_id = ctx.app_service_manager.query_user(&user_id).await?;
 
     if namespace_as_id.as_ref() != Some(&service.as_id) {
         return Err(ApiError::forbidden("User not in application service namespace"));
@@ -453,15 +447,15 @@ pub async fn app_service_user_query(
 }
 
 pub async fn app_service_room_alias_query(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(alias): Path<String>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let as_token = extract_as_token(&headers)?;
 
-    let service = state.services.admin.modules.app_service_manager.validate_token(&as_token).await?;
+    let service = ctx.app_service_manager.validate_token(&as_token).await?;
 
-    let namespace_as_id = state.services.admin.modules.app_service_manager.query_room_alias(&alias).await?;
+    let namespace_as_id = ctx.app_service_manager.query_room_alias(&alias).await?;
 
     if namespace_as_id.as_ref() != Some(&service.as_id) {
         return Err(ApiError::forbidden("Room alias not in application service namespace"));
@@ -471,10 +465,10 @@ pub async fn app_service_room_alias_query(
 }
 
 pub async fn app_service_query(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let service = state.services.admin.modules.app_service_manager.get(&as_id).await?;
+    let service = ctx.app_service_manager.get(&as_id).await?;
 
     let service = require_found(service, "Application service not found")?;
 
@@ -561,7 +555,7 @@ pub fn app_service_route_manifest() -> Vec<crate::web::routes::route_ledger::Rou
 
 #[allow(clippy::unused_async)]
 async fn get_user_appservice(
-    State(_state): State<AppState>,
+    State(_ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {

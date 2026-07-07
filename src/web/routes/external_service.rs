@@ -1,3 +1,4 @@
+use crate::web::routes::context::AdminContext;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -69,8 +70,8 @@ impl From<synapse_storage::application_service::ApplicationService> for External
     }
 }
 
-fn external_service_integration(state: &AppState) -> Arc<ExternalServiceIntegration> {
-    state.services.admin.modules.external_service_integration.clone()
+fn external_service_integration(ctx: &AdminContext) -> Arc<ExternalServiceIntegration> {
+    ctx.external_service_integration.clone()
 }
 
 fn parse_service_type(s: &str) -> Result<ExternalServiceType, ApiError> {
@@ -106,7 +107,7 @@ fn extract_webhook_auth(headers: &HeaderMap, payload_signature: Option<&str>) ->
 }
 
 pub async fn register_external_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
     Json(body): Json<RegisterExternalServiceBody>,
@@ -123,7 +124,7 @@ pub async fn register_external_service(
         is_enabled: true,
     };
 
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     let service = integration.register_external_service(&request_id, config).await?;
@@ -132,7 +133,7 @@ pub async fn register_external_service(
 }
 
 pub async fn list_external_services(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
     Query(query): Query<ListServicesQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -141,7 +142,7 @@ pub async fn list_external_services(
         Some(s) => Some(parse_service_type(s)?),
     };
 
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let services = integration.list_external_services(stype).await?;
 
@@ -151,11 +152,11 @@ pub async fn list_external_services(
 }
 
 pub async fn get_external_service_health(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let health = integration
         .get_service_health(&as_id)
@@ -174,12 +175,12 @@ pub async fn get_external_service_health(
 }
 
 pub async fn check_service_health(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     let is_healthy = integration.check_service_health(&request_id, &as_id).await?;
@@ -191,12 +192,12 @@ pub async fn check_service_health(
 }
 
 pub async fn unregister_external_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     headers: HeaderMap,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     integration.unregister_external_service(&request_id, &as_id).await?;
@@ -205,13 +206,13 @@ pub async fn unregister_external_service(
 }
 
 pub async fn update_external_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(as_id): Path<String>,
     headers: HeaderMap,
     _admin: AdminUser,
     Json(body): Json<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let mut request = synapse_storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
@@ -233,12 +234,12 @@ pub async fn update_external_service(
 }
 
 pub async fn handle_trendradar_webhook(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<TrendRadarPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -253,12 +254,12 @@ pub async fn handle_trendradar_webhook(
 
 #[cfg(feature = "openclaw-routes")]
 pub async fn handle_openclaw_webhook(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<OpenClawPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -272,12 +273,12 @@ pub async fn handle_openclaw_webhook(
 }
 
 pub async fn handle_generic_webhook(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(service_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<WebhookPayload>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     integration
@@ -296,10 +297,10 @@ pub async fn handle_generic_webhook(
 }
 
 pub async fn get_all_health_status(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let status_list = integration.get_all_health_status().await;
 
@@ -307,13 +308,13 @@ pub async fn get_all_health_status(
 }
 
 pub async fn client_update_external_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
     Path(service_id): Path<String>,
     Json(body): Json<UpdateExternalServiceBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let mut request = synapse_storage::application_service::UpdateApplicationServiceRequest::new();
     if let Some(webhook_url) = body.webhook_url {
@@ -335,12 +336,12 @@ pub async fn client_update_external_service(
 }
 
 pub async fn client_delete_external_service(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     headers: HeaderMap,
     _admin: AdminUser,
     Path(service_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let request_id = resolve_request_id(&headers);
     integration.unregister_external_service(&request_id, &service_id).await?;
@@ -349,10 +350,10 @@ pub async fn client_delete_external_service(
 }
 
 pub async fn client_health_check_all(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let integration = external_service_integration(&state);
+    let integration = external_service_integration(&ctx);
 
     let status_list = integration.get_all_health_status().await;
 

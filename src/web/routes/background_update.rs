@@ -1,3 +1,4 @@
+use crate::web::routes::context::AdminContext;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -139,7 +140,7 @@ impl From<BackgroundUpdateStats> for StatsResponse {
 }
 
 pub async fn create_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Json(body): Json<CreateUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -156,20 +157,17 @@ pub async fn create_update(
         metadata: body.metadata,
     };
 
-    let update = state.services.admin.modules.background_update_service.create_update(request).await?;
+    let update = ctx.background_update_service.create_update(request).await?;
 
     Ok((StatusCode::CREATED, Json(UpdateResponse::from(update))))
 }
 
 pub async fn get_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .admin
-        .modules
+    let update = ctx
         .background_update_service
         .get_update(&job_name)
         .await?
@@ -179,14 +177,13 @@ pub async fn get_update(
 }
 
 pub async fn get_all_updates(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let (updates, next_batch) =
-        state.services.admin.modules.background_update_service.get_all_updates(limit, query.from).await?;
+    let (updates, next_batch) = ctx.background_update_service.get_all_updates(limit, query.from).await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -197,10 +194,10 @@ pub async fn get_all_updates(
 }
 
 pub async fn get_pending_updates(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let updates = state.services.admin.modules.background_update_service.get_pending_updates().await?;
+    let updates = ctx.background_update_service.get_pending_updates().await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -208,10 +205,10 @@ pub async fn get_pending_updates(
 }
 
 pub async fn get_running_updates(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let updates = state.services.admin.modules.background_update_service.get_running_updates().await?;
+    let updates = ctx.background_update_service.get_running_updates().await?;
 
     let response: Vec<UpdateResponse> = updates.into_iter().map(UpdateResponse::from).collect();
 
@@ -219,91 +216,88 @@ pub async fn get_running_updates(
 }
 
 pub async fn start_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state.services.admin.modules.background_update_service.start_update(&job_name).await?;
+    let update = ctx.background_update_service.start_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
 
 pub async fn update_progress(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
     Json(body): Json<UpdateProgressBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state
-        .services
-        .admin
-        .modules
-        .background_update_service
-        .update_progress(&job_name, body.items_processed, body.total_items)
-        .await?;
+    let update =
+        ctx.background_update_service.update_progress(&job_name, body.items_processed, body.total_items).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
 
 pub async fn complete_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state.services.admin.modules.background_update_service.complete_update(&job_name).await?;
+    let update = ctx.background_update_service.complete_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
 
 pub async fn fail_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
     Json(body): Json<FailUpdateBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update =
-        state.services.admin.modules.background_update_service.fail_update(&job_name, &body.error_message).await?;
+    let update = ctx.background_update_service.fail_update(&job_name, &body.error_message).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
 
 pub async fn cancel_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state.services.admin.modules.background_update_service.cancel_update(&job_name).await?;
+    let update = ctx.background_update_service.cancel_update(&job_name).await?;
 
     Ok(Json(UpdateResponse::from(update)))
 }
 
 pub async fn delete_update(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.background_update_service.delete_update(&job_name).await?;
+    ctx.background_update_service.delete_update(&job_name).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_history(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(job_name): Path<String>,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
 
-    let history = state.services.admin.modules.background_update_service.get_history(&job_name, limit).await?;
+    let history = ctx.background_update_service.get_history(&job_name, limit).await?;
 
     let response: Vec<HistoryResponse> = history.into_iter().map(HistoryResponse::from).collect();
 
     Ok(Json(response))
 }
 
-pub async fn retry_failed(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.admin.modules.background_update_service.retry_failed().await?;
+pub async fn retry_failed(
+    State(ctx): State<AdminContext>,
+    _auth_user: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let count = ctx.background_update_service.retry_failed().await?;
 
     Ok(Json(serde_json::json!({
         "retried_count": count,
@@ -311,10 +305,10 @@ pub async fn retry_failed(State(state): State<AppState>, _auth_user: AdminUser) 
 }
 
 pub async fn cleanup_locks(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.admin.modules.background_update_service.cleanup_expired_locks().await?;
+    let count = ctx.background_update_service.cleanup_expired_locks().await?;
 
     Ok(Json(serde_json::json!({
         "cleaned_count": count,
@@ -322,11 +316,11 @@ pub async fn cleanup_locks(
 }
 
 pub async fn count_by_status(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Path(status): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.admin.modules.background_update_service.count_by_status(&status).await?;
+    let count = ctx.background_update_service.count_by_status(&status).await?;
 
     Ok(Json(serde_json::json!({
         "status": status,
@@ -334,8 +328,8 @@ pub async fn count_by_status(
     })))
 }
 
-pub async fn count_all(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let count = state.services.admin.modules.background_update_service.count_all().await?;
+pub async fn count_all(State(ctx): State<AdminContext>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let count = ctx.background_update_service.count_all().await?;
 
     Ok(Json(serde_json::json!({
         "total_updates": count,
@@ -343,13 +337,13 @@ pub async fn count_all(State(state): State<AppState>, _auth_user: AdminUser) -> 
 }
 
 pub async fn get_stats(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
     Query(query): Query<QueryParams>,
 ) -> Result<impl IntoResponse, ApiError> {
     let days = query.limit.unwrap_or(30) as i32;
 
-    let stats = state.services.admin.modules.background_update_service.get_stats(days).await?;
+    let stats = ctx.background_update_service.get_stats(days).await?;
 
     let response: Vec<StatsResponse> = stats.into_iter().map(StatsResponse::from).collect();
 
@@ -357,10 +351,10 @@ pub async fn get_stats(
 }
 
 pub async fn get_next_pending(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _auth_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let update = state.services.admin.modules.background_update_service.get_next_pending_update().await?;
+    let update = ctx.background_update_service.get_next_pending_update().await?;
 
     match update {
         Some(u) => Ok(Json(Some(UpdateResponse::from(u)))),
@@ -378,14 +372,14 @@ pub struct BackgroundUpdateStatus {
     pub current_update: Option<UpdateResponse>,
 }
 
-pub async fn get_status(State(state): State<AppState>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
-    let pending = state.services.admin.modules.background_update_service.count_by_status("pending").await?;
-    let running = state.services.admin.modules.background_update_service.count_by_status("running").await?;
-    let completed = state.services.admin.modules.background_update_service.count_by_status("completed").await?;
-    let failed = state.services.admin.modules.background_update_service.count_by_status("failed").await?;
-    let total = state.services.admin.modules.background_update_service.count_all().await?;
+pub async fn get_status(State(ctx): State<AdminContext>, _auth_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+    let pending = ctx.background_update_service.count_by_status("pending").await?;
+    let running = ctx.background_update_service.count_by_status("running").await?;
+    let completed = ctx.background_update_service.count_by_status("completed").await?;
+    let failed = ctx.background_update_service.count_by_status("failed").await?;
+    let total = ctx.background_update_service.count_all().await?;
 
-    let current = state.services.admin.modules.background_update_service.get_next_pending_update().await?;
+    let current = ctx.background_update_service.get_next_pending_update().await?;
 
     Ok(Json(BackgroundUpdateStatus {
         pending_count: pending,

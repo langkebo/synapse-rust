@@ -2,9 +2,7 @@ use super::{ensure_room_state_write_access, ensure_room_view_access, UpgradeRoom
 use crate::common::ApiError;
 use crate::map_internal;
 use crate::web::routes::context::RoomContext;
-use crate::web::routes::{
-    ensure_room_member_ctx, validate_room_id, AppState, AuthenticatedUser, OptionalAuthenticatedUser,
-};
+use crate::web::routes::{ensure_room_member_ctx, validate_room_id, AuthenticatedUser, OptionalAuthenticatedUser};
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -909,20 +907,18 @@ pub(crate) async fn get_room_service_types(
 }
 
 pub(crate) async fn get_room_device(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&state);
+    let ctx = RoomContext::from_ref(&ctx);
     validate_room_id(&room_id)?;
     if !ctx.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let device = state
-        .services
-        .account
+    let device = ctx
         .account_device_list_service
         .get_device(&device_id)
         .await?

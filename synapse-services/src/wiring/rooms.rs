@@ -9,9 +9,9 @@ use crate::container::SharedInfra;
 
 #[derive(Clone)]
 pub struct RoomSyncServices {
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
+    pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     pub room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>,
     pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
@@ -37,12 +37,11 @@ impl RoomSyncServices {
         to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
-        let member_storage: Arc<synapse_storage::membership::RoomMemberStorage> =
+        let member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi> =
             Arc::new(RoomMemberStorage::new(&infra.pool, &server_name_for_storage));
-        let room_storage_concrete = Arc::new(RoomStorage::new(&infra.pool));
-        let room_storage: Arc<synapse_storage::room::RoomStorage> = room_storage_concrete.clone();
-        let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
-        let event_storage: Arc<synapse_storage::event::EventStorage> = event_storage_concrete.clone();
+        let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
+        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
+            Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
         let relations_storage: Arc<synapse_storage::relations::RelationsStorage> =

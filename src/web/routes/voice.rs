@@ -1,6 +1,7 @@
 #![allow(clippy::unused_async)]
-use super::{ensure_room_member, validate_user_id, AppState, AuthenticatedUser};
+use super::{ensure_room_member_ctx, validate_user_id, AppState, AuthenticatedUser};
 use crate::common::ApiError;
+use crate::web::routes::context::RoomContext;
 use axum::{
     extract::{Path, Query, State},
     routing::{get, post},
@@ -84,11 +85,11 @@ async fn get_voice_config() -> Result<Json<Value>, ApiError> {
 
 #[axum::debug_handler]
 async fn upload_voice_message(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let voice_service = &state.services.extensions.voice_service;
+    let voice_service = &ctx.voice_service;
 
     let content_base64 = body.get("content").and_then(|v| v.as_str()).unwrap_or("");
     let engine = base64::engine::general_purpose::STANDARD;
@@ -126,8 +127,8 @@ async fn upload_voice_message(
     let room_id = body.get("room_id").and_then(|v| v.as_str());
 
     if let Some(target_room_id) = room_id.filter(|id| !id.is_empty()) {
-        ensure_room_member(
-            &state,
+        ensure_room_member_ctx(
+            &ctx,
             &auth_user,
             target_room_id,
             "You must be a member of this room to upload voice messages",
@@ -157,72 +158,75 @@ async fn upload_voice_message(
 }
 
 #[axum::debug_handler]
-async fn get_voice_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let stats = state.services.extensions.voice_service.get_voice_stats(&auth_user.user_id).await?;
+async fn get_voice_stats(
+    State(ctx): State<RoomContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let stats = ctx.voice_service.get_voice_stats(&auth_user.user_id).await?;
     Ok(Json(stats))
 }
 
 #[axum::debug_handler]
 async fn get_room_voice_stats(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
-    let stats = state.services.extensions.voice_service.get_room_voice_stats(&room_id).await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice stats").await?;
+    let stats = ctx.voice_service.get_room_voice_stats(&room_id).await?;
     Ok(Json(stats))
 }
 
 #[axum::debug_handler]
 async fn get_user_voice_stats(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    let stats = state.services.extensions.voice_service.get_user_voice_stats(&user_id).await?;
+    let stats = ctx.voice_service.get_user_voice_stats(&user_id).await?;
     Ok(Json(stats))
 }
 
 #[axum::debug_handler]
 async fn get_room_voice_messages(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_room_member(&state, &auth_user, &room_id, "You must be a member of this room to view voice messages")
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "You must be a member of this room to view voice messages")
         .await?;
     let limit = query.limit.unwrap_or(50).min(100);
-    let result = state.services.extensions.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
+    let result = ctx.voice_service.get_room_voice_messages(&room_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
 #[axum::debug_handler]
 async fn get_user_voice_messages(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Query(query): Query<VoiceListQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let limit = query.limit.unwrap_or(50).min(100);
-    let result = state.services.extensions.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
+    let result = ctx.voice_service.get_user_voice_messages(&user_id, limit, query.from).await?;
     Ok(Json(result))
 }
 
 #[axum::debug_handler]
 async fn get_voice_message_content(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let result = state.services.extensions.voice_service.get_voice_message_content(&media_id).await?;
+    let result = ctx.voice_service.get_voice_message_content(&media_id).await?;
     Ok(Json(result))
 }
 
 #[axum::debug_handler]
 async fn convert_voice_message(
-    _state: State<AppState>,
+    _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -233,7 +237,7 @@ async fn convert_voice_message(
 
 #[axum::debug_handler]
 async fn optimize_voice_message(
-    _state: State<AppState>,
+    _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -244,7 +248,7 @@ async fn optimize_voice_message(
 
 #[axum::debug_handler]
 async fn transcribe_voice_message(
-    _state: State<AppState>,
+    _state: State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_media_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {

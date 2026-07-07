@@ -1,3 +1,4 @@
+use crate::web::routes::context::RoomContext;
 use axum::{
     extract::{Path, State},
     routing::put,
@@ -52,13 +53,13 @@ pub struct ReactionResponse {
 
 /// 添加 reaction 到事件 (m.annotation)
 async fn add_reaction(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, _txn_id)): Path<(String, String)>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ReactionResponse>, ApiError> {
     // 验证房间存在
-    if !state.services.rooms.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -77,9 +78,7 @@ async fn add_reaction(
     let annotation = body.get("body").and_then(|v| v.as_str()).unwrap_or("👍").to_string();
 
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
-    let relation = state
-        .services
-        .rooms
+    let relation = ctx
         .relations_service
         .send_annotation(synapse_services::relations_service::SendAnnotationRequest {
             room_id: room_id.clone(),

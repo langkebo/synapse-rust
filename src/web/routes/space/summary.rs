@@ -1,12 +1,13 @@
 use super::*;
+use crate::web::routes::context::RoomContext;
 
 pub(super) async fn get_space_summary(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
-        let summary = state.services.rooms.space_service.get_space_summary(&space.space_id).await?;
+    with_visible_space(ctx, space_id, auth_user, |ctx, space, _auth_user| async move {
+        let summary = ctx.space_service.get_space_summary(&space.space_id).await?;
 
         let summary = summary.ok_or_else(|| ApiError::not_found("Space summary not found"))?;
         Ok(Json(serde_json::to_value(summary)?))
@@ -15,17 +16,13 @@ pub(super) async fn get_space_summary(
 }
 
 pub(super) async fn get_space_summary_with_children(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
-        let summary: serde_json::Value = state
-            .services
-            .rooms
-            .space_service
-            .get_space_summary_with_children(&space.space_id, auth_user.user_id.as_deref())
-            .await?;
+    with_visible_space(ctx, space_id, auth_user, |ctx, space, auth_user| async move {
+        let summary: serde_json::Value =
+            ctx.space_service.get_space_summary_with_children(&space.space_id, auth_user.user_id.as_deref()).await?;
 
         Ok(Json(summary))
     })

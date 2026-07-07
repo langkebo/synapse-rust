@@ -3,7 +3,8 @@ use std::collections::HashSet;
 use axum::{http::StatusCode, Json};
 use serde_json::{json, Value};
 
-use super::AppState;
+use std::sync::Arc;
+
 use crate::common::ApiError;
 
 pub(crate) fn require_found<T>(value: Option<T>, message: &'static str) -> Result<T, ApiError> {
@@ -44,7 +45,7 @@ pub(crate) fn status_json(status: &'static str) -> Json<Value> {
 }
 
 pub(crate) async fn filter_users_with_shared_rooms(
-    state: &AppState,
+    room_service: &Arc<synapse_services::room_service::RoomService>,
     current_user_id: &str,
     requested_users: &[String],
 ) -> HashSet<String> {
@@ -57,14 +58,7 @@ pub(crate) async fn filter_users_with_shared_rooms(
         return allowed;
     }
 
-    let shared = state
-        .services
-        .rooms
-        .room_service
-        .membership
-        .share_common_rooms_batch(current_user_id, &others)
-        .await
-        .unwrap_or_default();
+    let shared = room_service.membership.share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
 
     for uid in shared {
         allowed.insert(uid);

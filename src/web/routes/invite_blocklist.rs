@@ -1,7 +1,8 @@
 // Invite Blocklist Routes - MSC4380
 // Allows room admins to control who can be invited to a room
 
-use crate::web::routes::{ensure_room_member_strict, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::context::AdminContext;
+use crate::web::routes::{ensure_room_member_strict_admin, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     Json,
@@ -9,12 +10,12 @@ use axum::{
 use serde_json::{json, Value};
 
 async fn ensure_invite_list_view_access(
-    state: &AppState,
+    ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
+    ensure_room_member_strict_admin(
+        ctx,
         auth_user,
         room_id,
         "You must be a member of this room to view invite restrictions",
@@ -23,19 +24,19 @@ async fn ensure_invite_list_view_access(
 }
 
 async fn ensure_invite_list_manage_access(
-    state: &AppState,
+    ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(
-        state,
+    ensure_room_member_strict_admin(
+        ctx,
         auth_user,
         room_id,
         "You must be a member of this room to manage invite restrictions",
     )
     .await?;
 
-    let is_admin = state.services.core.auth_service.verify_room_admin(room_id, &auth_user.user_id).await.is_ok();
+    let is_admin = ctx.auth_service.verify_room_admin(room_id, &auth_user.user_id).await.is_ok();
 
     if !is_admin {
         return Err(ApiError::forbidden("Only room admins can set invite blocklist".to_string()));
@@ -47,15 +48,13 @@ async fn ensure_invite_list_manage_access(
 /// Get room invite blocklist
 /// GET /_matrix/client/v3/rooms/{room_id}/invite_blocklist
 pub async fn get_invite_blocklist(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_invite_list_view_access(&state, &auth_user, &room_id).await?;
+    ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let blocklist = state
-        .services
-        .account
+    let blocklist = ctx
         .invite_blocklist_storage
         .get_invite_blocklist(&room_id)
         .await
@@ -70,12 +69,12 @@ pub async fn get_invite_blocklist(
 /// Set room invite blocklist
 /// POST /_matrix/client/v3/rooms/{room_id}/invite_blocklist
 pub async fn set_invite_blocklist(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_invite_list_manage_access(&state, &auth_user, &room_id).await?;
+    ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
 
     let user_ids: Vec<String> = body
         .get("user_ids")
@@ -83,10 +82,7 @@ pub async fn set_invite_blocklist(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    state
-        .services
-        .account
-        .invite_blocklist_storage
+    ctx.invite_blocklist_storage
         .set_invite_blocklist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set blocklist", &e))?;
@@ -102,15 +98,13 @@ pub async fn set_invite_blocklist(
 /// Get room invite allowlist
 /// GET /_matrix/client/v3/rooms/{room_id}/invite_allowlist
 pub async fn get_invite_allowlist(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_invite_list_view_access(&state, &auth_user, &room_id).await?;
+    ensure_invite_list_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let allowlist = state
-        .services
-        .account
+    let allowlist = ctx
         .invite_blocklist_storage
         .get_invite_allowlist(&room_id)
         .await
@@ -125,12 +119,12 @@ pub async fn get_invite_allowlist(
 /// Set room invite allowlist
 /// POST /_matrix/client/v3/rooms/{room_id}/invite_allowlist
 pub async fn set_invite_allowlist(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_invite_list_manage_access(&state, &auth_user, &room_id).await?;
+    ensure_invite_list_manage_access(&ctx, &auth_user, &room_id).await?;
 
     let user_ids: Vec<String> = body
         .get("user_ids")
@@ -138,10 +132,7 @@ pub async fn set_invite_allowlist(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    state
-        .services
-        .account
-        .invite_blocklist_storage
+    ctx.invite_blocklist_storage
         .set_invite_allowlist(&room_id, user_ids.clone())
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set allowlist", &e))?;

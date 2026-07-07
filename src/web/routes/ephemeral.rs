@@ -1,7 +1,8 @@
 // Ephemeral Events Routes - 临时事件路由
 // Matrix spec: https://matrix.org/docs/spec/client_server/latest#get-matrix-client-v3-rooms-room-id-ephemeral
 
-use crate::web::routes::{ensure_room_member, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{ensure_room_member_ctx, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     routing::get,
@@ -31,15 +32,14 @@ pub struct EphemeralResponse {
 /// Get ephemeral events for a room
 /// GET /_matrix/client/v3/rooms/{room_id}/ephemeral
 pub async fn get_ephemeral_events(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<EphemeralParams>,
 ) -> Result<Json<EphemeralResponse>, ApiError> {
-    ensure_room_member(&state, &auth_user, &room_id, "User is not in the room").await?;
+    ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not in the room").await?;
 
-    let events =
-        state.services.rooms.room_service.messaging.get_ephemeral_events_for_client(&room_id, params.limit).await?;
+    let events = ctx.room_service.messaging.get_ephemeral_events_for_client(&room_id, params.limit).await?;
 
     Ok(Json(EphemeralResponse { events, start: None, end: None }))
 }

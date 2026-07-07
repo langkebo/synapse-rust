@@ -7,8 +7,8 @@ use std::time::Duration;
 use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
-use synapse_storage::StateEvent;
-use synapse_storage::UserStore;
+use synapse_storage::room_tag::RoomTagStoreApi;
+use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, StateEvent, UserStore};
 use tokio::sync::RwLock;
 
 use super::infrastructure::RoomInfrastructure;
@@ -45,10 +45,10 @@ pub struct CreateRoomConfig {
 }
 
 pub struct RoomServiceConfig {
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
+    pub room_storage: Arc<dyn RoomStoreApi>,
+    pub member_storage: Arc<dyn MemberStoreApi>,
+    pub event_storage: Arc<dyn EventStoreApi>,
+    pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn Auth>,
     pub room_summary_service: Arc<RoomSummaryService>,
@@ -79,15 +79,15 @@ pub struct RoomService {
     pub state: RoomStateService,
     /// Domain sub-service: room lifecycle operations (create, upgrade, migration)
     pub lifecycle: LifecycleService,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
+    pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
 }

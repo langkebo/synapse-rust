@@ -1,4 +1,4 @@
-use crate::web::routes::context::RoomContext;
+use crate::web::routes::context::{AdminContext, RoomContext};
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use std::sync::Arc;
 
@@ -58,21 +58,6 @@ pub(crate) async fn ensure_room_member(
     Ok(())
 }
 
-pub(crate) async fn ensure_room_member_strict(
-    state: &AppState,
-    auth_user: &AuthenticatedUser,
-    room_id: &str,
-    error_message: &str,
-) -> Result<(), ApiError> {
-    let is_member = is_member_via(&state.services.rooms.room_service, &auth_user.user_id, room_id).await?;
-
-    if !is_member {
-        return Err(ApiError::forbidden(error_message.to_string()));
-    }
-
-    Ok(())
-}
-
 // =============================================================================
 // RoomContext-based helpers — used by handlers migrated to State<RoomContext>.
 // =============================================================================
@@ -111,6 +96,47 @@ pub(crate) async fn ensure_room_member_ctx(
 
 pub(crate) async fn ensure_room_member_strict_ctx(
     ctx: &RoomContext,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+    error_message: &str,
+) -> Result<(), ApiError> {
+    let is_member = is_member_via(&ctx.room_service, &auth_user.user_id, room_id).await?;
+    if !is_member {
+        return Err(ApiError::forbidden(error_message.to_string()));
+    }
+    Ok(())
+}
+
+// =============================================================================
+// AdminContext-based helpers — used by handlers migrated to State<AdminContext>.
+// =============================================================================
+
+pub(crate) async fn is_joined_room_member_admin(
+    ctx: &AdminContext,
+    user_id: &str,
+    room_id: &str,
+) -> Result<bool, ApiError> {
+    is_member_via(&ctx.room_service, user_id, room_id).await
+}
+
+pub(crate) async fn ensure_room_member_admin(
+    ctx: &AdminContext,
+    auth_user: &AuthenticatedUser,
+    room_id: &str,
+    error_message: &str,
+) -> Result<(), ApiError> {
+    if auth_user.is_admin {
+        return Ok(());
+    }
+    let is_member = is_member_via(&ctx.room_service, &auth_user.user_id, room_id).await?;
+    if !is_member {
+        return Err(ApiError::forbidden(error_message.to_string()));
+    }
+    Ok(())
+}
+
+pub(crate) async fn ensure_room_member_strict_admin(
+    ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
     error_message: &str,

@@ -1,10 +1,11 @@
 use crate::common::*;
 use crate::federation::EduDispatcher;
 use crate::web::middleware::FederationRequestAuth;
+use crate::web::routes::context::FederationContext;
 use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Extension, Json, Path, State},
+    extract::{Extension, FromRef, Json, Path, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -20,7 +21,8 @@ pub(super) async fn send_transaction(
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    super::increment_counter(&state, "federation_inbound_txn_total");
+    let ctx = FederationContext::from_ref(&state);
+    super::increment_counter(&ctx, "federation_inbound_txn_total");
     let request_id = resolve_request_id(&headers);
 
     let origin = body
@@ -31,7 +33,7 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        let already_processed: Option<bool> = match state.services.core.cache.get(&dedup_key).await {
+        let already_processed: Option<bool> = match ctx.cache.get(&dedup_key).await {
             Ok(val) => val,
             Err(e) => {
                 ::tracing::warn!(
@@ -51,7 +53,7 @@ pub(super) async fn send_transaction(
                 origin = %origin,
                 "Dedup: transaction already processed, returning empty result"
             );
-            super::increment_counter(&state, "federation_inbound_txn_dedup_total");
+            super::increment_counter(&ctx, "federation_inbound_txn_dedup_total");
             return Ok(Json(json!({ "results": [] })));
         }
     }
@@ -61,11 +63,10 @@ pub(super) async fn send_transaction(
         .and_then(|v| v.as_array())
         .ok_or_else(|| ApiError::bad_request("PDUs required".to_string()))?;
     let edus = body.get("edus").and_then(|v| v.as_array());
-    let process_inbound_edus = state.services.core.config.federation.process_inbound_edus;
-    let process_inbound_presence_edus = state.services.core.config.federation.process_inbound_presence_edus;
-    let inbound_edus_max_per_txn = state.services.core.config.federation.inbound_edus_max_per_txn;
-    let inbound_presence_updates_max_per_txn =
-        state.services.core.config.federation.inbound_presence_updates_max_per_txn;
+    let process_inbound_edus = ctx.config.federation.process_inbound_edus;
+    let process_inbound_presence_edus = ctx.config.federation.process_inbound_presence_edus;
+    let inbound_edus_max_per_txn = ctx.config.federation.inbound_edus_max_per_txn;
+    let inbound_presence_updates_max_per_txn = ctx.config.federation.inbound_presence_updates_max_per_txn;
 
     if process_inbound_edus {
         if let Some(edus) = edus {
@@ -74,20 +75,20 @@ pub(super) async fn send_transaction(
             let mut total_dropped = 0usize;
             let mut total_errored = 0usize;
 
-            super::increment_gauge(&state, "federation_inbound_edu_in_flight");
+            super::increment_gauge(&ctx, "federation_inbound_edu_in_flight");
 
             let edu_processing = async {
                 let (_global_permit, wait_ms) = super::acquire_with_timeout(
-                    state.federation_inbound_edu_semaphore.clone(),
-                    state.services.core.config.federation.inbound_edu_acquire_timeout_ms,
+                    ctx.federation_inbound_edu_semaphore.clone(),
+                    ctx.config.federation.inbound_edu_acquire_timeout_ms,
                 )
                 .await?;
-                super::observe_histogram(&state, "federation_inbound_edu_wait_ms", wait_ms as f64);
+                super::observe_histogram(&ctx, "federation_inbound_edu_wait_ms", wait_ms as f64);
 
-                let _origin_permit = acquire_origin_edu_permit(&state, origin).await?.0;
+                let _origin_permit = acquire_origin_edu_permit(&ctx, origin).await?.0;
 
-                if let Some(backoff_ms) = get_presence_backoff_remaining_ms(&state, origin).await {
-                    super::increment_counter(&state, "federation_inbound_presence_backoff_total");
+                if let Some(backoff_ms) = get_presence_backoff_remaining_ms(&ctx, origin).await {
+                    super::increment_counter(&ctx, "federation_inbound_presence_backoff_total");
                     ::tracing::debug!(
                         "Skipping presence EDU processing for origin {} due to backoff {}ms",
                         origin,
@@ -104,8 +105,7 @@ pub(super) async fn send_transaction(
                     if edu_type_str == "m.presence" && !process_inbound_presence_edus {
                         continue;
                     }
-                    if edu_type_str == "m.presence" && get_presence_backoff_remaining_ms(&state, origin).await.is_some()
-                    {
+                    if edu_type_str == "m.presence" && get_presence_backoff_remaining_ms(&ctx, origin).await.is_some() {
                         continue;
                     }
 
@@ -120,7 +120,7 @@ pub(super) async fn send_transaction(
                         continue;
                     }
 
-                    match EduDispatcher::dispatch(&state, origin, edu, remaining).await {
+                    match EduDispatcher::dispatch(&ctx, origin, edu, remaining).await {
                         Some(result) => {
                             total_processed += result.processed;
                             total_dropped += result.dropped;
@@ -147,9 +147,9 @@ pub(super) async fn send_transaction(
 
             if let Err(error) = edu_processing {
                 if error.is_rate_limited() {
-                    super::increment_counter(&state, "federation_inbound_edu_limited_total");
+                    super::increment_counter(&ctx, "federation_inbound_edu_limited_total");
                 } else {
-                    super::increment_counter(&state, "federation_inbound_edu_error_total");
+                    super::increment_counter(&ctx, "federation_inbound_edu_error_total");
                     ::tracing::warn!(
                         request_id = %request_id,
                         txn_id = %txn_id,
@@ -160,7 +160,7 @@ pub(super) async fn send_transaction(
                 }
             }
 
-            super::decrement_gauge(&state, "federation_inbound_edu_in_flight");
+            super::decrement_gauge(&ctx, "federation_inbound_edu_in_flight");
 
             ::tracing::debug!(
                 request_id = %request_id,
@@ -199,7 +199,7 @@ pub(super) async fn send_transaction(
             .map_or_else(|| format!("${}", crate::common::crypto::generate_event_id(origin)), |s| s.to_string());
 
         if let Err(e) = crate::federation::signing::check_pdu_size_limits(pdu) {
-            super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_pdu_size_limit_exceeded",
@@ -216,7 +216,7 @@ pub(super) async fn send_transaction(
         }
 
         if let Err(e) = crate::federation::signing::verify_event_content_hash(pdu) {
-            super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_pdu_hash_mismatch",
@@ -233,7 +233,7 @@ pub(super) async fn send_transaction(
         }
 
         if let Err(e) = verify_pdu_sender_signature(&state, pdu).await {
-            super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_pdu_signature_invalid",
@@ -252,7 +252,7 @@ pub(super) async fn send_transaction(
         let (room_id, user_id, event_type, state_key) = match validate_inbound_transaction_pdu(&auth.origin, pdu) {
             Ok(validated) => validated,
             Err(error) => {
-                super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
                     "event_id": event_id,
                     "error": error.to_string()
@@ -263,15 +263,15 @@ pub(super) async fn send_transaction(
         let content = pdu.get("content").cloned().unwrap_or(json!({}));
         let origin_server_ts = pdu.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
-        if origin != state.services.core.config.server.name {
+        if origin != ctx.config.server.name {
             if let Ok(create_events) =
-                state.services.rooms.room_service.messaging.get_state_events_by_type(room_id, "m.room.create").await
+                ctx.room_service.messaging.get_state_events_by_type(room_id, "m.room.create").await
             {
                 if let Some(create_event) = create_events.first() {
                     if !crate::federation::signing::check_event_federate(
                         create_event.get("content").unwrap_or(&serde_json::Value::Null),
                     ) {
-                        super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+                        super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                         ::tracing::warn!(
                             target: "security_audit",
                             event = "federation_non_federated_room_rejected",
@@ -291,8 +291,8 @@ pub(super) async fn send_transaction(
         }
 
         if event_type != "m.room.create" {
-            if let Err(e) = super::validate_federation_origin_in_room(&state, room_id, origin).await {
-                super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            if let Err(e) = super::validate_federation_origin_in_room(&ctx, room_id, origin).await {
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 ::tracing::warn!(
                     target: "security_audit",
                     event = "federation_origin_not_in_room",
@@ -311,10 +311,8 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) =
-                state.services.core.auth_service.verify_state_event_write(room_id, user_id, event_type).await
-            {
-                super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+            if let Err(error) = ctx.auth_service.verify_state_event_write(room_id, user_id, event_type).await {
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
                     "event_id": event_id,
                     "error": error.to_string()
@@ -359,8 +357,7 @@ pub(super) async fn send_transaction(
         // persistence — the event graph will have a gap, but the PDU itself is
         // still stored.
         if !prev_events.is_empty() {
-            if let Ok(missing) = state.services.rooms.room_service.messaging.find_missing_event_ids(&prev_events).await
-            {
+            if let Ok(missing) = ctx.room_service.messaging.find_missing_event_ids(&prev_events).await {
                 if !missing.is_empty() {
                     ::tracing::debug!(
                         request_id = %request_id,
@@ -371,9 +368,7 @@ pub(super) async fn send_transaction(
                         missing_count = missing.len(),
                         "PDU references prev_events not in local DB; requesting gap fill from origin"
                     );
-                    match state
-                        .services
-                        .federation
+                    match ctx
                         .federation_client
                         .get_missing_events(origin, room_id, &prev_events, std::slice::from_ref(&event_id), 20, None)
                         .await
@@ -395,9 +390,7 @@ pub(super) async fn send_transaction(
                                     if let Some(missing_event_id) = missing_pdu.get("event_id").and_then(|v| v.as_str())
                                     {
                                         // Skip if already exists (race or duplicate).
-                                        if state
-                                            .services
-                                            .rooms
+                                        if ctx
                                             .room_service
                                             .messaging
                                             .get_event_record(missing_event_id)
@@ -444,9 +437,7 @@ pub(super) async fn send_transaction(
                                             origin_server_ts: missing_ost,
                                             redacts: None,
                                         };
-                                        if let Err(e) = state
-                                            .services
-                                            .rooms
+                                        if let Err(e) = ctx
                                             .room_service
                                             .messaging
                                             .create_event_with_graph(
@@ -497,19 +488,10 @@ pub(super) async fn send_transaction(
             redacts: redacts_target.clone(),
         };
 
-        match state
-            .services
-            .rooms
-            .room_service
-            .messaging
-            .create_event_with_graph(params, &prev_events, &auth_events, depth, None)
-            .await
+        match ctx.room_service.messaging.create_event_with_graph(params, &prev_events, &auth_events, depth, None).await
         {
             Ok(_) => {
-                state
-                    .services
-                    .rooms
-                    .room_service
+                ctx.room_service
                     .dispatch_appservice_event(&event_id, room_id, event_type, user_id, &content_for_as, state_key)
                     .await;
 
@@ -520,13 +502,8 @@ pub(super) async fn send_transaction(
                 // event itself is persisted so that the redaction is
                 // recorded even if the target is missing.
                 if let Some(target_event_id) = &redacts_target {
-                    if let Err(e) = state
-                        .services
-                        .rooms
-                        .room_service
-                        .messaging
-                        .redact_event_content(target_event_id, Some(user_id))
-                        .await
+                    if let Err(e) =
+                        ctx.room_service.messaging.redact_event_content(target_event_id, Some(user_id)).await
                     {
                         ::tracing::warn!(
                             target: "security_audit",
@@ -541,14 +518,14 @@ pub(super) async fn send_transaction(
                     }
                 }
 
-                super::increment_counter(&state, "federation_inbound_txn_pdu_success_total");
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_success_total");
                 results.push(json!({
                     "event_id": event_id,
                     "success": true
                 }));
             }
             Err(e) => {
-                super::increment_counter(&state, "federation_inbound_txn_pdu_error_total");
+                super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 ::tracing::error!(
                     request_id = %request_id,
                     txn_id = %txn_id,
@@ -575,7 +552,7 @@ pub(super) async fn send_transaction(
 
     {
         let dedup_key = format!("federation_txn:{origin}:{txn_id}");
-        if let Err(e) = state.services.core.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
+        if let Err(e) = ctx.cache.set(&dedup_key, true, TXN_DEDUP_TTL_SECS).await {
             ::tracing::warn!(
                 request_id = %request_id,
                 txn_id = %txn_id,
@@ -669,19 +646,22 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
     Err(last_error.unwrap_or_else(|| "No verifiable PDU signature".to_string()))
 }
 
-async fn acquire_origin_edu_permit(state: &AppState, origin: &str) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
-    let per_origin_limit = state.services.core.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
+async fn acquire_origin_edu_permit(
+    ctx: &FederationContext,
+    origin: &str,
+) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
+    let per_origin_limit = ctx.config.federation.inbound_edu_per_origin_max_concurrency.max(1);
     let semaphore = {
-        let mut guard = state.federation_inbound_edu_origin_semaphores.lock().await;
+        let mut guard = ctx.federation_inbound_edu_origin_semaphores.lock().await;
         guard.entry(origin.to_string()).or_insert_with(|| Arc::new(Semaphore::new(per_origin_limit))).clone()
     };
 
-    super::acquire_with_timeout(semaphore, state.services.core.config.federation.inbound_edu_acquire_timeout_ms).await
+    super::acquire_with_timeout(semaphore, ctx.config.federation.inbound_edu_acquire_timeout_ms).await
 }
 
-async fn get_presence_backoff_remaining_ms(state: &AppState, origin: &str) -> Option<u64> {
+async fn get_presence_backoff_remaining_ms(ctx: &FederationContext, origin: &str) -> Option<u64> {
     let now = chrono::Utc::now().timestamp_millis();
-    let guard = state.federation_presence_backoff_until.read().await;
+    let guard = ctx.federation_presence_backoff_until.read().await;
     let until = guard.get(origin).copied()?;
     (until > now).then_some((until - now) as u64)
 }

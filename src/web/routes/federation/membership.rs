@@ -1,6 +1,6 @@
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
-use crate::web::routes::AppState;
+use crate::web::routes::context::FederationContext;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Extension, Json, Path, State},
@@ -8,15 +8,9 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<String, ApiError> {
-    let room = state
-        .services
-        .rooms
-        .room_service
-        .state
-        .get_room_record(room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+async fn federatable_room_version(ctx: &FederationContext, room_id: &str) -> Result<String, ApiError> {
+    let room =
+        ctx.room_service.state.get_room_record(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !can_federate_room_version(&room.room_version) {
         return Err(ApiError::incompatible_room_version(format!(
@@ -29,30 +23,25 @@ async fn federatable_room_version(state: &AppState, room_id: &str) -> Result<Str
 }
 
 async fn dispatch_federation_member_event_to_appservice(
-    state: &AppState,
+    ctx: &FederationContext,
     event_id: &str,
     room_id: &str,
     sender: &str,
     content: &Value,
     state_key: Option<&str>,
 ) {
-    state
-        .services
-        .rooms
-        .room_service
-        .dispatch_appservice_event(event_id, room_id, "m.room.member", sender, content, state_key)
-        .await;
+    ctx.room_service.dispatch_appservice_event(event_id, room_id, "m.room.member", sender, content, state_key).await;
 }
 
 pub(super) async fn get_room_members(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let members = state.services.rooms.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+    let members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -76,16 +65,16 @@ pub(super) async fn get_room_members(
 }
 
 pub(super) async fn knock_room(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
     validate_federation_knock_event(&auth.origin, &room_id, &user_id, &body)?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&ctx.server_name));
     let origin_server_ts = chrono::Utc::now().timestamp_millis();
 
     let content = json!({"membership": "knock"});
@@ -100,16 +89,12 @@ pub(super) async fn knock_room(
         redacts: None,
     };
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
-    dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, &user_id, &content, Some(&user_id))
-        .await;
+    dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, &user_id, &content, Some(&user_id)).await;
 
     // P1-14: Spec-compliant response — return full event object under "event" key,
     // and use "knock" (not "knocking") for the state field.
@@ -129,7 +114,7 @@ pub(super) async fn knock_room(
 }
 
 pub(super) async fn thirdparty_invite(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -150,9 +135,9 @@ pub(super) async fn thirdparty_invite(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("sender required".to_string()))?;
     validate_federation_user_origin(&auth.origin, sender)?;
-    let _room_version = federatable_room_version(&state, room_id).await?;
+    let _room_version = federatable_room_version(&ctx, room_id).await?;
 
-    let event_id = format!("${}", crate::common::crypto::generate_event_id(&state.services.core.server_name));
+    let event_id = format!("${}", crate::common::crypto::generate_event_id(&ctx.server_name));
 
     let content = json!({
         "membership": "invite",
@@ -174,15 +159,12 @@ pub(super) async fn thirdparty_invite(
         redacts: None,
     };
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
-    dispatch_federation_member_event_to_appservice(&state, &event_id, room_id, sender, &content, Some(invitee)).await;
+    dispatch_federation_member_event_to_appservice(&ctx, &event_id, room_id, sender, &content, Some(invitee)).await;
 
     Ok(Json(json!({
         "event_id": event_id,
@@ -192,15 +174,15 @@ pub(super) async fn thirdparty_invite(
 }
 
 pub(super) async fn get_joining_rules(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let join_rule_content = get_effective_room_join_rule_content(&state, &room_id).await?;
-    let join_rule = get_effective_room_join_rule(&state, &room_id).await?;
+    let join_rule_content = get_effective_room_join_rule_content(&ctx, &room_id).await?;
+    let join_rule = get_effective_room_join_rule(&ctx, &room_id).await?;
 
     if join_rule != "public" {
-        super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
+        super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
     }
 
     let allow = join_rule_content
@@ -218,14 +200,14 @@ pub(super) async fn get_joining_rules(
 }
 
 pub(super) async fn get_joined_room_members(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    super::validate_federation_origin_in_room(&state, &room_id, &auth.origin).await?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let members = state.services.rooms.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+    let members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -247,29 +229,25 @@ pub(super) async fn get_joined_room_members(
 }
 
 pub(super) async fn get_user_devices(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !super::user_matches_origin(&user_id, &state.services.core.server_name) {
+    if !super::user_matches_origin(&user_id, &ctx.server_name) {
         return Err(ApiError::not_found("User is not hosted on this server".to_string()));
     }
 
-    super::validate_federation_origin_shares_user_room(&state, &user_id, &_auth.origin).await?;
+    super::validate_federation_origin_shares_user_room(&ctx, &user_id, &_auth.origin).await?;
 
-    let devices = state.services.account.account_device_list_service.get_user_devices(&user_id).await?;
+    let devices = ctx.account_device_list_service.get_user_devices(&user_id).await?;
 
-    let stream_id = state
-        .services
-        .account
+    let stream_id = ctx
         .device_storage
         .get_max_device_list_stream_id_for_user(&user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get device stream id", &e))?;
 
-    let (master_key, self_signing_key) = state
-        .services
-        .e2ee
+    let (master_key, self_signing_key) = ctx
         .cross_signing_service
         .get_public_cross_signing_keys(&user_id)
         .await
@@ -302,7 +280,7 @@ pub(super) async fn get_user_devices(
 }
 
 pub(super) async fn invite_v2(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
@@ -313,7 +291,7 @@ pub(super) async fn invite_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let (sender, state_key) = validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let content = body.get("content").cloned().unwrap_or(json!({}));
 
     let content_for_as = content.clone();
@@ -332,23 +310,13 @@ pub(super) async fn invite_v2(
         redacts: None,
     };
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
-    dispatch_federation_member_event_to_appservice(
-        &state,
-        &event_id,
-        &room_id,
-        sender,
-        &content_for_as,
-        Some(state_key),
-    )
-    .await;
+    dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content_for_as, Some(state_key))
+        .await;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -364,30 +332,30 @@ pub(super) async fn invite_v2(
 }
 
 pub(super) async fn make_join(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    super::increment_gauge(&state, "federation_join_in_flight");
+    super::increment_gauge(&ctx, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
-        state.federation_join_semaphore.clone(),
-        state.services.core.config.federation.join_acquire_timeout_ms,
+        ctx.federation_join_semaphore.clone(),
+        ctx.config.federation.join_acquire_timeout_ms,
     )
     .await
     {
         Ok(value) => value,
         Err(error) => {
-            super::decrement_gauge(&state, "federation_join_in_flight");
-            super::increment_counter(&state, "federation_join_429_total");
+            super::decrement_gauge(&ctx, "federation_join_in_flight");
+            super::increment_counter(&ctx, "federation_join_429_total");
             return Err(error);
         }
     };
-    super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
+    super::observe_histogram(&ctx, "federation_join_wait_ms", wait_ms as f64);
 
     let result: Result<Json<Value>, ApiError> = async {
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
-        let auth_events = state.services.rooms.room_service.messaging.get_state_event_records(&room_id).await?;
+        let auth_events = ctx.room_service.messaging.get_state_event_records(&room_id).await?;
 
         let auth_events_json: Vec<Value> = auth_events
             .iter()
@@ -400,7 +368,7 @@ pub(super) async fn make_join(
             })
             .collect();
 
-        let room_version = federatable_room_version(&state, &room_id).await?;
+        let room_version = federatable_room_version(&ctx, &room_id).await?;
 
         Ok(Json(json!({
             "room_version": room_version,
@@ -418,24 +386,24 @@ pub(super) async fn make_join(
     .await;
 
     drop(permit);
-    super::decrement_gauge(&state, "federation_join_in_flight");
+    super::decrement_gauge(&ctx, "federation_join_in_flight");
     match &result {
-        Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
-        Err(_) => super::increment_counter(&state, "federation_join_error_total"),
+        Ok(_) => super::increment_counter(&ctx, "federation_join_ok_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&ctx, "federation_join_429_total"),
+        Err(_) => super::increment_counter(&ctx, "federation_join_error_total"),
     }
 
     result
 }
 
 pub(super) async fn make_leave(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
 
-    let auth_events = state.services.rooms.room_service.messaging.get_state_event_records(&room_id).await?;
+    let auth_events = ctx.room_service.messaging.get_state_event_records(&room_id).await?;
 
     let auth_events_json: Vec<Value> = auth_events
         .iter()
@@ -448,7 +416,7 @@ pub(super) async fn make_leave(
         })
         .collect();
 
-    let room_version = federatable_room_version(&state, &room_id).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
 
     Ok(Json(json!({
         "room_version": room_version,
@@ -465,36 +433,36 @@ pub(super) async fn make_leave(
 }
 
 pub(super) async fn send_join(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    super::increment_gauge(&state, "federation_join_in_flight");
+    super::increment_gauge(&ctx, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
-        state.federation_join_semaphore.clone(),
-        state.services.core.config.federation.join_acquire_timeout_ms,
+        ctx.federation_join_semaphore.clone(),
+        ctx.config.federation.join_acquire_timeout_ms,
     )
     .await
     {
         Ok(value) => value,
         Err(error) => {
-            super::decrement_gauge(&state, "federation_join_in_flight");
-            super::increment_counter(&state, "federation_join_429_total");
+            super::decrement_gauge(&ctx, "federation_join_in_flight");
+            super::increment_counter(&ctx, "federation_join_429_total");
             return Err(error);
         }
     };
-    super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
+    super::observe_histogram(&ctx, "federation_join_wait_ms", wait_ms as f64);
 
     let result: Result<Json<Value>, ApiError> = async {
         super::validate_federation_origin(&auth.origin, body.get("origin").and_then(|v| v.as_str()))?;
 
         let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
         let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
-        let _room_version = federatable_room_version(&state, &room_id).await?;
-        validate_federation_join_access(&state, &room_id, user_id).await?;
+        let _room_version = federatable_room_version(&ctx, &room_id).await?;
+        validate_federation_join_access(&ctx, &room_id, user_id).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -508,21 +476,15 @@ pub(super) async fn send_join(
             origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
             redacts: None,
         };
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .messaging
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
-        dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, user_id, &content, Some(user_id))
+        dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id))
             .await;
 
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .membership
             .add_member(&room_id, user_id, "join", display_name, None, None)
             .await
@@ -543,18 +505,18 @@ pub(super) async fn send_join(
     .await;
 
     drop(permit);
-    super::decrement_gauge(&state, "federation_join_in_flight");
+    super::decrement_gauge(&ctx, "federation_join_in_flight");
     match &result {
-        Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
-        Err(_) => super::increment_counter(&state, "federation_join_error_total"),
+        Ok(_) => super::increment_counter(&ctx, "federation_join_ok_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&ctx, "federation_join_429_total"),
+        Err(_) => super::increment_counter(&ctx, "federation_join_error_total"),
     }
 
     result
 }
 
 pub(super) async fn send_leave(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
@@ -565,7 +527,7 @@ pub(super) async fn send_leave(
 
     let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
     let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let params = synapse_storage::event::CreateEventParams {
         event_id: event_id.clone(),
@@ -577,21 +539,15 @@ pub(super) async fn send_leave(
         origin_server_ts: event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0),
         redacts: None,
     };
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
     let content = event.get("content").cloned().unwrap_or(json!({}));
-    dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, user_id, &content, Some(user_id)).await;
+    dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id)).await;
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .membership
         .add_member(&room_id, user_id, "leave", None, None, None)
         .await
@@ -611,7 +567,7 @@ pub(super) async fn send_leave(
 }
 
 pub(super) async fn invite(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
@@ -622,7 +578,7 @@ pub(super) async fn invite(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,
@@ -638,28 +594,28 @@ pub(super) async fn invite(
 }
 
 pub(super) async fn send_join_v2(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
-    super::increment_gauge(&state, "federation_join_in_flight");
+    super::increment_gauge(&ctx, "federation_join_in_flight");
     let (permit, wait_ms) = match super::acquire_with_timeout(
-        state.federation_join_semaphore.clone(),
-        state.services.core.config.federation.join_acquire_timeout_ms,
+        ctx.federation_join_semaphore.clone(),
+        ctx.config.federation.join_acquire_timeout_ms,
     )
     .await
     {
         Ok(value) => value,
         Err(error) => {
-            super::decrement_gauge(&state, "federation_join_in_flight");
-            super::increment_counter(&state, "federation_join_429_total");
+            super::decrement_gauge(&ctx, "federation_join_in_flight");
+            super::increment_counter(&ctx, "federation_join_429_total");
             return Err(error);
         }
     };
-    super::observe_histogram(&state, "federation_join_wait_ms", wait_ms as f64);
+    super::observe_histogram(&ctx, "federation_join_wait_ms", wait_ms as f64);
 
     let result = async {
         if !room_id.starts_with('!') || !room_id.contains(':') {
@@ -670,8 +626,8 @@ pub(super) async fn send_join_v2(
             super::validate_federation_origin(&auth.origin, Some(origin))?;
         }
         let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
-        let _room_version = federatable_room_version(&state, &room_id).await?;
-        validate_federation_join_access(&state, &room_id, sender).await?;
+        let _room_version = federatable_room_version(&ctx, &room_id).await?;
+        validate_federation_join_access(&ctx, &room_id, sender).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -688,21 +644,14 @@ pub(super) async fn send_join_v2(
                 .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
             redacts: None,
         };
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .messaging
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
-        dispatch_federation_member_event_to_appservice(&state, &event_id, &room_id, sender, &content, Some(sender))
-            .await;
+        dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .membership
             .add_member(&room_id, sender, "join", display_name, None, None)
             .await
@@ -726,18 +675,18 @@ pub(super) async fn send_join_v2(
     .await;
 
     drop(permit);
-    super::decrement_gauge(&state, "federation_join_in_flight");
+    super::decrement_gauge(&ctx, "federation_join_in_flight");
     match &result {
-        Ok(_) => super::increment_counter(&state, "federation_join_ok_total"),
-        Err(e) if e.is_rate_limited() => super::increment_counter(&state, "federation_join_429_total"),
-        Err(_) => super::increment_counter(&state, "federation_join_error_total"),
+        Ok(_) => super::increment_counter(&ctx, "federation_join_ok_total"),
+        Err(e) if e.is_rate_limited() => super::increment_counter(&ctx, "federation_join_429_total"),
+        Err(_) => super::increment_counter(&ctx, "federation_join_error_total"),
     }
 
     result
 }
 
 pub(super) async fn send_leave_v2(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path((room_id, event_id)): Path<(String, String)>,
@@ -752,7 +701,7 @@ pub(super) async fn send_leave_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
-    let _room_version = federatable_room_version(&state, &room_id).await?;
+    let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let membership_content = serde_json::json!({
         "membership": "leave"
     });
@@ -770,16 +719,13 @@ pub(super) async fn send_leave_v2(
         redacts: None,
     };
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
     dispatch_federation_member_event_to_appservice(
-        &state,
+        &ctx,
         &event_id,
         &room_id,
         sender,
@@ -788,10 +734,7 @@ pub(super) async fn send_leave_v2(
     )
     .await;
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .membership
         .remove_member_record(&room_id, sender)
         .await
@@ -814,7 +757,7 @@ pub(super) async fn send_leave_v2(
 }
 
 pub(super) async fn exchange_third_party_invite(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
@@ -823,7 +766,7 @@ pub(super) async fn exchange_third_party_invite(
         return Err(ApiError::bad_request("Invalid room_id format"));
     }
 
-    let room_version = federatable_room_version(&state, &room_id).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let default_event_id = format!("${}:{}", uuid::Uuid::new_v4(), room_id.split(':').next_back().unwrap_or("server"));
     let event_id = body.get("event_id").and_then(|v| v.as_str()).unwrap_or(&default_event_id).to_string();
@@ -851,8 +794,8 @@ pub(super) async fn exchange_third_party_invite(
     });
 
     // Sign the event with the local server's key.
-    let local_server = &state.services.core.server_name;
-    if let Ok(Some(key)) = state.services.federation.key_rotation_manager.get_current_key().await {
+    let local_server = &ctx.server_name;
+    if let Ok(Some(key)) = ctx.key_rotation_manager.get_current_key().await {
         if let Err(e) = synapse_federation::signing::sign_and_hash_event(
             local_server,
             &key.key_id,
@@ -1144,21 +1087,15 @@ fn validate_federation_exchange_third_party_invite_event<'a>(
     Ok((sender, state_key))
 }
 
-async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiResult<String> {
-    let effective_join_rule = if let Some(content) = get_effective_room_join_rule_content(state, room_id).await? {
+async fn get_effective_room_join_rule(ctx: &FederationContext, room_id: &str) -> ApiResult<String> {
+    let effective_join_rule = if let Some(content) = get_effective_room_join_rule_content(ctx, room_id).await? {
         content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
     } else {
         None
     };
 
-    let room = state
-        .services
-        .rooms
-        .room_service
-        .state
-        .get_room_record(room_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room =
+        ctx.room_service.state.get_room_record(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     Ok(effective_join_rule.or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone())).unwrap_or_else(
         || {
@@ -1171,10 +1108,8 @@ async fn get_effective_room_join_rule(state: &AppState, room_id: &str) -> ApiRes
     ))
 }
 
-async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -> ApiResult<Option<Value>> {
-    Ok(state
-        .services
-        .rooms
+async fn get_effective_room_join_rule_content(ctx: &FederationContext, room_id: &str) -> ApiResult<Option<Value>> {
+    Ok(ctx
         .room_service
         .messaging
         .get_state_events_by_type(room_id, "m.room.join_rules")
@@ -1184,9 +1119,9 @@ async fn get_effective_room_join_rule_content(state: &AppState, room_id: &str) -
         .and_then(|event| event.get("content").cloned()))
 }
 
-async fn validate_federation_join_access(state: &AppState, room_id: &str, user_id: &str) -> ApiResult<()> {
-    let join_rule = get_effective_room_join_rule(state, room_id).await?;
-    let existing_member = state.services.rooms.room_service.membership.get_room_member_record(room_id, user_id).await?;
+async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str, user_id: &str) -> ApiResult<()> {
+    let join_rule = get_effective_room_join_rule(ctx, room_id).await?;
+    let existing_member = ctx.room_service.membership.get_room_member_record(room_id, user_id).await?;
 
     if let Some(member) = existing_member.as_ref() {
         if member.membership == "join" {

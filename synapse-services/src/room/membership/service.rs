@@ -11,7 +11,7 @@ use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
-use synapse_storage::UserStore;
+use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
 use tokio::sync::RwLock;
 
 use crate::room::summary::RoomSummaryService;
@@ -20,9 +20,9 @@ use crate::room::summary::RoomSummaryService;
 /// kick, ban, unban, knock, forget, and federation membership.
 #[derive(Clone)]
 pub struct MembershipService {
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) member_storage: Arc<dyn MemberStoreApi>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
+    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: Arc<dyn crate::auth::Auth>,
     pub(crate) server_name: String,
@@ -34,9 +34,9 @@ pub struct MembershipService {
 
 /// Configuration for constructing a [`MembershipService`].
 pub struct MembershipServiceConfig {
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub member_storage: Arc<dyn MemberStoreApi>,
+    pub room_storage: Arc<dyn RoomStoreApi>,
+    pub event_storage: Arc<dyn EventStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn crate::auth::Auth>,
     pub server_name: String,

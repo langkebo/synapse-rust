@@ -205,7 +205,7 @@ pub use self::privacy::*;
 /// 提供数据库连接管理、健康检查、性能监控等功能。
 pub struct Database {
     /// PostgreSQL 连接池
-    pub pool: Pool<Postgres>,
+    pub(crate) pool: Pool<Postgres>,
     /// 数据库监控器
     pub monitor: Arc<RwLock<DatabaseMonitor>>,
 }

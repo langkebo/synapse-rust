@@ -1,7 +1,8 @@
 // Typing Routes - 打字提示路由
 // Typing indicator management
 
-use crate::web::routes::{ensure_room_member_strict, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{ensure_room_member_strict_ctx, ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     routing::{get, post, put},
@@ -10,18 +11,18 @@ use axum::{
 use serde_json::{json, Value};
 
 async fn ensure_typing_room_access(
-    state: &AppState,
+    ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member_strict(state, auth_user, room_id, "You must be a member of this room to access typing status")
+    ensure_room_member_strict_ctx(ctx, auth_user, room_id, "You must be a member of this room to access typing status")
         .await
 }
 
 /// Set typing indicator
 /// PUT /_matrix/client/v3/rooms/{room_id}/typing/{user_id}
 pub async fn set_typing(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
     Json(body): Json<Value>,
@@ -30,19 +31,16 @@ pub async fn set_typing(
         return Err(ApiError::forbidden("Cannot set typing for other users".to_string()));
     }
 
-    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+    ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
     let timeout = body.get("timeout").and_then(|v| v.as_i64()).unwrap_or(30000) as u64;
 
     let is_typing = body.get("typing").and_then(|v| v.as_bool()).unwrap_or(true);
 
     if is_typing {
-        state.services.rooms.typing_service.set_typing(&room_id, &user_id, timeout).await?;
+        ctx.typing_service.set_typing(&room_id, &user_id, timeout).await?;
 
-        state
-            .services
-            .rooms
-            .room_service
+        ctx.room_service
             .messaging
             .set_typing_ephemeral_event(&room_id, &user_id, std::slice::from_ref(&user_id), timeout as i64)
             .await?;
@@ -54,13 +52,7 @@ pub async fn set_typing(
                 "user_ids": [user_id]
             }
         });
-        if let Err(e) = state
-            .services
-            .core
-            .event_broadcaster
-            .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
-            .await
-        {
+        if let Err(e) = ctx.event_broadcaster.broadcast_edu_to_room(&room_id, &edu, ctx.server_name.as_str()).await {
             ::tracing::warn!(
                 room_id = %room_id,
                 user_id = %user_id,
@@ -71,9 +63,9 @@ pub async fn set_typing(
 
         Ok(Json(json!({})))
     } else {
-        state.services.rooms.typing_service.clear_typing(&room_id, &user_id).await?;
+        ctx.typing_service.clear_typing(&room_id, &user_id).await?;
 
-        state.services.rooms.room_service.messaging.clear_typing_ephemeral_event(&room_id, &user_id).await?;
+        ctx.room_service.messaging.clear_typing_ephemeral_event(&room_id, &user_id).await?;
 
         let edu = serde_json::json!({
             "edu_type": "m.typing",
@@ -82,13 +74,7 @@ pub async fn set_typing(
                 "user_ids": []
             }
         });
-        if let Err(e) = state
-            .services
-            .core
-            .event_broadcaster
-            .broadcast_edu_to_room(&room_id, &edu, state.services.core.server_name.as_str())
-            .await
-        {
+        if let Err(e) = ctx.event_broadcaster.broadcast_edu_to_room(&room_id, &edu, ctx.server_name.as_str()).await {
             ::tracing::warn!(
                 room_id = %room_id,
                 user_id = %user_id,
@@ -104,14 +90,13 @@ pub async fn set_typing(
 /// Get typing users in a room
 /// GET /_matrix/client/v3/rooms/{room_id}/typing
 pub async fn get_typing_users(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+    ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
-    let typing: std::collections::HashMap<String, u64> =
-        state.services.rooms.typing_service.get_typing_users(&room_id).await?;
+    let typing: std::collections::HashMap<String, u64> = ctx.typing_service.get_typing_users(&room_id).await?;
     let users: Vec<String> = typing.into_keys().collect();
     Ok(Json(json!({ "typing": users })))
 }
@@ -119,13 +104,13 @@ pub async fn get_typing_users(
 /// Get user typing
 /// GET /_matrix/client/r0/rooms/{room_id}/typing/{user_id}
 pub async fn get_user_typing(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, user_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+    ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
-    let typing_ts: Option<u64> = state.services.rooms.typing_service.get_user_typing(&room_id, &user_id).await?;
+    let typing_ts: Option<u64> = ctx.typing_service.get_user_typing(&room_id, &user_id).await?;
     let is_typing: bool = typing_ts.is_some();
     Ok(Json(json!({ "typing": is_typing })))
 }
@@ -133,7 +118,7 @@ pub async fn get_user_typing(
 /// Bulk get typing status
 /// POST /_matrix/client/v3/rooms/typing
 pub async fn bulk_get_typing(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -145,10 +130,9 @@ pub async fn bulk_get_typing(
 
     let mut result = serde_json::Map::new();
     for room_id in room_ids {
-        ensure_typing_room_access(&state, &auth_user, &room_id).await?;
+        ensure_typing_room_access(&ctx, &auth_user, &room_id).await?;
 
-        let typing: std::collections::HashMap<String, u64> =
-            state.services.rooms.typing_service.get_typing_users(&room_id).await?;
+        let typing: std::collections::HashMap<String, u64> = ctx.typing_service.get_typing_users(&room_id).await?;
         let users: Vec<String> = typing.into_keys().collect();
         result.insert(room_id, json!({ "typing": users }));
     }

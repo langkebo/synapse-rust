@@ -1,6 +1,7 @@
 // Burn After Read Routes - 阅后即焚路由
 // Self-destructing messages with automatic deletion
 
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::Path,
@@ -80,14 +81,12 @@ pub fn burn_after_read_route_manifest() -> Vec<crate::web::routes::route_ledger:
 /// Enable burn after read for a room
 /// PUT /_matrix/client/v1/rooms/{room_id}/burn
 pub async fn enable_burn(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists: bool = state
-        .services
-        .rooms
+    let room_exists: bool = ctx
         .room_service
         .state
         .room_exists(&room_id)
@@ -102,10 +101,7 @@ pub async fn enable_burn(
 
     let burn_after_ms = body.get("burn_after_ms").and_then(|v| v.as_i64()).unwrap_or(60_000); // Default 1 minute
 
-    state
-        .services
-        .extensions
-        .burn_after_read
+    ctx.burn_after_read
         .set_burn_enabled(&auth_user.user_id, &room_id, enabled, burn_after_ms)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to enable burn", &e))?;
@@ -119,13 +115,11 @@ pub async fn enable_burn(
 /// Get burn settings for a room
 /// GET /_matrix/client/v1/rooms/{room_id}/burn
 pub async fn get_burn_settings(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists: bool = state
-        .services
-        .rooms
+    let room_exists: bool = ctx
         .room_service
         .state
         .room_exists(&room_id)
@@ -136,9 +130,7 @@ pub async fn get_burn_settings(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = state
-        .services
-        .extensions
+    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = ctx
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
@@ -159,13 +151,11 @@ pub async fn get_burn_settings(
 /// Mark message as read (triggers burn)
 /// POST /_matrix/client/v1/rooms/{room_id}/burn/{event_id}
 pub async fn mark_burn_read(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists: bool = state
-        .services
-        .rooms
+    let room_exists: bool = ctx
         .room_service
         .state
         .room_exists(&room_id)
@@ -176,9 +166,7 @@ pub async fn mark_burn_read(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = state
-        .services
-        .extensions
+    let settings: Option<synapse_services::burn_after_read_service::BurnSettings> = ctx
         .burn_after_read
         .get_burn_settings(&auth_user.user_id, &room_id)
         .await
@@ -195,10 +183,7 @@ pub async fn mark_burn_read(
 
     let delete_ts = Utc::now().timestamp_millis() + burn_after_ms;
 
-    state
-        .services
-        .extensions
-        .burn_after_read
+    ctx.burn_after_read
         .schedule_burn(&auth_user.user_id, &room_id, &event_id, burn_after_ms)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to schedule burn", &e))?;
@@ -212,13 +197,11 @@ pub async fn mark_burn_read(
 /// Get pending burn events
 /// GET /_matrix/client/v1/rooms/{room_id}/burn/pending
 pub async fn get_pending_burns(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists: bool = state
-        .services
-        .rooms
+    let room_exists: bool = ctx
         .room_service
         .state
         .room_exists(&room_id)
@@ -229,9 +212,7 @@ pub async fn get_pending_burns(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    let pending: Vec<synapse_services::burn_after_read_service::BurnEvent> = state
-        .services
-        .extensions
+    let pending: Vec<synapse_services::burn_after_read_service::BurnEvent> = ctx
         .burn_after_read
         .get_pending_burns(&auth_user.user_id, &room_id)
         .await
@@ -256,13 +237,11 @@ pub async fn get_pending_burns(
 /// Cancel pending burn
 /// DELETE /_matrix/client/v1/rooms/{room_id}/burn/{event_id}
 pub async fn cancel_burn(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let room_exists: bool = state
-        .services
-        .rooms
+    let room_exists: bool = ctx
         .room_service
         .state
         .room_exists(&room_id)
@@ -273,10 +252,7 @@ pub async fn cancel_burn(
         return Err(ApiError::not_found(format!("Room '{room_id}' not found")));
     }
 
-    state
-        .services
-        .extensions
-        .burn_after_read
+    ctx.burn_after_read
         .cancel_burn(&auth_user.user_id, &room_id, &event_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to cancel burn", &e))?;
@@ -289,16 +265,13 @@ pub async fn cancel_burn(
 /// Set global burn settings
 /// PUT /_matrix/client/v1/user/burn/config
 pub async fn set_global_burn_config(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let default_burn_ms: i64 = body.get("default_burn_ms").and_then(|v| v.as_i64()).unwrap_or(60_000);
 
-    state
-        .services
-        .extensions
-        .burn_after_read
+    ctx.burn_after_read
         .set_user_default(&auth_user.user_id, default_burn_ms)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set config", &e))?;
@@ -311,12 +284,10 @@ pub async fn set_global_burn_config(
 /// Get burn statistics
 /// GET /_matrix/client/v1/user/burn/stats
 pub async fn get_burn_stats(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let stats: synapse_services::burn_after_read_service::BurnStats = state
-        .services
-        .extensions
+    let stats: synapse_services::burn_after_read_service::BurnStats = ctx
         .burn_after_read
         .get_user_stats(&auth_user.user_id)
         .await
