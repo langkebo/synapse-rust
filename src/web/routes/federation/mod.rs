@@ -235,8 +235,8 @@ async fn openid_userinfo(
     })))
 }
 
-pub fn create_federation_router(state: AppState) -> Router<AppState> {
-    let fed_ctx = FederationContext::from_ref(&state);
+pub fn create_federation_router(state: &AppState) -> Router<AppState> {
+    let fed_ctx = FederationContext::from_ref(state);
 
     let public = Router::new()
         .route("/_matrix/federation/v2/server", get(keys::server_key))
@@ -304,7 +304,10 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).
     let protected = protected
-        .layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_rate_limit_middleware))
+        .layer(middleware::from_fn_with_state(
+            fed_ctx.clone(),
+            crate::web::middleware::federation_rate_limit_middleware,
+        ))
         .layer(middleware::from_fn_with_state(fed_ctx, crate::web::middleware::federation_auth_middleware));
 
     public.merge(protected)

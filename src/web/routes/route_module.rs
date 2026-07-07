@@ -190,7 +190,7 @@ impl RouteModule for FederationModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        router.merge(federation::create_federation_router(state))
+        router.merge(federation::create_federation_router(&state))
     }
 }
 
