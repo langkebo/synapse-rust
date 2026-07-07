@@ -1,7 +1,9 @@
 use serde_json::{Map, Value};
+use std::sync::Arc;
 use synapse_common::traits::DehydratedDeviceProvider;
 use synapse_common::ApiError;
-use synapse_storage::{DehydratedDevice, DehydratedDeviceStorage, UpsertDehydratedDeviceParams};
+use synapse_storage::dehydrated_device::DehydratedDeviceStoreApi;
+use synapse_storage::{DehydratedDevice, UpsertDehydratedDeviceParams};
 
 #[derive(Debug)]
 struct NormalizedDehydratedDevicePayload {
@@ -14,11 +16,11 @@ struct NormalizedDehydratedDevicePayload {
 
 #[derive(Clone)]
 pub struct DehydratedDeviceService {
-    storage: DehydratedDeviceStorage,
+    storage: Arc<dyn DehydratedDeviceStoreApi>,
 }
 
 impl DehydratedDeviceService {
-    pub fn new(storage: DehydratedDeviceStorage) -> Self {
+    pub fn new(storage: Arc<dyn DehydratedDeviceStoreApi>) -> Self {
         Self { storage }
     }
 

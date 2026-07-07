@@ -42,6 +42,8 @@ impl E2eeServices {
         let cross_signing_storage = synapse_e2ee::cross_signing::CrossSigningStorage::new(pool);
         let cross_signing_storage_arc = Arc::new(cross_signing_storage.clone());
         let dehydrated_device_storage = synapse_storage::DehydratedDeviceStorage::new(pool);
+        let dehydrated_device_storage_arc: Arc<dyn synapse_storage::dehydrated_device::DehydratedDeviceStoreApi> =
+            Arc::new(dehydrated_device_storage.clone());
 
         let device_keys_service = DeviceKeyService::new(device_key_storage, cache.clone())
             .with_cross_signing_storage(cross_signing_storage_arc)
@@ -55,7 +57,7 @@ impl E2eeServices {
         let key_request_service = KeyRequestService::new(key_request_storage, megolm_service.clone());
 
         let dehydrated_device_service =
-            crate::dehydrated_device_service::DehydratedDeviceService::new(dehydrated_device_storage);
+            crate::dehydrated_device_service::DehydratedDeviceService::new(dehydrated_device_storage_arc);
 
         let dehydrated_device_provider: Arc<dyn synapse_common::traits::DehydratedDeviceProvider> =
             Arc::new(dehydrated_device_service.clone());
