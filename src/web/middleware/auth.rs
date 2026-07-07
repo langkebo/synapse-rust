@@ -1,5 +1,6 @@
 use crate::common::ApiError;
 use crate::web::routes::admin::audit::resolve_request_id;
+use crate::web::routes::context::CoreContext;
 use crate::web::routes::AppState;
 use crate::web::utils::admin_auth::authorize_admin_request;
 use crate::web::utils::auth::bearer_token;
@@ -16,7 +17,7 @@ pub fn extract_token(headers: &HeaderMap, uri: &str) -> Option<String> {
 }
 
 pub async fn auth_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<CoreContext>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
@@ -26,7 +27,7 @@ pub async fn auth_middleware(
         None => return ApiError::missing_token().into_response(),
     };
 
-    if let Err(err) = state.services.core.auth_service.validate_token(&token).await {
+    if let Err(err) = ctx.auth_service.validate_token(&token).await {
         return err.into_response();
     }
 
@@ -34,7 +35,7 @@ pub async fn auth_middleware(
 }
 
 pub async fn shadow_ban_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<CoreContext>,
     request: Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
@@ -56,7 +57,7 @@ pub async fn shadow_ban_middleware(
         None => return next.run(request).await,
     };
 
-    match state.services.core.auth_service.validate_token(&token).await {
+    match ctx.auth_service.validate_token(&token).await {
         Ok((_, _, _, is_shadow_banned, is_guest)) => {
             if is_shadow_banned {
                 ::tracing::warn!(

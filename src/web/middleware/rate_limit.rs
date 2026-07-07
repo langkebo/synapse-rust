@@ -1,7 +1,7 @@
 use crate::cache::*;
 use crate::common::error::ApiError;
 use crate::common::RateLimitBackend;
-use crate::web::routes::AppState;
+use crate::web::routes::context::CoreContext;
 use crate::web::utils::ip::extract_client_ip;
 use axum::extract::State;
 use axum::http::{HeaderValue, Request};
@@ -19,9 +19,9 @@ fn is_sync_rate_limit_exempt_path(path: &str) -> bool {
     )
 }
 
-pub async fn rate_limit_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let config = state.services.core.config.rate_limit.clone();
-    let file_config = state.rate_limit_config();
+pub async fn rate_limit_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
+    let config = ctx.config.rate_limit.clone();
+    let file_config = ctx.rate_limit_config();
 
     let enabled = file_config.as_ref().map_or(config.enabled, |c| c.enabled);
     if !enabled {
@@ -53,7 +53,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         }
     };
 
-    let redis_prefix = state.services.core.config.redis.key_prefix.as_str();
+    let redis_prefix = ctx.config.redis.key_prefix.as_str();
     let cache_key = format!("{}{}", redis_prefix, CacheKeyBuilder::ip_rate_limit(&ip, endpoint_id.as_str()));
 
     let fail_open = file_config.as_ref().map_or(config.fail_open_on_error, |c| c.fail_open_on_error);
@@ -61,7 +61,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
 
     // Determine the configured backend and whether Redis is actually available.
     let backend = file_config.as_ref().map_or(RateLimitBackend::Auto, |c| c.backend);
-    let redis_available = state.cache.is_redis_enabled();
+    let redis_available = ctx.cache.is_redis_enabled();
 
     // When backend is explicitly "redis" but Redis is not available, reject
     // the request rather than silently falling back to an inconsistent
@@ -77,7 +77,7 @@ pub async fn rate_limit_middleware(State(state): State<AppState>, request: Reque
         return ApiError::rate_limited("").into_response();
     }
 
-    let decision = match state.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
+    let decision = match ctx.cache.rate_limit_token_bucket_take(&cache_key, per_second, burst_size).await {
         Ok(d) => d,
         Err(e) => {
             if fail_open {
