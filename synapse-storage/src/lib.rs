@@ -122,97 +122,191 @@ pub use user_store_fake::FakeUserStore;
 pub mod test_utils;
 
 pub use self::account_data::{AccountDataRecord, AccountDataStorage, AccountDataStoreApi};
-pub use self::admin_federation::*;
-pub use self::admin_media::*;
-pub use self::application_service::*;
-pub use self::audit::*;
-pub use self::background_update::*;
-pub use self::captcha::*;
-pub use self::dehydrated_device::*;
+pub use self::admin_federation::{
+    AdminFederationStorage, AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord,
+    PendingFederationRecord,
+};
+pub use self::admin_media::{
+    decode_media_cursor, encode_media_cursor, AdminMediaInfo, AdminMediaPage, AdminMediaQuotaSummary,
+    AdminMediaStorage, AdminMediaStoreApi, MediaCursor,
+};
+pub use self::application_service::{
+    ApplicationService, ApplicationServiceEvent, ApplicationServiceNamespace, ApplicationServiceState,
+    ApplicationServiceStorage, ApplicationServiceStoreApi, ApplicationServiceTransaction, ApplicationServiceUser,
+    NamespaceRule, Namespaces, RegisterApplicationServiceRequest, UpdateApplicationServiceRequest,
+};
+pub use self::audit::{
+    decode_audit_event_cursor, encode_audit_event_cursor, AuditEvent, AuditEventCursor, AuditEventFilters,
+    AuditEventStorage, AuditEventStoreApi, CreateAuditEventRequest,
+};
+pub use self::background_update::{
+    BackgroundUpdate, BackgroundUpdateHistory, BackgroundUpdateLock, BackgroundUpdateStats, BackgroundUpdateStorage,
+    BackgroundUpdateStoreApi, CreateBackgroundUpdateRequest, UpdateBackgroundUpdateRequest,
+};
+pub use self::captcha::{
+    CaptchaConfig, CaptchaRateLimit, CaptchaSendLog, CaptchaStorage, CaptchaStoreApi, CaptchaTemplate,
+    CreateCaptchaRequest, CreateSendLogRequest, RegistrationCaptcha,
+};
+pub use self::dehydrated_device::{
+    DehydratedDevice, DehydratedDeviceStorage, DehydratedDeviceStoreApi, UpsertDehydratedDeviceParams,
+};
 pub use self::device::{Device, DeviceListStoreApi, DeviceStorage};
-pub use self::e2ee_audit::*;
+pub use self::e2ee_audit::{E2eeAuditStorage, E2eeAuditStoreApi, KeyAuditEntry, KeyEvent};
 pub use self::event::{
     CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, EventStoreApi,
     RoomEphemeralEvent, RoomEvent, SinceFilter, StateEvent,
 };
-pub use self::feature_flags::*;
-pub use self::federation_blacklist::*;
-pub use self::filter::*;
-pub use self::invite_blocklist::*;
-pub use self::maintenance::*;
-pub use self::media_quota::*;
+pub use self::feature_flags::{
+    CreateFeatureFlagRequest, FeatureFlag, FeatureFlagFilters, FeatureFlagRecord, FeatureFlagStorage,
+    FeatureFlagStoreApi, FeatureFlagTargetInput, FeatureFlagTargetRecord, UpdateFeatureFlagRequest,
+};
+pub use self::federation_blacklist::{
+    decode_federation_blacklist_cursor, encode_federation_blacklist_cursor, AddBlacklistRequest, CreateLogRequest,
+    CreateRuleRequest, FederationAccessStats, FederationBlacklist, FederationBlacklistCursor, FederationBlacklistLog,
+    FederationBlacklistRule, FederationBlacklistStorage, FederationBlacklistStoreApi, UpdateStatsRequest,
+};
+pub use self::filter::{CreateFilterRequest, Filter, FilterStorage, FilterStoreApi};
+pub use self::invite_blocklist::{InviteBlocklistStorage, InviteBlocklistStoreApi};
+pub use self::maintenance::{DatabaseMaintenance, MaintenanceReport, TableStats, VacuumResult};
+pub use self::media_quota::{
+    CreateQuotaConfigRequest, MediaQuotaAlert, MediaQuotaConfig, MediaQuotaStorage, MediaQuotaStoreApi, MediaUsageLog,
+    QuotaCheckResult, ServerMediaQuota, SetUserQuotaRequest, UpdateUsageRequest, UserMediaQuota,
+};
 pub use self::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
-pub use self::moderation::*;
+pub use self::moderation::{
+    ContentScanResult, ContentType, CreateModerationRuleParams, MatchedRule, ModerationAction, ModerationLog,
+    ModerationLogStorage, ModerationRule, ModerationRuleType, ModerationStorage, ScanContentRequest,
+};
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
     ForeignKeyViolation, NullConstraintViolation, OrphanedRecord, PerformanceMetrics,
 };
-pub use self::oidc_user_mapping::*;
-pub use self::openid_token::*;
+pub use self::oidc_user_mapping::{OidcUserMappingStorage, OidcUserMappingStoreApi};
+pub use self::openid_token::{CreateOpenIdTokenRequest, OpenIdToken, OpenIdTokenStorage, OpenIdTokenStoreApi};
 pub use self::performance::{time_query, PerformanceMonitor, PoolStatistics, QueryMetrics};
 pub use self::presence::{PresenceSnapshot, PresenceStorage};
-pub use self::push::*;
-pub use self::push_notification::*;
-pub use self::qr_login::*;
-pub use self::rate_limit::*;
-pub use self::rendezvous::*;
+pub use self::push::{PushStorage, PushStoreApi};
+pub use self::push_notification::{
+    CreateNotificationLogRequest, CreatePushRuleRequest, PushDevice, PushNotificationLog, PushNotificationQueue,
+    PushNotificationStorage, PushNotificationStoreApi, PushRule, QueueNotificationRequest, RegisterDeviceRequest,
+    RoomNotification,
+};
+pub use self::qr_login::{QrLoginStorage, QrLoginStoreApi, QrTransaction};
+pub use self::rate_limit::{RateLimitRecord, RateLimitStorage, RateLimitStoreApi};
+pub use self::rendezvous::{
+    CreateRendezvousSessionParams, RendezvousCode, RendezvousIntent, RendezvousLoginFinish, RendezvousLoginStart,
+    RendezvousLoginUser, RendezvousMessage, RendezvousMessageStorage, RendezvousMessageStoreApi, RendezvousSession,
+    RendezvousStorage, RendezvousStoreApi, RendezvousTransport, StoredRendezvousMessage,
+};
 pub use self::room::{
     decode_room_search_cursor, encode_room_search_cursor, Receipt, Room, RoomEncryptionStatus, RoomSearchCursor,
     RoomSearchOrder, RoomStorage, RoomStoreApi, RoomUnreadCounts, DEFAULT_HISTORY_VISIBILITY, DEFAULT_JOIN_RULE,
 };
-pub use self::room_account_data::*;
-pub use self::schema_validator::*;
-pub use self::search_index::*;
-pub use self::sliding_sync::*;
-pub use self::space::*;
-pub use self::sticky_event::*;
-pub use self::thread::*;
+pub use self::room_account_data::{RoomAccountDataRecord, RoomAccountDataStorage, RoomAccountDataStoreApi};
+pub use self::schema_validator::{SchemaValidationResult, SchemaValidator, TableSchemaInfo};
+pub use self::search_index::{
+    SearchIndexCursor, SearchIndexEntry, SearchIndexStats, SearchIndexStorage, SearchIndexStoreApi, SearchQuery,
+    SearchResult,
+};
+pub use self::sliding_sync::{
+    decode_room_token_sync_cursor, encode_room_token_sync_cursor, AdminRoomTokenSyncEntry, RoomTokenSyncCursor,
+    SlidingSyncFilters, SlidingSyncList, SlidingSyncListData, SlidingSyncListQuery, SlidingSyncListRequest,
+    SlidingSyncRequest, SlidingSyncResponse, SlidingSyncRoom, SlidingSyncStorage, SlidingSyncStoreApi,
+    SlidingSyncToken,
+};
+pub use self::space::{
+    AddChildRequest, CreateSpaceRequest, Space, SpaceChild, SpaceChildInfo, SpaceEvent, SpaceHierarchy,
+    SpaceHierarchyNode, SpaceHierarchyRequest, SpaceHierarchyResponse, SpaceHierarchyRoom, SpaceMember, SpaceStorage,
+    SpaceStoreApi, SpaceSummary, UpdateSpaceRequest,
+};
+pub use self::sticky_event::{StickyEvent, StickyEventStorage, StickyEventStoreApi};
+pub use self::thread::{
+    CreateThreadReplyParams, CreateThreadRootParams, ThreadListParams, ThreadReadReceipt, ThreadRelation, ThreadReply,
+    ThreadRoot, ThreadStatistics, ThreadStorage, ThreadStoreApi, ThreadSubscription, ThreadSummary, ThreadWithReplies,
+};
 pub use self::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidStoreApi, ThreepidValidationSession};
 pub use self::token::{AccessToken, AccessTokenStorage, AccessTokenStoreApi};
-pub use self::worker::*;
+pub use self::worker::{
+    AssignTaskRequest, HeartbeatRequest, RdataEvent, RdataPosition, RegisterWorkerRequest, ReplicationPosition,
+    SendCommandRequest, StreamPosition, UpdateConnectionStatsRequest, WorkerCapabilities, WorkerCommand,
+    WorkerCommandRow, WorkerConnection, WorkerEvent, WorkerEventRow, WorkerInfo, WorkerLoadStats,
+    WorkerLoadStatsUpdate, WorkerResponsibilitySummary, WorkerRow, WorkerRuntimeConfig, WorkerStatus, WorkerStorage,
+    WorkerStoreApi, WorkerTaskAssignment, WorkerTopologyEntry, WorkerTopologyPreset, WorkerTopologyPresetInstance,
+    WorkerTopologySummary, WorkerType,
+};
 
 // Storage repository traits (explicit re-exports for service-layer consumption)
 pub use self::federation_queue::FederationQueueStoreApi;
 pub use self::oauth_client_storage::OAuthClientStoreApi;
 pub use self::oidc_session_storage::OidcSessionStoreApi;
-pub use self::search_index::SearchIndexStoreApi;
 pub use self::state_groups::StateGroupStoreApi;
 pub use self::url_preview_storage::UrlPreviewStoreApi;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]
-pub use self::ai_connection::*;
+pub use self::ai_connection::{AiConnection, AiConnectionStorage, AiConnectionStoreApi};
 #[cfg(feature = "openclaw-routes")]
-pub use self::openclaw::*;
+pub use self::openclaw::{
+    decode_conversation_cursor, decode_generation_cursor, decode_message_cursor, encode_conversation_cursor,
+    encode_generation_cursor, encode_message_cursor, AiChatRole, AiConversation, AiGeneration, AiMessage,
+    ConversationCursor, CreateChatRoleParams, CreateConnectionParams, CreateConversationParams, GenerationCursor,
+    MessageCursor, OpenClawConnection, OpenClawStorage, OpenClawStoreApi, UpdateChatRoleParams, UpdateConnectionParams,
+};
 
 #[cfg(feature = "friends")]
-pub use self::friend_room::*;
+pub use self::friend_room::{
+    AddFriendToGroupParams, CreateFriendGroupParams, DirectRoomFallbackLink, DmPartnerRecord, FriendDmLink,
+    FriendRequestRecord, FriendRoomStorage, FriendRoomStoreApi, RemoveFriendFromGroupParams, RenameFriendGroupParams,
+};
 
 #[cfg(feature = "saml-sso")]
-pub use self::saml::*;
+pub use self::saml::{
+    CreateSamlAuthEventRequest, CreateSamlIdentityProviderRequest, CreateSamlLogoutRequestRequest,
+    CreateSamlSessionRequest, CreateSamlUserMappingRequest, SamlAuthEvent, SamlIdentityProvider, SamlLogoutRequest,
+    SamlSession, SamlStorage, SamlStoreApi, SamlUserMapping,
+};
 
 #[cfg(feature = "cas-sso")]
-pub use self::cas::*;
+pub use self::cas::{
+    CasProxyGrantingTicket, CasProxyTicket, CasRegisteredService, CasSloSession, CasStorage, CasStoreApi, CasTicket,
+    CasUserAttribute, CreatePgtRequest, CreateProxyTicketRequest, CreateTicketRequest, RegisterServiceRequest,
+    ValidateTicketRequest,
+};
 
 #[cfg(feature = "beacons")]
-pub use self::beacon::*;
+pub use self::beacon::{
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, BeaconStoreApi, CreateBeaconInfoParams,
+    CreateBeaconLocationParams,
+};
 
 #[cfg(feature = "voice-extended")]
-pub use self::voice::*;
+pub use self::voice::{VoiceAggregatedStats, VoiceStorage, VoiceStoreApi, VoiceUsageRecord, VoiceUserAggregatedStats};
 
 #[cfg(feature = "voip-tracking")]
-pub use self::call_session::*;
+pub use self::call_session::{
+    CallCandidate, CallSession, CallSessionStorage, CallSessionStoreApi, CreateCallSessionParams,
+};
 #[cfg(feature = "voip-tracking")]
-pub use self::matrixrtc::*;
+pub use self::matrixrtc::{
+    CreateMembershipParams, CreateSessionParams, MatrixRTCStorage, MatrixRTCStoreApi, RTCEncryptionKey, RTCMembership,
+    RTCSession, SessionWithMemberships,
+};
 
 #[cfg(feature = "widgets")]
-pub use self::widget::*;
+pub use self::widget::{CreateWidgetParams, Widget, WidgetPermission, WidgetSession, WidgetStorage, WidgetStoreApi};
 
 #[cfg(feature = "server-notifications")]
-pub use self::server_notification::*;
+pub use self::server_notification::{
+    decode_server_notification_cursor, encode_server_notification_cursor, CreateNotificationRequest,
+    CreateTemplateRequest, NotificationDeliveryLog, NotificationTemplate, NotificationWithStatus,
+    ScheduledNotification, ServerNotification, ServerNotificationCursor, ServerNotificationStorage,
+    ServerNotificationStoreApi, UserNotificationStatus,
+};
 
 #[cfg(feature = "privacy-ext")]
-pub use self::privacy::*;
+pub use self::privacy::{
+    CreatePrivacySettingsParams, PrivacySettingsUpdate, PrivacyStorage, PrivacyStoreApi, UserPrivacySettings,
+};
 
 /// 数据库结构体。
 ///
