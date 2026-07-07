@@ -20,7 +20,7 @@ pub struct AdminUserServices {
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
+    pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
     pub registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi>,
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
@@ -146,7 +146,7 @@ impl AdminServices {
             Arc::new(audit_storage.clone()),
         ));
 
-        let refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage> =
+        let refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi> =
             Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
             refresh_token_storage.clone(),
@@ -182,8 +182,7 @@ impl AdminServices {
 
         let push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
-        let account_data_storage_for_push: Arc<synapse_storage::account_data::AccountDataStorage> =
-            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service = Arc::new(
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
                 .with_account_data_storage(account_data_storage_for_push),

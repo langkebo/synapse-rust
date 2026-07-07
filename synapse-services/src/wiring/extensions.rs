@@ -72,8 +72,7 @@ impl ExtensionServices {
         let friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi> =
             Arc::new(synapse_storage::FriendRoomStorage::new(infra.pool.clone()));
         #[cfg(feature = "friends")]
-        let account_data_storage: Arc<synapse_storage::account_data::AccountDataStorage> =
-            Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
+        let account_data_storage = Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         #[cfg(feature = "friends")]
         let friend_room_service = Arc::new(crate::friend_room_service::FriendRoomService::new(
             friend_storage.clone(),
