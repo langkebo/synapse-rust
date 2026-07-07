@@ -198,6 +198,15 @@ pub trait RefreshTokenStoreApi: Send + Sync {
     async fn cleanup_blacklist(&self) -> Result<i64, sqlx::Error>;
     async fn get_user_stats(&self, user_id: &str) -> Result<Option<RefreshTokenStats>, sqlx::Error>;
     async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error>;
+
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error>;
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -930,6 +939,19 @@ impl RefreshTokenStoreApi for RefreshTokenStorage {
 
     async fn get_usage_history(&self, user_id: &str, limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         self.get_usage_history(user_id, limit).await
+    }
+
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
+        self.revoke_device_tokens(user_id, device_id, reason).await
+    }
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        self.revoke_all_user_tokens_except_device(user_id, device_id, reason).await
     }
 }
 

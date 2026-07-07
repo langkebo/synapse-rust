@@ -101,6 +101,16 @@ pub trait DeviceListStoreApi: Send + Sync {
         room_id: &str,
         member_user_ids: &HashSet<String>,
     ) -> Result<u64, sqlx::Error>;
+
+    // ── device management (widened set) ────────────────────────────────────
+
+    async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error>;
+
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error>;
+
+    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error>;
+
+    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error>;
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -1192,6 +1202,22 @@ impl DeviceListStoreApi for DeviceStorage {
         member_user_ids: &HashSet<String>,
     ) -> Result<u64, sqlx::Error> {
         self.upsert_lazy_loaded_members(user_id, device_id, room_id, member_user_ids).await
+    }
+
+    async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
+        self.delete_user_devices_batch(user_id, device_ids).await
+    }
+
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        self.get_device_by_id(device_id).await
+    }
+
+    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
+        self.delete_device_returning_count(user_id, device_id).await
+    }
+
+    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_all_devices(user_id).await
     }
 }
 

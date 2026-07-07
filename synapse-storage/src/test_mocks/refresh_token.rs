@@ -256,4 +256,35 @@ impl RefreshTokenStoreApi for InMemoryRefreshTokenStore {
     async fn get_usage_history(&self, _user_id: &str, _limit: i64) -> Result<Vec<RefreshTokenUsage>, sqlx::Error> {
         Ok(Vec::new())
     }
+
+    async fn revoke_device_tokens(&self, user_id: &str, device_id: &str, reason: &str) -> Result<i64, sqlx::Error> {
+        let mut tokens = self.tokens.write().await;
+        let mut count = 0i64;
+        for token in tokens.values_mut() {
+            if token.user_id == user_id && token.device_id.as_deref() == Some(device_id) && !token.is_revoked {
+                token.is_revoked = true;
+                token.revoked_reason = Some(reason.to_string());
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    async fn revoke_all_user_tokens_except_device(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        reason: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let mut tokens = self.tokens.write().await;
+        let mut count = 0i64;
+        for token in tokens.values_mut() {
+            if token.user_id == user_id && token.device_id.as_deref() != Some(device_id) && !token.is_revoked {
+                token.is_revoked = true;
+                token.revoked_reason = Some(reason.to_string());
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
 }

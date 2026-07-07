@@ -53,6 +53,21 @@ pub trait EventStoreApi: Send + Sync {
         limit_per_room: i64,
     ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
 
+    async fn get_room_events_batch_since(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+    ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
+
+    async fn get_room_events_batch_since_filtered(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+        filter: &EventQueryFilter,
+    ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error>;
+
     // ── state events ──────────────────────────────────────────────────
 
     async fn get_state_event(
@@ -360,6 +375,25 @@ impl EventStoreApi for super::EventStorage {
         limit_per_room: i64,
     ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
         self.get_room_events_since_stream_batch(room_ids, since_stream_ordering, limit_per_room).await
+    }
+
+    async fn get_room_events_batch_since(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+    ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        self.get_room_events_batch_since(room_ids, since, limit_per_room).await
+    }
+
+    async fn get_room_events_batch_since_filtered(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+        filter: &EventQueryFilter,
+    ) -> Result<HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        self.get_room_events_batch_since_filtered(room_ids, since, limit_per_room, filter).await
     }
 
     async fn get_state_event(

@@ -664,6 +664,32 @@ impl crate::event::api::EventStoreApi for InMemoryEventStore {
         self.get_room_events_since_stream_batch(room_ids, since_stream_ordering, limit_per_room).await
     }
 
+    async fn get_room_events_batch_since(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+        limit_per_room: i64,
+    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        match since {
+            crate::event::SinceFilter::OriginServerTs(ts) => {
+                self.get_room_events_since_batch(room_ids, ts, limit_per_room).await
+            }
+            crate::event::SinceFilter::StreamOrdering(so) => {
+                self.get_room_events_since_stream_batch(room_ids, so, limit_per_room).await
+            }
+        }
+    }
+
+    async fn get_room_events_batch_since_filtered(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+        limit_per_room: i64,
+        _filter: &crate::event::EventQueryFilter,
+    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        self.get_room_events_batch_since(room_ids, since, limit_per_room).await
+    }
+
     async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
         let events = self.events.read().await;
         for event in events.values() {
