@@ -104,8 +104,10 @@ impl CoreServices {
             Arc::new(OpenIdTokenStorage::new(&infra.pool)),
         ));
 
+        let push_storage: Arc<dyn synapse_storage::push::PushStoreApi> =
+            Arc::new(synapse_storage::push::PushStorage::new(infra.pool.clone()));
         let client_push_service =
-            Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, infra.pool.clone()));
+            Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, push_storage));
 
         Self {
             auth_service: auth_service.clone(),
