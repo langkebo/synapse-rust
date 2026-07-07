@@ -476,14 +476,16 @@ pub fn create_router(state: AppState) -> Router {
         )
     });
 
+    let core_ctx = <crate::web::routes::context::CoreContext as axum::extract::FromRef<AppState>>::from_ref(&state);
+
     router
         .layer(axum::middleware::from_fn(cors_middleware))
         .layer(axum::middleware::from_fn(security_headers_middleware))
         .layer(axum::middleware::from_fn(method_not_allowed_middleware))
         .layer(CompressionLayer::new().compress_when(SizeAbove::new(1024)))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), csrf_middleware))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), shadow_ban_middleware))
+        .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), csrf_middleware))
+        .layer(axum::middleware::from_fn_with_state(core_ctx.clone(), rate_limit_middleware))
+        .layer(axum::middleware::from_fn_with_state(core_ctx, shadow_ban_middleware))
         .layer(axum::middleware::from_fn(request_id_middleware))
         .merge(crate::web::api_doc::swagger_ui_router(state.clone()))
         .with_state(state)

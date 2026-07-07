@@ -6,6 +6,36 @@ use std::sync::Arc;
 use synapse_common::rate_limit_config::RateLimitConfigManager;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 
+// ── CoreContext ───────────────────────────────────────────────────────────
+
+/// Minimal context for the global request-pipeline middlewares (auth, shadow-ban,
+/// csrf, rate-limit). Carries only the shared services those middlewares read.
+#[derive(Clone)]
+pub struct CoreContext {
+    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub config: synapse_common::config::Config,
+    pub cache: Arc<CacheManager>,
+    pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
+}
+
+impl CoreContext {
+    /// Mirror of `AppState::rate_limit_config` so rate_limit_middleware keeps identical behavior.
+    pub fn rate_limit_config(&self) -> Option<crate::common::RateLimitConfigFile> {
+        self.rate_limit_config_manager.as_ref().map(|manager| manager.get_config())
+    }
+}
+
+impl FromRef<AppState> for CoreContext {
+    fn from_ref(state: &AppState) -> Self {
+        Self {
+            auth_service: state.services.core.auth_service.clone(),
+            config: state.services.core.config.clone(),
+            cache: state.cache.clone(),
+            rate_limit_config_manager: state.rate_limit_config_manager().cloned(),
+        }
+    }
+}
+
 // ── RoomContext ───────────────────────────────────────────────────────────
 
 #[derive(Clone)]

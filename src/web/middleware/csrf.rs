@@ -1,6 +1,6 @@
 use super::{extract_origin_candidate, is_origin_allowed, is_safe_http_method, same_origin};
 use crate::common::error::ApiError;
-use crate::web::routes::AppState;
+use crate::web::routes::context::CoreContext;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
@@ -72,8 +72,8 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let csrf_manager = CsrfTokenManager::new(state.services.core.config.security.csrf_secret.clone());
+pub async fn csrf_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
+    let csrf_manager = CsrfTokenManager::new(ctx.config.security.csrf_secret.clone());
     let method = request.method().clone();
     let headers = request.headers().clone();
     let session_id = extract_cookie_session_id_for_csrf(&headers);
