@@ -24,7 +24,7 @@ pub struct CreateOpenIdTokenRequest {
 }
 
 #[async_trait]
-pub trait OpenIdTokenStoreApi {
+pub trait OpenIdTokenStoreApi: Send + Sync {
     async fn create_token(&self, request: CreateOpenIdTokenRequest) -> Result<OpenIdToken, ApiError>;
     async fn get_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;
     async fn validate_token(&self, token: &str) -> Result<Option<OpenIdToken>, ApiError>;

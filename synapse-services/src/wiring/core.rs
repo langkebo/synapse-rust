@@ -93,15 +93,15 @@ impl CoreServices {
             Arc::new(broadcaster)
         };
 
-        let room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);
+        let room_account_data_storage = Arc::new(RoomAccountDataStorage::new(&infra.pool));
         let account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
             account_data_storage.clone(),
             user_storage.clone(),
             room_account_data_storage,
-            FilterStorage::new(&infra.pool),
-            OpenIdTokenStorage::new(&infra.pool),
+            Arc::new(FilterStorage::new(&infra.pool)),
+            Arc::new(OpenIdTokenStorage::new(&infra.pool)),
         ));
 
         let client_push_service =
