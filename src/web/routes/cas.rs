@@ -146,22 +146,38 @@ pub fn cas_routes(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/login/sso/redirect/cas", get(cas_sso_redirect))
         .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
 
-    let standard_admin_routes = Router::new()
-        .route("/_synapse/admin/v1/cas/services", post(register_service))
-        .route("/_synapse/admin/v1/cas/services", get(list_services))
-        .route("/_synapse/admin/v1/cas/services/{service_id}", delete(delete_service))
-        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", get(get_user_attributes))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
-        .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
-    let legacy_admin_routes = Router::new()
-        .route("/admin/services", post(register_service))
-        .route("/admin/services", get(list_services))
-        .route("/admin/services/{service_id}", delete(delete_service))
-        .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
-        .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
-        .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
+    let standard_admin_routes =
+        Router::new()
+            .route("/_synapse/admin/v1/cas/services", post(register_service))
+            .route("/_synapse/admin/v1/cas/services", get(list_services))
+            .route("/_synapse/admin/v1/cas/services/{service_id}", delete(delete_service))
+            .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", post(set_user_attribute))
+            .route("/_synapse/admin/v1/cas/users/{user_id}/attributes", get(get_user_attributes))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            )
+            .route_layer(middleware::from_fn_with_state(state.clone(), cas_config_check_middleware));
+    let legacy_admin_routes =
+        Router::new()
+            .route("/admin/services", post(register_service))
+            .route("/admin/services", get(list_services))
+            .route("/admin/services/{service_id}", delete(delete_service))
+            .route("/admin/users/{user_id}/attributes", post(set_user_attribute))
+            .route("/admin/users/{user_id}/attributes", get(get_user_attributes))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            )
+            .route_layer(axum::middleware::from_fn(legacy_cas_admin_alias_deprecation_middleware));
 
     public_routes.merge(standard_admin_routes).merge(legacy_admin_routes).with_state(state)
 }

@@ -269,7 +269,7 @@ pub fn create_telemetry_router(state: AppState) -> axum::Router<AppState> {
         .route("/_synapse/admin/v1/telemetry/alerts", get(list_alerts))
         .route("/_synapse/admin/v1/telemetry/alerts/{alert_id}/ack", post(acknowledge_alert))
         .route("/_synapse/admin/v1/telemetry/health", get(health_check))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

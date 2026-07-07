@@ -270,13 +270,18 @@ pub fn create_push_notification_router(state: AppState) -> axum::Router<AppState
         .route("/_matrix/client/r0/push/rules", post(create_rule))
         .route("/_matrix/client/r0/push/rules/{scope}/{kind}/{rule_id}", delete(delete_rule));
 
-    let admin_routes = axum::Router::new()
-        .route("/_synapse/admin/v1/push/process", post(process_queue))
-        .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ));
+    let admin_routes =
+        axum::Router::new()
+            .route("/_synapse/admin/v1/push/process", post(process_queue))
+            .route("/_synapse/admin/v1/push/cleanup", post(cleanup_logs))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     public_routes.merge(admin_routes).with_state(state)
 }

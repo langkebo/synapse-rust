@@ -412,16 +412,24 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
         .route("/_matrix/client/v3/saml/metadata", get(get_saml_metadata))
         .route("/_matrix/client/v3/saml/sp_metadata", get(get_sp_metadata));
 
-    let admin_routes = axum::Router::new()
-        .route("/_synapse/admin/v1/saml/metadata/refresh", post(refresh_idp_metadata))
-        .route("/_synapse/admin/v1/saml/config", get(get_saml_admin_config).put(update_saml_admin_config))
-        .route("/_synapse/admin/v1/saml/mappings", get(list_saml_mappings_admin))
-        .route(
-            "/_synapse/admin/v1/saml/mapping/{name_id}",
-            get(get_saml_mapping_admin).put(update_saml_mapping_admin).delete(delete_saml_mapping_admin),
-        )
-        .route("/_synapse/admin/v1/saml/logout", post(saml_logout_admin))
-        .route_layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware));
+    let admin_routes =
+        axum::Router::new()
+            .route("/_synapse/admin/v1/saml/metadata/refresh", post(refresh_idp_metadata))
+            .route("/_synapse/admin/v1/saml/config", get(get_saml_admin_config).put(update_saml_admin_config))
+            .route("/_synapse/admin/v1/saml/mappings", get(list_saml_mappings_admin))
+            .route(
+                "/_synapse/admin/v1/saml/mapping/{name_id}",
+                get(get_saml_mapping_admin).put(update_saml_mapping_admin).delete(delete_saml_mapping_admin),
+            )
+            .route("/_synapse/admin/v1/saml/logout", post(saml_logout_admin))
+            .route_layer(
+                middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     public_routes.merge(admin_routes).with_state(state)
 }

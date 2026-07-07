@@ -47,15 +47,23 @@ pub fn create_admin_module_router(state: AppState) -> Router<crate::web::routes:
         .merge(create_security_router())
         .merge(create_cleanup_router(state.clone()))
         .merge(create_notification_router());
-    let protected = admin_router
-        .merge(create_token_router())
-        .merge(create_federation_router())
-        .merge(create_media_router())
-        .merge(create_report_router())
-        .merge(create_retention_router())
-        .merge(room::create_room_router(state.clone()))
-        .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
-        .route_layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware));
+    let protected =
+        admin_router
+            .merge(create_token_router())
+            .merge(create_federation_router())
+            .merge(create_media_router())
+            .merge(create_report_router())
+            .merge(create_retention_router())
+            .merge(room::create_room_router(state.clone()))
+            .route("/_synapse/admin/info", axum::routing::get(server::get_admin_info))
+            .route_layer(
+                middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     Router::new().merge(protected).merge(create_register_router(state))
 }

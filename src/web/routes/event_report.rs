@@ -421,7 +421,7 @@ pub fn create_event_report_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/block", post(block_user))
         .route("/_synapse/admin/v1/event_reports/rate_limit/{user_id}/unblock", post(unblock_user))
         .route("/_synapse/admin/v1/event_reports/stats", get(get_stats))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

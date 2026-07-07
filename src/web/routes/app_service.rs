@@ -482,7 +482,7 @@ pub async fn app_service_query(
     })))
 }
 
-pub fn create_app_service_router(state: AppState) -> Router<AppState> {
+pub fn create_app_service_router(state: &AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/_matrix/client/v1/user/{user_id}/appservice", get(get_user_appservice))
         .route("/_matrix/app/v1/ping", post(app_service_ping))
@@ -493,25 +493,33 @@ pub fn create_app_service_router(state: AppState) -> Router<AppState> {
         .route("/_matrix/client/v3/appservice/user", get(query_user))
         .route("/_matrix/client/v3/appservice/alias", get(query_room_alias));
 
-    let admin_routes = Router::new()
-        .route("/_synapse/admin/v1/appservices", get(list_app_services))
-        .route("/_synapse/admin/v1/appservices", post(register_app_service))
-        .route("/_synapse/admin/v1/appservices/{as_id}", get(get_app_service))
-        .route("/_synapse/admin/v1/appservices/{as_id}", put(update_app_service))
-        .route("/_synapse/admin/v1/appservices/{as_id}", delete(delete_app_service))
-        .route("/_synapse/admin/v1/appservices/{as_id}/ping", post(ping_app_service))
-        .route("/_synapse/admin/v1/appservices/{as_id}/state", post(set_app_service_state))
-        .route("/_synapse/admin/v1/appservices/{as_id}/state", get(get_app_service_states))
-        .route("/_synapse/admin/v1/appservices/{as_id}/state/{state_key}", get(get_app_service_state))
-        .route("/_synapse/admin/v1/appservices/{as_id}/users", post(register_virtual_user))
-        .route("/_synapse/admin/v1/appservices/{as_id}/users", get(get_virtual_users))
-        .route("/_synapse/admin/v1/appservices/{as_id}/namespaces", get(get_namespaces))
-        .route("/_synapse/admin/v1/appservices/{as_id}/events", get(get_pending_events))
-        .route("/_synapse/admin/v1/appservices/{as_id}/events", post(push_event))
-        .route("/_synapse/admin/v1/appservices/query/user", get(query_user))
-        .route("/_synapse/admin/v1/appservices/query/alias", get(query_room_alias))
-        .route("/_synapse/admin/v1/appservices/statistics", get(get_statistics))
-        .route_layer(axum::middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware));
+    let admin_routes =
+        Router::new()
+            .route("/_synapse/admin/v1/appservices", get(list_app_services))
+            .route("/_synapse/admin/v1/appservices", post(register_app_service))
+            .route("/_synapse/admin/v1/appservices/{as_id}", get(get_app_service))
+            .route("/_synapse/admin/v1/appservices/{as_id}", put(update_app_service))
+            .route("/_synapse/admin/v1/appservices/{as_id}", delete(delete_app_service))
+            .route("/_synapse/admin/v1/appservices/{as_id}/ping", post(ping_app_service))
+            .route("/_synapse/admin/v1/appservices/{as_id}/state", post(set_app_service_state))
+            .route("/_synapse/admin/v1/appservices/{as_id}/state", get(get_app_service_states))
+            .route("/_synapse/admin/v1/appservices/{as_id}/state/{state_key}", get(get_app_service_state))
+            .route("/_synapse/admin/v1/appservices/{as_id}/users", post(register_virtual_user))
+            .route("/_synapse/admin/v1/appservices/{as_id}/users", get(get_virtual_users))
+            .route("/_synapse/admin/v1/appservices/{as_id}/namespaces", get(get_namespaces))
+            .route("/_synapse/admin/v1/appservices/{as_id}/events", get(get_pending_events))
+            .route("/_synapse/admin/v1/appservices/{as_id}/events", post(push_event))
+            .route("/_synapse/admin/v1/appservices/query/user", get(query_user))
+            .route("/_synapse/admin/v1/appservices/query/alias", get(query_room_alias))
+            .route("/_synapse/admin/v1/appservices/statistics", get(get_statistics))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     public_routes.merge(admin_routes)
 }

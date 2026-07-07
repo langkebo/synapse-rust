@@ -108,7 +108,7 @@ pub async fn cleanup_expired(
     })))
 }
 
-pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
+pub fn create_captcha_router(state: &AppState) -> axum::Router<AppState> {
     use axum::routing::*;
 
     let public_routes = axum::Router::new()
@@ -122,7 +122,12 @@ pub fn create_captcha_router(state: AppState) -> axum::Router<AppState> {
 
     let admin_routes = axum::Router::new()
         .route("/_synapse/admin/v1/captcha/cleanup", post(cleanup_expired))
-        .route_layer(axum::middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware));
+        .route_layer(axum::middleware::from_fn_with_state(
+        <crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(
+            state,
+        ),
+        crate::web::middleware::admin_auth_middleware,
+    ));
 
     public_routes.merge(admin_routes)
 }
