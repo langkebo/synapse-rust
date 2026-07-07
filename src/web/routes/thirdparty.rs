@@ -1,3 +1,4 @@
+use crate::web::routes::context::RoomContext;
 use axum::{
     extract::{Path, Query, State},
     routing::get,
@@ -65,12 +66,12 @@ pub fn thirdparty_route_manifest() -> Vec<crate::web::routes::route_ledger::Rout
     out
 }
 
-async fn get_protocols(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+async fn get_protocols(State(_ctx): State<RoomContext>) -> Result<Json<serde_json::Value>, ApiError> {
     Ok(Json(serde_json::json!({})))
 }
 
 async fn get_protocol(
-    State(_state): State<AppState>,
+    State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_protocol): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -90,7 +91,7 @@ pub struct LocationQuery {
 }
 
 async fn get_location(
-    State(_state): State<AppState>,
+    State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_protocol): Path<String>,
     Query(_query): Query<LocationQuery>,
@@ -99,7 +100,7 @@ async fn get_location(
 }
 
 async fn get_location_by_alias(
-    State(_state): State<AppState>,
+    State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Query(_query): Query<LocationQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
@@ -115,7 +116,7 @@ pub struct UserQuery {
 }
 
 async fn get_user(
-    State(_state): State<AppState>,
+    State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(_protocol): Path<String>,
     Query(_query): Query<UserQuery>,
@@ -124,7 +125,7 @@ async fn get_user(
 }
 
 async fn get_user_by_id(
-    State(_state): State<AppState>,
+    State(_ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Query(_query): Query<UserQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {

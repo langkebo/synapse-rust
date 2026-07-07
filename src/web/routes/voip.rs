@@ -1,5 +1,4 @@
 use crate::common::error::ApiError;
-#[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
 #[cfg(feature = "voip-tracking")]
 use crate::web::routes::{ensure_room_member, validate_room_id};
@@ -170,7 +169,7 @@ async fn ensure_call_room_member(
     room_id: &str,
 ) -> Result<(), ApiError> {
     validate_room_id(room_id)?;
-    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to access call state").await
+    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to access call ctx").await
 }
 
 /// Call invite event

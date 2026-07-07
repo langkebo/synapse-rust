@@ -1,3 +1,4 @@
+use axum::extract::FromRef;
 use axum::Router;
 
 #[cfg(feature = "openclaw-routes")]
@@ -6,6 +7,7 @@ use crate::web::routes::ai_connection;
 use crate::web::routes::burn_after_read;
 #[cfg(feature = "cas-sso")]
 use crate::web::routes::cas;
+use crate::web::routes::context::SsoContext;
 #[cfg(feature = "external-services")]
 use crate::web::routes::external_service;
 #[cfg(feature = "friends")]
@@ -48,7 +50,7 @@ impl ProfileFlags {
         #[cfg(not(feature = "saml-sso"))]
         let saml_enabled = false;
         Self {
-            oidc_enabled: oidc::oidc_enabled(state),
+            oidc_enabled: oidc::oidc_enabled(&SsoContext::from_ref(state)),
             worker_enabled: state.services.core.config.worker.enabled,
             saml_enabled,
             #[cfg(feature = "openclaw-routes")]
@@ -220,7 +222,8 @@ impl RouteModule for OidcModule {
     }
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
-        if oidc::oidc_enabled(&state) {
+        let sso_ctx = SsoContext::from_ref(&state);
+        if oidc::oidc_enabled(&sso_ctx) {
             router.merge(oidc::create_oidc_router(state))
         } else {
             router.merge(oidc::create_oidc_fallback_router())

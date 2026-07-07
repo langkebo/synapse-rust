@@ -1,6 +1,7 @@
 use super::route_ledger::{expand_under_prefixes, RouteEntry};
 use super::{AppState, AuthenticatedUser};
 use crate::common::ApiError;
+use crate::web::routes::context::E2eeRoomContext;
 use axum::{
     extract::{Path, Query, State},
     http::Method,
@@ -166,7 +167,7 @@ pub struct UpdateBackupVersionBody {
 
 #[axum::debug_handler]
 async fn create_backup_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
@@ -179,7 +180,7 @@ async fn create_backup_version(
         }
     }
 
-    let version = state.services.e2ee.backup_service.create_backup(&auth_user.user_id, algorithm, auth_data).await?;
+    let version = ctx.e2ee_backup_service.create_backup(&auth_user.user_id, algorithm, auth_data).await?;
 
     Ok(Json(json!({
         "version": version
@@ -189,10 +190,10 @@ async fn create_backup_version(
 
 #[axum::debug_handler]
 async fn get_all_backup_versions(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backups = state.services.e2ee.backup_service.get_all_backups(&auth_user.user_id).await?;
+    let backups = ctx.e2ee_backup_service.get_all_backups(&auth_user.user_id).await?;
 
     let latest = backups
         .into_iter()
@@ -200,8 +201,7 @@ async fn get_all_backup_versions(
         .ok_or_else(|| crate::error::ApiError::not_found("No current backup version".to_string()))?;
 
     let version_str = latest.version.to_string();
-    let count =
-        state.services.e2ee.backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
+    let count = ctx.e2ee_backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
 
     Ok(Json(serde_json::json!({
         "algorithm": latest.algorithm,
@@ -214,21 +214,17 @@ async fn get_all_backup_versions(
 
 #[axum::debug_handler]
 async fn get_backup_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state.services.e2ee.backup_service.get_backup(&auth_user.user_id, &version).await?;
+    let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     match backup {
         Some(b) => {
             let version_str = b.version.to_string();
-            let count = state
-                .services
-                .e2ee
-                .backup_service
-                .get_backup_key_count_for_version(&auth_user.user_id, &version_str)
-                .await?;
+            let count =
+                ctx.e2ee_backup_service.get_backup_key_count_for_version(&auth_user.user_id, &version_str).await?;
             Ok(Json(serde_json::json!({
                 "algorithm": b.algorithm,
                 "auth_data": b.backup_data,
@@ -243,7 +239,7 @@ async fn get_backup_version(
 
 #[axum::debug_handler]
 async fn update_backup_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
     Json(body): Json<UpdateBackupVersionBody>,
@@ -254,7 +250,7 @@ async fn update_backup_version(
 
     let auth_data = body.auth_data;
 
-    state.services.e2ee.backup_service.update_backup_auth_data(&auth_user.user_id, &version, auth_data).await?;
+    ctx.e2ee_backup_service.update_backup_auth_data(&auth_user.user_id, &version, auth_data).await?;
 
     Ok(Json(serde_json::json!({
         "version": version
@@ -263,17 +259,17 @@ async fn update_backup_version(
 
 #[axum::debug_handler]
 async fn delete_backup_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup = state.services.e2ee.backup_service.get_backup(&auth_user.user_id, &version).await?;
+    let backup = ctx.e2ee_backup_service.get_backup(&auth_user.user_id, &version).await?;
 
     if backup.is_none() {
         return Err(crate::error::ApiError::not_found(format!("Backup version '{version}' not found")));
     }
 
-    state.services.e2ee.backup_service.delete_backup(&auth_user.user_id, &version).await?;
+    ctx.e2ee_backup_service.delete_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::json!({
         "deleted": true,
@@ -308,11 +304,12 @@ fn write_response(version: &str, count: u64) -> Json<Value> {
     }))
 }
 
-async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) -> Result<(), crate::error::ApiError> {
-    state
-        .services
-        .e2ee
-        .backup_service
+async fn ensure_backup_exists(
+    ctx: &E2eeRoomContext,
+    user_id: &str,
+    version: &str,
+) -> Result<(), crate::error::ApiError> {
+    ctx.e2ee_backup_service
         .get_backup(user_id, version)
         .await?
         .ok_or_else(|| crate::error::ApiError::not_found(format!("Backup version '{version}' not found")))
@@ -323,9 +320,13 @@ async fn ensure_backup_exists(state: &AppState, user_id: &str, version: &str) ->
 // GET /room_keys/keys?version=...
 // Returns {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
 // ----------------------------------------------------------------------------
-async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    let keys = state.services.e2ee.backup_service.get_keys_for_version(user_id, version).await?;
+async fn read_all_rooms(
+    ctx: &E2eeRoomContext,
+    user_id: &str,
+    version: &str,
+) -> Result<Json<Value>, crate::error::ApiError> {
+    ensure_backup_exists(ctx, user_id, version).await?;
+    let keys = ctx.e2ee_backup_service.get_keys_for_version(user_id, version).await?;
 
     let mut rooms = serde_json::Map::<String, Value>::new();
     for k in keys {
@@ -340,20 +341,20 @@ async fn read_all_rooms(state: &AppState, user_id: &str, version: &str) -> Resul
 
 #[axum::debug_handler]
 async fn get_room_keys_all(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_all_rooms(&state, &auth_user.user_id, &q.version).await
+    read_all_rooms(&ctx, &auth_user.user_id, &q.version).await
 }
 
 #[axum::debug_handler]
 async fn get_room_keys_all_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_all_rooms(&state, &auth_user.user_id, &version).await
+    read_all_rooms(&ctx, &auth_user.user_id, &version).await
 }
 
 // ----------------------------------------------------------------------------
@@ -361,13 +362,13 @@ async fn get_room_keys_all_legacy(
 // Returns {sessions: {session_id: KeyBackupData}}
 // ----------------------------------------------------------------------------
 async fn read_room(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    let keys = state.services.e2ee.backup_service.get_room_backup_keys(user_id, room_id, version).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
+    let keys = ctx.e2ee_backup_service.get_room_backup_keys(user_id, room_id, version).await?;
 
     let mut sessions = serde_json::Map::<String, Value>::new();
     for k in keys {
@@ -379,21 +380,21 @@ async fn read_room(
 
 #[axum::debug_handler]
 async fn get_room_keys_for_room(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_room(&state, &auth_user.user_id, &q.version, &room_id).await
+    read_room(&ctx, &auth_user.user_id, &q.version, &room_id).await
 }
 
 #[axum::debug_handler]
 async fn get_room_keys_for_room_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_room(&state, &auth_user.user_id, &version, &room_id).await
+    read_room(&ctx, &auth_user.user_id, &version, &room_id).await
 }
 
 // ----------------------------------------------------------------------------
@@ -401,37 +402,37 @@ async fn get_room_keys_for_room_legacy(
 // Returns KeyBackupData
 // ----------------------------------------------------------------------------
 async fn read_session(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
     let key =
-        state.services.e2ee.backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(
-            || crate::error::ApiError::not_found(format!("Session '{session_id}' in room '{room_id}' not found")),
-        )?;
+        ctx.e2ee_backup_service.get_backup_key(user_id, room_id, session_id, version).await?.ok_or_else(|| {
+            crate::error::ApiError::not_found(format!("Session '{session_id}' in room '{room_id}' not found"))
+        })?;
 
     Ok(Json(key.session_data))
 }
 
 #[axum::debug_handler]
 async fn get_room_key(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_session(&state, &auth_user.user_id, &q.version, &room_id, &session_id).await
+    read_session(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
 
 #[axum::debug_handler]
 async fn get_room_key_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    read_session(&state, &auth_user.user_id, &version, &room_id, &session_id).await
+    read_session(&ctx, &auth_user.user_id, &version, &room_id, &session_id).await
 }
 
 // ----------------------------------------------------------------------------
@@ -439,23 +440,18 @@ async fn get_room_key_legacy(
 // Body: {rooms: {room_id: {sessions: {session_id: KeyBackupData}}}}
 // ----------------------------------------------------------------------------
 async fn write_all_rooms(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     body: RoomKeysBody,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
 
     let mut count: u64 = 0;
     for (room_id, room_payload) in body.rooms {
         let sessions = room_payload.get("sessions").and_then(|v| v.as_object()).cloned().unwrap_or_default();
         for (session_id, key_data) in sessions {
-            state
-                .services
-                .e2ee
-                .backup_service
-                .upload_session(user_id, version, &room_id, &session_id, key_data)
-                .await?;
+            ctx.e2ee_backup_service.upload_session(user_id, version, &room_id, &session_id, key_data).await?;
             count += 1;
         }
     }
@@ -465,22 +461,22 @@ async fn write_all_rooms(
 
 #[axum::debug_handler]
 async fn put_room_keys_all(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Query(q): Query<VersionQuery>,
     Json(body): Json<RoomKeysBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_all_rooms(&state, &auth_user.user_id, &q.version, body).await
+    write_all_rooms(&ctx, &auth_user.user_id, &q.version, body).await
 }
 
 #[axum::debug_handler]
 async fn put_room_keys_all_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
     Json(body): Json<RoomKeysBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_all_rooms(&state, &auth_user.user_id, &version, body).await
+    write_all_rooms(&ctx, &auth_user.user_id, &version, body).await
 }
 
 // ----------------------------------------------------------------------------
@@ -488,17 +484,17 @@ async fn put_room_keys_all_legacy(
 // Body: {sessions: {session_id: KeyBackupData}}
 // ----------------------------------------------------------------------------
 async fn write_room(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
     body: RoomSessionsBody,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
 
     let mut count: u64 = 0;
     for (session_id, key_data) in body.sessions {
-        state.services.e2ee.backup_service.upload_session(user_id, version, room_id, &session_id, key_data).await?;
+        ctx.e2ee_backup_service.upload_session(user_id, version, room_id, &session_id, key_data).await?;
         count += 1;
     }
 
@@ -507,23 +503,23 @@ async fn write_room(
 
 #[axum::debug_handler]
 async fn put_room_keys_for_room(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(q): Query<VersionQuery>,
     Json(body): Json<RoomSessionsBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_room(&state, &auth_user.user_id, &q.version, &room_id, body).await
+    write_room(&ctx, &auth_user.user_id, &q.version, &room_id, body).await
 }
 
 #[axum::debug_handler]
 async fn put_room_keys_for_room_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
     Json(body): Json<RoomSessionsBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_room(&state, &auth_user.user_id, &version, &room_id, body).await
+    write_room(&ctx, &auth_user.user_id, &version, &room_id, body).await
 }
 
 // ----------------------------------------------------------------------------
@@ -531,130 +527,129 @@ async fn put_room_keys_for_room_legacy(
 // Body: KeyBackupData
 // ----------------------------------------------------------------------------
 async fn write_session(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
     session_id: &str,
     key_data: Value,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    state.services.e2ee.backup_service.upload_session(user_id, version, room_id, session_id, key_data).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
+    ctx.e2ee_backup_service.upload_session(user_id, version, room_id, session_id, key_data).await?;
     Ok(write_response(version, 1))
 }
 
 #[axum::debug_handler]
 async fn put_room_key(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_session(&state, &auth_user.user_id, &q.version, &room_id, &session_id, body).await
+    write_session(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id, body).await
 }
 
 #[axum::debug_handler]
 async fn put_room_key_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    write_session(&state, &auth_user.user_id, &version, &room_id, &session_id, body).await
+    write_session(&ctx, &auth_user.user_id, &version, &room_id, &session_id, body).await
 }
 
 // ----------------------------------------------------------------------------
 // DELETE handlers (spec + legacy)
 // ----------------------------------------------------------------------------
 async fn delete_all_rooms_impl(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.e2ee.backup_service.delete_all_for_version(user_id, version).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
+    let count = ctx.e2ee_backup_service.delete_all_for_version(user_id, version).await?;
     Ok(write_response(version, count))
 }
 
 #[axum::debug_handler]
 async fn delete_room_keys_all(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_all_rooms_impl(&state, &auth_user.user_id, &q.version).await
+    delete_all_rooms_impl(&ctx, &auth_user.user_id, &q.version).await
 }
 
 #[axum::debug_handler]
 async fn delete_room_keys_all_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_all_rooms_impl(&state, &auth_user.user_id, &version).await
+    delete_all_rooms_impl(&ctx, &auth_user.user_id, &version).await
 }
 
 async fn delete_room_impl(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    let count = state.services.e2ee.backup_service.delete_room_for_version(user_id, version, room_id).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
+    let count = ctx.e2ee_backup_service.delete_room_for_version(user_id, version, room_id).await?;
     Ok(write_response(version, count))
 }
 
 #[axum::debug_handler]
 async fn delete_room_keys_for_room(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_room_impl(&state, &auth_user.user_id, &q.version, &room_id).await
+    delete_room_impl(&ctx, &auth_user.user_id, &q.version, &room_id).await
 }
 
 #[axum::debug_handler]
 async fn delete_room_keys_for_room_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_room_impl(&state, &auth_user.user_id, &version, &room_id).await
+    delete_room_impl(&ctx, &auth_user.user_id, &version, &room_id).await
 }
 
 async fn delete_session_impl(
-    state: &AppState,
+    ctx: &E2eeRoomContext,
     user_id: &str,
     version: &str,
     room_id: &str,
     session_id: &str,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    ensure_backup_exists(state, user_id, version).await?;
-    let count =
-        state.services.e2ee.backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
+    ensure_backup_exists(ctx, user_id, version).await?;
+    let count = ctx.e2ee_backup_service.delete_session_for_version(user_id, version, room_id, session_id).await?;
     Ok(write_response(version, count))
 }
 
 #[axum::debug_handler]
 async fn delete_room_key(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, session_id)): Path<(String, String)>,
     Query(q): Query<VersionQuery>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_session_impl(&state, &auth_user.user_id, &q.version, &room_id, &session_id).await
+    delete_session_impl(&ctx, &auth_user.user_id, &q.version, &room_id, &session_id).await
 }
 
 #[axum::debug_handler]
 async fn delete_room_key_legacy(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    delete_session_impl(&state, &auth_user.user_id, &version, &room_id, &session_id).await
+    delete_session_impl(&ctx, &auth_user.user_id, &version, &room_id, &session_id).await
 }
 
 #[derive(Debug, Deserialize, Validate)]
@@ -672,7 +667,7 @@ pub struct BatchRecoverBody {
 
 #[axum::debug_handler]
 async fn recover_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<RecoverKeysBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -680,37 +675,36 @@ async fn recover_keys(
         return Err(crate::error::ApiError::bad_request(e.to_string()));
     }
 
-    let response =
-        state.services.e2ee.backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
+    let response = ctx.e2ee_backup_service.recover_keys(&auth_user.user_id, &body.version, body.rooms).await?;
 
     Ok(Json(serde_json::to_value(response)?))
 }
 
 #[axum::debug_handler]
 async fn get_recovery_progress(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let progress = state.services.e2ee.backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
+    let progress = ctx.e2ee_backup_service.get_recovery_progress(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(progress)?))
 }
 
 #[axum::debug_handler]
 async fn verify_backup(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let verification = state.services.e2ee.backup_service.verify_backup(&auth_user.user_id, &version).await?;
+    let verification = ctx.e2ee_backup_service.verify_backup(&auth_user.user_id, &version).await?;
 
     Ok(Json(serde_json::to_value(verification)?))
 }
 
 #[axum::debug_handler]
 async fn batch_recover_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<BatchRecoverBody>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -718,10 +712,8 @@ async fn batch_recover_keys(
         return Err(crate::error::ApiError::bad_request(e.to_string()));
     }
 
-    let response = state
-        .services
-        .e2ee
-        .backup_service
+    let response = ctx
+        .e2ee_backup_service
         .batch_recover_keys(
             &auth_user.user_id,
             crate::e2ee::backup::models::BatchRecoveryRequest {
@@ -737,11 +729,11 @@ async fn batch_recover_keys(
 
 #[axum::debug_handler]
 async fn recover_room_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let keys = state.services.e2ee.backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
+    let keys = ctx.e2ee_backup_service.recover_room_keys(&auth_user.user_id, &version, &room_id).await?;
 
     Ok(Json(serde_json::json!({
         "room_id": room_id,
@@ -751,16 +743,11 @@ async fn recover_room_keys(
 
 #[axum::debug_handler]
 async fn recover_session_key(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path((version, room_id, session_id)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let key = state
-        .services
-        .e2ee
-        .backup_service
-        .recover_session_key(&auth_user.user_id, &version, &room_id, &session_id)
-        .await?;
+    let key = ctx.e2ee_backup_service.recover_session_key(&auth_user.user_id, &version, &room_id, &session_id).await?;
 
     match key {
         Some(k) => Ok(Json(serde_json::json!({
@@ -780,10 +767,10 @@ async fn recover_session_key(
 /// GET /_matrix/client/r0/room_keys/export
 #[axum::debug_handler]
 async fn export_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.e2ee.backup_service.get_all_backup_keys(&auth_user.user_id).await?;
+    let backup_keys = ctx.e2ee_backup_service.get_all_backup_keys(&auth_user.user_id).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -809,11 +796,11 @@ async fn export_keys(
 /// GET /_matrix/client/r0/room_keys/export/{version}
 #[axum::debug_handler]
 async fn export_keys_by_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
-    let backup_keys = state.services.e2ee.backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
+    let backup_keys = ctx.e2ee_backup_service.get_keys_for_version(&auth_user.user_id, &version).await?;
 
     let mut room_keys = Vec::new();
     for key in backup_keys {
@@ -839,7 +826,7 @@ async fn export_keys_by_version(
 /// POST /_matrix/client/r0/room_keys/import
 #[axum::debug_handler]
 async fn import_keys(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, crate::error::ApiError> {
@@ -870,7 +857,7 @@ async fn import_keys(
                 forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state.services.e2ee.backup_service.upload_backup_key(params).await.is_ok() {
+            if ctx.e2ee_backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;
@@ -891,7 +878,7 @@ async fn import_keys(
 /// POST /_matrix/client/r0/room_keys/import/{version}
 #[axum::debug_handler]
 async fn import_keys_by_version(
-    State(state): State<AppState>,
+    State(ctx): State<E2eeRoomContext>,
     auth_user: AuthenticatedUser,
     Path(version): Path<String>,
     Json(body): Json<Value>,
@@ -921,7 +908,7 @@ async fn import_keys_by_version(
                 forwarded_count: key_data.get("forwarded_count").and_then(|v| v.as_i64()).unwrap_or(0),
             };
 
-            if state.services.e2ee.backup_service.upload_backup_key(params).await.is_ok() {
+            if ctx.e2ee_backup_service.upload_backup_key(params).await.is_ok() {
                 imported_count += 1;
             } else {
                 failed_count += 1;

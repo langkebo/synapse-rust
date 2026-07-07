@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::extractors::auth::AuthenticatedUser;
 use crate::web::routes::handlers::room::{
     create_private_room, get_room_device, get_room_permissions, get_room_reduced_events, get_room_resolve,
@@ -322,13 +323,13 @@ struct AntiScreenshotPayload {
 }
 
 async fn get_anti_screenshot(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     _auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Check room state for com.hula.privacy event with block_screenshot action
     let events: Vec<serde_json::Value> =
-        state.services.rooms.room_service.messaging.get_state_events_by_type(&room_id, "com.hula.privacy").await?;
+        ctx.room_service.messaging.get_state_events_by_type(&room_id, "com.hula.privacy").await?;
 
     let enabled = events
         .into_iter()
@@ -340,20 +341,17 @@ async fn get_anti_screenshot(
 }
 
 async fn set_anti_screenshot(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(payload): Json<AntiScreenshotPayload>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let action: &str = if payload.enabled { "block_screenshot" } else { "allow_screenshot" };
 
-    let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), state.services.core.server_name);
+    let event_id: String = format!("${}:{}", uuid::Uuid::new_v4(), ctx.server_name);
     let now_ts: i64 = chrono::Utc::now().timestamp_millis();
 
-    state
-        .services
-        .rooms
-        .room_service
+    ctx.room_service
         .messaging
         .create_event(
             synapse_storage::event::CreateEventParams {

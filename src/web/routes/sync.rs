@@ -1,3 +1,4 @@
+use crate::web::routes::context::SyncContext;
 use crate::web::routes::{
     get_joined_rooms, get_my_rooms,
     handlers::sync::{get_events, sync},
@@ -16,13 +17,12 @@ use axum::{
 const ROUTE_OWNER_HEADER: &str = "x-synapse-route-owner";
 
 async fn sync_route_owner_header_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
     let mut response = next.run(request).await;
-    let route_owner =
-        synapse_services::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+    let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
     response.headers_mut().insert(ROUTE_OWNER_HEADER, HeaderValue::from_static(route_owner.as_str()));
     response
 }

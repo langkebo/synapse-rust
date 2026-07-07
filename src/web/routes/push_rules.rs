@@ -1,14 +1,14 @@
 use crate::common::ApiError;
 use crate::web::extractors::AuthenticatedUser;
-use crate::web::routes::AppState;
+use crate::web::routes::context::SyncContext;
 use axum::{extract::State, Json};
 use serde_json::{json, Value};
 
 pub async fn get_push_rules_default(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let row: Option<Value> = state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+    let row: Option<Value> = ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
@@ -21,12 +21,12 @@ pub async fn get_push_rules_default(
 }
 
 pub async fn get_push_rules_global_default(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let username: String = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("").to_string();
     let user_id: String = auth_user.user_id.clone();
-    let rules: Json<Value> = get_push_rules_default(State(state), auth_user).await?;
+    let rules: Json<Value> = get_push_rules_default(State(ctx), auth_user).await?;
     if let Some(global) = rules.0.get("global") {
         Ok(Json(global.clone()))
     } else {

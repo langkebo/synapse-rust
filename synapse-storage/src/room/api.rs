@@ -123,6 +123,75 @@ pub trait RoomStoreApi: Send + Sync {
         event_id: &str,
         marker_type: &str,
     ) -> Result<(), sqlx::Error>;
+
+    // ── Extended room queries (added for service-layer migration) ──
+
+    async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error>;
+
+    async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
+
+    // ── Admin / directory / stats queries (added for state-service migration) ──
+
+    async fn get_public_rooms_paginated(
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_room_id: Option<&str>,
+    ) -> Result<Vec<Room>, sqlx::Error>;
+
+    async fn count_public_rooms(&self) -> Result<i64, sqlx::Error>;
+
+    async fn get_all_rooms_with_members(
+        &self,
+        limit: i64,
+        from: Option<RoomSearchCursor>,
+        order_by: RoomSearchOrder,
+    ) -> Result<(Vec<(Room, i64)>, Option<String>), sqlx::Error>;
+
+    async fn get_user_room_list_summary(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<(String, String, String, String)>, sqlx::Error>;
+
+    async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn block_room(
+        &self,
+        room_id: &str,
+        blocked_at: i64,
+        blocked_by: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error>;
+
+    async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error>;
+
+    async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error>;
+
+    async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error>;
+
+    async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error>;
+
+    async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
+
+    async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error>;
+
+    async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error>;
+
+    async fn search_all_rooms_admin(
+        &self,
+        search_term: Option<&str>,
+        limit: i64,
+        order_by: RoomSearchOrder,
+        cursor: Option<RoomSearchCursor>,
+        is_public: Option<bool>,
+        is_encrypted: Option<bool>,
+    ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), sqlx::Error>;
+
+    async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error>;
 }
 
 // ── Delegation impl for the Postgres RoomStorage ────────────────────
@@ -294,5 +363,112 @@ impl RoomStoreApi for super::RoomStorage {
         marker_type: &str,
     ) -> Result<(), sqlx::Error> {
         self.update_read_marker_with_type(room_id, user_id, event_id, marker_type).await
+    }
+
+    // ── Extended room queries (delegated to inherent methods) ──
+
+    async fn get_rooms_batch(&self, room_ids: &[String]) -> Result<Vec<Room>, sqlx::Error> {
+        self.get_rooms_batch(room_ids).await
+    }
+
+    async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        self.increment_member_count(room_id).await
+    }
+
+    // ── Admin / directory / stats queries (delegated to inherent methods) ──
+
+    async fn get_public_rooms_paginated(
+        &self,
+        limit: i64,
+        since_ts: Option<i64>,
+        since_room_id: Option<&str>,
+    ) -> Result<Vec<Room>, sqlx::Error> {
+        self.get_public_rooms_paginated(limit, since_ts, since_room_id).await
+    }
+
+    async fn count_public_rooms(&self) -> Result<i64, sqlx::Error> {
+        self.count_public_rooms().await
+    }
+
+    async fn get_all_rooms_with_members(
+        &self,
+        limit: i64,
+        from: Option<RoomSearchCursor>,
+        order_by: RoomSearchOrder,
+    ) -> Result<(Vec<(Room, i64)>, Option<String>), sqlx::Error> {
+        self.get_all_rooms_with_members(limit, from, order_by).await
+    }
+
+    async fn get_user_room_list_summary(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<(String, String, String, String)>, sqlx::Error> {
+        self.get_user_room_list_summary(user_id).await
+    }
+
+    async fn delete_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_room(room_id).await
+    }
+
+    async fn shutdown_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        self.shutdown_room(room_id).await
+    }
+
+    async fn block_room(
+        &self,
+        room_id: &str,
+        blocked_at: i64,
+        blocked_by: &str,
+        reason: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        self.block_room(room_id, blocked_at, blocked_by, reason).await
+    }
+
+    async fn get_room_block_status(&self, room_id: &str) -> Result<Option<i64>, sqlx::Error> {
+        self.get_room_block_status(room_id).await
+    }
+
+    async fn unblock_room(&self, room_id: &str) -> Result<(), sqlx::Error> {
+        self.unblock_room(room_id).await
+    }
+
+    async fn get_room_stats_overview(&self) -> Result<serde_json::Value, sqlx::Error> {
+        self.get_room_stats_overview().await
+    }
+
+    async fn get_single_room_stats(&self, room_id: &str) -> Result<Option<serde_json::Value>, sqlx::Error> {
+        self.get_single_room_stats(room_id).await
+    }
+
+    async fn get_room_listings_status(&self, room_id: &str) -> Result<Option<(bool, bool)>, sqlx::Error> {
+        self.get_room_listings_status(room_id).await
+    }
+
+    async fn set_room_public_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        self.set_room_public_with_directory(room_id).await
+    }
+
+    async fn set_room_private_with_directory(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        self.set_room_private_with_directory(room_id).await
+    }
+
+    async fn get_room_version_only(&self, room_id: &str) -> Result<Option<String>, sqlx::Error> {
+        self.get_room_version_only(room_id).await
+    }
+
+    async fn search_all_rooms_admin(
+        &self,
+        search_term: Option<&str>,
+        limit: i64,
+        order_by: RoomSearchOrder,
+        cursor: Option<RoomSearchCursor>,
+        is_public: Option<bool>,
+        is_encrypted: Option<bool>,
+    ) -> Result<(Vec<serde_json::Value>, i64, Option<String>), sqlx::Error> {
+        self.search_all_rooms_admin(search_term, limit, order_by, cursor, is_public, is_encrypted).await
+    }
+
+    async fn cleanup_abnormal_data(&self, min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
+        self.cleanup_abnormal_data(min_age_ms).await
     }
 }

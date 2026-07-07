@@ -2,8 +2,7 @@ use super::ensure_room_view_access;
 use crate::common::ApiError;
 use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id, AppState,
-    AuthenticatedUser,
+    is_member_ctx, is_member_or_creator_ctx, validate_membership, validate_room_id, validate_user_id, AuthenticatedUser,
 };
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
@@ -107,19 +106,17 @@ pub(crate) async fn join_room_by_id_or_alias(
 }
 
 pub(crate) async fn leave_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&state);
+    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     ctx.room_service.membership.leave_room(&room_id, &auth_user.user_id).await?;
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, &auth_user.user_id, "left", Some(&auth_user.user_id), None)
         .await
@@ -498,13 +495,13 @@ pub(crate) async fn get_room_invites(
 }
 
 pub(crate) async fn kick_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&state);
+    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
@@ -525,9 +522,7 @@ pub(crate) async fn kick_user(
     ctx.room_service.membership.kick_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, target, "kicked", Some(&auth_user.user_id), reason)
         .await
@@ -546,13 +541,13 @@ pub(crate) async fn kick_user(
 }
 
 pub(crate) async fn ban_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&state);
+    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
@@ -573,9 +568,7 @@ pub(crate) async fn ban_user(
     ctx.room_service.membership.ban_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
-    if let Err(error) = state
-        .services
-        .extensions
+    if let Err(error) = ctx
         .friend_room_service
         .sync_dm_room_membership_change(&room_id, target, "banned", Some(&auth_user.user_id), reason)
         .await
