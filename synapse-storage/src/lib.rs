@@ -172,6 +172,12 @@ pub use self::token::{AccessToken, AccessTokenStorage, AccessTokenStoreApi};
 pub use self::worker::*;
 
 // Storage repository traits (explicit re-exports for service-layer consumption)
+pub use self::federation_queue::FederationQueueStoreApi;
+pub use self::oauth_client_storage::OAuthClientStoreApi;
+pub use self::oidc_session_storage::OidcSessionStoreApi;
+pub use self::search_index::SearchIndexStoreApi;
+pub use self::state_groups::StateGroupStoreApi;
+pub use self::url_preview_storage::UrlPreviewStoreApi;
 
 // Feature-gated re-exports
 #[cfg(feature = "openclaw-routes")]
