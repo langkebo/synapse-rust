@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 
@@ -14,6 +15,14 @@ pub struct UrlPreviewCache {
     pub og_type: Option<String>,
     pub created_ts: i64,
     pub expires_ts: i64,
+}
+
+/// Trait abstraction over [`UrlPreviewStorage`] for testability.
+#[async_trait]
+pub trait UrlPreviewStoreApi: Send + Sync {
+    async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error>;
+    async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error>;
+    async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +100,19 @@ impl UrlPreviewStorage {
         .execute(self.pool.as_ref())
         .await?;
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl UrlPreviewStoreApi for UrlPreviewStorage {
+    async fn get_cached_preview(&self, url: &str, now_ts: i64) -> Result<Option<UrlPreviewCache>, sqlx::Error> {
+        self.get_cached_preview(url, now_ts).await
+    }
+    async fn save_preview(&self, preview: &UrlPreviewCache) -> Result<(), sqlx::Error> {
+        self.save_preview(preview).await
+    }
+    async fn cleanup_expired_previews(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_previews(now_ts).await
     }
 }
 

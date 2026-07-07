@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use base64::Engine;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -43,6 +44,23 @@ impl OAuthClient {
 #[derive(Clone)]
 pub struct OAuthClientStorage {
     pool: std::sync::Arc<sqlx::PgPool>,
+}
+
+/// Trait abstraction over [`OAuthClientStorage`] for testability.
+#[async_trait]
+pub trait OAuthClientStoreApi: Send + Sync {
+    async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error>;
+    async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error>;
+    async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error>;
+    async fn create_dynamic_client(
+        &self,
+        client_name: Option<&str>,
+        redirect_uris: Vec<String>,
+        grant_types: Vec<String>,
+        response_types: Vec<String>,
+        scope: &str,
+        is_confidential: bool,
+    ) -> Result<OAuthClient, sqlx::Error>;
 }
 
 impl OAuthClientStorage {
@@ -139,6 +157,31 @@ impl OAuthClientStorage {
         let mut bytes = [0u8; 32];
         rand::rng().fill_bytes(&mut bytes);
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    }
+}
+
+#[async_trait]
+impl OAuthClientStoreApi for OAuthClientStorage {
+    async fn register_client(&self, client: &OAuthClient) -> Result<(), sqlx::Error> {
+        self.register_client(client).await
+    }
+    async fn get_client(&self, client_id: &str) -> Result<Option<OAuthClient>, sqlx::Error> {
+        self.get_client(client_id).await
+    }
+    async fn validate_client(&self, client_id: &str, redirect_uri: &str) -> Result<bool, sqlx::Error> {
+        self.validate_client(client_id, redirect_uri).await
+    }
+    async fn create_dynamic_client(
+        &self,
+        client_name: Option<&str>,
+        redirect_uris: Vec<String>,
+        grant_types: Vec<String>,
+        response_types: Vec<String>,
+        scope: &str,
+        is_confidential: bool,
+    ) -> Result<OAuthClient, sqlx::Error> {
+        self.create_dynamic_client(client_name, redirect_uris, grant_types, response_types, scope, is_confidential)
+            .await
     }
 }
 

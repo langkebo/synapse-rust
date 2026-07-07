@@ -6,6 +6,7 @@
 //! - Refresh Token（内置 OIDC）
 //! - 同意会话（MSC3861）
 
+use async_trait::async_trait;
 use sqlx::{FromRow, PgPool};
 use std::sync::Arc;
 use tracing::instrument;
@@ -61,6 +62,23 @@ pub struct OidcConsentSession {
 }
 
 // ============ 存储层 ============
+
+/// Trait abstraction over [`OidcSessionStorage`] for testability.
+#[async_trait]
+pub trait OidcSessionStoreApi: Send + Sync {
+    async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error>;
+    async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error>;
+    async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error>;
+    async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error>;
+    async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error>;
+    async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error>;
+    async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error>;
+    async fn get_and_delete_consent_session(&self, session_id: &str)
+        -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error>;
+    async fn delete_consent_session(&self, session_id: &str) -> Result<(), sqlx::Error>;
+    async fn cleanup_expired_sessions(&self, now_ts: i64) -> Result<u64, sqlx::Error>;
+}
 
 #[derive(Clone)]
 pub struct OidcSessionStorage {
@@ -326,6 +344,46 @@ impl OidcSessionStorage {
             .await?;
 
         Ok(r1.rows_affected() + r2.rows_affected() + r3.rows_affected())
+    }
+}
+
+#[async_trait]
+impl OidcSessionStoreApi for OidcSessionStorage {
+    async fn save_auth_session(&self, session: &OidcAuthSession) -> Result<(), sqlx::Error> {
+        self.save_auth_session(session).await
+    }
+    async fn get_and_delete_auth_session(&self, session_key: &str) -> Result<Option<OidcAuthSession>, sqlx::Error> {
+        self.get_and_delete_auth_session(session_key).await
+    }
+    async fn save_refresh_token(&self, token: &OidcRefreshToken) -> Result<(), sqlx::Error> {
+        self.save_refresh_token(token).await
+    }
+    async fn get_refresh_token(&self, token_hash: &str) -> Result<Option<OidcRefreshToken>, sqlx::Error> {
+        self.get_refresh_token(token_hash).await
+    }
+    async fn revoke_refresh_token(&self, token_hash: &str, now_ts: i64) -> Result<bool, sqlx::Error> {
+        self.revoke_refresh_token(token_hash, now_ts).await
+    }
+    async fn revoke_user_refresh_tokens(&self, user_id: &str, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.revoke_user_refresh_tokens(user_id, now_ts).await
+    }
+    async fn save_consent_session(&self, session: &OidcConsentSession) -> Result<(), sqlx::Error> {
+        self.save_consent_session(session).await
+    }
+    async fn get_and_delete_consent_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+        self.get_and_delete_consent_session(session_id).await
+    }
+    async fn get_consent_session(&self, session_id: &str) -> Result<Option<OidcConsentSession>, sqlx::Error> {
+        self.get_consent_session(session_id).await
+    }
+    async fn delete_consent_session(&self, session_id: &str) -> Result<(), sqlx::Error> {
+        self.delete_consent_session(session_id).await
+    }
+    async fn cleanup_expired_sessions(&self, now_ts: i64) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_sessions(now_ts).await
     }
 }
 
