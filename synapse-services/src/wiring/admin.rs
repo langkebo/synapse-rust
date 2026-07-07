@@ -173,7 +173,8 @@ impl AdminServices {
         let federation_blacklist_service = Arc::new(
             crate::federation_blacklist_service::FederationBlacklistService::new(federation_blacklist_storage.clone()),
         );
-        let admin_federation_storage = synapse_storage::admin_federation::AdminFederationStorage::new(pool);
+        let admin_federation_storage: Arc<dyn synapse_storage::admin_federation::AdminFederationStoreApi> =
+            Arc::new(synapse_storage::admin_federation::AdminFederationStorage::new(pool));
         let admin_federation_service = Arc::new(crate::admin_federation_service::AdminFederationService::new(
             admin_federation_storage,
             federation_blacklist_storage.clone(),
