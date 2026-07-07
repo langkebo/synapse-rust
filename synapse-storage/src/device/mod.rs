@@ -111,6 +111,8 @@ pub trait DeviceListStoreApi: Send + Sync {
     async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error>;
 
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error>;
+
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error>;
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -1218,6 +1220,10 @@ impl DeviceListStoreApi for DeviceStorage {
 
     async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
         self.delete_all_devices(user_id).await
+    }
+
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        self.get_device_count(user_id).await
     }
 }
 

@@ -130,6 +130,13 @@ pub trait RoomStoreApi: Send + Sync {
 
     async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
+    async fn get_user_rooms_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_room_id: Option<&str>,
+    ) -> Result<Vec<String>, sqlx::Error>;
+
     // ── Admin / directory / stats queries (added for state-service migration) ──
 
     async fn get_public_rooms_paginated(
@@ -373,6 +380,15 @@ impl RoomStoreApi for super::RoomStorage {
 
     async fn increment_member_count(&self, room_id: &str) -> Result<(), sqlx::Error> {
         self.increment_member_count(room_id).await
+    }
+
+    async fn get_user_rooms_paginated(
+        &self,
+        user_id: &str,
+        limit: i64,
+        from_room_id: Option<&str>,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        self.get_user_rooms_paginated(user_id, limit, from_room_id).await
     }
 
     // ── Admin / directory / stats queries (delegated to inherent methods) ──

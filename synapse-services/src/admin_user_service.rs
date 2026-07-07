@@ -2,7 +2,8 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use synapse_common::crypto::{hash_password, random_string};
 use synapse_common::error::ApiError;
-use synapse_storage::{DeviceStorage, RoomStorage, User, UserStore};
+use synapse_storage::device::DeviceListStoreApi;
+use synapse_storage::{RoomStoreApi, User, UserStore};
 use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,8 +132,8 @@ pub struct BatchUsersResult {
 
 pub struct AdminUserService {
     user_storage: Arc<dyn UserStore>,
-    device_storage: DeviceStorage,
-    room_storage: RoomStorage,
+    device_storage: Arc<dyn DeviceListStoreApi>,
+    room_storage: Arc<dyn RoomStoreApi>,
     member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     server_name: String,
 }
@@ -141,8 +142,8 @@ impl AdminUserService {
     pub fn new(
         _pool: Arc<PgPool>,
         user_storage: Arc<dyn UserStore>,
-        device_storage: DeviceStorage,
-        room_storage: RoomStorage,
+        device_storage: Arc<dyn DeviceListStoreApi>,
+        room_storage: Arc<dyn RoomStoreApi>,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
         server_name: String,
     ) -> Self {
@@ -202,7 +203,8 @@ impl AdminUserService {
         limit: i64,
         from: Option<&str>,
     ) -> Result<Vec<String>, ApiError> {
-        RoomStorage::get_user_rooms_paginated(&self.room_storage, user_id, limit, from)
+        self.room_storage
+            .get_user_rooms_paginated(user_id, limit, from)
             .await
             .map_err(|e| ApiError::database(format!("A database error occurred: {e}")))
     }
