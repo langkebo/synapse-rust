@@ -119,7 +119,7 @@ pub fn create_feature_flags_router(state: AppState) -> axum::Router<AppState> {
     axum::Router::new()
         .route("/_synapse/admin/v1/feature-flags", post(create_feature_flag).get(list_feature_flags))
         .route("/_synapse/admin/v1/feature-flags/{flag_key}", get(get_feature_flag).patch(update_feature_flag))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

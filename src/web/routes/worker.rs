@@ -567,7 +567,7 @@ pub async fn select_worker(
 }
 
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
-    let admin = create_worker_admin_router(state.clone());
+    let admin = create_worker_admin_router(&state);
     if state.services.core.config.worker.enabled {
         admin.merge(create_worker_body_router(state.clone())).with_state(state)
     } else {
@@ -577,7 +577,7 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
 
 /// Always-on admin surface of the worker router. Wired unconditionally by
 /// `create_router`. `worker_route_manifest()` covers exactly these routes.
-pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
+pub fn create_worker_admin_router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/worker/v1/register", post(register_worker))
         .route("/_synapse/worker/v1/workers", get(list_workers))
@@ -594,7 +594,7 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
-        .route_layer(middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware))
+        .route_layer(middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(state), crate::web::middleware::admin_auth_middleware))
 }
 
 /// Conditional worker-body surface, only merged when

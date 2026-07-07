@@ -412,7 +412,7 @@ pub fn create_background_update_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/background_updates/{job_name}/cancel", post(cancel_update))
         .route("/_synapse/admin/v1/background_updates/{job_name}/history", get(get_history))
         .route("/_synapse/admin/v1/background_updates/stats", get(get_stats))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

@@ -715,7 +715,7 @@ pub fn create_module_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/admin/v1/media_callbacks/{callback_type}", get(get_media_callbacks))
         .route("/_synapse/admin/v1/account_data_callbacks", post(create_account_data_callback))
         .route("/_synapse/admin/v1/account_data_callbacks", get(get_account_data_callbacks))
-        .route_layer(axum::middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware))
+        .route_layer(axum::middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(&state), crate::web::middleware::admin_auth_middleware))
         .with_state(state)
 }
 

@@ -430,21 +430,21 @@ pub fn create_router(state: AppState) -> Router {
         .merge(crate::web::routes::handlers::search::create_search_router(state.clone()))
         .merge(create_sliding_sync_router(state.clone()))
         .merge(create_space_router(state.clone()))
-        .merge(create_app_service_router(state.clone()))
+        .merge(create_app_service_router(&state))
         .merge(create_room_summary_router(state.clone()))
         .merge(create_event_report_router(state.clone()))
         .merge(create_feature_flags_router(state.clone()))
         .merge(create_background_update_router(state.clone()))
         .merge(create_module_router(state.clone()));
 
-    router = router.merge(worker::create_worker_admin_router(state.clone()));
+    router = router.merge(worker::create_worker_admin_router(&state));
 
     // Optional authentication capabilities - only expose when enabled
     for module in route_modules() {
         router = module.merge_into(router, state.clone());
     }
     router = router
-        .merge(create_captcha_router(state.clone()))
+        .merge(create_captcha_router(&state))
         .merge(create_push_notification_router(state.clone()))
         .merge(create_telemetry_router(state.clone()))
         .merge(create_thirdparty_router(state.clone()))

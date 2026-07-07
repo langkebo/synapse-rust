@@ -361,31 +361,41 @@ pub async fn client_health_check_all(
 }
 
 pub fn create_external_service_router(state: AppState) -> Router<AppState> {
-    let admin_routes = Router::new()
-        .route("/_synapse/admin/v1/external_services", get(list_external_services).post(register_external_service))
-        .route("/_synapse/admin/v1/external_services/{as_id}/health", get(get_external_service_health))
-        .route("/_synapse/admin/v1/external_services/{as_id}/health/check", post(check_service_health))
-        .route(
-            "/_synapse/admin/v1/external_services/{as_id}",
-            put(update_external_service).delete(unregister_external_service),
-        )
-        .route("/_synapse/admin/v1/external_services/health", get(get_all_health_status))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ));
+    let admin_routes =
+        Router::new()
+            .route("/_synapse/admin/v1/external_services", get(list_external_services).post(register_external_service))
+            .route("/_synapse/admin/v1/external_services/{as_id}/health", get(get_external_service_health))
+            .route("/_synapse/admin/v1/external_services/{as_id}/health/check", post(check_service_health))
+            .route(
+                "/_synapse/admin/v1/external_services/{as_id}",
+                put(update_external_service).delete(unregister_external_service),
+            )
+            .route("/_synapse/admin/v1/external_services/health", get(get_all_health_status))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
-    let admin_v1_routes = Router::new()
-        .route("/_matrix/admin/v1/external_services", get(list_external_services).post(register_external_service))
-        .route(
-            "/_matrix/admin/v1/external_services/{as_id}",
-            put(update_external_service).delete(unregister_external_service),
-        )
-        .route("/_matrix/admin/v1/external_services/health", get(get_all_health_status))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            crate::web::middleware::admin_auth_middleware,
-        ));
+    let admin_v1_routes =
+        Router::new()
+            .route("/_matrix/admin/v1/external_services", get(list_external_services).post(register_external_service))
+            .route(
+                "/_matrix/admin/v1/external_services/{as_id}",
+                put(update_external_service).delete(unregister_external_service),
+            )
+            .route("/_matrix/admin/v1/external_services/health", get(get_all_health_status))
+            .route_layer(
+                axum::middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     let client_v1_routes =
         Router::new().route("/_matrix/client/v1/external_services/health", get(client_health_check_all)).route(
