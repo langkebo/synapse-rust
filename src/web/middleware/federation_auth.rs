@@ -1,5 +1,6 @@
 use crate::common::check_url_against_blacklist;
 use crate::common::ApiError;
+use crate::web::routes::context::FederationContext;
 use crate::web::routes::AppState;
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::State;
@@ -19,8 +20,12 @@ pub struct FederationRequestAuth {
     pub key_id: String,
 }
 
-pub async fn federation_auth_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    if !state.services.core.config.federation.enabled || !state.services.core.config.federation.allow_ingress {
+pub async fn federation_auth_middleware(
+    State(ctx): State<FederationContext>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if !ctx.config.federation.enabled || !ctx.config.federation.allow_ingress {
         return axum::http::StatusCode::NOT_FOUND.into_response();
     }
 
@@ -40,12 +45,12 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
     };
 
     if let Some(ref dest) = params.destination {
-        if !is_local_federation_destination(&state, dest) {
+        if !is_local_federation_destination(&ctx, dest) {
             ::tracing::warn!(
                 target: "security_audit",
                 event = "federation_destination_mismatch",
                 claimed_destination = dest,
-                local_server = state.services.core.server_name,
+                local_server = ctx.server_name,
                 origin = params.origin,
                 "Federation request destination does not match local server - possible replay attack"
             );
@@ -54,9 +59,9 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
         }
     }
 
-    let destination = state.services.core.server_name.as_str();
+    let destination = ctx.server_name.as_str();
 
-    let body_limit = state.services.core.config.federation.max_transaction_payload.max(64 * 1024) as usize;
+    let body_limit = ctx.config.federation.max_transaction_payload.max(64 * 1024) as usize;
 
     let body_bytes = match axum::body::to_bytes(body, body_limit).await {
         Ok(b) => b,
@@ -89,7 +94,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
     );
 
     let signature_valid = verify_federation_signature_with_cache(
-        &state,
+        &ctx,
         &params.origin,
         &params.key,
         &params.sig,
@@ -102,7 +107,7 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
         tracing::warn!(
             "Unauthorized federation request from {:?}. Server name: {}. Error: {}",
             parts.headers.get("x-forwarded-for").or(parts.headers.get("host")),
-            state.services.core.server_name,
+            ctx.server_name,
             e
         );
         return ApiError::unauthorized("Invalid federation signature".to_string()).into_response();
@@ -110,8 +115,8 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
 
     let origin_server = &params.origin;
 
-    if state.services.core.config.federation.admission_mode {
-        match state.services.admin.federation.admin_federation_service.check_admission(origin_server).await {
+    if ctx.config.federation.admission_mode {
+        match ctx.admin_federation_service.check_admission(origin_server).await {
             Ok(Some(status)) if status != "active" => {
                 tracing::warn!("Federation request rejected from server '{}' with status '{}'", origin_server, status);
                 return ApiError::forbidden(format!(
@@ -140,13 +145,13 @@ pub async fn federation_auth_middleware(State(state): State<AppState>, request: 
     next.run(request).await
 }
 
-fn is_local_federation_destination(state: &AppState, destination: &str) -> bool {
-    let server_config = &state.services.core.config.server;
+fn is_local_federation_destination(ctx: &FederationContext, destination: &str) -> bool {
+    let server_config = &ctx.config.server;
     [
-        state.services.core.server_name.as_str(),
+        ctx.server_name.as_str(),
         server_config.name.as_str(),
         server_config.get_server_name(),
-        state.services.core.config.federation.server_name.as_str(),
+        ctx.config.federation.server_name.as_str(),
     ]
     .into_iter()
     .any(|local_name| !local_name.is_empty() && local_name == destination)
@@ -243,7 +248,7 @@ fn canonical_federation_request_bytes(
 }
 
 pub(crate) async fn verify_federation_signature_with_cache(
-    state: &AppState,
+    ctx: &FederationContext,
     origin: &str,
     key_id: &str,
     signature: &str,
@@ -255,7 +260,7 @@ pub(crate) async fn verify_federation_signature_with_cache(
     let content_hash = compute_signature_content_hash(signed_bytes);
     let cache_key = CacheEntryKey::new(origin, key_id, &content_hash);
 
-    if let Some(entry) = state.federation_signature_cache.get_signature(&cache_key) {
+    if let Some(entry) = ctx.federation_signature_cache.get_signature(&cache_key) {
         if !entry.is_expired() {
             tracing::debug!("Signature cache hit for {}:{}", origin, key_id);
             if entry.verified {
@@ -265,9 +270,9 @@ pub(crate) async fn verify_federation_signature_with_cache(
         }
     }
 
-    let result = verify_federation_signature(state, origin, key_id, signature, signed_bytes, key_fetch_priority).await;
+    let result = verify_federation_signature(ctx, origin, key_id, signature, signed_bytes, key_fetch_priority).await;
 
-    state.federation_signature_cache.set_signature(&cache_key, result.is_ok());
+    ctx.federation_signature_cache.set_signature(&cache_key, result.is_ok());
 
     result
 }
@@ -281,14 +286,14 @@ fn compute_signature_content_hash(content: &[u8]) -> String {
 }
 
 async fn verify_federation_signature(
-    state: &AppState,
+    ctx: &FederationContext,
     origin: &str,
     key_id: &str,
     signature: &str,
     signed_bytes: &[u8],
     key_fetch_priority: bool,
 ) -> Result<(), ApiError> {
-    let public_key = get_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
+    let public_key = get_federation_verify_key(ctx, origin, key_id, key_fetch_priority).await?;
 
     let signature_bytes = match decode_ed25519_signature(signature) {
         Ok(sig) => sig,
@@ -317,39 +322,39 @@ async fn verify_federation_signature(
 }
 
 async fn get_federation_verify_key(
-    state: &AppState,
+    ctx: &FederationContext,
     origin: &str,
     key_id: &str,
     key_fetch_priority: bool,
 ) -> Result<[u8; 32], ApiError> {
     let cache_key = format!("federation:verify_key:{origin}:{key_id}");
-    if let Ok(Some(cached)) = state.cache.get::<String>(&cache_key).await {
+    if let Ok(Some(cached)) = ctx.cache.get::<String>(&cache_key).await {
         if let Ok(key) = decode_ed25519_public_key(&cached) {
             return Ok(key);
         }
     }
 
-    if origin == state.services.core.server_name || origin == state.services.core.config.federation.server_name {
-        if let Some(key) = get_local_verify_key(state, key_id).await {
+    if origin == ctx.server_name || origin == ctx.config.federation.server_name {
+        if let Some(key) = get_local_verify_key(ctx, key_id).await {
             let key_str = base64::engine::general_purpose::STANDARD_NO_PAD.encode(key);
             let ttl = 3600u64;
-            if let Err(e) = state.cache.set(&cache_key, &key_str, ttl).await {
+            if let Err(e) = ctx.cache.set(&cache_key, &key_str, ttl).await {
                 tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache local federation verify key: {e}");
             }
             return Ok(key);
         }
     }
 
-    let fetched = fetch_federation_verify_key(state, origin, key_id, key_fetch_priority).await?;
+    let fetched = fetch_federation_verify_key(ctx, origin, key_id, key_fetch_priority).await?;
     let ttl = 3600u64;
-    if let Err(e) = state.cache.set(&cache_key, &fetched, ttl).await {
+    if let Err(e) = ctx.cache.set(&cache_key, &fetched, ttl).await {
         tracing::warn!(origin = %origin, key_id = %key_id, "Failed to cache fetched federation verify key: {e}");
     }
     decode_ed25519_public_key(&fetched).map_err(|_| ApiError::unauthorized("Invalid public key".to_string()))
 }
 
-async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]> {
-    let config = &state.services.core.config.federation;
+async fn get_local_verify_key(ctx: &FederationContext, key_id: &str) -> Option<[u8; 32]> {
+    let config = &ctx.config.federation;
 
     if !config.enabled {
         return None;
@@ -357,11 +362,11 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
 
     let config_key_id = config.key_id.as_deref().unwrap_or("ed25519:1");
     if key_id != config_key_id {
-        if state.services.federation.key_rotation_manager.load_or_create_key().await.is_err() {
+        if ctx.key_rotation_manager.load_or_create_key().await.is_err() {
             return None;
         }
 
-        let current_key = state.services.federation.key_rotation_manager.get_current_key().await.ok().flatten()?;
+        let current_key = ctx.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
         if current_key.key_id != key_id {
             return None;
@@ -386,11 +391,11 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
         return Some(*verifying_key.as_bytes());
     }
 
-    if state.services.federation.key_rotation_manager.load_or_create_key().await.is_err() {
+    if ctx.key_rotation_manager.load_or_create_key().await.is_err() {
         return None;
     }
 
-    let current_key = state.services.federation.key_rotation_manager.get_current_key().await.ok().flatten()?;
+    let current_key = ctx.key_rotation_manager.get_current_key().await.ok().flatten()?;
 
     if current_key.key_id != key_id {
         return None;
@@ -409,20 +414,20 @@ async fn get_local_verify_key(state: &AppState, key_id: &str) -> Option<[u8; 32]
 }
 
 async fn fetch_federation_verify_key(
-    state: &AppState,
+    ctx: &FederationContext,
     origin: &str,
     key_id: &str,
     key_fetch_priority: bool,
 ) -> Result<String, ApiError> {
     let backoff_key = format!("federation:key_fetch_backoff:{origin}:{key_id}");
-    if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
+    if let Ok(Some(true)) = ctx.cache.get::<bool>(&backoff_key).await {
         return Err(ApiError::unauthorized("Public key not found".to_string()));
     }
 
     let semaphore: &Arc<Semaphore> = if key_fetch_priority {
-        &state.federation_key_fetch_priority_semaphore
+        &ctx.federation_key_fetch_priority_semaphore
     } else {
-        &state.federation_key_fetch_general_semaphore
+        &ctx.federation_key_fetch_general_semaphore
     };
     let _permit = semaphore
         .clone()
@@ -430,7 +435,7 @@ async fn fetch_federation_verify_key(
         .await
         .map_err(|e| ApiError::internal_with_log("Rate limit semaphore closed", &e))?;
 
-    let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
+    let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .redirect(reqwest::redirect::Policy::none())
@@ -438,7 +443,7 @@ async fn fetch_federation_verify_key(
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
-    let ip_blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
+    let ip_blacklist = &ctx.config.url_preview.ip_range_blacklist;
 
     // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
     // MITM attacks on server key retrieval.
@@ -473,7 +478,7 @@ async fn fetch_federation_verify_key(
         }
     }
 
-    if let Err(e) = state.cache.set(&backoff_key, true, 30).await {
+    if let Err(e) = ctx.cache.set(&backoff_key, true, 30).await {
         tracing::warn!(origin = %origin, key_id = %key_id, "Failed to set federation key backoff marker: {e}");
     }
     Err(ApiError::unauthorized("Public key not found".to_string()))
@@ -592,6 +597,8 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     #[cfg(feature = "test-utils")]
+    use axum::extract::FromRef;
+    #[cfg(feature = "test-utils")]
     use ed25519_dalek::Signer;
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
@@ -676,6 +683,7 @@ mod tests {
 
         let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
         let state = AppState::new(services, cache);
+        let ctx = FederationContext::from_ref(&state);
 
         let signed_bytes = canonical_federation_request_bytes("PUT", uri, &origin, &origin, Some(&body));
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
@@ -685,7 +693,7 @@ mod tests {
         let header = format!("X-Matrix origin=\"{origin}\", key=\"{key_id}\", sig=\"{signature_b64}\"");
         let params = parse_x_matrix_authorization(&header).expect("header should parse");
 
-        verify_federation_signature_with_cache(&state, &params.origin, &params.key, &params.sig, &signed_bytes, false)
+        verify_federation_signature_with_cache(&ctx, &params.origin, &params.key, &params.sig, &signed_bytes, false)
             .await
             .expect("signature should verify against local config key");
     }

@@ -1,7 +1,8 @@
 // QR Login Routes - MSC4388
 // Secure out-of-band channel for sign in with QR
 
-use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::context::AuthContext;
+use crate::web::routes::{ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
     Json,
@@ -11,17 +12,17 @@ use serde_json::{json, Value};
 /// Get login QR code
 /// Generates a QR code for login confirmation
 /// GET /_matrix/client/v1/login/get_qr_code
-pub async fn get_qr_code(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+pub async fn get_qr_code(
+    State(ctx): State<AuthContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     let transaction_id = format!("qr_{}_{}", uuid::Uuid::new_v4(), chrono::Utc::now().timestamp_millis());
 
     // Generate a random challenge
     let challenge = uuid::Uuid::new_v4().to_string();
 
     // Store the transaction
-    state
-        .services
-        .account
-        .qr_login_storage
+    ctx.qr_login_storage
         .create_qr_login(&transaction_id, &auth_user.user_id, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create QR transaction", &e))?;
@@ -39,7 +40,7 @@ pub async fn get_qr_code(State(state): State<AppState>, auth_user: Authenticated
 /// User scans QR code on another device to confirm login
 /// POST /_matrix/client/v1/login/qr/confirm
 pub async fn confirm_qr_login(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -49,9 +50,7 @@ pub async fn confirm_qr_login(
         .ok_or_else(|| ApiError::bad_request("Transaction ID required".to_string()))?;
 
     // Verify the transaction exists and is valid
-    let transaction = state
-        .services
-        .account
+    let transaction = ctx
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
@@ -61,10 +60,7 @@ pub async fn confirm_qr_login(
     // Check if expired
     let now = chrono::Utc::now().timestamp_millis();
     if now > transaction.expires_at {
-        state
-            .services
-            .account
-            .qr_login_storage
+        ctx.qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -78,10 +74,7 @@ pub async fn confirm_qr_login(
     }
 
     // Update status to confirmed
-    state
-        .services
-        .account
-        .qr_login_storage
+    ctx.qr_login_storage
         .update_qr_status(transaction_id, "confirmed")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -94,7 +87,7 @@ pub async fn confirm_qr_login(
 
 /// Start QR login (for the scanning device)
 /// POST /_matrix/client/v1/login/qr/start
-pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
+pub async fn start_qr_login(State(ctx): State<AuthContext>, Json(body): Json<Value>) -> Result<Json<Value>, ApiError> {
     let transaction_id = body
         .get("transaction_id")
         .and_then(|v| v.as_str())
@@ -104,9 +97,7 @@ pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Valu
     let initial_display_name = body.get("initial_display_name").and_then(|v| v.as_str());
 
     // Get transaction to verify it exists
-    let transaction = state
-        .services
-        .account
+    let transaction = ctx
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
@@ -116,10 +107,7 @@ pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Valu
     // Check if expired
     let now = chrono::Utc::now().timestamp_millis();
     if now > transaction.expires_at {
-        state
-            .services
-            .account
-            .qr_login_storage
+        ctx.qr_login_storage
             .update_qr_status(transaction_id, "expired")
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;
@@ -142,12 +130,10 @@ pub async fn start_qr_login(State(state): State<AppState>, Json(body): Json<Valu
 /// Fetch QR login status
 /// GET /_matrix/client/v1/login/qr/{transaction_id}/status
 pub async fn get_qr_status(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     Path(transaction_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let transaction = state
-        .services
-        .account
+    let transaction = ctx
         .qr_login_storage
         .get_qr_transaction(&transaction_id)
         .await
@@ -170,7 +156,7 @@ pub async fn get_qr_status(
 /// Cancel a QR login transaction
 /// POST /_matrix/client/v1/login/qr/invalidate
 pub async fn invalidate_qr_login(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -180,9 +166,7 @@ pub async fn invalidate_qr_login(
         .ok_or_else(|| ApiError::bad_request("Transaction ID required".to_string()))?;
 
     // Get transaction to verify it exists
-    let transaction = state
-        .services
-        .account
+    let transaction = ctx
         .qr_login_storage
         .get_qr_transaction(transaction_id)
         .await
@@ -195,10 +179,7 @@ pub async fn invalidate_qr_login(
     }
 
     // Update status to invalidated
-    state
-        .services
-        .account
-        .qr_login_storage
+    ctx.qr_login_storage
         .update_qr_status(transaction_id, "invalidated")
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update status", &e))?;

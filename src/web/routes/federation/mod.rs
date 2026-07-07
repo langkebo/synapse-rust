@@ -2,7 +2,7 @@ use crate::common::*;
 use crate::web::routes::context::FederationContext;
 use crate::web::routes::AppState;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{FromRef, Json, Query, State},
     http::{header::HeaderName, HeaderValue},
     middleware,
     response::IntoResponse,
@@ -236,6 +236,8 @@ async fn openid_userinfo(
 }
 
 pub fn create_federation_router(state: AppState) -> Router<AppState> {
+    let fed_ctx = FederationContext::from_ref(&state);
+
     let public = Router::new()
         .route("/_matrix/federation/v2/server", get(keys::server_key))
         .route("/_matrix/key/v2/server", get(keys::server_key))
@@ -302,8 +304,8 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).
     let protected = protected
-        .layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::federation_rate_limit_middleware))
-        .layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
+        .layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_rate_limit_middleware))
+        .layer(middleware::from_fn_with_state(fed_ctx, crate::web::middleware::federation_auth_middleware));
 
     public.merge(protected)
 }

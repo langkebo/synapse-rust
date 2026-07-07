@@ -56,45 +56,6 @@ impl EventStorage {
         self.get_room_events_batch_inner(room_ids, None, None, limit_per_room, Some(filter)).await
     }
 
-    pub async fn get_room_events_since_batch(
-        &self,
-        room_ids: &[String],
-        since: i64,
-        limit_per_room: i64,
-    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, None).await
-    }
-
-    pub async fn get_room_events_since_stream_batch(
-        &self,
-        room_ids: &[String],
-        since_stream_ordering: i64,
-        limit_per_room: i64,
-    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, None).await
-    }
-
-    pub async fn get_room_events_since_batch_filtered(
-        &self,
-        room_ids: &[String],
-        since: i64,
-        limit_per_room: i64,
-        filter: &EventQueryFilter,
-    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, Some(since), None, limit_per_room, Some(filter)).await
-    }
-
-    pub async fn get_room_events_since_stream_batch_filtered(
-        &self,
-        room_ids: &[String],
-        since_stream_ordering: i64,
-        limit_per_room: i64,
-        filter: &EventQueryFilter,
-    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
-        self.get_room_events_batch_inner(room_ids, None, Some(since_stream_ordering), limit_per_room, Some(filter))
-            .await
-    }
-
     pub async fn get_room_events_batch_since(
         &self,
         room_ids: &[String],

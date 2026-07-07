@@ -39,25 +39,6 @@ pub(crate) async fn is_joined_room_member_or_creator(
     is_joined_room_member(state, user_id, room_id).await
 }
 
-pub(crate) async fn ensure_room_member(
-    state: &AppState,
-    auth_user: &AuthenticatedUser,
-    room_id: &str,
-    error_message: &str,
-) -> Result<(), ApiError> {
-    if auth_user.is_admin {
-        return Ok(());
-    }
-
-    let is_member = is_member_via(&state.services.rooms.room_service, &auth_user.user_id, room_id).await?;
-
-    if !is_member {
-        return Err(ApiError::forbidden(error_message.to_string()));
-    }
-
-    Ok(())
-}
-
 // =============================================================================
 // RoomContext-based helpers — used by handlers migrated to State<RoomContext>.
 // =============================================================================
