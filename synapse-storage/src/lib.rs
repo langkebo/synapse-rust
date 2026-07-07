@@ -112,13 +112,16 @@ pub mod oidc_user_mapping;
 pub mod url_preview_storage;
 
 pub use self::threepid::UserThreepid;
-pub use self::user::*;
+pub use self::user::{
+    LockedUser, User, UserDirectorySearchResult, UserProfile, UserSearchResult, UserSearchResultWithPresence,
+    UserStatsSummary, UserStorage, UserStore,
+};
 pub use user_store_fake::FakeUserStore;
 
 #[cfg(test)]
 pub mod test_utils;
 
-pub use self::account_data::*;
+pub use self::account_data::{AccountDataRecord, AccountDataStorage, AccountDataStoreApi};
 pub use self::admin_federation::*;
 pub use self::admin_media::*;
 pub use self::application_service::*;
@@ -126,16 +129,19 @@ pub use self::audit::*;
 pub use self::background_update::*;
 pub use self::captcha::*;
 pub use self::dehydrated_device::*;
-pub use self::device::*;
+pub use self::device::{Device, DeviceListStoreApi, DeviceStorage};
 pub use self::e2ee_audit::*;
-pub use self::event::*;
+pub use self::event::{
+    CreateEventParams, EventQueryFilter, EventReport, EventReportId, EventSignature, EventStorage, EventStoreApi,
+    RoomEphemeralEvent, RoomEvent, SinceFilter, StateEvent,
+};
 pub use self::feature_flags::*;
 pub use self::federation_blacklist::*;
 pub use self::filter::*;
 pub use self::invite_blocklist::*;
 pub use self::maintenance::*;
 pub use self::media_quota::*;
-pub use self::membership::*;
+pub use self::membership::{MemberStoreApi, RoomMember, RoomMemberStorage, UserRoomMembership};
 pub use self::moderation::*;
 pub use self::monitoring::{
     ConnectionPoolStatus, DataIntegrityReport, DatabaseHealthStatus, DatabaseMonitor, DuplicateEntry,
@@ -150,7 +156,10 @@ pub use self::push_notification::*;
 pub use self::qr_login::*;
 pub use self::rate_limit::*;
 pub use self::rendezvous::*;
-pub use self::room::*;
+pub use self::room::{
+    decode_room_search_cursor, encode_room_search_cursor, Receipt, Room, RoomEncryptionStatus, RoomSearchCursor,
+    RoomSearchOrder, RoomStorage, RoomStoreApi, RoomUnreadCounts, DEFAULT_HISTORY_VISIBILITY, DEFAULT_JOIN_RULE,
+};
 pub use self::room_account_data::*;
 pub use self::schema_validator::*;
 pub use self::search_index::*;
@@ -158,8 +167,8 @@ pub use self::sliding_sync::*;
 pub use self::space::*;
 pub use self::sticky_event::*;
 pub use self::thread::*;
-pub use self::threepid::*;
-pub use self::token::*;
+pub use self::threepid::{CreateThreepidRequest, ThreepidStorage, ThreepidStoreApi, ThreepidValidationSession};
+pub use self::token::{AccessToken, AccessTokenStorage, AccessTokenStoreApi};
 pub use self::worker::*;
 
 // Storage repository traits (explicit re-exports for service-layer consumption)

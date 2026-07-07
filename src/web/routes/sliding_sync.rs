@@ -146,9 +146,13 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::common::RateLimitConfigFile;
     #[cfg(feature = "test-utils")]
+    use crate::web::routes::context::SyncContext;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::state::SyncRateLimitOverride;
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
+    #[cfg(feature = "test-utils")]
+    use axum::extract::FromRef;
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
 
@@ -173,8 +177,9 @@ mod tests {
         let sync_override =
             SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
+        let ctx = SyncContext::from_ref(&state);
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), true), (11, 22));
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), false), (33, 44));
     }
 
     #[cfg(feature = "test-utils")]
@@ -196,7 +201,8 @@ mod tests {
         let sync_override =
             SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, None, false), (6, 60));
+        let ctx = SyncContext::from_ref(&state);
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), true), (5, 50));
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, None, false), (6, 60));
     }
 }

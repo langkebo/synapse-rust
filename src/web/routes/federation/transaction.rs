@@ -2,10 +2,9 @@ use crate::common::*;
 use crate::federation::EduDispatcher;
 use crate::web::middleware::FederationRequestAuth;
 use crate::web::routes::context::FederationContext;
-use crate::web::routes::AppState;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{Extension, FromRef, Json, Path, State},
+    extract::{Extension, Json, Path, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -15,13 +14,12 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 const TXN_DEDUP_TTL_SECS: u64 = 86400;
 
 pub(super) async fn send_transaction(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     headers: HeaderMap,
     Path(txn_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = FederationContext::from_ref(&state);
     super::increment_counter(&ctx, "federation_inbound_txn_total");
     let request_id = resolve_request_id(&headers);
 
@@ -232,7 +230,7 @@ pub(super) async fn send_transaction(
             continue;
         }
 
-        if let Err(e) = verify_pdu_sender_signature(&state, pdu).await {
+        if let Err(e) = verify_pdu_sender_signature(&ctx, pdu).await {
             super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
             ::tracing::warn!(
                 target: "security_audit",
@@ -596,7 +594,7 @@ fn validate_inbound_transaction_pdu<'a>(authenticated_origin: &str, pdu: &'a Val
     Ok((room_id, sender, event_type, state_key))
 }
 
-async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<(), String> {
+async fn verify_pdu_sender_signature(ctx: &FederationContext, pdu: &Value) -> Result<(), String> {
     let sender = pdu.get("sender").and_then(|v| v.as_str()).ok_or_else(|| "Missing sender on PDU".to_string())?;
     let sender_server =
         super::sender_server_name(sender).ok_or_else(|| format!("Unparseable sender mxid: {sender}"))?;
@@ -629,7 +627,7 @@ async fn verify_pdu_sender_signature(state: &AppState, pdu: &Value) -> Result<()
             continue;
         };
         match crate::web::middleware::verify_federation_signature_with_cache(
-            state,
+            ctx,
             sender_server,
             key_id,
             signature,

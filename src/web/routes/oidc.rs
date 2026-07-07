@@ -5,7 +5,7 @@ use crate::common::error::ApiError;
 use crate::web::routes::context::SsoContext;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
-    extract::{FromRef, Query, State},
+    extract::{Query, State},
     response::Redirect,
     routing::{get, post},
     Json, Router,
@@ -458,10 +458,9 @@ pub struct OidcTokenResponse {
 /// OIDC Token 端点
 /// 处理授权码兑换和刷新令牌
 async fn oidc_token(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
-    let ctx = SsoContext::from_ref(&state);
     // Validate input
     body.validate().map_err(|e| ApiError::bad_request(format!("Validation error: {e}")))?;
 

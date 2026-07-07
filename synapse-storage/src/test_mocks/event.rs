@@ -277,57 +277,6 @@ impl crate::event::api::EventStoreApi for InMemoryEventStore {
         Ok(result)
     }
 
-    async fn get_room_events_since_batch(
-        &self,
-        room_ids: &[String],
-        since: i64,
-        limit_per_room: i64,
-    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
-        let events = self.events.read().await;
-        let mut result: HashMap<String, Vec<crate::event::RoomEvent>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
-        for (_eid, event) in events.iter() {
-            if event.origin_server_ts <= since {
-                continue;
-            }
-            if let Some(bucket) = result.get_mut(&event.room_id) {
-                if bucket.len() < limit_per_room as usize {
-                    bucket.push(event.clone());
-                }
-            }
-        }
-        for bucket in result.values_mut() {
-            bucket.sort_by_key(|e| e.origin_server_ts);
-        }
-        Ok(result)
-    }
-
-    async fn get_room_events_since_stream_batch(
-        &self,
-        room_ids: &[String],
-        since_stream_ordering: i64,
-        limit_per_room: i64,
-    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
-        let events = self.events.read().await;
-        let mut result: HashMap<String, Vec<crate::event::RoomEvent>> =
-            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
-        for (_eid, event) in events.iter() {
-            let stream_ord = event.stream_ordering.unwrap_or(0);
-            if stream_ord <= since_stream_ordering {
-                continue;
-            }
-            if let Some(bucket) = result.get_mut(&event.room_id) {
-                if bucket.len() < limit_per_room as usize {
-                    bucket.push(event.clone());
-                }
-            }
-        }
-        for bucket in result.values_mut() {
-            bucket.sort_by_key(|e| e.stream_ordering.unwrap_or(0));
-        }
-        Ok(result)
-    }
-
     async fn get_state_event(
         &self,
         room_id: &str,
@@ -644,40 +593,47 @@ impl crate::event::api::EventStoreApi for InMemoryEventStore {
         self.get_room_events_batch(room_ids, limit_per_room).await
     }
 
-    async fn get_room_events_since_batch_filtered(
-        &self,
-        room_ids: &[String],
-        since: i64,
-        limit_per_room: i64,
-        _filter: &crate::event::EventQueryFilter,
-    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
-        self.get_room_events_since_batch(room_ids, since, limit_per_room).await
-    }
-
-    async fn get_room_events_since_stream_batch_filtered(
-        &self,
-        room_ids: &[String],
-        since_stream_ordering: i64,
-        limit_per_room: i64,
-        _filter: &crate::event::EventQueryFilter,
-    ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
-        self.get_room_events_since_stream_batch(room_ids, since_stream_ordering, limit_per_room).await
-    }
-
     async fn get_room_events_batch_since(
         &self,
         room_ids: &[String],
         since: crate::event::SinceFilter,
         limit_per_room: i64,
     ) -> Result<HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
-        match since {
-            crate::event::SinceFilter::OriginServerTs(ts) => {
-                self.get_room_events_since_batch(room_ids, ts, limit_per_room).await
+        let events = self.events.read().await;
+        let mut result: HashMap<String, Vec<crate::event::RoomEvent>> =
+            room_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+        for (_eid, event) in events.iter() {
+            match since {
+                crate::event::SinceFilter::OriginServerTs(ts) => {
+                    if event.origin_server_ts <= ts {
+                        continue;
+                    }
+                }
+                crate::event::SinceFilter::StreamOrdering(so) => {
+                    if event.stream_ordering.unwrap_or(0) <= so {
+                        continue;
+                    }
+                }
             }
-            crate::event::SinceFilter::StreamOrdering(so) => {
-                self.get_room_events_since_stream_batch(room_ids, so, limit_per_room).await
+            if let Some(bucket) = result.get_mut(&event.room_id) {
+                if bucket.len() < limit_per_room as usize {
+                    bucket.push(event.clone());
+                }
             }
         }
+        match since {
+            crate::event::SinceFilter::OriginServerTs(_) => {
+                for bucket in result.values_mut() {
+                    bucket.sort_by_key(|e| e.origin_server_ts);
+                }
+            }
+            crate::event::SinceFilter::StreamOrdering(_) => {
+                for bucket in result.values_mut() {
+                    bucket.sort_by_key(|e| e.stream_ordering.unwrap_or(0));
+                }
+            }
+        }
+        Ok(result)
     }
 
     async fn get_room_events_batch_since_filtered(

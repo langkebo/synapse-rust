@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
-use synapse_storage::event::{CreateEventParams, EventStorage};
+use synapse_storage::event::{CreateEventParams, EventStorage, SinceFilter};
 
 fn event_storage_test_guard() -> &'static Mutex<()> {
     static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
@@ -152,7 +152,7 @@ async fn test_get_room_events_since_batch() {
 
     let room_ids = vec![room_id];
 
-    let result = storage.get_room_events_since_batch(&room_ids, base_ts + 2500, 10).await;
+    let result = storage.get_room_events_batch_since(&room_ids, SinceFilter::OriginServerTs(base_ts + 2500), 10).await;
     assert!(result.is_ok());
 
     let events_map = result.unwrap();

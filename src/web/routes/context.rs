@@ -192,6 +192,7 @@ pub struct DeviceContext {
     pub key_request_service: synapse_e2ee::key_request::KeyRequestService,
     pub verification_service: synapse_e2ee::verification::VerificationService,
     pub device_trust_service: synapse_e2ee::device_trust::DeviceTrustService,
+    pub key_rotation_service: Arc<synapse_services::FederationKeyRotationService>,
 }
 
 impl FromRef<AppState> for DeviceContext {
@@ -218,6 +219,7 @@ impl FromRef<AppState> for DeviceContext {
             key_request_service: state.services.e2ee.key_request_service.clone(),
             verification_service: state.services.e2ee.verification_service.clone(),
             device_trust_service: state.services.e2ee.device_trust_service.clone(),
+            key_rotation_service: state.services.federation.key_rotation_service.clone(),
         }
     }
 }
@@ -461,6 +463,8 @@ pub struct FederationContext {
     pub account_data_service: Arc<synapse_services::account_data_service::AccountDataService>,
     pub federation_signature_cache: Arc<FederationSignatureCache>,
     pub federation_key_fetch_general_semaphore: Arc<Semaphore>,
+    pub federation_key_fetch_priority_semaphore: Arc<Semaphore>,
+    pub admin_federation_service: Arc<synapse_services::admin_federation_service::AdminFederationService>,
     pub device_keys_service: synapse_e2ee::device_keys::DeviceKeyService,
     pub cross_signing_service: synapse_e2ee::cross_signing::CrossSigningService,
     pub to_device_service: synapse_e2ee::to_device::ToDeviceService,
@@ -497,6 +501,8 @@ impl FromRef<AppState> for FederationContext {
             account_data_service: state.services.core.account_data_service.clone(),
             federation_signature_cache: state.federation_signature_cache.clone(),
             federation_key_fetch_general_semaphore: state.federation_key_fetch_general_semaphore.clone(),
+            federation_key_fetch_priority_semaphore: state.federation_key_fetch_priority_semaphore.clone(),
+            admin_federation_service: state.services.admin.federation.admin_federation_service.clone(),
             device_keys_service: state.services.e2ee.device_keys_service.clone(),
             cross_signing_service: state.services.e2ee.cross_signing_service.clone(),
             to_device_service: state.services.e2ee.to_device_service.clone(),
