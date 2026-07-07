@@ -346,7 +346,12 @@ impl SyncService {
             synapse_storage::EventQueryFilter { types: Some(vec!["m.room.member".to_string()]), ..Default::default() };
         let membership_events_by_room = self
             .event_storage
-            .get_room_events_since_stream_batch_filtered(&room_ids, since_token.stream_id, 1000, &filter)
+            .get_room_events_batch_since_filtered(
+                &room_ids,
+                SinceFilter::StreamOrdering(since_token.stream_id),
+                1000,
+                &filter,
+            )
             .await
             .map_err(map_internal!("Failed to get membership delta for device list left users"))?;
 

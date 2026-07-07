@@ -95,6 +95,39 @@ impl EventStorage {
             .await
     }
 
+    pub async fn get_room_events_batch_since(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        match since {
+            SinceFilter::OriginServerTs(ts) => {
+                self.get_room_events_batch_inner(room_ids, Some(ts), None, limit_per_room, None).await
+            }
+            SinceFilter::StreamOrdering(so) => {
+                self.get_room_events_batch_inner(room_ids, None, Some(so), limit_per_room, None).await
+            }
+        }
+    }
+
+    pub async fn get_room_events_batch_since_filtered(
+        &self,
+        room_ids: &[String],
+        since: SinceFilter,
+        limit_per_room: i64,
+        filter: &EventQueryFilter,
+    ) -> Result<std::collections::HashMap<String, Vec<RoomEvent>>, sqlx::Error> {
+        match since {
+            SinceFilter::OriginServerTs(ts) => {
+                self.get_room_events_batch_inner(room_ids, Some(ts), None, limit_per_room, Some(filter)).await
+            }
+            SinceFilter::StreamOrdering(so) => {
+                self.get_room_events_batch_inner(room_ids, None, Some(so), limit_per_room, Some(filter)).await
+            }
+        }
+    }
+
     async fn get_room_events_batch_inner(
         &self,
         room_ids: &[String],

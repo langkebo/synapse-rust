@@ -233,4 +233,43 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
     async fn get_max_device_list_stream_id_for_user(&self, _user_id: &str) -> Result<i64, sqlx::Error> {
         Ok(0)
     }
+
+    async fn delete_user_devices_batch(&self, user_id: &str, device_ids: &[String]) -> Result<u64, sqlx::Error> {
+        let mut devices = self.devices.write().await;
+        let mut count = 0u64;
+        for device_id in device_ids {
+            if let Some(device) = devices.get(device_id) {
+                if device.user_id == user_id {
+                    devices.remove(device_id);
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
+    }
+
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, sqlx::Error> {
+        Ok(self.devices.read().await.get(device_id).cloned())
+    }
+
+    async fn delete_device_returning_count(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
+        let mut devices = self.devices.write().await;
+        if let Some(device) = devices.get(device_id) {
+            if device.user_id == user_id {
+                devices.remove(device_id);
+                return Ok(1);
+            }
+        }
+        Ok(0)
+    }
+
+    async fn delete_all_devices(&self, user_id: &str) -> Result<(), sqlx::Error> {
+        let mut devices = self.devices.write().await;
+        let to_remove: Vec<String> =
+            devices.iter().filter(|(_, device)| device.user_id == user_id).map(|(id, _)| id.clone()).collect();
+        for device_id in to_remove {
+            devices.remove(&device_id);
+        }
+        Ok(())
+    }
 }
