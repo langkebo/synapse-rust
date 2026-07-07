@@ -55,7 +55,7 @@ pub struct RoomServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
+    pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager, used to sign locally-produced PDUs before
