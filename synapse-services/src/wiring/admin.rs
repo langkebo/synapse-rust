@@ -256,8 +256,8 @@ impl AdminServices {
         let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
             pool.clone(),
             user_storage.clone(),
-            DeviceStorage::new(pool),
-            RoomStorage::new(pool),
+            Arc::new(DeviceStorage::new(pool)),
+            Arc::new(RoomStorage::new(pool)),
             Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
             config.server.name.clone(),
         ));

@@ -272,4 +272,9 @@ impl DeviceListStoreApi for InMemoryDeviceListStore {
         }
         Ok(())
     }
+
+    async fn get_device_count(&self, user_id: &str) -> Result<i64, sqlx::Error> {
+        let devices = self.devices.read().await;
+        Ok(devices.values().filter(|device| device.user_id == user_id).count() as i64)
+    }
 }

@@ -546,4 +546,14 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
     async fn cleanup_abnormal_data(&self, _min_age_ms: Option<i64>) -> Result<serde_json::Value, sqlx::Error> {
         Ok(serde_json::json!({"cleaned": 0}))
     }
+
+    async fn get_user_rooms_paginated(
+        &self,
+        _user_id: &str,
+        _limit: i64,
+        _from_room_id: Option<&str>,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        // InMemoryRoomStore does not track memberships; return empty.
+        Ok(Vec::new())
+    }
 }
