@@ -30,15 +30,19 @@ pub struct RoomSyncServices {
 }
 
 impl RoomSyncServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,
         auth_service: &Arc<dyn Auth>,
         presence_storage: &Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
+        member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+        event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
+        app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
+        key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
+        federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
-        let member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi> =
-            Arc::new(RoomMemberStorage::new(&infra.pool, &server_name_for_storage));
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
         let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
             Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
@@ -71,10 +75,10 @@ impl RoomSyncServices {
             server_name: infra.config.server.name.clone(),
             task_queue: infra.task_queue.clone(),
             relations_storage: relations_storage.clone(),
-            event_broadcaster: None,
-            app_service_manager: None,
-            key_rotation_manager: None,
-            federation_client: None,
+            event_broadcaster: Some(event_broadcaster),
+            app_service_manager: Some(app_service_manager),
+            key_rotation_manager: Some(key_rotation_manager),
+            federation_client: Some(federation_client),
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]

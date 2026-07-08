@@ -36,7 +36,7 @@ impl MessagingService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to store ephemeral receipt", &e))?;
 
-        if let Some(event_broadcaster) = self.event_broadcaster.read().await.clone() {
+        if let Some(event_broadcaster) = &self.event_broadcaster {
             let receipt_edu = json!({
                 "edu_type": "m.receipt",
                 "room_id": room_id,

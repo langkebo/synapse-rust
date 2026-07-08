@@ -94,13 +94,14 @@ pub struct RoomService {
 
 impl RoomService {
     pub fn new(config: RoomServiceConfig) -> Self {
-        // Build shared infrastructure FIRST so its event_broadcaster Arc<RwLock>
-        // can be shared with MembershipService (avoids a separate wrapper).
+        // Build shared infrastructure FIRST so its handles can be cloned into
+        // MembershipService/MessagingService. Values are supplied once here and
+        // immutable thereafter.
         let infra = RoomInfrastructure {
-            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster.clone())),
-            app_service_manager: Arc::new(RwLock::new(config.app_service_manager.clone())),
-            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager.clone())),
-            federation_client: Arc::new(RwLock::new(config.federation_client.clone())),
+            event_broadcaster: config.event_broadcaster.clone(),
+            app_service_manager: config.app_service_manager.clone(),
+            key_rotation_manager: config.key_rotation_manager.clone(),
+            federation_client: config.federation_client.clone(),
         };
 
         let membership_cfg = MembershipServiceConfig {
@@ -224,31 +225,6 @@ impl RoomService {
         }
     }
 
-    pub async fn set_event_broadcaster(
-        &self,
-        event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
-    ) {
-        self.infra.set_event_broadcaster(event_broadcaster).await;
-    }
-
-    pub async fn set_key_rotation_manager(&self, key_rotation_manager: Arc<synapse_federation::KeyRotationManager>) {
-        self.infra.set_key_rotation_manager(key_rotation_manager).await;
-    }
-
-    pub async fn set_federation_client(
-        &self,
-        federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
-    ) {
-        self.infra.set_federation_client(federation_client).await;
-    }
-
-    pub async fn set_app_service_manager(
-        &self,
-        app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
-    ) {
-        self.infra.set_app_service_manager(app_service_manager).await;
-    }
-
     pub async fn dispatch_appservice_event(
         &self,
         event_id: &str,
@@ -258,8 +234,7 @@ impl RoomService {
         content: &serde_json::Value,
         state_key: Option<&str>,
     ) {
-        let app_service_manager = self.infra.app_service_manager.read().await.clone();
-        let Some(app_service_manager) = app_service_manager else {
+        let Some(app_service_manager) = &self.infra.app_service_manager else {
             return;
         };
 
