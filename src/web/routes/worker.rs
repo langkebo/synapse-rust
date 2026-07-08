@@ -569,7 +569,7 @@ pub async fn select_worker(
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
     let admin = create_worker_admin_router(&state);
     if state.services.core.config.worker.enabled {
-        admin.merge(create_worker_body_router(state.clone())).with_state(state)
+        admin.merge(create_worker_body_router(&state)).with_state(state)
     } else {
         admin.with_state(state)
     }
@@ -601,7 +601,7 @@ pub fn create_worker_admin_router(state: &AppState) -> Router<AppState> {
 /// `ctx.config.worker.enabled` is true. Backed by
 /// `worker_body_route_manifest()` and aggregated via
 /// `route_module::WorkerBodyModule`.
-pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
+pub fn create_worker_body_router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/worker/v1/workers/{worker_id}/heartbeat", post(heartbeat))
         .route("/_synapse/worker/v1/workers/{worker_id}/connect", post(connect_worker))
@@ -614,7 +614,10 @@ pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/replication/{worker_id}/position", get(get_replication_position))
         .route("/_synapse/worker/v1/replication/{worker_id}/{stream_name}", put(update_replication_position))
         .route("/_synapse/worker/v1/events", get(get_events))
-        .route_layer(middleware::from_fn_with_state(state, replication_http_auth_middleware))
+        .route_layer(middleware::from_fn_with_state(
+            <crate::web::routes::context::CoreContext as axum::extract::FromRef<AppState>>::from_ref(state),
+            replication_http_auth_middleware,
+        ))
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_worker_router`
