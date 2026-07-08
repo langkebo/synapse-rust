@@ -242,7 +242,7 @@ impl RouteModule for WorkerBodyModule {
 
     fn merge_into(&self, router: Router<AppState>, state: AppState) -> Router<AppState> {
         if state.services.core.config.worker.enabled {
-            router.merge(worker::create_worker_body_router(state))
+            router.merge(worker::create_worker_body_router(&state))
         } else {
             router
         }

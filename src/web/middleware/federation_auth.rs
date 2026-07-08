@@ -1,7 +1,6 @@
 use crate::common::check_url_against_blacklist;
 use crate::common::ApiError;
-use crate::web::routes::context::FederationContext;
-use crate::web::routes::AppState;
+use crate::web::routes::context::{CoreContext, FederationContext};
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::State;
 use axum::http::Request;
@@ -158,16 +157,16 @@ fn is_local_federation_destination(ctx: &FederationContext, destination: &str) -
 }
 
 pub async fn replication_http_auth_middleware(
-    State(state): State<AppState>,
+    State(ctx): State<CoreContext>,
     request: Request<Body>,
     next: Next,
 ) -> Response {
-    if !state.services.core.config.worker.replication.http.enabled {
+    if !ctx.config.worker.replication.http.enabled {
         return next.run(request).await;
     }
-    let secret = if let Some(s) = &state.services.core.config.worker.replication.http.secret {
+    let secret = if let Some(s) = &ctx.config.worker.replication.http.secret {
         s.clone()
-    } else if let Some(p) = &state.services.core.config.worker.replication.http.secret_path {
+    } else if let Some(p) = &ctx.config.worker.replication.http.secret_path {
         match fs::read_to_string(PathBuf::from(p)) {
             Ok(s) => s.trim().to_string(),
             Err(_) => return ApiError::unauthorized("Replication secret not available".to_string()).into_response(),
