@@ -37,9 +37,8 @@ impl CoreServices {
         infra: &SharedInfra,
         auth_service: &Arc<dyn Auth>,
         user_storage: &Arc<dyn UserStore>,
-        rooms: &super::RoomSyncServices,
-        federation: &super::FederationServices,
         server_metrics: &Arc<ServerMetrics>,
+        event_broadcaster: Arc<EventBroadcaster>,
     ) -> Self {
         let search_service = Arc::new(crate::search_service::SearchService::with_postgres(
             &infra.config.search.elasticsearch_url,
@@ -78,20 +77,6 @@ impl CoreServices {
             infra.config.server.enable_registration,
             infra.task_queue.clone(),
         ));
-
-        let broadcaster_server_name = infra.config.server.get_server_name().to_string();
-        let broadcaster_federation_client = federation.federation_client.clone();
-        let broadcaster_member_storage = rooms.member_storage.clone();
-        let broadcaster_origin = infra.config.server.get_server_name().to_string();
-        let broadcaster_batch_size = infra.config.federation.event_broadcast_batch_size;
-        let event_broadcaster = {
-            let broadcaster = EventBroadcaster::new(broadcaster_server_name)
-                .with_client(broadcaster_federation_client)
-                .with_pool(infra.pool.as_ref().clone())
-                .with_membership_storage(broadcaster_member_storage);
-            broadcaster.start_batch_sender(broadcaster_origin, broadcaster_batch_size, 100).await;
-            Arc::new(broadcaster)
-        };
 
         let room_account_data_storage = Arc::new(RoomAccountDataStorage::new(&infra.pool));
         let account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =

@@ -32,12 +32,12 @@ pub struct MessagingService {
     pub(crate) beacon_service: Option<()>,
     pub(crate) task_queue: Option<Arc<RedisTaskQueue>>,
     pub(crate) active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
-    pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) relations_storage: Arc<dyn RelationsStoreApi>,
     /// Application service manager for dispatching events to bridges.
-    pub(crate) app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
+    pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager for signing locally-produced PDUs.
-    pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
+    pub(crate) key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
     /// Room summary service for updating room metadata on events.
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
 }
@@ -54,9 +54,9 @@ pub struct MessagingServiceConfig {
     pub beacon_service: Option<()>,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub relations_storage: Arc<dyn RelationsStoreApi>,
-    pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
-    pub app_service_manager: Arc<RwLock<Option<Arc<crate::application_service::ApplicationServiceManager>>>>,
-    pub key_rotation_manager: Arc<RwLock<Option<Arc<synapse_federation::KeyRotationManager>>>>,
+    pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
+    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
+    pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
     pub room_summary_service: Arc<RoomSummaryService>,
 }
 
@@ -91,8 +91,7 @@ impl MessagingService {
         content: &serde_json::Value,
         state_key: Option<&str>,
     ) {
-        let app_service_manager = self.app_service_manager.read().await.clone();
-        let Some(app_service_manager) = app_service_manager else {
+        let Some(app_service_manager) = &self.app_service_manager else {
             return;
         };
         if let Err(error) =
@@ -109,8 +108,7 @@ impl MessagingService {
     /// Broadcast failures are logged but not propagated.
     pub(crate) async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
         // 0. Check if federation signing is configured.
-        let key_rotation_guard = self.key_rotation_manager.read().await;
-        let Some(ref key_rotation_manager) = *key_rotation_guard else {
+        let Some(key_rotation_manager) = &self.key_rotation_manager else {
             return Ok(());
         };
 
@@ -166,17 +164,14 @@ impl MessagingService {
         }
 
         // 5. Broadcast to remote servers via event_broadcaster.
-        {
-            let broadcaster_guard = self.event_broadcaster.read().await;
-            if let Some(ref broadcaster) = *broadcaster_guard {
-                if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
-                    ::tracing::warn!(
-                        event_id = %event.event_id,
-                        room_id = %event.room_id,
-                        error = %e,
-                        "Failed to broadcast event to federation peers"
-                    );
-                }
+        if let Some(broadcaster) = &self.event_broadcaster {
+            if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
+                ::tracing::warn!(
+                    event_id = %event.event_id,
+                    room_id = %event.room_id,
+                    error = %e,
+                    "Failed to broadcast event to federation peers"
+                );
             }
         }
 

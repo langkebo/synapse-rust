@@ -12,7 +12,6 @@ use synapse_federation::signing::sign_and_hash_event;
 use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
-use tokio::sync::RwLock;
 
 use crate::room::summary::RoomSummaryService;
 
@@ -26,9 +25,9 @@ pub struct MembershipService {
     pub(crate) user_storage: Arc<dyn UserStore>,
     pub(crate) auth_service: Arc<dyn crate::auth::Auth>,
     pub(crate) server_name: String,
-    pub(crate) federation_client: Arc<RwLock<Option<Arc<dyn FederationClientApi>>>>,
-    pub(crate) key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
-    pub(crate) event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub(crate) federation_client: Option<Arc<dyn FederationClientApi>>,
+    pub(crate) key_rotation_manager: Option<Arc<KeyRotationManager>>,
+    pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
 }
 
@@ -40,9 +39,9 @@ pub struct MembershipServiceConfig {
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn crate::auth::Auth>,
     pub server_name: String,
-    pub federation_client: Arc<RwLock<Option<Arc<dyn FederationClientApi>>>>,
-    pub key_rotation_manager: Arc<RwLock<Option<Arc<KeyRotationManager>>>>,
-    pub event_broadcaster: Arc<RwLock<Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>>>,
+    pub federation_client: Option<Arc<dyn FederationClientApi>>,
+    pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
+    pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub room_summary_service: Arc<RoomSummaryService>,
 }
 
@@ -92,20 +91,14 @@ impl MembershipService {
     pub(crate) async fn require_federation_client(
         &self,
     ) -> ApiResult<Arc<dyn synapse_federation::client_api::FederationClientApi>> {
-        self.federation_client
-            .read()
-            .await
-            .clone()
-            .ok_or_else(|| ApiError::internal("Federation client not configured".to_string()))
+        self.federation_client.clone().ok_or_else(|| ApiError::internal("Federation client not configured".to_string()))
     }
 
     /// Get the current signing key, returning an error if not configured.
     pub(crate) async fn require_signing_key(&self) -> ApiResult<SigningKey> {
         let key_rotation_manager = self
             .key_rotation_manager
-            .read()
-            .await
-            .clone()
+            .as_ref()
             .ok_or_else(|| ApiError::internal("Key rotation manager not configured".to_string()))?;
         key_rotation_manager
             .get_current_key()
@@ -182,8 +175,7 @@ impl MembershipService {
     /// Broadcast failures are logged but not propagated.
     pub async fn sign_and_broadcast_event(&self, event: &RoomEvent) -> ApiResult<()> {
         // 0. Check if federation signing is configured.
-        let key_rotation_guard = self.key_rotation_manager.read().await;
-        let Some(ref key_rotation_manager) = *key_rotation_guard else {
+        let Some(key_rotation_manager) = &self.key_rotation_manager else {
             return Ok(());
         };
 
@@ -239,17 +231,14 @@ impl MembershipService {
         }
 
         // 5. Broadcast to remote servers via event_broadcaster.
-        {
-            let broadcaster_guard = self.event_broadcaster.read().await;
-            if let Some(ref broadcaster) = *broadcaster_guard {
-                if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
-                    ::tracing::warn!(
-                        event_id = %event.event_id,
-                        room_id = %event.room_id,
-                        error = %e,
-                        "Failed to broadcast event to federation peers"
-                    );
-                }
+        if let Some(broadcaster) = &self.event_broadcaster {
+            if let Err(e) = broadcaster.broadcast_event(&event.room_id, &pdu, &self.server_name).await {
+                ::tracing::warn!(
+                    event_id = %event.event_id,
+                    room_id = %event.room_id,
+                    error = %e,
+                    "Failed to broadcast event to federation peers"
+                );
             }
         }
 
