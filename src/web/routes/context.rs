@@ -387,7 +387,6 @@ pub struct AdminContext {
     pub qr_login_storage: Arc<dyn synapse_storage::qr_login::QrLoginStoreApi>,
     pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
     #[cfg(feature = "widgets")]
-    #[cfg(feature = "widgets")]
     pub widget_service: Arc<synapse_services::widget_service::WidgetService>,
     #[cfg(feature = "external-services")]
     pub external_service_integration: Arc<synapse_services::external_service_integration::ExternalServiceIntegration>,
@@ -458,7 +457,6 @@ impl FromRef<AppState> for AdminContext {
             token_storage: state.services.account.token_storage.clone(),
             qr_login_storage: state.services.account.qr_login_storage.clone(),
             client_push_service: state.services.core.client_push_service.clone(),
-            #[cfg(feature = "widgets")]
             #[cfg(feature = "widgets")]
             widget_service: state.services.extensions.widget_service.clone(),
             #[cfg(feature = "external-services")]

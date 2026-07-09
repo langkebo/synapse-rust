@@ -6,7 +6,7 @@ use crate::web::routes::{ensure_room_member_ctx, validate_room_id, Authenticated
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{FromRef, Json, Path, Query, State},
+    extract::{Json, Path, Query, State},
     http::HeaderMap,
 };
 use serde::Deserialize;
@@ -911,7 +911,6 @@ pub(crate) async fn get_room_device(
     auth_user: AuthenticatedUser,
     Path((room_id, device_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&ctx);
     validate_room_id(&room_id)?;
     if !ctx.room_service.state.room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));

@@ -7,7 +7,7 @@ use crate::web::routes::{
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
-    extract::{FromRef, Json, Path, State},
+    extract::{Json, Path, State},
     http::HeaderMap,
 };
 use serde_json::{json, Value};
@@ -111,7 +111,6 @@ pub(crate) async fn leave_room(
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
     ctx.room_service.membership.leave_room(&room_id, &auth_user.user_id).await?;
@@ -501,7 +500,6 @@ pub(crate) async fn kick_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 
@@ -547,7 +545,6 @@ pub(crate) async fn ban_user(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let ctx = RoomContext::from_ref(&ctx);
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
 

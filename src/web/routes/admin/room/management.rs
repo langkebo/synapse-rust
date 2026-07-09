@@ -4,7 +4,7 @@ use crate::web::routes::admin::audit::{record_audit_event, resolve_request_id};
 use crate::web::routes::context::AdminContext;
 use crate::web::routes::AdminUser;
 use axum::{
-    extract::{FromRef, Path, State},
+    extract::{Path, State},
     http::HeaderMap,
     Json,
 };
@@ -37,9 +37,8 @@ pub async fn block_room(
 
     ctx.room_service.state.block_room(&room_id, &admin.user_id, body.reason.as_deref()).await?;
 
-    let admin_ctx = AdminContext::from_ref(&ctx);
     record_audit_event(
-        &admin_ctx,
+        &ctx,
         &admin.user_id,
         "admin.room.block",
         "room",
@@ -89,9 +88,8 @@ pub async fn unblock_room(
 
     ctx.room_service.state.unblock_room(&room_id).await?;
 
-    let admin_ctx = AdminContext::from_ref(&ctx);
     record_audit_event(
-        &admin_ctx,
+        &ctx,
         &admin.user_id,
         "admin.room.unblock",
         "room",
