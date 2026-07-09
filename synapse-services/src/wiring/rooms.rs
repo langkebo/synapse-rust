@@ -60,8 +60,10 @@ impl RoomSyncServices {
         ));
 
         #[cfg(feature = "beacons")]
-        let beacon_service =
-            Arc::new(crate::beacon_service::BeaconService::new(infra.pool.clone(), infra.cache.clone()));
+        let beacon_storage: Arc<dyn synapse_storage::beacon::BeaconStoreApi> =
+            Arc::new(BeaconStorage::new(infra.pool.clone()));
+        #[cfg(feature = "beacons")]
+        let beacon_service = Arc::new(crate::beacon_service::BeaconService::new(beacon_storage, infra.cache.clone()));
 
         let room_service = Arc::new(crate::room_service::RoomService::new(crate::room_service::RoomServiceConfig {
             room_storage: room_storage.clone(),

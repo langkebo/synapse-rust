@@ -67,7 +67,7 @@ pub struct BeaconInfoWithLocations {
 
 /// Trait abstraction over [`BeaconStorage`] for testability and service wiring.
 #[async_trait]
-pub trait BeaconStoreApi {
+pub trait BeaconStoreApi: Send + Sync {
     async fn create_beacon_info(&self, params: CreateBeaconInfoParams) -> Result<BeaconInfo, sqlx::Error>;
 
     async fn deactivate_beacons_by_state_key(&self, room_id: &str, state_key: &str) -> Result<u64, sqlx::Error>;
