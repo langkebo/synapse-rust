@@ -14,6 +14,7 @@
 | 版本 | 发布日期 | 性质 | 主要内容 |
 |------|----------|------|----------|
 | [Unreleased](#unreleased) | TBD | 进行中 | C-5 Phase 3/4 vodozemac 互操作矩阵 + 清理自研路径 |
+| [v6.0.5](#v605---2026-07-09) | 2026-07-09 | 重构 | 架构优化 Round 2：trait 提取 / glob re-export 收敛 / 中间件迁移 / storage 拆分 |
 | [v10.0.0](#v10000---2026-06-12) | 2026-06-12 | 🚧 **当前基线** | P0/P1 全部修复 / v10 迁移基线 / clippy 门禁修复 / 文档同步 / P2 #7 L1 unwrap 治理 |
 | [v8.0.0](#v8000---2026-06-06) | 2026-06-06 | 历史 | P0 全部修复 / v8 迁移基线 / E2EE vodozemac 收敛 Phase 1+2 / Step 10-12 工程门禁 |
 | [v7.x](#v7x---2026-05-28-前) | 2026-05-28 前 | 历史 | 旧 `Cargo.toml` 版本基线，包含 v7 迁移文件（已被 v8 收敛） |
@@ -66,6 +67,44 @@
 
 ### Removed
 - 无新增（C-5 Phase 4 当前以边界冻结与跨端验收为主，自研 crypto/olm 的进一步删除需待跨端矩阵全绿后再评估）。
+
+---
+
+## [v6.0.5] - 2026-07-09
+
+> 架构优化 Round 2：纯重构，无行为变更。197 个文件，净增约 1,700 行。
+
+### Changed（变更）
+
+#### C2 — Service Trait 提取（11 个 service）
+- `AdminUserService`、`AdminFederationService`、`ClientPushService`、`AccountDataService`、
+  `DehydratedDeviceService` 等 11 个 service 的存储依赖从 `Arc<ConcreteType>` 迁移到
+  `Arc<dyn StoreApi>`，支持 mock 注入和单元测试
+- 新增 6 个存储模块的 `InMemory` mock 实现，用于测试
+
+#### Phase 2 — Glob Re-export 收敛
+- `synapse-common` 和 `synapse-storage` 的 glob re-export 缩小为显式导出列表
+- 根 crate 的 glob re-export 替换为显式导出
+
+#### Phase 3 — 中间件类型化上下文迁移
+- 新增 `CoreContext`、`AdminContext`、`FederationContext` 三个类型化上下文
+- 认证、shadow-ban、CSRF、限流中间件从 `AppState` 迁移到 `State<CoreContext>`
+- admin 认证中间件迁移到 `State<AdminContext>`
+- federation 限流中间件迁移到 `State<FederationContext>`
+- replication HTTP 认证中间件迁移到 `State<CoreContext>`
+
+#### Storage God-File 拆分
+- `room_summary.rs`（1,827 行）拆分为 7 个子模块
+- `worker.rs`（1,200+ 行）拆分为 5 个子模块
+- `space.rs`（800+ 行）拆分为 4 个子模块
+- `test_mocks.rs` 拆分为按域组织的子模块
+
+#### Room 服务重构
+- 线性化 DAG 构造流程，消除 post-construction setter
+- 统一 room events 批量镜像方法签名（`SinceFilter`）
+
+### Removed（移除）
+- 无新增。
 
 ---
 
