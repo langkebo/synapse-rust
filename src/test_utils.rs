@@ -486,7 +486,27 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
 
     // Clone: create schema + copy all tables from template using DDL generation.
-    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters.
+    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters
+    // (but NOT foreign keys — LIKE never copies FKs, so seed-copy order is unconstrained).
+    //
+    // Structure-only LIKE does not copy rows, so migration-seeded *reference/config*
+    // rows (e.g. the server_media_quota id=1 row) are missing in clones. We copy those
+    // for a curated allowlist of config tables so per-test clones behave like a
+    // freshly-migrated DB. The development-only `@admin:localhost` seed in `users` is
+    // intentionally NOT copied — tests manage their own users and many assert an empty
+    // users table.
+    const SEED_REFERENCE_TABLES: &[&str] = &["server_media_quota", "server_retention_policy", "sync_stream_id"];
+    let seed_copy_stmts = SEED_REFERENCE_TABLES
+        .iter()
+        .map(|table| {
+            format!(
+                "                IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = '{template_name}' AND tablename = '{table}') THEN
+                    EXECUTE format('INSERT INTO %I.%I SELECT * FROM %I.%I', '{schema_name}', '{table}', '{template_name}', '{table}');
+                END IF;"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let clone_sql = format!(
         r"
         DO $$
@@ -502,13 +522,21 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     '{schema_name}', r.tablename, '{template_name}', r.tablename
                 );
             END LOOP;
-            -- Copy sequences with current values
+            -- Copy migration seed rows for reference/config tables only.
+{seed_copy_stmts}
+            -- Copy sequences with their current values so id generation stays consistent.
             FOR r IN
                 SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
             LOOP
                 EXECUTE format(
                     'CREATE SEQUENCE IF NOT EXISTS %I.%I',
                     '{schema_name}', r.sequence_name
+                );
+                EXECUTE format(
+                    'SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
+                    '{schema_name}.' || r.sequence_name,
+                    '{template_name}', r.sequence_name,
+                    '{template_name}', r.sequence_name
                 );
             END LOOP;
         END $$;
