@@ -461,8 +461,13 @@ pub(super) async fn send_join(
 
         let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
         let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "join")?;
+        // OPT-017: Check join access BEFORE room version to prevent existence leaking.
+        // A non-existent room now gets 404 from inside validate_federation_join_access;
+        // a private room now also returns 404 (same error, no leak).
+        validate_federation_join_access(&ctx, &room_id, user_id)
+            .await
+            .map_err(|e| if e.is_forbidden() { ApiError::not_found("Room not found") } else { e })?;
         let _room_version = federatable_room_version(&ctx, &room_id).await?;
-        validate_federation_join_access(&ctx, &room_id, user_id).await?;
         let content = event.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
@@ -626,8 +631,11 @@ pub(super) async fn send_join_v2(
             super::validate_federation_origin(&auth.origin, Some(origin))?;
         }
         let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "join")?;
+        // OPT-017: Check join access BEFORE room version to prevent existence leaking.
+        validate_federation_join_access(&ctx, &room_id, sender)
+            .await
+            .map_err(|e| if e.is_forbidden() { ApiError::not_found("Room not found") } else { e })?;
         let _room_version = federatable_room_version(&ctx, &room_id).await?;
-        validate_federation_join_access(&ctx, &room_id, sender).await?;
         let content = body.get("content").cloned().unwrap_or(json!({}));
         let display_name = content.get("displayname").and_then(|v| v.as_str());
 
