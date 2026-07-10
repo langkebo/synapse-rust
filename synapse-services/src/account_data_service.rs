@@ -97,7 +97,7 @@ impl AccountDataService {
         body: &Value,
     ) -> Result<(), ApiError> {
         validate_account_data_payload(data_type, body)?;
-        let now = chrono::Utc::now().timestamp();
+        let now = chrono::Utc::now().timestamp_millis();
         self.room_account_data_storage
             .upsert_room_account_data(user_id, room_id, data_type, body, now)
             .await
@@ -466,5 +466,28 @@ mod tests {
 
         let after = service.get_room_account_data(user_id, room_id, "m.tag").await.unwrap();
         assert!(after.is_none(), "expected None after delete");
+    }
+
+    #[tokio::test]
+    async fn room_account_data_uses_millis() {
+        let service = make_service();
+
+        let before = chrono::Utc::now().timestamp_millis();
+        service
+            .set_room_account_data("@a:localhost", "!r:localhost", "m.tag", &json!({}))
+            .await
+            .unwrap();
+
+        let stored = service
+            .get_room_account_data_with_ts("@a:localhost", "!r:localhost", "m.tag")
+            .await
+            .unwrap()
+            .expect("expected Some after set_room_account_data");
+        let ts = stored.1.expect("expected a stored timestamp");
+
+        assert!(
+            ts >= before,
+            "expected a millis timestamp (>= {before}), got {ts} (seconds would be ~1000x smaller)"
+        );
     }
 }
