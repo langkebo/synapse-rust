@@ -72,7 +72,7 @@ pub trait Auth: Send + Sync {
 
     /// Generate a cryptographically-random email-verification token.
     /// This is a **synchronous** method because it only calls a local RNG.
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>>;
+    fn generate_email_verification_token(&self) -> Result<String, ApiError>;
 
     // ── Power levels ─────────────────────────────────────────────────────
 
