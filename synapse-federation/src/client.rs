@@ -16,6 +16,13 @@ const RETRY_BASE_DELAY_MS: u64 = 500;
 const MAX_RETRY_DELAY_MS: u64 = 30000;
 const KEY_CACHE_TTL_SECS: u64 = 3600;
 const WELL_KNOWN_TIMEOUT_SECS: u64 = 5;
+
+/// Effective cache TTL (seconds) for a set of server keys: never longer than the
+/// default window, and never past the key's own `valid_until_ts` validity window.
+fn effective_cache_ttl_secs(keys: &ServerKeys, now_ms: i64) -> u64 {
+    let remaining_secs = ((keys.valid_until_ts - now_ms) / 1000).max(0) as u64;
+    KEY_CACHE_TTL_SECS.min(remaining_secs)
+}
 const DEFAULT_FEDERATION_PORT: u16 = 8448;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -403,7 +410,8 @@ impl FederationClient {
         {
             let cache = self.key_cache.read().await;
             if let Some(cached) = cache.get(destination) {
-                if cached.cached_at.elapsed().as_secs() < KEY_CACHE_TTL_SECS {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                if cached.cached_at.elapsed().as_secs() < effective_cache_ttl_secs(&cached.keys, now_ms) {
                     return Ok(cached.keys.clone());
                 }
             }
@@ -828,6 +836,49 @@ mod tests {
         }"#;
         let keys: ServerKeys = serde_json::from_str(json).unwrap();
         assert_eq!(keys.server_name, "example.com");
+    }
+
+    #[test]
+    fn cache_ttl_shrinks_to_valid_until_ts_window() {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        // Key expires 600s from now -> effective TTL should shrink to that window.
+        let soon = ServerKeys {
+            server_name: "example.com".to_string(),
+            verify_keys: serde_json::json!({}),
+            old_verify_keys: serde_json::json!({}),
+            signatures: serde_json::json!({}),
+            valid_until_ts: now_ms + 600_000,
+        };
+        let effective = effective_cache_ttl_secs(&soon, now_ms);
+        assert!(
+            (590..=600).contains(&effective),
+            "TTL must shrink to the ~600s valid_until_ts window, got {effective}"
+        );
+
+        // Key valid far in the future -> capped at the default window.
+        let far = ServerKeys {
+            server_name: "example.com".to_string(),
+            verify_keys: serde_json::json!({}),
+            old_verify_keys: serde_json::json!({}),
+            signatures: serde_json::json!({}),
+            valid_until_ts: now_ms + 10_000_000_000,
+        };
+        assert_eq!(
+            effective_cache_ttl_secs(&far, now_ms),
+            KEY_CACHE_TTL_SECS,
+            "far-future validity must cap at the default TTL"
+        );
+
+        // Already-expired key -> never serve from cache.
+        let past = ServerKeys {
+            server_name: "example.com".to_string(),
+            verify_keys: serde_json::json!({}),
+            old_verify_keys: serde_json::json!({}),
+            signatures: serde_json::json!({}),
+            valid_until_ts: now_ms - 60_000,
+        };
+        assert_eq!(effective_cache_ttl_secs(&past, now_ms), 0, "expired key must yield zero TTL");
     }
 
     #[test]
