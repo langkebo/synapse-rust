@@ -507,7 +507,7 @@ async fn oidc_token(
 
             // 使用 OIDC 服务兑换令牌
             let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-                .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
+                .exchange_code(&code, &redirect_uri, code_verifier.as_deref(), None)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
@@ -856,7 +856,7 @@ async fn oidc_callback(
 
     // 兑换令牌
     let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()))
+        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()), Some(&auth_session.nonce))
         .await
         .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 

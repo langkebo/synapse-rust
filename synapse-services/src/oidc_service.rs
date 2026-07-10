@@ -238,6 +238,7 @@ impl OidcService {
         code: &str,
         redirect_uri: &str,
         code_verifier: Option<&str>,
+        nonce: Option<&str>,
     ) -> Result<OidcTokenResponse, ApiError> {
         let default_token = format!("{}/token", self.config.issuer);
         let token_endpoint = {
@@ -277,12 +278,13 @@ impl OidcService {
             response.json().await.map_err(|e| ApiError::internal_with_log("Failed to parse token response", &e))?;
 
         if let Some(ref id_token) = token_response.id_token {
-            if let Err(e) = self.validate_id_token(id_token).await {
+            if let Err(e) = self.validate_id_token(id_token, nonce).await {
                 tracing::warn!(
                     error = %e,
                     issuer = %self.config.issuer,
                     client_id = %self.config.client_id,
                     has_id_token = true,
+                    nonce_provided = nonce.is_some(),
                     "OIDC ID token validation failed"
                 );
             }
@@ -327,7 +329,7 @@ impl OidcService {
         Ok(jwks)
     }
 
-    async fn validate_id_token(&self, id_token: &str) -> Result<(), String> {
+    async fn validate_id_token(&self, id_token: &str, nonce: Option<&str>) -> Result<(), String> {
         let header_bytes = URL_SAFE_NO_PAD
             .decode(id_token.split('.').next().unwrap_or(""))
             .map_err(|e| format!("Invalid ID token header base64: {e}"))?;
@@ -393,10 +395,22 @@ impl OidcService {
                     validation.validate_exp = true;
                     validation.validate_nbf = false;
 
-                    decode::<serde_json::Value>(id_token, &decoding_key, &validation)
+                    let token_data = decode::<serde_json::Value>(id_token, &decoding_key, &validation)
                         .map_err(|e| format!("JWT signature verification failed: {e}"))?;
 
                     debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
+
+                    // OPT-021: Validate nonce claim against stored nonce to prevent replay attacks
+                    if let Some(expected_nonce) = nonce {
+                        let token_nonce = token_data.claims.get("nonce").and_then(|v| v.as_str());
+                        if token_nonce != Some(expected_nonce) {
+                            return Err(format!(
+                                "ID token nonce mismatch: expected '{}', got '{:?}'",
+                                expected_nonce, token_nonce
+                            ));
+                        }
+                        debug!("OIDC ID token nonce validated successfully");
+                    }
                 } else {
                     tracing::error!(
                         kid = ?kid,
@@ -684,7 +698,7 @@ mod tests {
         let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
         let forged = format!("{header_b64}.{payload_b64}.sig");
 
-        let result = service.validate_id_token(&forged).await;
+        let result = service.validate_id_token(&forged, None).await;
         assert!(result.is_err(), "unknown kid must be rejected, not claim-only accepted; got {result:?}");
     }
 
@@ -754,7 +768,7 @@ mod tests {
         let service = OidcService::new(Arc::new(config));
 
         let response = service
-            .exchange_code("auth-code", "https://matrix.example.com/callback", Some("verifier-123"))
+            .exchange_code("auth-code", "https://matrix.example.com/callback", Some("verifier-123"), None)
             .await
             .unwrap();
 
@@ -763,5 +777,79 @@ mod tests {
         let requests = server.received_requests().await.unwrap();
         let body = String::from_utf8_lossy(&requests[0].body);
         assert!(body.contains("code_verifier=verifier-123"));
+    }
+
+    #[tokio::test]
+    async fn nonce_mismatch_rejected() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        use rsa::pkcs8::EncodePrivateKey;
+        use rsa::traits::PublicKeyParts;
+        use rsa::RsaPrivateKey;
+
+        let service = create_test_service();
+
+        // Generate a test RSA key pair using rsa's rand_core (v0.6) for compatibility
+        let mut rng = rsa::rand_core::OsRng;
+        let private_key =
+            RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
+        let public_key = private_key.to_public_key();
+
+        // Create EncodingKey from PEM
+        let pem = private_key
+            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+            .expect("pkcs8 pem encode");
+        let encoding_key =
+            EncodingKey::from_rsa_pem(pem.as_bytes()).expect("create encoding key");
+
+        // Build JWKS with the public key's n and e components
+        let kid = "test-nonce-key";
+        let n = URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be());
+        let e = URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be());
+
+        *service.jwks.write().await = Some(OidcJwks {
+            keys: vec![OidcJwk {
+                kty: "RSA".to_string(),
+                use_: Some("sig".to_string()),
+                kid: Some(kid.to_string()),
+                alg: Some("RS256".to_string()),
+                n: Some(n),
+                e: Some(e),
+                crv: None,
+                x: None,
+                y: None,
+            }],
+        });
+
+        // Create a properly signed id_token with nonce "expected-nonce"
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+        let claims = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": service.config.client_id,
+            "sub": "user123",
+            "exp": exp,
+            "nonce": "expected-nonce",
+        });
+
+        let mut header = Header::new(jsonwebtoken::Algorithm::RS256);
+        header.kid = Some(kid.to_string());
+        let id_token = encode(&header, &claims, &encoding_key).expect("jwt encode");
+
+        // Valid nonce: should pass
+        let result = service.validate_id_token(&id_token, Some("expected-nonce")).await;
+        assert!(result.is_ok(), "correct nonce should pass: {:?}", result);
+
+        // Wrong nonce: should fail
+        let result = service.validate_id_token(&id_token, Some("wrong-nonce")).await;
+        assert!(result.is_err(), "wrong nonce should be rejected");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("nonce mismatch"),
+            "error should mention nonce mismatch, got: {}",
+            err
+        );
     }
 }
