@@ -381,26 +381,9 @@ impl DeviceStorage {
         user_id: &str,
         display_name: Option<&str>,
     ) -> Result<Device, sqlx::Error> {
-        let now = chrono::Utc::now().timestamp_millis();
-        let device = sqlx::query_as::<_, Device>(
-            r"
-            INSERT INTO devices (device_id, user_id, display_name, first_seen_ts, last_seen_ts, created_ts)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING device_id, user_id, display_name, device_key, last_seen_ts, last_seen_ip, created_ts, first_seen_ts, user_agent, appservice_id, ignored_user_list
-            ",
-        )
-        .bind(device_id)
-        .bind(user_id)
-        .bind(display_name)
-        .bind(now)
-        .bind(now)
-        .bind(now)
-        .fetch_one(&*self.pool)
-        .await?;
-
-        let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
-        let _ = self.record_device_list_change(user_id, Some(device_id), "changed").await;
-
+        let mut tx = self.pool.begin().await?;
+        let device = self.create_device_tx(&mut tx, device_id, user_id, display_name).await?;
+        tx.commit().await?;
         Ok(device)
     }
 
@@ -568,6 +551,8 @@ impl DeviceStorage {
     }
 
     pub async fn delete_user_device(&self, user_id: &str, device_id: &str) -> Result<u64, sqlx::Error> {
+        let mut tx = self.pool.begin().await?;
+
         let rows_affected = sqlx::query(
             r"
             DELETE FROM devices
@@ -576,15 +561,42 @@ impl DeviceStorage {
         )
         .bind(device_id)
         .bind(user_id)
-        .execute(&*self.pool)
+        .execute(&mut *tx)
         .await
         .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            let _ = self.delete_lazy_loaded_members_for_device(user_id, device_id).await;
-            let _ = self.record_device_list_change(user_id, Some(device_id), "deleted").await;
+            let _ = Self::delete_lazy_loaded_members_for_device_tx(&mut tx, user_id, device_id).await;
+
+            let now = chrono::Utc::now().timestamp_millis();
+            let stream_id: i64 = sqlx::query_scalar(
+                r"
+                INSERT INTO device_lists_stream (user_id, device_id, created_ts)
+                VALUES ($1, $2, $3)
+                RETURNING stream_id
+                ",
+            )
+            .bind(user_id)
+            .bind(device_id)
+            .bind(now)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                r"
+                INSERT INTO device_lists_changes (user_id, device_id, change_type, stream_id, created_ts)
+                VALUES ($1, $2, 'deleted', $3, $4)
+                ",
+            )
+            .bind(user_id)
+            .bind(device_id)
+            .bind(stream_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
         }
 
+        tx.commit().await?;
         Ok(rows_affected)
     }
 
@@ -2001,5 +2013,92 @@ mod db_tests {
         storage.delete_device(device_id).await.expect("delete_device should succeed");
 
         assert!(storage.get_device(device_id).await.expect("get_device").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_device_commits_atomically() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@txcreate_{}:example.com", suffix);
+        let device_id = format!("ATOMCREATE_{}", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+
+        let device = storage
+            .create_device(&device_id, &user_id, Some("atomic-create-test"))
+            .await
+            .expect("create_device should succeed");
+
+        assert_eq!(device.device_id, device_id);
+        assert_eq!(device.user_id, user_id);
+
+        // Verify device exists in devices table
+        let dev_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query devices table");
+        assert_eq!(dev_count, 1, "device must exist in devices table (atomic commit)");
+
+        // Verify side effects: device_lists_stream row must exist
+        let stream_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM device_lists_stream WHERE user_id = $1 AND device_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query device_lists_stream table");
+        assert_eq!(stream_count, 1, "device_lists_stream must have a row (atomic commit)");
+    }
+
+    #[tokio::test]
+    async fn test_delete_user_device_is_atomic() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@txdel_{}:example.com", suffix);
+        let device_id = format!("ATOMDEL_{}", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+
+        // Create first
+        storage
+            .create_device(&device_id, &user_id, None)
+            .await
+            .expect("create_device should succeed");
+
+        // Delete
+        let rows = storage
+            .delete_user_device(&user_id, &device_id)
+            .await
+            .expect("delete_user_device should succeed");
+        assert_eq!(rows, 1);
+
+        // Verify device is gone
+        let dev_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2",
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query devices table");
+        assert_eq!(dev_count, 0, "device must be deleted");
+
+        // Verify side effects: device_lists_changes must have a "deleted" row
+        let change_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM device_lists_changes WHERE user_id = $1 AND device_id = $2 AND change_type = 'deleted'",
+        )
+        .bind(&user_id)
+        .bind(&device_id)
+        .fetch_one(&*pool)
+        .await
+        .expect("query device_lists_changes table");
+        assert_eq!(change_count, 1, "device_lists_changes must have a deleted row (atomic commit)");
     }
 }
