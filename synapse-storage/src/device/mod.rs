@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::{Pool, Postgres, Row};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // ── Trait ───────────────────────────────────────────────────────────────
@@ -652,9 +652,14 @@ impl DeviceStorage {
             .map(|result| result.rows_affected())?;
 
         if rows_affected > 0 {
-            for (user_id, device_id) in rows {
-                let _ = self.delete_lazy_loaded_members_for_device(&user_id, &device_id).await;
-                let _ = self.record_device_list_change(&user_id, Some(&device_id), "deleted").await;
+            // Group deleted devices by user_id for batch side-effect writes
+            let mut by_user: HashMap<&str, Vec<String>> = HashMap::new();
+            for (ref user_id, device_id) in &rows {
+                by_user.entry(user_id.as_str()).or_default().push(device_id.clone());
+            }
+            for (user_id, user_device_ids) in &by_user {
+                let _ = self.delete_lazy_loaded_members_for_devices_batch(user_id, user_device_ids).await;
+                self.record_device_list_changes_batch_best_effort(user_id, user_device_ids, "deleted").await;
             }
         }
 
@@ -2100,5 +2105,34 @@ mod db_tests {
         .await
         .expect("query device_lists_changes table");
         assert_eq!(change_count, 1, "device_lists_changes must have a deleted row (atomic commit)");
+    }
+
+    #[tokio::test]
+    async fn test_delete_devices_batch_uses_batch_side_effects() {
+        let pool = test_pool().await;
+        let storage = DeviceStorage::new(&pool);
+        let suffix = uuid::Uuid::new_v4().simple().to_string().split_at(12).0.to_string();
+        let user_id = format!("@bdel_{}:example.com", suffix);
+        let did1 = format!("BDEL1_{}", suffix);
+        let did2 = format!("BDEL2_{}", suffix);
+        let did3 = format!("BDEL3_{}", suffix);
+
+        ensure_test_user(&pool, &user_id).await;
+        storage.create_device(&did1, &user_id, None).await.unwrap();
+        storage.create_device(&did2, &user_id, None).await.unwrap();
+        storage.create_device(&did3, &user_id, None).await.unwrap();
+
+        let rows = storage.delete_devices_batch(&[did1.clone(), did2.clone(), did3.clone()]).await.unwrap();
+        assert_eq!(rows, 3);
+
+        // All 3 device_lists_changes rows must exist
+        let change_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM device_lists_changes WHERE user_id = $1 AND device_id = ANY($2) AND change_type = 'deleted'",
+        )
+        .bind(&user_id)
+        .bind(&[&did1, &did2, &did3])
+        .fetch_one(&*pool)
+        .await.unwrap();
+        assert_eq!(change_count, 3, "all 3 devices must have deleted change records");
     }
 }
