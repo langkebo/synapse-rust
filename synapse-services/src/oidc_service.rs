@@ -398,29 +398,36 @@ impl OidcService {
 
                     debug!("OIDC ID token JWT signature verified successfully (kid={:?})", kid);
                 } else {
-                    tracing::warn!(
+                    tracing::error!(
                         kid = ?kid,
                         issuer = %self.config.issuer,
                         client_id = %self.config.client_id,
-                        "No matching JWKS key found, falling back to claim-only validation"
+                        "No matching JWKS key found for id_token kid; rejecting (no claim-only fallback)"
                     );
-                    self.validate_id_token_claims(id_token)?;
+                    return Err("id_token signature key (kid) not found in JWKS".to_string());
                 }
             }
             Err(e) => {
-                tracing::warn!(
+                tracing::error!(
                     error = %e,
                     issuer = %self.config.issuer,
                     client_id = %self.config.client_id,
-                    "Failed to fetch JWKS, falling back to claim-only validation"
+                    "Failed to fetch JWKS; rejecting id_token (no claim-only fallback)"
                 );
-                self.validate_id_token_claims(id_token)?;
+                return Err(format!("JWKS unavailable, cannot verify id_token signature: {e}"));
             }
         }
 
         Ok(())
     }
 
+    /// Claim-only validation of an id_token (iss/aud/exp), WITHOUT signature verification.
+    ///
+    /// NOTE: As of OPT-001 (audit 07 #1) this is intentionally NOT used as a fallback in
+    /// `validate_id_token`: accepting a token whose signature could not be verified is an
+    /// authentication bypass. Retained (not deleted) because it is security-relevant and may
+    /// be reused for contexts where the signature has already been verified separately.
+    #[allow(dead_code)]
     fn validate_id_token_claims(&self, id_token: &str) -> Result<(), String> {
         let parts: Vec<&str> = id_token.split('.').collect();
         if parts.len() != 3 {
@@ -645,6 +652,40 @@ mod tests {
         assert!(url.contains("response_type=code"));
         assert!(url.contains("state=test-state"));
         assert!(url.contains("scope="));
+    }
+
+    #[tokio::test]
+    async fn unknown_kid_must_not_fall_back_to_claim_only() {
+        use base64::Engine as _;
+
+        let service = create_test_service();
+
+        // Seed an EMPTY JWKS so fetch_jwks() "succeeds" (returns the cached value)
+        // but NO key matches the token's kid.
+        *service.jwks.write().await = Some(OidcJwks { keys: vec![] });
+
+        // Forge an unsigned id_token whose header references a kid that is not in the
+        // JWKS, but whose claims (iss/aud/exp) are all valid. This ensures the ONLY
+        // reason to reject is the missing signature key — not claim validation — so a
+        // genuine claim-only fallback would (incorrectly) accept it.
+        let header = serde_json::json!({ "alg": "RS256", "kid": "unknown-kid-not-in-jwks" });
+        let exp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + 3600;
+        let payload = serde_json::json!({
+            "iss": service.config.issuer,
+            "aud": service.config.client_id,
+            "exp": exp,
+        });
+
+        let header_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&header).unwrap());
+        let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+        let forged = format!("{header_b64}.{payload_b64}.sig");
+
+        let result = service.validate_id_token(&forged).await;
+        assert!(result.is_err(), "unknown kid must be rejected, not claim-only accepted; got {result:?}");
     }
 
     #[test]
