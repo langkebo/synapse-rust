@@ -93,6 +93,7 @@ pub struct KeyRotationManager {
     signing_keys_table_ready: Arc<AtomicBool>,
     signing_key_path: Option<String>,
     master_key: Option<Vec<u8>>,
+    allow_plaintext_signing_keys: bool,
     rotation_config: Arc<RwLock<FederationRotationConfig>>,
     signature_cache: Arc<ParkingLotRwLock<Option<Arc<FederationSignatureCache>>>>,
 }
@@ -128,8 +129,41 @@ impl KeyRotationManager {
             signing_keys_table_ready: Arc::new(AtomicBool::new(false)),
             signing_key_path,
             master_key,
+            allow_plaintext_signing_keys: false,
             rotation_config: Arc::new(RwLock::new(FederationRotationConfig::default())),
             signature_cache: Arc::new(ParkingLotRwLock::new(None)),
+        }
+    }
+
+    /// Opt in to persisting federation signing keys in plaintext when no master
+    /// key is configured. Defaults to `false` (secure): without a master key or
+    /// this opt-in, key persistence is refused.
+    pub fn with_allow_plaintext_signing_keys(mut self, allow: bool) -> Self {
+        self.allow_plaintext_signing_keys = allow;
+        self
+    }
+
+    /// Resolve how a signing secret key is stored at rest.
+    /// - master key present -> encrypt.
+    /// - no master key + explicit opt-in -> plaintext (with a warning).
+    /// - no master key + no opt-in -> refuse (security: no plaintext federation signing key at rest).
+    fn resolve_stored_secret_key(
+        master_key: &Option<Vec<u8>>,
+        allow_plaintext: bool,
+        secret_key: &str,
+    ) -> Result<String, ApiError> {
+        match master_key {
+            Some(mk) => encrypt_key(secret_key, mk)
+                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}"))),
+            None if allow_plaintext => {
+                tracing::warn!(
+                    "Storing federation signing key in plaintext (explicitly allowed) - configure signing_key_master_key for encryption at rest"
+                );
+                Ok(secret_key.to_string())
+            }
+            None => Err(ApiError::internal(
+                "Refusing to persist federation signing key without a master key. Set federation.signing_key_master_key to encrypt at rest, or explicitly allow plaintext.".to_string(),
+            )),
         }
     }
 
@@ -448,16 +482,8 @@ impl KeyRotationManager {
 
         *self.current_key.write().await = Some(signing_key.clone());
 
-        let stored_secret_key = match &self.master_key {
-            Some(mk) => encrypt_key(secret_key, mk)
-                .map_err(|e| ApiError::internal(format!("Failed to encrypt signing key: {e}")))?,
-            None => {
-                tracing::warn!(
-                    "Storing federation signing key in plaintext - configure signing_key_master_key for encryption"
-                );
-                secret_key.to_string()
-            }
-        };
+        let stored_secret_key =
+            Self::resolve_stored_secret_key(&self.master_key, self.allow_plaintext_signing_keys, secret_key)?;
 
         let key_json = json!({
             "public_key": signing_key.public_key
@@ -866,6 +892,22 @@ mod tests {
         let secret_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signing_key.as_bytes());
         let public_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(verifying_key.as_bytes());
         (secret_b64, public_b64)
+    }
+
+    #[test]
+    fn refuses_plaintext_persistence_without_master_key() {
+        // No master key, no opt-in -> refuse.
+        let err = KeyRotationManager::resolve_stored_secret_key(&None, false, "deadbeef").unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("master key"), "err was: {err}");
+
+        // Explicit opt-in -> plaintext allowed (returns the key verbatim).
+        let ok = KeyRotationManager::resolve_stored_secret_key(&None, true, "deadbeef").unwrap();
+        assert_eq!(ok, "deadbeef");
+
+        // With a master key -> encrypted (not equal to the plaintext input).
+        let mk = vec![0u8; 32];
+        let enc = KeyRotationManager::resolve_stored_secret_key(&Some(mk), false, "deadbeef").unwrap();
+        assert_ne!(enc, "deadbeef");
     }
 
     #[test]
