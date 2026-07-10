@@ -31,13 +31,11 @@ impl ToDeviceService {
         messages: &Value,
     ) -> Result<(), ApiError> {
         if let Some(mid) = message_id {
-            if self.storage.is_duplicate_transaction(sender_user_id, sender_device_id, mid).await? {
+            let is_first = self.storage.record_transaction(sender_user_id, sender_device_id, mid).await?;
+            if !is_first {
                 tracing::debug!("Duplicate to-device transaction {} from {}:{}", mid, sender_user_id, sender_device_id);
                 return Ok(());
             }
-
-            self.storage.record_transaction(sender_user_id, sender_device_id, mid).await?;
-
             let _ = self.storage.cleanup_old_transactions(TRANSACTION_MAX_AGE_MS).await;
         }
 
