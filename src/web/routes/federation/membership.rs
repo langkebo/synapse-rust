@@ -409,6 +409,11 @@ pub(super) async fn make_leave(
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
 
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
+    let room_version = federatable_room_version(&ctx, &room_id).await?;
+
     let auth_events = ctx.room_service.messaging.get_state_event_records(&room_id).await?;
 
     let auth_events_json: Vec<Value> = auth_events
@@ -421,8 +426,6 @@ pub(super) async fn make_leave(
             })
         })
         .collect();
-
-    let room_version = federatable_room_version(&ctx, &room_id).await?;
 
     Ok(Json(json!({
         "room_version": room_version,
@@ -538,6 +541,9 @@ pub(super) async fn send_leave(
 
     let event = body.get("event").ok_or_else(|| ApiError::bad_request("Event required".to_string()))?;
     let user_id = validate_federation_member_event(&auth.origin, &room_id, &event_id, event, "leave")?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     let params = synapse_storage::event::CreateEventParams {
@@ -589,6 +595,12 @@ pub(super) async fn invite(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     validate_federation_invite_event(&auth.origin, &room_id, &event_id, &body)?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // validate_federation_origin_in_room is the room-level access check; map its
+    // 403 (forbidden) to 404 (not found) to unify with the non-existent room case.
+    super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin)
+        .await
+        .map_err(|e| if e.is_forbidden() { ApiError::not_found("Room not found") } else { e })?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
     ::tracing::info!(
@@ -715,6 +727,9 @@ pub(super) async fn send_leave_v2(
         super::validate_federation_origin(&auth.origin, Some(origin))?;
     }
     let sender = validate_federation_member_event(&auth.origin, &room_id, &event_id, &body, "leave")?;
+    // OPT-017: Check room access BEFORE room version to prevent existence leaking.
+    // Access denied and non-existent rooms both return 404.
+    super::validate_federation_origin_can_observe_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
     let membership_content = serde_json::json!({
         "membership": "leave"
