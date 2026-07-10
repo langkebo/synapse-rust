@@ -29,6 +29,31 @@ endpoints:
     rule:
       per_second: 5
       burst_size: 20
+  - path: "/_matrix/client/v3/register"
+    match_type: "prefix"
+    rule:
+      per_second: 1
+      burst_size: 3
+  - path: "/_matrix/client/v3/account/password"
+    match_type: "prefix"
+    rule:
+      per_second: 1
+      burst_size: 3
+  - path: "/_matrix/client/v3/register/email/requestToken"
+    match_type: "prefix"
+    rule:
+      per_second: 1
+      burst_size: 3
+  - path: "/_matrix/client/v3/refresh"
+    match_type: "prefix"
+    rule:
+      per_second: 2
+      burst_size: 5
+  - path: "/_matrix/client/v3/keys/upload"
+    match_type: "prefix"
+    rule:
+      per_second: 5
+      burst_size: 10
 ip_header_priority:
   - "x-forwarded-for"
   - "x-real-ip"
