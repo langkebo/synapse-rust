@@ -15,7 +15,7 @@ async fn setup_test_app_with_sync_isolation_rate_limit(
     initial: RateLimitRule,
     incremental: RateLimitRule,
 ) -> Option<axum::Router> {
-    let pool = super::get_test_pool().await?;
+    let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.core.config.rate_limit.enabled = false;
     container.core.config.rate_limit.sync.enabled = true;
@@ -31,7 +31,7 @@ async fn setup_test_app_with_broken_sync_rate_limit_backend(
     initial: RateLimitRule,
     incremental: RateLimitRule,
 ) -> Option<axum::Router> {
-    let pool = super::get_test_pool().await?;
+    let pool = super::require_test_pool().await;
     let redis_pool = RedisPoolConfig::from_url("redis://127.0.0.1:1")
         .create_pool(Some(Runtime::Tokio1))
         .expect("failed to create Redis pool for broken backend test");
