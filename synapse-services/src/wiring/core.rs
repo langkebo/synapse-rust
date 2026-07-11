@@ -82,6 +82,7 @@ impl CoreServices {
         let account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         let account_data_service = Arc::new(crate::account_data_service::AccountDataService::new(
+            infra.cache.clone(),
             account_data_storage.clone(),
             user_storage.clone(),
             room_account_data_storage,

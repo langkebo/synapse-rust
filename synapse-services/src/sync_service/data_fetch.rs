@@ -221,6 +221,14 @@ impl SyncService {
     }
 
     pub(crate) async fn get_account_data_events(&self, user_id: &str) -> ApiResult<Vec<serde_json::Value>> {
+        // Cache-through: account data changes infrequently, so a 600 s TTL
+        // with write-through invalidation is safe (OPT-015-b, audit 04 §5).
+        const ACCOUNT_DATA_CACHE_TTL_SECS: u64 = 600;
+        let cache_key = format!("account_data:{user_id}");
+        if let Ok(Some(cached)) = self.cache.get::<Vec<serde_json::Value>>(&cache_key).await {
+            return Ok(cached);
+        }
+
         let rows = self
             .account_data_storage
             .list_account_data(user_id)
@@ -273,6 +281,8 @@ impl SyncService {
                 ),
             }));
         }
+
+        let _ = self.cache.set(&cache_key, &events, ACCOUNT_DATA_CACHE_TTL_SECS).await;
 
         Ok(events)
     }
@@ -630,8 +640,122 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use synapse_storage::account_data::AccountDataStoreApi;
     use synapse_storage::device::{Device, DeviceListStoreApi};
     use synapse_storage::test_mocks::InMemoryDeviceListStore;
+
+    /// [`AccountDataStoreApi`] test double that counts how many times
+    /// `list_account_data` is called, delegating every method to an inner
+    /// [`InMemoryAccountDataStore`]. Used to prove OPT-015-b caches
+    /// account data so two `/sync` calls hit storage only once.
+    #[derive(Debug)]
+    struct CountingAccountDataStore {
+        inner: synapse_storage::test_mocks::InMemoryAccountDataStore,
+        list_calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl synapse_storage::account_data::AccountDataStoreApi for CountingAccountDataStore {
+        async fn list_account_data(
+            &self,
+            user_id: &str,
+        ) -> Result<Vec<synapse_storage::account_data::AccountDataRecord>, ApiError> {
+            self.list_calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.list_account_data(user_id).await
+        }
+
+        async fn get_account_data_content(
+            &self,
+            user_id: &str,
+            data_type: &str,
+        ) -> Result<Option<serde_json::Value>, ApiError> {
+            self.inner.get_account_data_content(user_id, data_type).await
+        }
+
+        async fn delete_account_data(&self, user_id: &str, data_type: &str) -> Result<bool, ApiError> {
+            self.inner.delete_account_data(user_id, data_type).await
+        }
+
+        async fn upsert_account_data(
+            &self,
+            user_id: &str,
+            data_type: &str,
+            content: serde_json::Value,
+        ) -> Result<(), ApiError> {
+            self.inner.upsert_account_data(user_id, data_type, content).await
+        }
+    }
+
+    /// Builds a [`SyncService`] over in-memory account-data and member stores
+    /// plus a lazy pool for other storages, plus an in-memory cache.
+    fn sync_service_with_account_data_store(
+        account_data_store: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
+    ) -> SyncService {
+        let pool: Arc<sqlx::PgPool> = Arc::new(
+            sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy("postgres://synapse:synapse@localhost/synapse")
+                .expect("lazy pool"),
+        );
+        let cache = Arc::new(synapse_cache::CacheManager::new(&synapse_cache::CacheConfig::default()));
+
+        // Use in-memory member store so get_joined_rooms works without a real DB.
+        let member_store: Arc<dyn synapse_storage::membership::MemberStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryMemberStore::new());
+
+        SyncService::from_deps(SyncServiceDeps {
+            presence_storage: Arc::new(synapse_storage::presence::PresenceStorage::new(pool.clone(), cache.clone())),
+            member_storage: member_store,
+            event_storage: Arc::new(synapse_storage::event::EventStorage::new(&pool, "localhost".to_string())),
+            room_storage: Arc::new(synapse_storage::room::RoomStorage::new(&pool)),
+            room_account_data_storage: synapse_storage::room_account_data::RoomAccountDataStorage::new(&pool),
+            account_data_storage: account_data_store,
+            filter_storage: Arc::new(synapse_storage::filter::FilterStorage::new(&pool)),
+            device_storage: Arc::new(synapse_storage::test_mocks::InMemoryDeviceListStore::new()),
+            device_key_storage: synapse_e2ee::device_keys::DeviceKeyStorage::new(&pool),
+            key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(pool.clone()),
+            to_device_storage: synapse_e2ee::to_device::ToDeviceStorage::new(&pool),
+            metrics: Arc::new(synapse_common::MetricsCollector::new()),
+            performance: synapse_common::config::PerformanceConfig::default(),
+            cache,
+        })
+    }
+
+    #[tokio::test]
+    async fn account_data_events_are_cached_after_first_read() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = synapse_storage::test_mocks::InMemoryAccountDataStore::new();
+
+        // Seed one account-data row so the output is non-empty.
+        inner
+            .upsert_account_data(
+                "@alice:localhost",
+                "m.direct",
+                serde_json::json!({"@bob:localhost": ["!room1:localhost"]}),
+            )
+            .await
+            .expect("seed account data");
+
+        let account_data_store: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
+            Arc::new(CountingAccountDataStore { inner, list_calls: calls.clone() });
+
+        let sync = sync_service_with_account_data_store(account_data_store);
+
+        let first = sync
+            .get_account_data_events("@alice:localhost")
+            .await
+            .expect("first call");
+        let second = sync
+            .get_account_data_events("@alice:localhost")
+            .await
+            .expect("second call");
+
+        assert_eq!(first, second, "both calls must return the same account data");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "account data must be read from storage exactly once across two syncs",
+        );
+    }
 
     /// [`DeviceListStoreApi`] test double that counts how many times the GLOBAL
     /// device-list max stream id is read, delegating every other method to an
