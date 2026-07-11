@@ -232,10 +232,20 @@ fn should_fallback_to_isolated_pool(error: &str) -> bool {
         || error.contains("template schema initialization")
 }
 
+/// Returns an isolated schema pool for each call, bypassing the shared
+/// `TEST_POOL` OnceCell cache.
+///
+/// Previously this returned the shared `TEST_POOL`, which caused two problems:
+/// 1. PoolTimedOut: `#[tokio::test]` creates isolated runtimes; sqlx pool
+///    connections from other runtimes become isolated (project memory known issue).
+/// 2. Data interference: parallel tests shared the same schema and data.
+///
+/// Now each call returns a fresh schema cloned from the template (fast —
+/// ~100x faster than re-running migrations), providing per-test isolation.
 pub async fn require_test_pool() -> Arc<sqlx::PgPool> {
-    get_test_pool().await.unwrap_or_else(|| {
+    synapse_rust::test_utils::prepare_shared_test_pool().await.unwrap_or_else(|error| {
         panic!(
-            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed."
+            "Integration test requires database setup. For local runs, start PostgreSQL and apply migrations first; in CI this must already succeed. Error: {error}"
         )
     })
 }
