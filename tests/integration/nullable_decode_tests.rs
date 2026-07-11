@@ -76,3 +76,20 @@ async fn background_update_decodes_null_created_ts() {
     .expect("NULL created_ts must decode to None, not error");
     assert_eq!(row.created_ts, None);
 }
+
+#[tokio::test]
+async fn captcha_template_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::captcha::CaptchaTemplate = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS template_name, ''::text AS captcha_type, \
+         NULL::text AS subject, ''::text AS content, '{}'::jsonb AS variables, \
+         true AS is_default, true AS is_enabled, 0::bigint AS created_ts, \
+         NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
