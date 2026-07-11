@@ -19,7 +19,11 @@ async fn setup_federation_test_app_with_pool(
     key_id: &str,
     signing_key_b64: &str,
 ) -> Option<(axum::Router, Arc<sqlx::PgPool>)> {
-    let pool = super::get_test_pool().await?;
+    // Use require_test_pool() for per-test schema isolation. These
+    // directory-query tests create rooms and aliases that can be
+    // interfered with by other tests sharing the same schema in full
+    // suite runs. Each call clones a fresh schema from the template.
+    let pool = super::require_test_pool().await;
     let mut container = synapse_services::ServiceContainer::new_test_with_pool(pool.clone()).await;
     container.core.config.server.name = "localhost".to_string();
     container.core.server_name = "localhost".to_string();
