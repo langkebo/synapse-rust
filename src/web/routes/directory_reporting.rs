@@ -5,7 +5,6 @@ use crate::web::routes::{
     account_compat::{can_view_profile_for_requester_batch, enforce_profile_visibility},
     ensure_room_member_admin, validate_event_id, validate_room_alias, validate_room_id, validate_user_id,
 };
-use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
     extract::{Json, Path, Query, State},
@@ -50,12 +49,10 @@ async fn ensure_room_alias_write_allowed(
 
 pub(crate) async fn get_user_directory_profile(
     State(ctx): State<AdminContext>,
+    _auth_user: AuthenticatedUser,
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer_token(&headers)?;
-    let _ = ctx.auth_service.validate_token(&token).await?;
-
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
@@ -74,12 +71,9 @@ pub(crate) async fn get_user_directory_profile(
 
 pub(crate) async fn search_user_directory(
     State(ctx): State<AdminContext>,
-    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer_token(&headers)?;
-    let (requester_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
-
     let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(10).clamp(1, 100) as i64;
@@ -88,7 +82,7 @@ pub(crate) async fn search_user_directory(
 
     let target_user_ids: Vec<String> = results.iter().map(|u| u.user_id.clone()).collect();
     let visibility =
-        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&requester_id), &target_user_ids)
+        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&auth_user.user_id), &target_user_ids)
             .await?;
 
     let mut users = Vec::new();
@@ -126,12 +120,9 @@ fn encode_user_cursor(created_ts: i64, user_id: &str) -> String {
 
 pub(crate) async fn list_user_directory(
     State(ctx): State<AdminContext>,
-    headers: HeaderMap,
+    auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    let token = bearer_token(&headers)?;
-    let (requester_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
-
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
 
@@ -150,7 +141,7 @@ pub(crate) async fn list_user_directory(
 
     let target_user_ids: Vec<String> = users.iter().map(|u| u.user_id.clone()).collect();
     let visibility =
-        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&requester_id), &target_user_ids)
+        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&auth_user.user_id), &target_user_ids)
             .await?;
 
     let mut users_json = Vec::new();
