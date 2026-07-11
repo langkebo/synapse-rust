@@ -12,6 +12,8 @@ pub use synapse_storage as storage;
 pub mod container;
 pub use container::ServiceContainer;
 
+pub mod shutdown;
+
 pub mod wiring;
 
 pub mod capability_governance;

@@ -61,6 +61,7 @@ openapi-docs = ["dep:utoipa", "dep:utoipa-swagger-ui"]
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
+tokio-util = "0.7"
 async-trait = "0.1"
 
 axum = { version = "0.8", optional = true, features = ["macros"] }
