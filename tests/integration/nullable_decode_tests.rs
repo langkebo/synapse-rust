@@ -39,3 +39,20 @@ async fn module_execution_log_decodes_null_execution_time_ms() {
     .expect("NULL execution_time_ms must decode to None, not error");
     assert_eq!(row.execution_time_ms, None);
 }
+
+#[tokio::test]
+async fn user_privacy_settings_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::privacy::UserPrivacySettings = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS user_id, ''::text AS profile_visibility, \
+         ''::text AS avatar_visibility, ''::text AS displayname_visibility, \
+         ''::text AS presence_visibility, ''::text AS room_membership_visibility, \
+         0::bigint AS created_ts, NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
