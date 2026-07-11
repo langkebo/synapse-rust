@@ -68,6 +68,9 @@ impl MembershipService {
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
+        // Enqueue the invite event for matching application services.
+        self.dispatch_appservice_event(&invite_event).await;
+
         // Best-effort: sign and broadcast the invite event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&invite_event).await {
             ::tracing::warn!(

@@ -143,6 +143,9 @@ impl MembershipService {
         // Invalidate room-state cache after membership state change.
         let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
+        // Enqueue the join event for matching application services.
+        self.dispatch_appservice_event(&join_event).await;
+
         // Best-effort: sign and broadcast the join event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&join_event).await {
             ::tracing::warn!(
@@ -325,6 +328,7 @@ mod tests {
             room_summary_service,
             cache: Arc::new(CacheManager::new(&CacheConfig::default())),
             key_rotation_storage: Some(spy),
+            app_service_manager: None,
         })
     }
 

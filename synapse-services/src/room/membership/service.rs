@@ -36,6 +36,10 @@ pub struct MembershipService {
     /// Optional key-rotation storage. When present, leaving a LOCAL encrypted
     /// room marks the room's megolm session for rotation (forward secrecy).
     pub(crate) key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
+    /// Optional application-service manager. When present, membership events
+    /// (join, leave, invite, ban) are enqueued for matching application
+    /// services after they are persisted.
+    pub(crate) app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -52,6 +56,7 @@ pub struct MembershipServiceConfig {
     pub room_summary_service: Arc<RoomSummaryService>,
     pub cache: Arc<CacheManager>,
     pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
+    pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
 }
 
 impl MembershipService {
@@ -69,6 +74,7 @@ impl MembershipService {
             room_summary_service: config.room_summary_service,
             cache: config.cache,
             key_rotation_storage: config.key_rotation_storage,
+            app_service_manager: config.app_service_manager,
         }
     }
 
@@ -177,6 +183,35 @@ impl MembershipService {
         }
 
         Ok(())
+    }
+
+    /// Best-effort: enqueue a membership event for any matching application
+    /// services.  Called after the event is persisted so bridges receive
+    /// membership transitions (join, leave, invite, ban).
+    pub(crate) async fn dispatch_appservice_event(&self, event: &RoomEvent) {
+        let Some(app_service_manager) = &self.app_service_manager else {
+            return;
+        };
+
+        if let Err(error) = app_service_manager
+            .enqueue_matching_event(
+                &event.event_id,
+                &event.room_id,
+                &event.event_type,
+                &event.user_id,
+                &event.content,
+                event.state_key.as_deref(),
+            )
+            .await
+        {
+            ::tracing::warn!(
+                error = %error,
+                event_id = %event.event_id,
+                room_id = %event.room_id,
+                event_type = %event.event_type,
+                "Failed to enqueue application service event for membership transition"
+            );
+        }
     }
 
     /// Sign a locally-produced event and broadcast it to all remote servers

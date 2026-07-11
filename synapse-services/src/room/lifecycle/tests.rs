@@ -27,6 +27,7 @@ mod tests {
             server_name: "example.com".to_string(),
             room_summary_service: None,
             cache,
+            app_service_manager: None,
         })
     }
 
