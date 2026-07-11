@@ -201,3 +201,26 @@ async fn space_summary_decodes_null_children_count_and_member_count() {
     assert_eq!(row.children_count, None);
     assert_eq!(row.member_count, None);
 }
+
+#[tokio::test]
+async fn room_summary_decodes_null_member_counts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::room_summary::RoomSummary = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS room_id, NULL::text AS room_type, NULL::text AS name, \
+         NULL::text AS topic, NULL::text AS avatar_url, NULL::text AS canonical_alias, \
+         ''::text AS join_rules, ''::text AS history_visibility, ''::text AS guest_access, \
+         true AS is_direct, true AS is_space, true AS is_encrypted, NULL::bigint AS member_count, \
+         NULL::bigint AS joined_member_count, NULL::bigint AS invited_member_count, \
+         '{}'::jsonb AS hero_users, NULL::text AS last_event_id, NULL::bigint AS last_event_ts, \
+         NULL::bigint AS last_message_ts, 0::bigint AS unread_notifications, 0::bigint AS unread_highlight, \
+         NULL::bigint AS updated_ts, NULL::bigint AS created_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL member counts must decode to None, not error");
+    assert_eq!(row.member_count, None);
+    assert_eq!(row.joined_member_count, None);
+    assert_eq!(row.invited_member_count, None);
+}

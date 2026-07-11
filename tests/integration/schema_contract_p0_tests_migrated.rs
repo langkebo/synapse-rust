@@ -830,9 +830,9 @@ async fn test_schema_contract_room_summary_query_and_relation_closure() {
         .expect("Failed to create room summary contract fixture");
 
     assert_eq!(summary.room_id, room_id);
-    assert_eq!(summary.member_count, 0);
-    assert_eq!(summary.joined_member_count, 0);
-    assert_eq!(summary.invited_member_count, 0);
+    assert_eq!(summary.member_count, Some(0));
+    assert_eq!(summary.joined_member_count, Some(0));
+    assert_eq!(summary.invited_member_count, Some(0));
 
     storage
         .add_member(CreateSummaryMemberRequest {
@@ -866,9 +866,9 @@ async fn test_schema_contract_room_summary_query_and_relation_closure() {
         .expect("Failed to reload room summary after insert")
         .expect("Room summary should exist");
 
-    assert_eq!(after_insert.member_count, 2);
-    assert_eq!(after_insert.joined_member_count, 1);
-    assert_eq!(after_insert.invited_member_count, 1);
+    assert_eq!(after_insert.member_count, Some(2));
+    assert_eq!(after_insert.joined_member_count, Some(1));
+    assert_eq!(after_insert.invited_member_count, Some(1));
 
     let updated_member = storage
         .update_member(
@@ -894,9 +894,9 @@ async fn test_schema_contract_room_summary_query_and_relation_closure() {
         .expect("Failed to reload room summary after member update")
         .expect("Room summary should still exist");
 
-    assert_eq!(after_update.member_count, 2);
-    assert_eq!(after_update.joined_member_count, 2);
-    assert_eq!(after_update.invited_member_count, 0);
+    assert_eq!(after_update.member_count, Some(2));
+    assert_eq!(after_update.joined_member_count, Some(2));
+    assert_eq!(after_update.invited_member_count, Some(0));
 
     let visible_to_hero = storage.get_summaries_for_user(&hero).await.expect("Failed to query room summaries for hero");
     assert_eq!(visible_to_hero.len(), 1);
