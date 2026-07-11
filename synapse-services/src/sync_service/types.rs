@@ -114,13 +114,14 @@ pub struct SyncServiceDeps {
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub room_account_data_storage: RoomAccountDataStorage,
     pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-    pub filter_storage: FilterStorage,
+    pub filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub device_key_storage: DeviceKeyStorage,
     pub key_rotation_storage: KeyRotationStorage,
     pub to_device_storage: ToDeviceStorage,
     pub metrics: Arc<MetricsCollector>,
     pub performance: PerformanceConfig,
+    pub cache: Arc<synapse_cache::CacheManager>,
 }
 
 pub struct SyncServiceRequest<'a> {
