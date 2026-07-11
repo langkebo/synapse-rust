@@ -37,7 +37,7 @@ mod tests {
             expires_at: Some(1234567890),
             created_by: Some("@admin:example.com".to_string()),
             created_ts: 1234560_000,
-            updated_ts: 1234567000,
+            updated_ts: Some(1234567000),
             last_used_ts: Some(1234567000),
             allowed_email_domains: Some(vec!["example.com".to_string()]),
             allowed_user_ids: None,
