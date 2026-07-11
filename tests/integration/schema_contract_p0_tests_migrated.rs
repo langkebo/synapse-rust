@@ -101,7 +101,7 @@ async fn assert_column(
         r#"
         SELECT data_type, is_nullable, column_default, character_maximum_length
         FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+        WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2
         "#,
     )
     .bind(table_name)
@@ -136,7 +136,7 @@ async fn has_column(pool: &sqlx::PgPool, table_name: &str, column_name: &str) ->
         SELECT EXISTS (
             SELECT 1
             FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+            WHERE table_schema = current_schema() AND table_name = $1 AND column_name = $2
         )
         "#,
     )
@@ -156,7 +156,7 @@ async fn primary_key_columns(pool: &sqlx::PgPool, table_name: &str) -> Vec<Strin
         JOIN information_schema.key_column_usage kcu
           ON tc.constraint_name = kcu.constraint_name
          AND tc.table_schema = kcu.table_schema
-        WHERE tc.table_schema = 'public'
+        WHERE tc.table_schema = current_schema()
           AND tc.table_name = $1
           AND tc.constraint_type = 'PRIMARY KEY'
         ORDER BY kcu.ordinal_position
@@ -178,7 +178,7 @@ async fn has_unique_constraint_on(pool: &sqlx::PgPool, table_name: &str, columns
         JOIN information_schema.key_column_usage kcu
           ON tc.constraint_name = kcu.constraint_name
          AND tc.table_schema = kcu.table_schema
-        WHERE tc.table_schema = 'public'
+        WHERE tc.table_schema = current_schema()
           AND tc.table_name = $1
           AND tc.constraint_type = 'UNIQUE'
         GROUP BY tc.constraint_name
@@ -200,7 +200,7 @@ async fn has_index_named(pool: &sqlx::PgPool, index_name: &str) -> bool {
         SELECT EXISTS (
             SELECT 1
             FROM pg_indexes
-            WHERE schemaname = 'public' AND indexname = $1
+            WHERE schemaname = current_schema() AND indexname = $1
         )
         "#,
     )
@@ -208,6 +208,35 @@ async fn has_index_named(pool: &sqlx::PgPool, index_name: &str) -> bool {
     .fetch_one(pool)
     .await
     .expect("Failed to query pg_indexes")
+}
+
+/// Checks whether an index exists on the given column(s) of a table,
+/// regardless of the index name. This is needed because `CREATE TABLE LIKE ...
+/// INCLUDING ALL` copies indexes but assigns auto-generated names.
+async fn has_index_on_column(pool: &sqlx::PgPool, table_name: &str, column_name: &str) -> bool {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_indexes i
+            JOIN pg_class c ON c.relname = i.tablename
+            JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = i.schemaname
+            JOIN pg_index idx ON idx.indexrelid = (
+                SELECT oid FROM pg_class WHERE relname = i.indexname AND relnamespace = n.oid
+            )
+            JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
+            WHERE i.schemaname = current_schema()
+              AND i.tablename = $1
+              AND a.attname = $2
+              AND idx.indnatts = 1
+        )
+        "#,
+    )
+    .bind(table_name)
+    .bind(column_name)
+    .fetch_one(pool)
+    .await
+    .expect("Failed to query index on column")
 }
 
 async fn seed_users_and_room(pool: &sqlx::PgPool, suffix: &str) -> (String, String, String) {
@@ -749,7 +778,7 @@ async fn test_schema_contract_device_verification_request_shape() {
                 JOIN information_schema.key_column_usage kcu
                   ON tc.constraint_name = kcu.constraint_name
                  AND tc.table_schema = kcu.table_schema
-                WHERE tc.table_schema = 'public'
+                WHERE tc.table_schema = current_schema()
                   AND tc.table_name = 'device_verification_request'
                   AND tc.constraint_type IN ('UNIQUE', 'PRIMARY KEY')
                   AND kcu.column_name = 'request_token'
@@ -1216,9 +1245,20 @@ async fn test_schema_contract_search_index_shape() {
         has_unique_constraint_on(&pool, "search_index", &["event_id"]).await,
         "Expected search_index UNIQUE(event_id)"
     );
-    assert!(has_index_named(&pool, "idx_search_index_room").await, "Expected search_index index idx_search_index_room");
-    assert!(has_index_named(&pool, "idx_search_index_user").await, "Expected search_index index idx_search_index_user");
-    assert!(has_index_named(&pool, "idx_search_index_type").await, "Expected search_index index idx_search_index_type");
+    // CREATE TABLE LIKE ... INCLUDING ALL copies indexes with auto-generated names,
+    // so check by column rather than by index name.
+    assert!(
+        has_index_on_column(&pool, "search_index", "room_id").await,
+        "Expected search_index index on room_id"
+    );
+    assert!(
+        has_index_on_column(&pool, "search_index", "user_id").await,
+        "Expected search_index index on user_id"
+    );
+    assert!(
+        has_index_on_column(&pool, "search_index", "event_type").await,
+        "Expected search_index index on event_type"
+    );
 }
 
 #[tokio::test]
@@ -1815,7 +1855,7 @@ async fn test_schema_contract_room_summary_queue_processor_service_closure() {
     assert_eq!(processed_queue_rows[1].get::<String, _>("status"), "failed");
     assert_eq!(
         processed_queue_rows[1].get::<Option<String>, _>("error_message").as_deref(),
-        Some("Not found: Event not found")
+        Some("M_NOT_FOUND: Event not found")
     );
     assert_eq!(processed_queue_rows[1].get::<i32, _>("retry_count"), 1);
     assert_eq!(processed_queue_rows[2].get::<String, _>("status"), "processed");
