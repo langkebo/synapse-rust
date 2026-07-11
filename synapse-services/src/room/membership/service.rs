@@ -6,6 +6,7 @@
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
@@ -29,6 +30,7 @@ pub struct MembershipService {
     pub(crate) key_rotation_manager: Option<Arc<KeyRotationManager>>,
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
+    pub(crate) cache: Arc<CacheManager>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -43,6 +45,7 @@ pub struct MembershipServiceConfig {
     pub key_rotation_manager: Option<Arc<KeyRotationManager>>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub room_summary_service: Arc<RoomSummaryService>,
+    pub cache: Arc<CacheManager>,
 }
 
 impl MembershipService {
@@ -58,6 +61,7 @@ impl MembershipService {
             key_rotation_manager: config.key_rotation_manager,
             event_broadcaster: config.event_broadcaster,
             room_summary_service: config.room_summary_service,
+            cache: config.cache,
         }
     }
 

@@ -4,6 +4,7 @@
 //! Extracted from RoomService as part of the domain split plan (Task 4).
 
 use std::sync::Arc;
+use synapse_cache::CacheManager;
 use synapse_common::validation::Validator;
 use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
 
@@ -20,6 +21,7 @@ pub struct LifecycleService {
     /// Direct reference to RoomSummaryService, injected during construction
     /// instead of via a back-reference to RoomService.
     pub(crate) room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
+    pub(crate) cache: Arc<CacheManager>,
 }
 
 /// Configuration for constructing a [`LifecycleService`].
@@ -31,6 +33,7 @@ pub struct LifecycleServiceConfig {
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub room_summary_service: Option<Arc<crate::room::summary::RoomSummaryService>>,
+    pub cache: Arc<CacheManager>,
 }
 
 impl LifecycleService {
@@ -43,6 +46,7 @@ impl LifecycleService {
             validator: config.validator,
             server_name: config.server_name,
             room_summary_service: config.room_summary_service,
+            cache: config.cache,
         }
     }
 }

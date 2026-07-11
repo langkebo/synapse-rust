@@ -65,6 +65,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member invite event", &e))?;
 
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // Best-effort: sign and broadcast the invite event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&invite_event).await {
             ::tracing::warn!(
@@ -196,6 +199,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member ban event", &e))?;
 
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // Best-effort: sign and broadcast the ban event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&ban_event).await {
             ::tracing::warn!(
@@ -239,6 +245,9 @@ impl MembershipService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member unban event", &e))?;
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
         // Best-effort: sign and broadcast the unban event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&unban_event).await {
@@ -308,6 +317,9 @@ impl MembershipService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member kick event", &e))?;
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
         // Best-effort: sign and broadcast the kick event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&kick_event).await {

@@ -7,6 +7,7 @@ use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use synapse_cache::CacheManager;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::signing::sign_and_hash_event;
 use synapse_storage::event::{EventStoreApi, RoomEvent};
@@ -40,6 +41,7 @@ pub struct MessagingService {
     pub(crate) key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
     /// Room summary service for updating room metadata on events.
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
+    pub(crate) cache: Arc<CacheManager>,
 }
 
 /// Configuration for constructing a [`MessagingService`].
@@ -58,6 +60,7 @@ pub struct MessagingServiceConfig {
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     pub key_rotation_manager: Option<Arc<synapse_federation::KeyRotationManager>>,
     pub room_summary_service: Arc<RoomSummaryService>,
+    pub cache: Arc<CacheManager>,
 }
 
 impl MessagingService {
@@ -78,6 +81,7 @@ impl MessagingService {
             app_service_manager: config.app_service_manager,
             key_rotation_manager: config.key_rotation_manager,
             room_summary_service: config.room_summary_service,
+            cache: config.cache,
         }
     }
 
