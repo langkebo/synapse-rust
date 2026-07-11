@@ -38,7 +38,7 @@ pub struct SlidingSyncRoom {
     pub room_id: String,
     pub conn_id: Option<String>,
     pub list_key: Option<String>,
-    pub bump_stamp: i64,
+    pub bump_stamp: Option<i64>,
     pub highlight_count: i32,
     pub notification_count: i32,
     pub is_dm: bool,
@@ -49,7 +49,7 @@ pub struct SlidingSyncRoom {
     pub is_invited: bool,
     pub name: Option<String>,
     pub avatar: Option<String>,
-    pub timestamp: i64,
+    pub timestamp: Option<i64>,
     pub created_ts: i64,
     pub updated_ts: i64,
 }

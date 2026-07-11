@@ -146,3 +146,22 @@ async fn registration_token_usage_decodes_null_token_id() {
     .expect("NULL token_id must decode to None, not error");
     assert_eq!(row.token_id, None);
 }
+
+#[tokio::test]
+async fn sliding_sync_room_decodes_null_bump_stamp_and_timestamp() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::SlidingSyncRoom = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS user_id, ''::text AS device_id, ''::text AS room_id, \
+         NULL::text AS conn_id, NULL::text AS list_key, NULL::bigint AS bump_stamp, \
+         0::int AS highlight_count, 0::int AS notification_count, true AS is_dm, \
+         true AS is_encrypted, true AS is_tombstoned, true AS invited, NULL::text AS name, \
+         NULL::text AS avatar, NULL::bigint AS timestamp, 0::bigint AS created_ts, 0::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL bump_stamp/timestamp must decode to None, not error");
+    assert_eq!(row.bump_stamp, None);
+    assert_eq!(row.timestamp, None);
+}
