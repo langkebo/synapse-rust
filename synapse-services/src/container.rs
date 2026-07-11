@@ -373,7 +373,12 @@ impl ServiceContainer {
 
         if run_global_maintenance && wiring::admin::burn_after_read_processor_enabled(processor_cfg) {
             container.extensions.burn_after_read.recover_pending_burns().await;
-            container.extensions.burn_after_read.clone().start_burn_processor().await;
+            let _ = container
+                .extensions
+                .burn_after_read
+                .clone()
+                .start_burn_processor(container.shutdown_token.clone())
+                .await;
         } else {
             ::tracing::info!(
                 worker_type = current_worker_type.as_str(),
