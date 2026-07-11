@@ -54,7 +54,7 @@ pub struct ApplicationServiceTransaction {
     pub txn_id: String,
     pub transaction_id: Option<String>,
     pub events: serde_json::Value,
-    pub sent_ts: i64,
+    pub sent_ts: Option<i64>,
     pub completed_ts: Option<i64>,
     pub retry_count: i32,
     pub last_error: Option<String>,

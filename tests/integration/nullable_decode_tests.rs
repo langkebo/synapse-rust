@@ -93,3 +93,19 @@ async fn captcha_template_decodes_null_updated_ts() {
     .expect("NULL updated_ts must decode to None, not error");
     assert_eq!(row.updated_ts, None);
 }
+
+#[tokio::test]
+async fn application_service_transaction_decodes_null_sent_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::application_service::ApplicationServiceTransaction = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS as_id, ''::text AS txn_id, \
+         NULL::text AS transaction_id, '{}'::jsonb AS events, NULL::bigint AS sent_ts, \
+         NULL::bigint AS completed_ts, 0::int AS retry_count, NULL::text AS last_error",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL sent_ts must decode to None, not error");
+    assert_eq!(row.sent_ts, None);
+}
