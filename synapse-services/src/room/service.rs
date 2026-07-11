@@ -69,6 +69,10 @@ pub struct RoomServiceConfig {
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
     pub cache: Arc<CacheManager>,
+    /// Optional key-rotation storage injected into the membership sub-service so
+    /// that leaving a LOCAL encrypted room marks the megolm session for
+    /// rotation (forward secrecy). `None` in test setups.
+    pub key_rotation_storage: Option<Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>>,
 }
 
 pub struct RoomService {
@@ -117,6 +121,7 @@ impl RoomService {
             event_broadcaster: infra.event_broadcaster.clone(),
             room_summary_service: config.room_summary_service.clone(),
             cache: config.cache.clone(),
+            key_rotation_storage: config.key_rotation_storage.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 

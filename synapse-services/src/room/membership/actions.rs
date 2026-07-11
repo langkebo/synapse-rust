@@ -217,6 +217,24 @@ impl MembershipService {
             );
         }
 
+        // Forward secrecy: when a member leaves a LOCAL encrypted room, mark the
+        // room's megolm session for rotation so the departed member cannot
+        // decrypt future messages. Remote rooms return early above.
+        if let Some(key_rotation_storage) = &self.key_rotation_storage {
+            let encryption_state =
+                self.get_state_events_by_type(room_id, "m.room.encryption").await.unwrap_or_default();
+            if !encryption_state.is_empty() {
+                if let Err(e) = key_rotation_storage.mark_key_rotation_needed(room_id, user_id).await {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        error = %e,
+                        "Failed to mark key rotation needed after leave of encrypted room"
+                    );
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -253,5 +271,102 @@ impl MembershipService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_e2ee::test_mocks::InMemoryKeyRotationStorage;
+    use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::FakeAuth;
+
+    use super::super::service::{MembershipService, MembershipServiceConfig};
+
+    const ROOM_ID: &str = "!enc:localhost";
+    const USER_ID: &str = "@bob:localhost";
+
+    /// Build a [`MembershipService`] wired with in-memory mocks and the given
+    /// key-rotation spy, seeded with `@bob:localhost` joined to `!enc:localhost`.
+    async fn build_service(spy: Arc<InMemoryKeyRotationStorage>) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        member_store.add_member(ROOM_ID, USER_ID, "join", None).await.unwrap();
+
+        let event_store = InMemoryEventStore::new();
+        let room_store = InMemoryRoomStore::new();
+
+        let event_storage: Arc<dyn EventStoreApi> = Arc::new(event_store);
+        let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
+        let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
+        let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
+
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            Arc::new(InMemoryRoomSummaryStore::new()),
+            event_storage.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_storage,
+            user_storage,
+            auth_service: Arc::new(FakeAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: Some(spy),
+        })
+    }
+
+    /// Seed an `m.room.encryption` state event into the service's event store.
+    async fn seed_encryption_event(svc: &MembershipService) {
+        svc.event_storage
+            .create_event(
+                synapse_storage::CreateEventParams {
+                    event_id: "$enc:localhost".to_string(),
+                    room_id: ROOM_ID.to_string(),
+                    user_id: USER_ID.to_string(),
+                    event_type: "m.room.encryption".to_string(),
+                    content: serde_json::json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: 1_000,
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn leave_encrypted_room_marks_key_rotation() {
+        let spy = Arc::new(InMemoryKeyRotationStorage::new());
+        let svc = build_service(spy.clone()).await;
+        seed_encryption_event(&svc).await;
+
+        svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
+
+        assert_eq!(spy.marked_rotations().await, vec![(ROOM_ID.to_string(), USER_ID.to_string())]);
+    }
+
+    #[tokio::test]
+    async fn leave_unencrypted_room_does_not_mark_rotation() {
+        let spy = Arc::new(InMemoryKeyRotationStorage::new());
+        let svc = build_service(spy.clone()).await;
+        // No m.room.encryption state event seeded.
+
+        svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
+
+        assert!(spy.marked_rotations().await.is_empty());
     }
 }

@@ -16,6 +16,7 @@ pub struct InMemoryKeyRotationStorage {
     rotation_history: Arc<RwLock<HashMap<String, RotationHistoryEntry>>>,
     config: Arc<RwLock<HashMap<String, String>>>,
     key_rotation_ts: Arc<RwLock<HashMap<String, i64>>>,
+    marked_rotations: Arc<RwLock<Vec<(String, String)>>>,
 }
 
 impl InMemoryKeyRotationStorage {
@@ -35,6 +36,12 @@ impl InMemoryKeyRotationStorage {
     ) {
         let key = format!("{}:{}", user_id, device_id);
         self.rotation_history.write().await.insert(key, history);
+    }
+
+    /// Return the `(room_id, leaving_user_id)` pairs recorded via
+    /// [`KeyRotationStorageApi::mark_key_rotation_needed`].
+    pub async fn marked_rotations(&self) -> Vec<(String, String)> {
+        self.marked_rotations.read().await.clone()
     }
 }
 
@@ -69,5 +76,10 @@ impl KeyRotationStorageApi for InMemoryKeyRotationStorage {
 
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
         Ok(self.last_rotation_ts.read().await.get(user_id).copied().unwrap_or(0))
+    }
+
+    async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
+        self.marked_rotations.write().await.push((room_id.to_string(), leaving_user_id.to_string()));
+        Ok(())
     }
 }
