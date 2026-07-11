@@ -182,7 +182,7 @@ fn test_sliding_sync_room_struct() {
         room_id: "!room:example.com".to_string(),
         conn_id: None,
         list_key: Some("main".to_string()),
-        bump_stamp: 1234567890000,
+        bump_stamp: Some(1234567890000),
         highlight_count: 5,
         notification_count: 10,
         is_dm: true,
@@ -191,7 +191,7 @@ fn test_sliding_sync_room_struct() {
         is_invited: false,
         name: Some("Test Room".to_string()),
         avatar: None,
-        timestamp: 1234567890000,
+        timestamp: Some(1234567890000),
         created_ts: 1234567890000,
         updated_ts: 1234567890000,
     };

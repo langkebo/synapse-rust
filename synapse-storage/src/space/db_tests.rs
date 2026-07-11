@@ -355,7 +355,7 @@ async fn test_get_space_summary_and_update() {
     let after = storage.get_space_summary(&space.space_id).await.unwrap();
     assert!(after.is_some());
     let s = after.unwrap();
-    assert!(s.member_count >= 1, "should have at least the creator as member");
+    assert!(s.member_count.unwrap_or(0) >= 1, "should have at least the creator as member");
 
     cleanup(&pool, &space.space_id).await;
 }
