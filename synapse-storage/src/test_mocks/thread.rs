@@ -47,7 +47,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
             root_event_id: params.root_event_id.clone(),
             sender: params.sender.clone(),
             thread_id: params.thread_id.clone(),
-            reply_count: 0,
+            reply_count: Some(0),
             last_reply_event_id: None,
             last_reply_sender: None,
             last_reply_ts: None,
@@ -145,7 +145,7 @@ impl crate::thread::ThreadStoreApi for InMemoryThreadStore {
         let mut roots = self.roots.write().await;
         for root in roots.iter_mut() {
             if root.room_id == params.room_id && root.thread_id.as_deref() == Some(params.thread_id.as_str()) {
-                root.reply_count += 1;
+                root.reply_count = Some(root.reply_count.unwrap_or(0) + 1);
                 root.last_reply_event_id = Some(params.event_id.clone());
                 root.last_reply_sender = Some(params.sender.clone());
                 root.last_reply_ts = Some(params.origin_server_ts);
