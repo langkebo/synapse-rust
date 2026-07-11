@@ -245,3 +245,20 @@ async fn user_decodes_null_generation() {
     .expect("NULL generation must decode to None, not error");
     assert_eq!(row.generation, None);
 }
+
+#[tokio::test]
+async fn thread_root_decodes_null_reply_count() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::thread::ThreadRoot = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS room_id, ''::text AS root_event_id, ''::text AS sender, \
+         NULL::text AS thread_id, NULL::bigint AS reply_count, NULL::text AS last_reply_event_id, \
+         NULL::text AS last_reply_sender, NULL::bigint AS last_reply_ts, NULL::jsonb AS participants, \
+         false AS is_fetched, 0::bigint AS created_ts, NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL reply_count must decode to None, not error");
+    assert_eq!(row.reply_count, None);
+}

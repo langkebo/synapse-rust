@@ -89,7 +89,7 @@ impl From<synapse_storage::thread::ThreadRoot> for ThreadResponse {
             root_event_id: root.root_event_id,
             room_id: root.room_id,
             sender: root.sender,
-            reply_count: root.reply_count,
+            reply_count: root.reply_count.unwrap_or(0),
             last_reply_event_id: root.last_reply_event_id,
             last_reply_sender: root.last_reply_sender,
             last_reply_ts: root.last_reply_ts,
