@@ -134,7 +134,7 @@ pub struct ModuleExecutionLog {
     pub module_type: String,
     pub event_id: Option<String>,
     pub room_id: Option<String>,
-    pub execution_time_ms: i64,
+    pub execution_time_ms: Option<i64>,
     pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
