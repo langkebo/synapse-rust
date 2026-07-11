@@ -15,7 +15,19 @@ impl SlidingSyncService {
             return Ok(Vec::new());
         };
 
-        let state_events = self.event_storage.get_state_events(room_id).await?;
+        let cache_key = format!("room_state:{room_id}");
+
+        // Try cache first.
+        let state_events: Vec<StateEvent> = match self.cache.get::<Vec<StateEvent>>(&cache_key).await {
+            Ok(Some(cached)) => cached,
+            _ => {
+                let fetched = self.event_storage.get_state_events(room_id).await?;
+                // Best-effort cache write; failure is non-fatal.
+                let _ = self.cache.set(&cache_key, &fetched, 300).await;
+                fetched
+            }
+        };
+
         Ok(state_events
             .into_iter()
             .filter(|event| Self::required_state_matches(required_state, event))

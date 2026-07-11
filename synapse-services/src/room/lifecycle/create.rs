@@ -432,6 +432,10 @@ impl LifecycleService {
         }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
+
+        // Invalidate room-state cache after room creation writes initial state.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         Ok(Self::build_room_response(&room_id, room_alias.as_deref()))
     }
 

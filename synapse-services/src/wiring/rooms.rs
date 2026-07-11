@@ -85,6 +85,7 @@ impl RoomSyncServices {
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
+            cache: infra.cache.clone(),
         }));
 
         let sync_room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);

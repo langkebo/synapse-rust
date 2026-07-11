@@ -140,6 +140,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
 
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // Best-effort: sign and broadcast the join event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&join_event).await {
             ::tracing::warn!(
@@ -200,6 +203,9 @@ impl MembershipService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
 
         // Best-effort: sign and broadcast the leave event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&leave_event).await {
