@@ -1225,7 +1225,11 @@ async fn test_appservice_background_sender_flushes_pending_queue() {
             description: Some("background sender bridge".to_string()),
             is_rate_limited: Some(false),
             protocols: None,
-            namespaces: None,
+            namespaces: Some(json!({
+                "users": [{"exclusive": false, "regex": "@.*:localhost"}],
+                "aliases": [],
+                "rooms": [{"exclusive": false, "regex": "!.*:localhost"}]
+            })),
             api_key: None,
             config: None,
         })
@@ -1314,7 +1318,11 @@ async fn test_appservice_fatal_delivery_failures_disable_service_and_persist_sta
             description: Some("failing bridge".to_string()),
             is_rate_limited: Some(false),
             protocols: None,
-            namespaces: None,
+            namespaces: Some(json!({
+                "users": [{"exclusive": false, "regex": "@.*:localhost"}],
+                "aliases": [],
+                "rooms": [{"exclusive": false, "regex": "!.*:localhost"}]
+            })),
             api_key: None,
             config: None,
         })
