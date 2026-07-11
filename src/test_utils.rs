@@ -524,6 +524,41 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     '{schema_name}', r.tablename, '{template_name}', r.tablename
                 );
             END LOOP;
+            -- Restore original index names from template.
+            -- CREATE TABLE LIKE ... INCLUDING ALL copies indexes but PostgreSQL
+            -- assigns auto-generated names. Tests check for specific index names
+            -- via has_index_named(), so we drop non-constraint indexes (which
+            -- have auto-generated names) and recreate them from the template's
+            -- index definitions (which have the original names).
+            FOR r IN
+                SELECT c.relname AS idx_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{schema_name}'
+                JOIN pg_index i ON i.indexrelid = c.oid
+                WHERE c.relkind = 'i'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_constraint con WHERE con.conindid = c.oid
+                  )
+            LOOP
+                EXECUTE format('DROP INDEX %I.%I', '{schema_name}', r.idx_name);
+            END LOOP;
+            FOR r IN
+                SELECT t.indexdef AS def
+                FROM pg_indexes t
+                WHERE t.schemaname = '{template_name}'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_constraint con
+                      JOIN pg_class c ON c.oid = con.conindid
+                      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{template_name}'
+                      WHERE c.relname = t.indexname
+                  )
+            LOOP
+                BEGIN
+                    EXECUTE REPLACE(r.def, '{template_name}.', '{schema_name}.');
+                EXCEPTION WHEN OTHERS THEN
+                    NULL;
+                END;
+            END LOOP;
             -- Copy migration seed rows for reference/config tables only.
 {seed_copy_stmts}
             -- Copy sequences with their current values so id generation stays consistent.
