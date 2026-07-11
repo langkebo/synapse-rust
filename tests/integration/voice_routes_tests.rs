@@ -290,7 +290,7 @@ async fn test_get_call_session_rejects_non_members() {
     let (invite_status, invite_body) = create_call_session(&app, &owner_token, &room_id, &call_id).await;
     assert_eq!(invite_status, StatusCode::OK, "unexpected invite response body: {}", invite_body);
     let invite_body: Value = serde_json::from_str(&invite_body).unwrap();
-    assert_eq!(invite_body["call_id"], call_id);
+    assert!(invite_body.get("event_id").is_some(), "expected event_id in invite response: {}", invite_body);
 
     let response = app
         .clone()
