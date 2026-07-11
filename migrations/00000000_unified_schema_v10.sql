@@ -643,7 +643,7 @@ CREATE TABLE IF NOT EXISTS device_trust_status (
     device_id TEXT NOT NULL,
     trust_level TEXT NOT NULL DEFAULT 'unverified',
     verified_by_device_id TEXT,
-    verified_at TIMESTAMPTZ,
+    verified_at BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT uq_device_trust_status_user_device UNIQUE (user_id, device_id)
@@ -655,7 +655,7 @@ CREATE TABLE IF NOT EXISTS cross_signing_trust (
     target_user_id TEXT NOT NULL,
     master_key_id TEXT,
     is_trusted BOOLEAN NOT NULL DEFAULT FALSE,
-    trusted_at TIMESTAMPTZ,
+    trusted_at BIGINT,
     created_ts BIGINT NOT NULL,
     updated_ts BIGINT,
     CONSTRAINT uq_cross_signing_trust_user_target UNIQUE (user_id, target_user_id)

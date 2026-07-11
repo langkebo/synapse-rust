@@ -512,6 +512,8 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
         DO $$
         DECLARE
             r RECORD;
+            v_attempts INTEGER;
+            v_created INTEGER;
         BEGIN
             EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
             FOR r IN
@@ -538,6 +540,32 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     '{template_name}', r.sequence_name,
                     '{template_name}', r.sequence_name
                 );
+            END LOOP;
+            -- Clone views from the template schema.
+            -- Views are NOT copied by CREATE TABLE LIKE, so we recreate them.
+            -- pg_views.definition stores schema-qualified table references (resolved
+            -- at creation time), so we must replace the template schema name with the
+            -- new schema name to make views reference the cloned tables.
+            EXECUTE format('SET search_path TO %I, public', '{schema_name}');
+            v_attempts := 0;
+            LOOP
+                v_attempts := v_attempts + 1;
+                v_created := 0;
+                FOR r IN
+                    SELECT viewname, definition FROM pg_views WHERE schemaname = '{template_name}' ORDER BY viewname
+                LOOP
+                    BEGIN
+                        EXECUTE format(
+                            'CREATE OR REPLACE VIEW %I.%I AS %s',
+                            '{schema_name}', r.viewname,
+                            REPLACE(r.definition, '{template_name}.', '{schema_name}.')
+                        );
+                        v_created := v_created + 1;
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END LOOP;
+                EXIT WHEN v_created = 0 OR v_attempts >= 5;
             END LOOP;
         END $$;
         "
