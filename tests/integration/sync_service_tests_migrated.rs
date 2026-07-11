@@ -389,13 +389,14 @@ async fn test_sync_success() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     // Create a room and send a message
@@ -446,13 +447,14 @@ async fn test_incremental_sync_does_not_replay_old_timeline() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let config = CreateRoomConfig { name: Some("Incremental Room".to_string()), ..Default::default() };
@@ -492,13 +494,14 @@ async fn test_sync_offline_presence_overwrites_previous_presence_state() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     sync_service.sync("@alice:localhost", None, 0, false, "online", None, None).await.unwrap();
@@ -529,13 +532,14 @@ async fn test_sync_presence_events_reflect_persisted_presence_state() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let response = sync_service.sync("@alice:localhost", None, 0, false, "unavailable", None, None).await.unwrap();
@@ -571,13 +575,14 @@ async fn test_incremental_lazy_load_does_not_repeat_unchanged_non_member_state()
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -675,13 +680,14 @@ async fn test_incremental_sync_includes_state_only_change_without_lazy_load() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -793,13 +799,14 @@ async fn test_incremental_lazy_load_includes_room_with_state_only_change_despite
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -904,13 +911,14 @@ async fn test_sync_timeline_limit_preserves_chronological_order_without_false_li
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -990,13 +998,14 @@ async fn test_incremental_lazy_load_limited_timeline_does_not_replay_state_delta
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1168,13 +1177,14 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let device_storage = DeviceStorage::new(&pool);
@@ -1278,13 +1288,14 @@ async fn test_lazy_loaded_members_restore_from_db_after_service_restart() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service
@@ -1346,13 +1357,14 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1437,13 +1449,14 @@ async fn test_include_redundant_members_survives_service_restart_with_persisted_
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service
@@ -1516,13 +1529,14 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         room_storage.clone(),
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     DeviceStorage::new(&pool).create_device("ALICEDEVICE", "@alice:localhost", Some("Alice phone")).await.unwrap();
@@ -1597,13 +1611,14 @@ async fn test_stored_filter_id_restores_lazy_loaded_cache_after_service_restart(
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         ToDeviceStorage::new(&pool),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     room_service

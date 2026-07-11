@@ -287,13 +287,14 @@ async fn test_to_device_next_batch_token_respects_limit() {
         room_storage,
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let user_id = "@alice:localhost";
@@ -357,13 +358,14 @@ async fn test_to_device_messages_are_deleted_after_ack() {
         Arc::new(RoomStorage::new(&pool)),
         RoomAccountDataStorage::new(&pool),
         Arc::new(AccountDataStorage::new(&pool)),
-        FilterStorage::new(&pool),
+        Arc::new(FilterStorage::new(&pool)),
         Arc::new(DeviceStorage::new(&pool)),
         DeviceKeyStorage::new(&pool),
         KeyRotationStorage::new(pool.clone()),
         to_device_storage.clone(),
         Arc::new(MetricsCollector::new()),
         PerformanceConfig::default(),
+        Arc::new(CacheManager::new(&CacheConfig::default())),
     );
 
     let user_id = "@alice:localhost";

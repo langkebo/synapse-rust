@@ -100,13 +100,15 @@ impl RoomSyncServices {
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
-                filter_storage: FilterStorage::new(&infra.pool),
+                filter_storage: Arc::new(FilterStorage::new(&infra.pool))
+                    as Arc<dyn synapse_storage::filter::FilterStoreApi>,
                 device_storage: device_storage.clone(),
                 device_key_storage: sync_device_key_storage.clone(),
                 key_rotation_storage: sync_key_rotation_storage,
                 to_device_storage: to_device_storage.clone(),
                 metrics: infra.metrics.clone(),
                 performance: infra.config.performance.clone(),
+                cache: infra.cache.clone(),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));
