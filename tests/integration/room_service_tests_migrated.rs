@@ -309,7 +309,7 @@ fn build_room_service(
     let member_storage = Arc::new(RoomMemberStorage::new(pool, "localhost"));
     let event_storage: Arc<synapse_storage::event::EventStorage> =
         Arc::new(EventStorage::new(pool, "localhost".to_string()));
-    let canonical_cache = cache;
+    let canonical_cache = cache.clone();
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
@@ -337,6 +337,7 @@ fn build_room_service(
         key_rotation_manager: None,
         federation_client: None,
         beacon_service: None,
+        cache,
     })
 }
 

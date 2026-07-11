@@ -333,6 +333,7 @@ fn create_room_service(
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let cache = Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default()));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage,
@@ -342,7 +343,7 @@ fn create_room_service(
         user_storage,
         auth_service: Arc::new(synapse_services::auth::AuthService::new(
             pool,
-            Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
+            cache.clone(),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),
             &synapse_rust::common::config::SecurityConfig::default(),
             "localhost",
@@ -357,6 +358,7 @@ fn create_room_service(
         key_rotation_manager: None,
         federation_client: None,
         beacon_service: None,
+        cache,
     })
 }
 
