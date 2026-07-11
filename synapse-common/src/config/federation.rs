@@ -61,6 +61,13 @@ pub struct FederationConfig {
     #[serde(default = "default_federation_key_fetch_timeout_ms")]
     pub key_fetch_timeout_ms: u64,
 
+    /// 是否允许使用 HTTP 拉取远端 server keys（默认 false）。
+    ///
+    /// 生产环境必须保持 false（Matrix 联邦要求 TLS）。仅在测试/开发环境中
+    /// 设为 true，以便使用本地 HTTP mock 服务器测试联邦密钥拉取行为。
+    #[serde(default)]
+    pub allow_http_key_fetch: bool,
+
     /// 是否处理入站联邦 EDUs（默认 false）
     #[serde(default)]
     pub process_inbound_edus: bool,
