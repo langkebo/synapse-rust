@@ -455,6 +455,21 @@ impl KeyBackupService {
             .await?
             .ok_or_else(|| ApiError::not_found("Backup not found".to_string()))?;
 
+        // Rollback protection: refuse to recover from a non-current backup
+        // version. Restoring a superseded version could reintroduce keys the
+        // user has since rotated away, or mask a malicious version downgrade.
+        let current = self
+            .storage
+            .get_backup(user_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("No backup version".to_string()))?;
+        if backup.version != current.version {
+            return Err(ApiError::invalid_param(format!(
+                "Refusing to recover non-current backup version {} (current: {})",
+                backup.version, current.version
+            )));
+        }
+
         let total_keys = self.get_backup_key_count(user_id).await?;
 
         let all_keys = if let Some(ref room_list) = rooms {
