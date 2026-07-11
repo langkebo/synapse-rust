@@ -208,7 +208,7 @@ async fn test_upsert_room_insert_and_update() {
         .await
         .expect("upsert_room should insert");
     assert_eq!(room.room_id, room_id);
-    assert_eq!(room.bump_stamp, 1000);
+    assert_eq!(room.bump_stamp, Some(1000));
     assert_eq!(room.highlight_count, 1);
 
     // Update with higher bump stamp; bump_stamp uses GREATEST so it should not decrease
@@ -233,7 +233,7 @@ async fn test_upsert_room_insert_and_update() {
         .await
         .expect("upsert_room should update");
     assert_eq!(updated.id, room.id, "upsert should keep the same id");
-    assert_eq!(updated.bump_stamp, 1000, "bump_stamp uses GREATEST so should remain 1000");
+    assert_eq!(updated.bump_stamp, Some(1000), "bump_stamp uses GREATEST so should remain 1000");
     assert_eq!(updated.highlight_count, 2);
     assert_eq!(updated.name.as_deref(), Some("Second"));
     assert_eq!(updated.avatar.as_deref(), Some("avatar"));
@@ -540,12 +540,12 @@ async fn test_bump_room_does_not_decrease() {
     // Lower bump should not decrease (uses GREATEST)
     storage.bump_room(&user_id, &device_id, &room_id, None, 500).await.expect("bump_room lower");
     let room = storage.get_room(&user_id, &device_id, &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 1000, "bump_room should not decrease bump_stamp");
+    assert_eq!(room.bump_stamp, Some(1000), "bump_room should not decrease bump_stamp");
 
     // Higher bump should increase
     storage.bump_room(&user_id, &device_id, &room_id, None, 2000).await.expect("bump_room higher");
     let room = storage.get_room(&user_id, &device_id, &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 2000, "bump_room should increase bump_stamp");
+    assert_eq!(room.bump_stamp, Some(2000), "bump_room should increase bump_stamp");
 
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
 }
