@@ -289,34 +289,115 @@ impl BurnAfterReadService {
         }
     }
 
-    pub async fn start_burn_processor(self: Arc<Self>) {
+    pub async fn start_burn_processor(
+        self: Arc<Self>,
+        shutdown: tokio_util::sync::CancellationToken,
+    ) -> Option<tokio::task::JoinHandle<()>> {
         let mut state = self.processor_state.write().await;
         if state.is_running {
-            return;
+            return None;
         }
         state.is_running = true;
         drop(state);
 
         let service = self.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
 
             loop {
-                interval.tick().await;
-
-                if let Err(e) = service.process_expired_burns().await {
-                    ::tracing::error!(error = %e, "Burn processor error");
+                tokio::select! {
+                    _ = shutdown.cancelled() => {
+                        ::tracing::info!("Burn-after-read processor shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if let Err(e) = service.process_expired_burns().await {
+                            ::tracing::error!(error = %e, "Burn processor error");
+                        }
+                    }
                 }
             }
         });
 
         ::tracing::info!(interval_secs = 5, "Burn-after-read processor started");
+        Some(handle)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use synapse_storage::burn_after_read::{
+        BurnPendingRow, BurnSettingsRow, BurnStatsRow, BurnUserDefaultsRow,
+    };
+
+    /// Minimal no-op fake so `process_expired_burns` does nothing (no expired
+    /// rows), letting us exercise the processor loop's shutdown behavior.
+    struct NoopBurnStore;
+
+    #[async_trait::async_trait]
+    impl BurnAfterReadStoreApi for NoopBurnStore {
+        async fn get_settings(&self, _u: &str, _r: &str) -> Result<Option<BurnSettingsRow>, sqlx::Error> {
+            Ok(None)
+        }
+        async fn set_settings(
+            &self,
+            user_id: &str,
+            room_id: &str,
+            is_enabled: bool,
+            burn_after_ms: i64,
+        ) -> Result<BurnSettingsRow, sqlx::Error> {
+            Ok(BurnSettingsRow {
+                user_id: user_id.to_string(),
+                room_id: room_id.to_string(),
+                is_enabled,
+                burn_after_ms,
+                created_ts: 0,
+                updated_ts: None,
+            })
+        }
+        async fn schedule_burn(
+            &self,
+            user_id: &str,
+            room_id: &str,
+            event_id: &str,
+            delete_ts: i64,
+        ) -> Result<BurnPendingRow, sqlx::Error> {
+            Ok(BurnPendingRow {
+                id: 0,
+                user_id: user_id.to_string(),
+                room_id: room_id.to_string(),
+                event_id: event_id.to_string(),
+                created_ts: 0,
+                delete_ts,
+                is_processed: false,
+            })
+        }
+        async fn cancel_burn(&self, _u: &str, _r: &str, _e: &str) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn get_pending_burns(&self, _u: &str, _r: &str) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+            Ok(Vec::new())
+        }
+        async fn get_expired_burns(&self, _now_ms: i64) -> Result<Vec<BurnPendingRow>, sqlx::Error> {
+            Ok(Vec::new())
+        }
+        async fn mark_burn_processed(&self, _id: i64) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn log_burned_event(&self, _u: &str, _r: &str, _e: &str, _ts: i64) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+        async fn get_user_stats(&self, _user_id: &str) -> Result<BurnStatsRow, sqlx::Error> {
+            Ok(BurnStatsRow { total_burned: 0, total_pending: 0, rooms_enabled: 0 })
+        }
+        async fn get_user_default(&self, _user_id: &str) -> Result<Option<BurnUserDefaultsRow>, sqlx::Error> {
+            Ok(None)
+        }
+        async fn set_user_default(&self, _user_id: &str, _default_burn_ms: i64) -> Result<(), sqlx::Error> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_burn_settings_struct() {
@@ -353,5 +434,26 @@ mod tests {
         assert_eq!(stats.total_burned, 10);
         assert_eq!(stats.total_pending, 3);
         assert_eq!(stats.rooms_enabled, 2);
+    }
+
+    #[tokio::test]
+    async fn burn_processor_stops_on_shutdown() {
+        let storage: Arc<dyn BurnAfterReadStoreApi> = Arc::new(NoopBurnStore);
+        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
+            Arc::new(synapse_storage::test_mocks::InMemoryEventStore::new());
+        let service = Arc::new(BurnAfterReadService::new(storage, event_storage, "test".to_string()));
+
+        let token = tokio_util::sync::CancellationToken::new();
+        let handle =
+            service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");
+
+        // Second start while running must not spawn another task.
+        assert!(service.clone().start_burn_processor(token.clone()).await.is_none());
+
+        token.cancel();
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle)
+            .await
+            .expect("processor must stop within 1s of cancel")
+            .expect("processor task must not panic");
     }
 }
