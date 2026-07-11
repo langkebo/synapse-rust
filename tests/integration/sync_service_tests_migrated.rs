@@ -359,6 +359,7 @@ fn create_room_service(
         federation_client: None,
         beacon_service: None,
         cache,
+        key_rotation_storage: None,
     })
 }
 

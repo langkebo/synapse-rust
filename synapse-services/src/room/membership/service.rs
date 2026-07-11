@@ -14,6 +14,8 @@ use synapse_federation::KeyRotationManager;
 use synapse_storage::event::RoomEvent;
 use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
 
+use synapse_e2ee::key_rotation::KeyRotationStorageApi;
+
 use crate::room::summary::RoomSummaryService;
 
 /// Domain service for room membership operations — join, leave, invite,
@@ -31,6 +33,9 @@ pub struct MembershipService {
     pub(crate) event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub(crate) room_summary_service: Arc<RoomSummaryService>,
     pub(crate) cache: Arc<CacheManager>,
+    /// Optional key-rotation storage. When present, leaving a LOCAL encrypted
+    /// room marks the room's megolm session for rotation (forward secrecy).
+    pub(crate) key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
 }
 
 /// Configuration for constructing a [`MembershipService`].
@@ -46,6 +51,7 @@ pub struct MembershipServiceConfig {
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub cache: Arc<CacheManager>,
+    pub key_rotation_storage: Option<Arc<dyn KeyRotationStorageApi>>,
 }
 
 impl MembershipService {
@@ -62,6 +68,7 @@ impl MembershipService {
             event_broadcaster: config.event_broadcaster,
             room_summary_service: config.room_summary_service,
             cache: config.cache,
+            key_rotation_storage: config.key_rotation_storage,
         }
     }
 
