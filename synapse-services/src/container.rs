@@ -39,6 +39,9 @@ pub struct ServiceContainer {
     pub account: wiring::AccountServices,
     pub sso: wiring::SsoServices,
     pub extensions: wiring::ExtensionServices,
+
+    /// Cancels all background service loops on graceful shutdown.
+    pub shutdown_token: tokio_util::sync::CancellationToken,
 }
 
 // =============================================================================
@@ -351,6 +354,7 @@ impl ServiceContainer {
             }),
             sso,
             extensions,
+            shutdown_token: tokio_util::sync::CancellationToken::new(),
         }
     }
 

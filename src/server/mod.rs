@@ -640,6 +640,7 @@ impl SynapseServer {
 
         // Spawn signal handler for graceful shutdown (ctrl_c / SIGTERM).
         let shutdown_tx_signal = shutdown_tx.clone();
+        let shutdown_token = self.app_state.services.shutdown_token.clone();
         let worker_instance = std::env::var("WORKER_INSTANCE_NAME").unwrap_or_else(|_| "master".to_string());
         let start_ts = chrono::Utc::now().timestamp_millis();
         tokio::spawn(async move {
@@ -666,6 +667,7 @@ impl SynapseServer {
                 "Shutdown signal received — draining listeners"
             );
             let _ = shutdown_tx_signal.send(());
+            shutdown_token.cancel();
         });
 
         // Wait for all listeners to drain, with a hard 30s cap to prevent
