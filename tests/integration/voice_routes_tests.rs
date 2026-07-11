@@ -190,16 +190,24 @@ async fn test_voip_routes_work_across_r0_and_v3() {
     };
     let token = create_test_user(&app).await;
 
-    let r0_config_request =
-        Request::builder().method("GET").uri("/_matrix/client/r0/voip/config").body(Body::empty()).unwrap();
+    let r0_config_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/r0/voip/config")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
     let r0_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), r0_config_request).await.unwrap();
     assert_eq!(r0_config_response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(r0_config_response.into_body(), 2048).await.unwrap();
     let r0_config_json: Value = serde_json::from_slice(&body).unwrap();
 
-    let v3_config_request =
-        Request::builder().method("GET").uri("/_matrix/client/v3/voip/config").body(Body::empty()).unwrap();
+    let v3_config_request = Request::builder()
+        .method("GET")
+        .uri("/_matrix/client/v3/voip/config")
+        .header("Authorization", format!("Bearer {}", token))
+        .body(Body::empty())
+        .unwrap();
     let v3_config_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_config_request).await.unwrap();
     assert_eq!(v3_config_response.status(), StatusCode::OK);
 
