@@ -88,6 +88,7 @@ pub struct AdminServices {
 }
 
 impl AdminServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,
@@ -96,6 +97,7 @@ impl AdminServices {
         metrics: &Arc<MetricsCollector>,
         auth_service: &Arc<dyn Auth>,
         user_storage: &Arc<dyn UserStore>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> Self {
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
             auth_service.clone(),
@@ -223,7 +225,7 @@ impl AdminServices {
         let should_start_app_service_scheduler =
             should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
         if should_start_app_service_scheduler {
-            app_service_scheduler.clone().start();
+            let _ = app_service_scheduler.clone().start(shutdown_token.clone());
         } else {
             ::tracing::info!(
                 worker_type = current_instance_worker_type(&config.worker).as_str(),

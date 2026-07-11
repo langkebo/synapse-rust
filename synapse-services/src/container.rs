@@ -53,6 +53,9 @@ struct InfraPhase {
     infra: SharedInfra,
     server_metrics: Arc<ServerMetrics>,
     ui_auth_session_timeout: i64,
+    /// Created here so it can be threaded into background loops (e.g. the AS
+    /// scheduler) started during Phase 3, and shared with the container field.
+    shutdown_token: tokio_util::sync::CancellationToken,
 }
 
 /// Phase 2 output: auth service + core storages needed by domain assemblies.
@@ -155,7 +158,9 @@ impl ServiceContainer {
         let infra =
             SharedInfra { pool: pool.clone(), cache: cache.clone(), config: config.clone(), task_queue, metrics };
 
-        InfraPhase { infra, server_metrics, ui_auth_session_timeout }
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+
+        InfraPhase { infra, server_metrics, ui_auth_session_timeout, shutdown_token }
     }
 
     // -------------------------------------------------------------------------
@@ -230,6 +235,7 @@ impl ServiceContainer {
             &infra.infra.metrics,
             &storage.auth_service,
             &storage.user_storage,
+            &infra.shutdown_token,
         )
         .await;
 
@@ -354,7 +360,7 @@ impl ServiceContainer {
             }),
             sso,
             extensions,
-            shutdown_token: tokio_util::sync::CancellationToken::new(),
+            shutdown_token: infra.shutdown_token.clone(),
         }
     }
 

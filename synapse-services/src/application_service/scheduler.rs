@@ -390,10 +390,13 @@ impl ApplicationServiceScheduler {
     ///
     /// The ticker uses `MissedTickBehavior::Delay` so that backpressure
     /// (slow I/O) does not cause bursts.
-    pub fn start(self: Arc<Self>) {
+    pub fn start(
+        self: Arc<Self>,
+        shutdown: tokio_util::sync::CancellationToken,
+    ) -> Option<tokio::task::JoinHandle<()>> {
         if self.started.swap(true, Ordering::SeqCst) {
             debug!("AS scheduler already started; skipping duplicate start");
-            return;
+            return None;
         }
 
         let tick_interval_ms = self.tick_interval_ms;
@@ -401,14 +404,21 @@ impl ApplicationServiceScheduler {
         let max_services_per_tick = self.max_services_per_tick;
         let scheduler = self.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(tick_interval_ms));
             interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
             loop {
-                interval.tick().await;
-                if let Err(e) = scheduler.tick().await {
-                    warn!(error = %e, "AS scheduler tick failed");
+                tokio::select! {
+                    _ = shutdown.cancelled() => {
+                        info!("AS scheduler shutting down");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if let Err(e) = scheduler.tick().await {
+                            warn!(error = %e, "AS scheduler tick failed");
+                        }
+                    }
                 }
             }
         });
@@ -422,6 +432,8 @@ impl ApplicationServiceScheduler {
             max_consecutive_retries = MAX_CONSECUTIVE_RETRIES,
             "AS scheduler started"
         );
+
+        Some(handle)
     }
 
     pub async fn run_once(&self) -> Result<(), String> {
