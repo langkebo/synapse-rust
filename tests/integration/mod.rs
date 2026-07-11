@@ -108,6 +108,8 @@ mod db_schema_smoke_tests_migrated;
 mod schema_contract_p0_tests_migrated;
 mod schema_contract_room_summary_queue_driver_tests_migrated;
 
+mod nullable_decode_tests;
+
 #[cfg(test)]
 mod coverage_tests;
 
