@@ -122,6 +122,7 @@ impl RoomService {
             room_summary_service: config.room_summary_service.clone(),
             cache: config.cache.clone(),
             key_rotation_storage: config.key_rotation_storage.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -163,6 +164,7 @@ impl RoomService {
             server_name: config.server_name.clone(),
             room_summary_service: Some(config.room_summary_service.clone()),
             cache: config.cache.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 
