@@ -398,7 +398,7 @@ mod tests {
             is_shadow_banned: false,
             created_ts: 1234567890,
             updated_ts: None,
-            generation: 1,
+            generation: Some(1),
             consent_version: None,
             appservice_id: None,
             user_type: None,
