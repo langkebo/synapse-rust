@@ -171,7 +171,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
             room_id: room_id.to_string(),
             conn_id: conn_id.map(|s| s.to_string()),
             list_key: list_key.map(|s| s.to_string()),
-            bump_stamp,
+            bump_stamp: Some(bump_stamp),
             highlight_count,
             notification_count,
             is_dm,
@@ -180,7 +180,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
             is_invited: invited,
             name: name.map(|s| s.to_string()),
             avatar: avatar.map(|s| s.to_string()),
-            timestamp,
+            timestamp: Some(timestamp),
             created_ts: now,
             updated_ts: now,
         };
@@ -204,7 +204,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
             .filter(|((u, d, c, _), r)| *u == uid && *d == did && *c == cid && r.list_key.as_deref() == Some(&lk))
             .map(|(_, v)| v.clone())
             .collect();
-        rooms.sort_by_key(|r| -r.bump_stamp);
+        rooms.sort_by_key(|r| -r.bump_stamp.unwrap_or(0));
         let start = query_params.start as usize;
         let end = query_params.end as usize;
         if start >= rooms.len() {
@@ -305,7 +305,7 @@ impl crate::sliding_sync::SlidingSyncStoreApi for InMemorySlidingSyncStore {
     ) -> Result<(), sqlx::Error> {
         let key = (user_id.to_string(), device_id.to_string(), conn_id.map(|s| s.to_string()), room_id.to_string());
         if let Some(room) = self.rooms.write().await.get_mut(&key) {
-            room.bump_stamp = bump_stamp;
+            room.bump_stamp = Some(bump_stamp);
         }
         Ok(())
     }
