@@ -4011,6 +4011,9 @@ CREATE INDEX IF NOT EXISTS idx_users_user_id_trgm ON users USING GIN (user_id gi
 CREATE INDEX IF NOT EXISTS idx_rooms_name_trgm ON rooms USING GIN (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_rooms_canonical_alias_trgm ON rooms USING GIN (canonical_alias gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_search_index_content_trgm ON search_index USING GIN (content gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_search_index_room ON search_index(room_id);
+CREATE INDEX IF NOT EXISTS idx_search_index_user ON search_index(user_id);
+CREATE INDEX IF NOT EXISTS idx_search_index_type ON search_index(event_type);
 
 -- Auth token schema
 CREATE UNIQUE INDEX IF NOT EXISTS uq_access_tokens_token_hash ON access_tokens(token_hash);
