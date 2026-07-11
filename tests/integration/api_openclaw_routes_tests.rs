@@ -10,7 +10,7 @@ use tower::ServiceExt;
 const OPENCLAW_UNSTABLE_PREFIX: &str = "/_matrix/client/unstable/org.synapse_rust.openclaw";
 
 async fn setup_test_app(openclaw_enabled: bool) -> Option<axum::Router> {
-    let pool = super::get_test_pool().await?;
+    let pool = super::require_test_pool().await;
     let mut container = ServiceContainer::new_test_with_pool(pool).await;
     container.core.config.experimental.openclaw_routes_enabled = openclaw_enabled;
 
