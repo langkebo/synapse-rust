@@ -388,7 +388,7 @@ async fn test_upsert_room_creates_new() {
 
     assert_eq!(room.user_id, user_id);
     assert_eq!(room.room_id, room_id);
-    assert_eq!(room.bump_stamp, 1000);
+    assert_eq!(room.bump_stamp, Some(1000));
     assert_eq!(room.highlight_count, 2);
     assert_eq!(room.notification_count, 5);
     assert!(room.is_dm);
@@ -448,7 +448,7 @@ async fn test_upsert_room_updates_existing() {
         .await
         .unwrap();
 
-    assert_eq!(updated.bump_stamp, 2000);
+    assert_eq!(updated.bump_stamp, Some(2000));
     assert_eq!(updated.highlight_count, 3);
     assert_eq!(updated.notification_count, 7);
     assert!(updated.is_dm);
@@ -507,7 +507,7 @@ async fn test_upsert_room_bump_stamp_uses_greatest() {
         .await
         .unwrap();
 
-    assert_eq!(updated.bump_stamp, 5000);
+    assert_eq!(updated.bump_stamp, Some(5000));
 }
 
 #[tokio::test]
@@ -719,12 +719,12 @@ async fn test_bump_room_increases_stamp() {
     storage.bump_room(&user_id, "DEV1", &room_id, None, 3000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 
     storage.bump_room(&user_id, "DEV1", &room_id, None, 2000).await.unwrap();
 
     let room = storage.get_room(&user_id, "DEV1", &room_id, None).await.unwrap().unwrap();
-    assert_eq!(room.bump_stamp, 3000);
+    assert_eq!(room.bump_stamp, Some(3000));
 }
 
 #[tokio::test]
