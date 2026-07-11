@@ -165,3 +165,23 @@ async fn sliding_sync_room_decodes_null_bump_stamp_and_timestamp() {
     assert_eq!(row.bump_stamp, None);
     assert_eq!(row.timestamp, None);
 }
+
+#[tokio::test]
+async fn admin_room_token_sync_entry_decodes_null_room_timestamp_and_bump_stamp() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::AdminRoomTokenSyncEntry = sqlx::query_as(
+        "SELECT ''::text AS user_id, ''::text AS device_id, NULL::text AS conn_id, \
+         NULL::text AS list_key, NULL::bigint AS pos, NULL::bigint AS token_created_ts, \
+         NULL::bigint AS token_expires_at, NULL::bigint AS room_timestamp, 0::bigint AS room_updated_ts, \
+         NULL::bigint AS bump_stamp, 0::int AS highlight_count, 0::int AS notification_count, \
+         true AS is_dm, true AS is_encrypted, true AS is_tombstoned, true AS invited, \
+         NULL::text AS name, NULL::text AS avatar, true AS is_expired",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL room_timestamp/bump_stamp must decode to None, not error");
+    assert_eq!(row.room_timestamp, None);
+    assert_eq!(row.bump_stamp, None);
+}
