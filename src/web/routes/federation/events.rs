@@ -405,11 +405,19 @@ pub(super) async fn query_directory(
 }
 
 pub(super) async fn query_destination(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
+    let mut room_versions = federation_room_versions_capability();
+    if let Some(obj) = room_versions.as_object_mut() {
+        obj.insert("default".to_string(), json!(DEFAULT_ROOM_VERSION));
+    }
     Ok(Json(json!({
         "server_name": ctx.server_name,
         "destination": ctx.server_name,
         "retry_last_ts": 0,
-        "retry_interval_ms": 0
+        "retry_interval_ms": 0,
+        "capabilities": {
+            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&ctx.config),
+            "m.room_versions": room_versions
+        }
     })))
 }
 
