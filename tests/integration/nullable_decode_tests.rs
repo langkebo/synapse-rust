@@ -185,3 +185,19 @@ async fn admin_room_token_sync_entry_decodes_null_room_timestamp_and_bump_stamp(
     assert_eq!(row.room_timestamp, None);
     assert_eq!(row.bump_stamp, None);
 }
+
+#[tokio::test]
+async fn space_summary_decodes_null_children_count_and_member_count() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::SpaceSummary = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS space_id, '{}'::jsonb AS summary, \
+         NULL::bigint AS children_count, NULL::bigint AS member_count, 0::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL children_count/member_count must decode to None, not error");
+    assert_eq!(row.children_count, None);
+    assert_eq!(row.member_count, None);
+}

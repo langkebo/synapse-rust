@@ -1459,8 +1459,8 @@ async fn test_schema_contract_space_summary_query_and_write_read_closure() {
         .expect("Failed to query space summary")
         .expect("Space summary should exist");
     assert_eq!(summary.space_id, space.space_id);
-    assert_eq!(summary.children_count, 1);
-    assert_eq!(summary.member_count, 2);
+    assert_eq!(summary.children_count, Some(1));
+    assert_eq!(summary.member_count, Some(2));
     assert_eq!(
         summary.summary,
         serde_json::json!({
@@ -1540,8 +1540,8 @@ async fn test_schema_contract_space_summary_query_and_write_read_closure() {
         .await
         .expect("Failed to reload space summary")
         .expect("Space summary should still exist");
-    assert_eq!(summary_after_update.children_count, 0);
-    assert_eq!(summary_after_update.member_count, 1);
+    assert_eq!(summary_after_update.children_count, Some(0));
+    assert_eq!(summary_after_update.member_count, Some(1));
     assert_eq!(
         summary_after_update.summary,
         serde_json::json!({
