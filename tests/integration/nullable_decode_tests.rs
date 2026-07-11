@@ -56,3 +56,23 @@ async fn user_privacy_settings_decodes_null_updated_ts() {
     .expect("NULL updated_ts must decode to None, not error");
     assert_eq!(row.updated_ts, None);
 }
+
+#[tokio::test]
+async fn background_update_decodes_null_created_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::background_update::BackgroundUpdate = sqlx::query_as(
+        "SELECT ''::text AS job_name, ''::text AS job_type, NULL::text AS description, \
+         NULL::text AS table_name, NULL::text AS column_name, ''::text AS status, \
+         '{}'::jsonb AS progress, 0::int AS total_items, 0::int AS processed_items, \
+         NULL::bigint AS created_ts, NULL::bigint AS started_ts, NULL::bigint AS completed_ts, \
+         NULL::bigint AS updated_ts, NULL::text AS error_message, 0::int AS retry_count, \
+         0::int AS max_retries, 0::int AS batch_size, 0::int AS sleep_ms, \
+         NULL::jsonb AS depends_on, NULL::jsonb AS metadata",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL created_ts must decode to None, not error");
+    assert_eq!(row.created_ts, None);
+}
