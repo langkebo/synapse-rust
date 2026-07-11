@@ -479,7 +479,7 @@ fn test_registration_token_batch() {
 fn test_registration_token_usage() {
     let usage = RegistrationTokenUsage {
         id: 1,
-        token_id: 100,
+        token_id: Some(100),
         token: "UsedToken123".to_string(),
         user_id: "@user:example.com".to_string(),
         username: Some("testuser".to_string()),
@@ -491,7 +491,7 @@ fn test_registration_token_usage() {
         error_message: None,
     };
 
-    assert_eq!(usage.token_id, 100);
+    assert_eq!(usage.token_id, Some(100));
     assert_eq!(usage.user_id, "@user:example.com");
     assert!(usage.is_success);
     assert!(usage.error_message.is_none());
@@ -501,7 +501,7 @@ fn test_registration_token_usage() {
 fn test_registration_token_usage_failed() {
     let failed_usage = RegistrationTokenUsage {
         id: 2,
-        token_id: 100,
+        token_id: Some(100),
         token: "FailedToken".to_string(),
         user_id: "@user:example.com".to_string(),
         username: None,

@@ -181,7 +181,7 @@ impl crate::registration_token::RegistrationTokenStoreApi for InMemoryRegistrati
         }
         let usage = crate::registration_token::RegistrationTokenUsage {
             id: self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            token_id,
+            token_id: Some(token_id),
             token: token.to_string(),
             user_id: user_id.to_string(),
             username: username.map(|s| s.to_string()),

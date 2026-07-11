@@ -57,7 +57,7 @@ mod tests {
     fn test_registration_token_usage_struct() {
         let usage = RegistrationTokenUsage {
             id: 1,
-            token_id: 100,
+            token_id: Some(100),
             token: "TOKEN123".to_string(),
             user_id: "@user:example.com".to_string(),
             username: Some("testuser".to_string()),
@@ -69,7 +69,7 @@ mod tests {
             error_message: None,
         };
 
-        assert_eq!(usage.token_id, 100);
+        assert_eq!(usage.token_id, Some(100));
         assert!(usage.success);
     }
 

@@ -515,7 +515,7 @@ mod tests {
     fn test_registration_token_usage() {
         let usage = synapse_storage::registration_token::RegistrationTokenUsage {
             id: 1,
-            token_id: 1,
+            token_id: Some(1),
             token: "test_token".to_string(),
             user_id: "@user:example.com".to_string(),
             username: Some("user".to_string()),
