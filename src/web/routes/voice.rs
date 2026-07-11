@@ -79,7 +79,8 @@ async fn get_voice_config() -> Result<Json<Value>, ApiError> {
         "max_size_bytes": 52428800,
         "max_duration_ms": 60_0000,
         "content_type": "m.audio",
-        "voice_extension": "org.matrix.msc3245.voice"
+        "voice_extension": "org.matrix.msc3245.voice",
+        "auto_transcribe": false
     })))
 }
 
