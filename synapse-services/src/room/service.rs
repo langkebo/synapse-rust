@@ -3,7 +3,6 @@ use crate::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
@@ -177,28 +176,6 @@ impl RoomService {
 
     pub fn room_summary_service(&self) -> &RoomSummaryService {
         &self.room_summary_service
-    }
-
-    pub fn start_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let active_tasks = self.active_tasks.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let mut tasks = active_tasks.write().await;
-                let before = tasks.len();
-                tasks.retain(|_key, handle| !handle.is_finished());
-                let after = tasks.len();
-                if before != after {
-                    ::tracing::debug!(
-                        target: "room_service_cleanup",
-                        cleaned = before - after,
-                        remaining = after,
-                        "Cleaned up completed background tasks"
-                    );
-                }
-            }
-        })
     }
 
     pub async fn cleanup_completed_tasks(&self) -> usize {
