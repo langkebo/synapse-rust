@@ -217,7 +217,7 @@ members = [
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
-required-features = ["test-utils", "privacy-ext"]
+required-features = ["test-utils", "privacy-ext", "voice-extended", "voip-tracking", "beacons"]
 
 [[test]]
 name = "unit"
