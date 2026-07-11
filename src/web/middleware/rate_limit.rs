@@ -142,6 +142,16 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    #[cfg(feature = "test-utils")]
+    use axum::http::StatusCode;
+    #[cfg(feature = "test-utils")]
+    use axum::{middleware, routing::get, Router};
+    #[cfg(feature = "test-utils")]
+    use std::sync::Arc;
+    #[cfg(feature = "test-utils")]
+    use synapse_services::ServiceContainer;
+    #[cfg(feature = "test-utils")]
+    use tower::ServiceExt;
 
     #[test]
     fn test_extract_client_ip() {
