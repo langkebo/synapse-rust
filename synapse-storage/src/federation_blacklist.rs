@@ -316,7 +316,7 @@ impl FederationBlacklistStorage {
                     is_enabled,
                     metadata
                 FROM federation_blacklist
-                WHERE (added_ts, server_name) < ($1, $2)
+                WHERE (added_ts, server_name) < ($1, $2) AND is_enabled = true
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $3
                 "#,
@@ -342,6 +342,7 @@ impl FederationBlacklistStorage {
                     is_enabled,
                     metadata
                 FROM federation_blacklist
+                WHERE is_enabled = true
                 ORDER BY added_ts DESC, server_name DESC
                 LIMIT $1
                 "#,
