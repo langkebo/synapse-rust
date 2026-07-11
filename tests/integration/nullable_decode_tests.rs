@@ -129,3 +129,20 @@ async fn registration_token_decodes_null_updated_ts() {
     .expect("NULL updated_ts must decode to None, not error");
     assert_eq!(row.updated_ts, None);
 }
+
+#[tokio::test]
+async fn registration_token_usage_decodes_null_token_id() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::registration_token::RegistrationTokenUsage = sqlx::query_as(
+        "SELECT 0::bigint AS id, NULL::bigint AS token_id, ''::text AS token, \
+         ''::text AS user_id, NULL::text AS username, NULL::text AS email, \
+         NULL::text AS ip_address, NULL::text AS user_agent, 0::bigint AS used_ts, \
+         true AS is_success, NULL::text AS error_message",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL token_id must decode to None, not error");
+    assert_eq!(row.token_id, None);
+}

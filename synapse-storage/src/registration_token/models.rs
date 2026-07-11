@@ -47,7 +47,7 @@ pub struct RegistrationToken {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct RegistrationTokenUsage {
     pub id: i64,
-    pub token_id: i64,
+    pub token_id: Option<i64>,
     pub token: String,
     pub user_id: String,
     pub username: Option<String>,
