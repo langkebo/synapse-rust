@@ -224,3 +224,24 @@ async fn room_summary_decodes_null_member_counts() {
     assert_eq!(row.joined_member_count, None);
     assert_eq!(row.invited_member_count, None);
 }
+
+#[tokio::test]
+async fn user_decodes_null_generation() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::user::User = sqlx::query_as(
+        "SELECT ''::text AS user_id, ''::text AS username, NULL::text AS password_hash, \
+         false AS is_admin, false AS is_guest, false AS is_shadow_banned, false AS is_deactivated, \
+         0::bigint AS created_ts, NULL::bigint AS updated_ts, NULL::text AS displayname, \
+         NULL::text AS avatar_url, NULL::text AS email, NULL::text AS phone, NULL::bigint AS generation, \
+         NULL::text AS consent_version, NULL::text AS appservice_id, NULL::text AS user_type, \
+         NULL::bigint AS invalid_update_at, NULL::text AS migration_state, NULL::bigint AS password_changed_ts, \
+         false AS is_password_change_required, NULL::bigint AS password_expires_at, 0::int AS failed_login_attempts, \
+         NULL::bigint AS locked_until, false AS must_change_password",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL generation must decode to None, not error");
+    assert_eq!(row.generation, None);
+}
