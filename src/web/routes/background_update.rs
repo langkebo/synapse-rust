@@ -74,7 +74,7 @@ impl From<BackgroundUpdate> for UpdateResponse {
             progress: u.progress,
             total_items: u.total_items,
             processed_items: u.processed_items,
-            created_ts: u.created_ts,
+            created_ts: u.created_ts.unwrap_or(0),
             started_ts: u.started_ts,
             completed_ts: u.completed_ts,
             error_message: u.error_message,
