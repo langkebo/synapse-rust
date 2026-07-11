@@ -633,7 +633,7 @@ impl AccountValidityService {
 
         if let Some(v) = validity {
             let now = Utc::now().timestamp_millis();
-            Ok(v.is_valid && v.expiration_at > now)
+            Ok(v.is_valid && v.expiration_at.is_none_or(|e| e > now))
         } else {
             Ok(true)
         }

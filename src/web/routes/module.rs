@@ -203,7 +203,7 @@ impl From<ThirdPartyRuleResult> for ThirdPartyRuleResultResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AccountValidityResponse {
     pub user_id: String,
-    pub expiration_ts: i64,
+    pub expiration_ts: Option<i64>,
     pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
     pub is_valid: bool,
