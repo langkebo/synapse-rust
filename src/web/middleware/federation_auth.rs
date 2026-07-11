@@ -442,13 +442,14 @@ async fn fetch_federation_verify_key(
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
-    let ip_blacklist = &ctx.config.url_preview.ip_range_blacklist;
+    // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.
+    let allow_http = ctx.config.federation.allow_http_key_fetch;
+    let ip_blacklist = if allow_http { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
-    // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
-    // MITM attacks on server key retrieval.
+    let scheme = if allow_http { "http" } else { "https" };
     let urls = [
-        format!("https://{origin}/_matrix/key/v2/server"),
-        format!("https://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
+        format!("{scheme}://{origin}/_matrix/key/v2/server"),
+        format!("{scheme}://{origin}/_matrix/key/v2/query/{origin}/{key_id}"),
     ];
 
     for url in &urls {

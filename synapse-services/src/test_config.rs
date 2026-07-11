@@ -136,6 +136,7 @@ pub fn build_test_config() -> Config {
             key_rotation_grace_period_ms: 60_0000,
             key_fetch_max_concurrency: 32,
             key_fetch_timeout_ms: 5000,
+            allow_http_key_fetch: true,
             process_inbound_edus: false,
             inbound_edus_max_per_txn: 100,
             inbound_edu_max_concurrency: 8,
