@@ -49,8 +49,8 @@ pub struct SpaceSummary {
     pub id: i64,
     pub space_id: String,
     pub summary: serde_json::Value,
-    pub children_count: i64,
-    pub member_count: i64,
+    pub children_count: Option<i64>,
+    pub member_count: Option<i64>,
     pub updated_ts: i64,
 }
 
