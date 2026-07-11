@@ -109,3 +109,23 @@ async fn application_service_transaction_decodes_null_sent_ts() {
     .expect("NULL sent_ts must decode to None, not error");
     assert_eq!(row.sent_ts, None);
 }
+
+#[tokio::test]
+async fn registration_token_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::registration_token::RegistrationToken = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS token, ''::text AS token_type, \
+         NULL::text AS description, 0::int AS max_uses, 0::int AS uses_count, \
+         true AS is_used, true AS is_enabled, NULL::bigint AS expires_at, \
+         NULL::text AS created_by, 0::bigint AS created_ts, NULL::bigint AS updated_ts, \
+         NULL::bigint AS last_used_ts, NULL::text[] AS allowed_email_domains, \
+         NULL::text[] AS allowed_user_ids, NULL::text[] AS auto_join_rooms, \
+         NULL::text AS display_name, NULL::text AS email",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
