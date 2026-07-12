@@ -826,6 +826,74 @@ async fn test_ban_user_success() {
     assert_eq!(member.banned_by, Some(alice_id));
 }
 
+/// AUDIT-2026-07 S5 缺口3: inviting a currently-banned user must be rejected by
+/// the membership-transition rulebook (previously allowed).
+#[tokio::test]
+async fn test_invite_banned_user_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    room_service.membership.ban_user(room_id, &bob_id, &alice_id, Some("spam")).await.expect("ban should succeed");
+
+    let result = room_service.membership.invite_user(room_id, &alice_id, &bob_id).await;
+    assert!(result.is_err(), "inviting a banned user must be rejected, got: {result:?}");
+}
+
+/// AUDIT-2026-07 S5 缺口4: kicking a user who is not currently in the room
+/// (never joined) must be rejected (previously a silent no-op success).
+#[tokio::test]
+async fn test_kick_non_member_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    let result = room_service.membership.kick_user(room_id, &bob_id, &alice_id, Some("bye")).await;
+    assert!(result.is_err(), "kicking a non-member must be rejected, got: {result:?}");
+}
+
+/// AUDIT-2026-07 S5 缺口4: unbanning a user who is not currently banned must be
+/// rejected (previously a silent no-op success).
+#[tokio::test]
+async fn test_unban_non_banned_user_is_rejected() {
+    let pool = crate::require_test_pool().await;
+    setup_test_database(&pool).await;
+
+    let id = unique_id();
+    let alice_id = format!("@alice_{id}:localhost");
+    let bob_id = format!("@bob_{id}:localhost");
+    create_test_user(&pool, &alice_id, &format!("alice_{id}")).await;
+    create_test_user(&pool, &bob_id, &format!("bob_{id}")).await;
+
+    let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
+    let room_service = create_room_service(&pool, cache.clone());
+    let room_val = room_service.lifecycle.create_room(&alice_id, CreateRoomConfig::default()).await.unwrap();
+    let room_id = room_val["room_id"].as_str().unwrap();
+
+    let result = room_service.membership.unban_user(room_id, &bob_id, &alice_id).await;
+    assert!(result.is_err(), "unbanning a non-banned user must be rejected, got: {result:?}");
+}
+
 #[tokio::test]
 async fn test_upgrade_room_success() {
     let pool = crate::require_test_pool().await;

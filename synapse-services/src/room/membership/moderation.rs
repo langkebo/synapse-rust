@@ -2,7 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
-use synapse_common::generate_event_id;
+use synapse_common::{generate_event_id, is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
@@ -34,6 +34,12 @@ impl MembershipService {
         }
 
         self.auth_service.can_invite_user(room_id, inviter_id).await?;
+
+        // State-machine gate: reject inviting a banned/already-joined user.
+        // Power was enforced by `can_invite_user` above.
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, invitee_id).await?;
+        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
+        is_legal(from, Membership::Invite, &ctx)?;
 
         let member = self
             .member_storage
@@ -115,55 +121,18 @@ impl MembershipService {
             return Err(ApiError::not_found("Room not found".to_string()));
         }
 
-        let effective_join_rule = if let Some(event) = self
-            .event_storage
-            .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
-            .into_iter()
-            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
-        {
-            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
-        } else {
-            None
-        };
+        let join_rule = self.resolve_join_rule(room_id).await?;
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
 
-        let room = self
-            .room_storage
-            .get_room(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?
-            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
-
-        let join_rule = effective_join_rule
-            .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-            .unwrap_or_else(|| if room.is_public { "public".to_string() } else { "invite".to_string() });
-
-        let existing_member = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
-
-        if let Some(member) = existing_member.as_ref() {
-            match member.membership.as_str() {
-                "join" => {
-                    return Err(ApiError::bad_request("You are already joined to this room".to_string()));
-                }
-                "invite" => {
-                    return Err(ApiError::forbidden("You have already been invited to this room".to_string()));
-                }
-                "ban" => {
-                    return Err(ApiError::forbidden("You are banned from this room".to_string()));
-                }
-                "knock" => return Ok(()),
-                _ => {}
-            }
+        // Idempotent no-op: already knocking.
+        if from == Some(Membership::Knock) {
+            return Ok(());
         }
 
-        if join_rule != "knock" && join_rule != "knock_restricted" {
-            return Err(ApiError::forbidden("Room does not allow knock".to_string()));
-        }
+        // Delegate the state-machine verdict (join-rule allows knock, not
+        // already joined/invited/banned) to the single transition rulebook.
+        let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
+        is_legal(from, Membership::Knock, &ctx)?;
 
         self.member_storage
             .add_member(room_id, user_id, "knock", None, reason, None, None)
@@ -192,6 +161,12 @@ impl MembershipService {
         }
 
         self.auth_service.can_ban_user(room_id, banned_by, user_id).await?;
+
+        // State-machine gate: reject self-ban. Power level and creator
+        // protection were enforced by `can_ban_user` above.
+        let (from, _) = self.resolve_membership_from(room_id, user_id).await?;
+        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ banned_by == user_id, false, false);
+        is_legal(from, Membership::Ban, &ctx)?;
 
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
@@ -240,6 +215,15 @@ impl MembershipService {
 
     pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
         self.auth_service.can_unban_user(room_id, unbanned_by, user_id).await?;
+
+        // State-machine precondition: unban only applies to a currently-banned
+        // user. `to = leave` is ambiguous between unban and kick, so the
+        // transition rulebook cannot enforce this on its own — the client
+        // endpoint's intent supplies the precondition.
+        let (_from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
+        if !target_is_banned {
+            return Err(ApiError::bad_request("User is not banned from this room".to_string()));
+        }
 
         self.member_storage
             .unban_member(room_id, user_id)
@@ -311,6 +295,15 @@ impl MembershipService {
         }
 
         self.auth_service.can_kick_user(room_id, kicked_by, target_user_id).await?;
+
+        // State-machine precondition: kick only applies to a user currently in
+        // the room (join / invite / knock). A banned user must be unbanned, and
+        // an absent user cannot be kicked. `to = leave` is ambiguous between
+        // kick and unban, so the client endpoint's intent supplies this.
+        let (from, _) = self.resolve_membership_from(room_id, target_user_id).await?;
+        if !matches!(from, Some(Membership::Join | Membership::Invite | Membership::Knock)) {
+            return Err(ApiError::bad_request("User is not currently in the room".to_string()));
+        }
 
         self.member_storage
             .remove_member(room_id, target_user_id)

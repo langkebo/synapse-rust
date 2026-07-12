@@ -2,7 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
-use synapse_common::generate_event_id;
+use synapse_common::{generate_event_id, is_legal, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
@@ -65,49 +65,20 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let effective_join_rule = if let Some(event) = self
-            .event_storage
-            .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
-            .into_iter()
-            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
-        {
-            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
-        } else {
-            None
-        };
+        let join_rule = self.resolve_join_rule(room_id).await?;
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
 
-        let room = self
-            .room_storage
-            .get_room(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?
-            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
-
-        let join_rule = effective_join_rule
-            .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-            .unwrap_or_else(|| if room.is_public { "public".to_string() } else { "invite".to_string() });
-
-        let existing_member = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
-
-        if let Some(member) = existing_member.as_ref() {
-            if member.membership == "join" {
-                return Ok(());
-            }
-
-            if member.membership == "ban" || member.is_banned.unwrap_or(false) {
-                return Err(ApiError::forbidden("You are banned from this room".to_string()));
-            }
+        // Idempotent no-op: already joined — don't emit a duplicate join event.
+        if from == Some(Membership::Join) {
+            return Ok(());
         }
 
-        if join_rule != "public" && existing_member.as_ref().is_none_or(|member| member.membership != "invite") {
-            return Err(ApiError::forbidden("Room is invite-only".to_string()));
-        }
+        // Delegate the state-machine verdict to the single membership-transition
+        // rulebook. Joins need no power level, so the state-only ctx is exact;
+        // restricted-join authorization resolution is not yet wired, so
+        // restricted rooms fail closed (require an explicit invite).
+        let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
+        is_legal(from, Membership::Join, &ctx)?;
 
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)

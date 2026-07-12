@@ -5,8 +5,10 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
+use std::str::FromStr;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
+use synapse_common::{JoinRule, Membership};
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
@@ -212,6 +214,63 @@ impl MembershipService {
                 "Failed to enqueue application service event for membership transition"
             );
         }
+    }
+
+    /// Resolve a target user's current membership (as the typed [`Membership`]
+    /// enum) plus whether they are currently banned. `None` means the user has
+    /// no membership record in the room. Used to build the `from` state for a
+    /// membership-transition legality check.
+    pub(crate) async fn resolve_membership_from(
+        &self,
+        room_id: &str,
+        target_id: &str,
+    ) -> ApiResult<(Option<Membership>, bool)> {
+        let existing = self
+            .member_storage
+            .get_room_member(room_id, target_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
+        let from = existing.as_ref().and_then(|m| Membership::from_str(&m.membership).ok());
+        let is_banned =
+            from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
+        Ok((from, is_banned))
+    }
+
+    /// Resolve the effective join rule for a room as the typed [`JoinRule`]:
+    /// the `m.room.join_rules` state event wins, then the room record's
+    /// `join_rule`, then a `public`/`invite` default from `is_public`. Unknown
+    /// rule strings resolve to [`JoinRule::Invite`] (fail-closed).
+    pub(crate) async fn resolve_join_rule(&self, room_id: &str) -> ApiResult<JoinRule> {
+        let effective = if let Some(event) = self
+            .event_storage
+            .get_state_events_by_type(room_id, "m.room.join_rules")
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
+            .into_iter()
+            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
+        {
+            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
+        } else {
+            None
+        };
+
+        let room = self
+            .room_storage
+            .get_room(room_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
+
+        let raw = effective
+            .or_else(|| room.as_ref().and_then(|r| (!r.join_rule.is_empty()).then(|| r.join_rule.clone())))
+            .unwrap_or_else(|| {
+                if room.as_ref().is_some_and(|r| r.is_public) {
+                    "public".to_string()
+                } else {
+                    "invite".to_string()
+                }
+            });
+
+        Ok(JoinRule::from_str(&raw).unwrap_or(JoinRule::Invite))
     }
 
     /// Sign a locally-produced event and broadcast it to all remote servers
