@@ -1,5 +1,6 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::RoomContext;
+#[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
 use crate::web::routes::AuthenticatedUser;
 #[cfg(feature = "voip-tracking")]
