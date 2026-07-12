@@ -96,3 +96,5 @@ test-results-fixed/
 .DS_Store
 .trae/
 .gstack/
+.claude/worktrees/
+.trae-cn/
