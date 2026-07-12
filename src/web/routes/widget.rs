@@ -401,7 +401,8 @@ async fn get_widget_with_access(
     }
 
     if let Some(room_id) = widget.room_id.as_deref() {
-        ensure_room_member_strict_admin(ctx, auth_user, room_id, "You must be a room member to access this widget").await?;
+        ensure_room_member_strict_admin(ctx, auth_user, room_id, "You must be a room member to access this widget")
+            .await?;
         let is_member = true;
         if is_member && required_permission == "read" {
             return Ok(widget);

@@ -198,13 +198,9 @@ impl AuditEventStorage {
         // Wrap in a transaction so that set_config (is_local=true) applies to
         // the DELETE statement and bypasses the append-only trigger guard.
         let mut tx = self.pool.begin().await?;
-        sqlx::query("SELECT set_config('synapse.allow_audit_delete', 'true', true)")
-            .execute(&mut *tx)
-            .await?;
-        let result = sqlx::query("DELETE FROM audit_events WHERE created_ts < $1")
-            .bind(cutoff_ts)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("SELECT set_config('synapse.allow_audit_delete', 'true', true)").execute(&mut *tx).await?;
+        let result =
+            sqlx::query("DELETE FROM audit_events WHERE created_ts < $1").bind(cutoff_ts).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(result.rows_affected())
     }
@@ -305,11 +301,8 @@ mod db_tests {
     async fn test_pool() -> Arc<PgPool> {
         let db_url = std::env::var("TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgres://synapse:synapse@localhost:15432/synapse".to_string());
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to test database");
+        let pool =
+            PgPoolOptions::new().max_connections(2).connect(&db_url).await.expect("Failed to connect to test database");
         Arc::new(pool)
     }
 

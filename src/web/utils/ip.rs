@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn forwarded_header_trusted() {
-        let headers = header_map_with( "for=192.0.2.60;proto=http;by=203.0.113.43");
+        let headers = header_map_with("for=192.0.2.60;proto=http;by=203.0.113.43");
         let priority = vec!["forwarded".to_string()];
         let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5)), 12345);
         let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn forwarded_header_untrusted() {
-        let headers = header_map_with( "for=192.0.2.60;proto=http;by=203.0.113.43");
+        let headers = header_map_with("for=192.0.2.60;proto=http;by=203.0.113.43");
         let priority = vec!["forwarded".to_string()];
         let peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)), 54321);
         let trusted: Vec<String> = vec!["10.0.0.0/8".to_string()];

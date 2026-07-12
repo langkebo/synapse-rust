@@ -740,14 +740,8 @@ mod tests {
 
         let sync = sync_service_with_account_data_store(account_data_store);
 
-        let first = sync
-            .get_account_data_events("@alice:localhost")
-            .await
-            .expect("first call");
-        let second = sync
-            .get_account_data_events("@alice:localhost")
-            .await
-            .expect("second call");
+        let first = sync.get_account_data_events("@alice:localhost").await.expect("first call");
+        let second = sync.get_account_data_events("@alice:localhost").await.expect("second call");
 
         assert_eq!(first, second, "both calls must return the same account data");
         assert_eq!(
@@ -835,10 +829,7 @@ mod tests {
             self.inner.get_device_list_left_users(from, to, requester_id).await
         }
 
-        async fn get_users_devices_batch(
-            &self,
-            users: &[String],
-        ) -> Result<HashMap<String, Vec<Device>>, sqlx::Error> {
+        async fn get_users_devices_batch(&self, users: &[String]) -> Result<HashMap<String, Vec<Device>>, sqlx::Error> {
             self.inner.get_users_devices_batch(users).await
         }
 
@@ -918,9 +909,7 @@ mod tests {
     /// Builds a [`SyncService`] over a lazily-connected pool (never queried in
     /// this test because `since` is `None`) plus an in-memory cache and the
     /// supplied counting device store. Mirrors the helper in `filter.rs`.
-    fn sync_service_with_device_store(
-        device_store: Arc<dyn DeviceListStoreApi>,
-    ) -> SyncService {
+    fn sync_service_with_device_store(device_store: Arc<dyn DeviceListStoreApi>) -> SyncService {
         let pool: Arc<sqlx::PgPool> = Arc::new(
             sqlx::postgres::PgPoolOptions::new()
                 .connect_lazy("postgres://synapse:synapse@localhost/synapse")

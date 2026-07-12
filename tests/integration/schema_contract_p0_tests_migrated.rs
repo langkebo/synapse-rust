@@ -1247,14 +1247,8 @@ async fn test_schema_contract_search_index_shape() {
     );
     // CREATE TABLE LIKE ... INCLUDING ALL copies indexes with auto-generated names,
     // so check by column rather than by index name.
-    assert!(
-        has_index_on_column(&pool, "search_index", "room_id").await,
-        "Expected search_index index on room_id"
-    );
-    assert!(
-        has_index_on_column(&pool, "search_index", "user_id").await,
-        "Expected search_index index on user_id"
-    );
+    assert!(has_index_on_column(&pool, "search_index", "room_id").await, "Expected search_index index on room_id");
+    assert!(has_index_on_column(&pool, "search_index", "user_id").await, "Expected search_index index on user_id");
     assert!(
         has_index_on_column(&pool, "search_index", "event_type").await,
         "Expected search_index index on event_type"

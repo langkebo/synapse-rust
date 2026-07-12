@@ -683,11 +683,7 @@ mod tests {
         // reason to reject is the missing signature key — not claim validation — so a
         // genuine claim-only fallback would (incorrectly) accept it.
         let header = serde_json::json!({ "alg": "RS256", "kid": "unknown-kid-not-in-jwks" });
-        let exp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 3600;
+        let exp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 3600;
         let payload = serde_json::json!({
             "iss": service.config.issuer,
             "aud": service.config.client_id,
@@ -790,16 +786,12 @@ mod tests {
 
         // Generate a test RSA key pair using rsa's rand_core (v0.6) for compatibility
         let mut rng = rsa::rand_core::OsRng;
-        let private_key =
-            RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
+        let private_key = RsaPrivateKey::new(&mut rng, 2048).expect("failed to generate RSA key");
         let public_key = private_key.to_public_key();
 
         // Create EncodingKey from PEM
-        let pem = private_key
-            .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
-            .expect("pkcs8 pem encode");
-        let encoding_key =
-            EncodingKey::from_rsa_pem(pem.as_bytes()).expect("create encoding key");
+        let pem = private_key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF).expect("pkcs8 pem encode");
+        let encoding_key = EncodingKey::from_rsa_pem(pem.as_bytes()).expect("create encoding key");
 
         // Build JWKS with the public key's n and e components
         let kid = "test-nonce-key";
@@ -821,11 +813,7 @@ mod tests {
         });
 
         // Create a properly signed id_token with nonce "expected-nonce"
-        let exp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 3600;
+        let exp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() + 3600;
         let claims = serde_json::json!({
             "iss": service.config.issuer,
             "aud": service.config.client_id,
@@ -846,10 +834,6 @@ mod tests {
         let result = service.validate_id_token(&id_token, Some("wrong-nonce")).await;
         assert!(result.is_err(), "wrong nonce should be rejected");
         let err = result.unwrap_err();
-        assert!(
-            err.contains("nonce mismatch"),
-            "error should mention nonce mismatch, got: {}",
-            err
-        );
+        assert!(err.contains("nonce mismatch"), "error should mention nonce mismatch, got: {}", err);
     }
 }

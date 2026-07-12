@@ -525,10 +525,7 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
         2,   // high_pending_transaction_threshold
     );
 
-    scheduler
-        .run_once()
-        .await
-        .expect("mixed contention tick one should complete");
+    scheduler.run_once().await.expect("mixed contention tick one should complete");
     scheduler.run_once().await.expect("mixed contention tick two should complete");
 
     let request = Request::builder()

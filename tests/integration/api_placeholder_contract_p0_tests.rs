@@ -658,7 +658,9 @@ async fn test_key_rotation_management_contract_rejects_client_access() {
         assert!(
             status == StatusCode::OK || (method == "POST" && status == StatusCode::INTERNAL_SERVER_ERROR),
             "admin should access key rotation endpoint {} {}, got {}",
-            method, path, status
+            method,
+            path,
+            status
         );
     }
 }

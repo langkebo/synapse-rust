@@ -226,7 +226,10 @@ async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError>
     let verify_key = match config.signing_key.as_deref().and_then(|k| {
         let res = derive_ed25519_verify_key_base64(k);
         if res.is_none() {
-            ::tracing::error!("Failed to derive verify key from configured signing_key ([REDACTED], {} chars)", k.len());
+            ::tracing::error!(
+                "Failed to derive verify key from configured signing_key ([REDACTED], {} chars)",
+                k.len()
+            );
         }
         res
     }) {
@@ -644,10 +647,7 @@ mod tests {
     #[test]
     fn signing_key_never_logged_verbatim() {
         let src = include_str!("keys.rs");
-        assert!(
-            !src.contains("from signing_key: {}\", k"),
-            "raw signing key must not be interpolated into logs"
-        );
+        assert!(!src.contains("from signing_key: {}\", k"), "raw signing key must not be interpolated into logs");
     }
 
     /// Generate an Ed25519 keypair and return (key_id, public_key_b64, signing_key).

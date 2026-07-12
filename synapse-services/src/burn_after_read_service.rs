@@ -327,9 +327,7 @@ impl BurnAfterReadService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use synapse_storage::burn_after_read::{
-        BurnPendingRow, BurnSettingsRow, BurnStatsRow, BurnUserDefaultsRow,
-    };
+    use synapse_storage::burn_after_read::{BurnPendingRow, BurnSettingsRow, BurnStatsRow, BurnUserDefaultsRow};
 
     /// Minimal no-op fake so `process_expired_burns` does nothing (no expired
     /// rows), letting us exercise the processor loop's shutdown behavior.
@@ -444,8 +442,7 @@ mod tests {
         let service = Arc::new(BurnAfterReadService::new(storage, event_storage, "test".to_string()));
 
         let token = tokio_util::sync::CancellationToken::new();
-        let handle =
-            service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");
+        let handle = service.clone().start_burn_processor(token.clone()).await.expect("first start returns handle");
 
         // Second start while running must not spawn another task.
         assert!(service.clone().start_burn_processor(token.clone()).await.is_none());

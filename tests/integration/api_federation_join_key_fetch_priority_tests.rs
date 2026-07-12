@@ -40,7 +40,15 @@ impl KeyFetchMetrics {
         server_name: String,
         signing_key: ed25519_dalek::SigningKey,
     ) -> Self {
-        Self { inflight: AtomicUsize::new(0), max_inflight: AtomicUsize::new(0), delay_ms, key_id, key_b64, server_name, signing_key }
+        Self {
+            inflight: AtomicUsize::new(0),
+            max_inflight: AtomicUsize::new(0),
+            delay_ms,
+            key_id,
+            key_b64,
+            server_name,
+            signing_key,
+        }
     }
 
     fn on_start(&self) {
@@ -74,10 +82,7 @@ impl KeyFetchMetrics {
         let sig = self.signing_key.sign(canonical.as_bytes());
         let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
         if let Some(obj) = body.as_object_mut() {
-            obj.insert(
-                "signatures".to_string(),
-                json!({ self.server_name.clone(): { self.key_id.clone(): sig_b64 } }),
-            );
+            obj.insert("signatures".to_string(), json!({ self.server_name.clone(): { self.key_id.clone(): sig_b64 } }));
         }
         body
     }

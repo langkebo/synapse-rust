@@ -110,7 +110,8 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
                      This may indicate a connectivity issue or a corrupt migration state. \
                      Fix the database connection or set SYNAPSE_SKIP_SCHEMA_CHECK=true \
                      to bypass this check (NOT recommended for production)."
-                ).into());
+                )
+                .into());
             }
         }
     }
