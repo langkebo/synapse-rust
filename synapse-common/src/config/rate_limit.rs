@@ -41,6 +41,12 @@ pub struct RateLimitConfig {
     /// 同步接口的资源隔离限流（initial vs incremental）
     #[serde(default)]
     pub sync: SyncRateLimitConfig,
+    /// CIDR strings for trusted reverse proxies (e.g. "10.0.0.0/8", "127.0.0.1/32").
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+    /// Whether to trust forwarded headers at all.
+    #[serde(default)]
+    pub trust_forwarded: bool,
 }
 
 fn default_rate_limit_enabled() -> bool {
@@ -130,6 +136,8 @@ impl Default for RateLimitConfig {
             endpoint_aliases: HashMap::new(),
             fail_open_on_error: default_rate_limit_fail_open(),
             sync: SyncRateLimitConfig::default(),
+            trusted_proxies: Vec::new(),
+            trust_forwarded: false,
         }
     }
 }

@@ -2,6 +2,7 @@
 // Matrix Spec: https://matrix.org/docs/spec/openid.html
 
 use crate::common::error::ApiError;
+use crate::web::routes::context::SsoContext;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Query, State},
@@ -161,26 +162,28 @@ fn is_safe_redirect_url(url: &str, allowlist: &[String]) -> bool {
     false
 }
 
-fn resolve_sso_redirect_url(state: &AppState, query: &SsoRedirectQuery) -> String {
-    let url = query.redirect_url.clone().or_else(|| query.redirect_url_compat.clone()).unwrap_or_else(|| {
-        format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl())
-    });
+fn resolve_sso_redirect_url(ctx: &SsoContext, query: &SsoRedirectQuery) -> String {
+    let url = query
+        .redirect_url
+        .clone()
+        .or_else(|| query.redirect_url_compat.clone())
+        .unwrap_or_else(|| format!("{}/_matrix/client/v3/oidc/callback", ctx.config.server.get_public_baseurl()));
 
-    if !url.is_empty() && !is_safe_redirect_url(&url, &state.services.core.config.sso_redirect_allowlist) {
+    if !url.is_empty() && !is_safe_redirect_url(&url, &ctx.config.sso_redirect_allowlist) {
         tracing::warn!("Blocked unsafe SSO redirect URL: {}", &url[..url.len().min(64)]);
-        return format!("{}/_matrix/client/v3/oidc/callback", state.services.core.config.server.get_public_baseurl());
+        return format!("{}/_matrix/client/v3/oidc/callback", ctx.config.server.get_public_baseurl());
     }
 
     url
 }
 
 async fn sso_redirect(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SsoRedirectQuery>,
 ) -> Result<Redirect, ApiError> {
-    let redirect_uri: String = resolve_sso_redirect_url(&state, &query);
+    let redirect_uri: String = resolve_sso_redirect_url(&ctx, &query);
 
-    if let Some(oidc_service) = state.services.sso.oidc_service.as_ref() {
+    if let Some(oidc_service) = ctx.oidc_service.as_ref() {
         let state_value: String = OidcService::generate_state();
         let nonce_value: String = OidcService::generate_state();
         let (code_verifier, code_challenge): (String, String) = OidcService::generate_pkce();
@@ -195,9 +198,9 @@ async fn sso_redirect(
     }
 
     #[cfg(feature = "saml-sso")]
-    if state.services.sso.saml_service.is_enabled() {
+    if ctx.saml_service.is_enabled() {
         let auth_request: synapse_services::saml_service::SamlAuthRequest =
-            state.services.sso.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
+            ctx.saml_service.get_auth_redirect(Some(&redirect_uri)).await?;
         return Ok(Redirect::temporary(&auth_request.redirect_url));
     }
 
@@ -235,13 +238,13 @@ pub fn create_oidc_router(state: AppState) -> Router<AppState> {
     router.with_state(state)
 }
 
-pub fn oidc_enabled(state: &AppState) -> bool {
+pub fn oidc_enabled(ctx: &SsoContext) -> bool {
     #[cfg(feature = "saml-sso")]
-    let saml_enabled = state.services.sso.saml_service.is_enabled();
+    let saml_enabled = ctx.saml_service.is_enabled();
     #[cfg(not(feature = "saml-sso"))]
     let saml_enabled = false;
 
-    state.services.sso.oidc_service.is_some() || state.services.sso.builtin_oidc_provider.is_some() || saml_enabled
+    ctx.oidc_service.is_some() || ctx.builtin_oidc_provider.is_some() || saml_enabled
 }
 
 pub fn create_oidc_fallback_router() -> Router<AppState> {
@@ -304,8 +307,8 @@ pub fn oidc_fallback_manifest() -> Vec<crate::web::routes::route_ledger::RouteEn
         .collect()
 }
 
-pub fn oidc_route_manifest_for(state: &AppState) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
-    if oidc_enabled(state) {
+pub fn oidc_route_manifest_for(ctx: &SsoContext) -> Vec<crate::web::routes::route_ledger::RouteEntry> {
+    if oidc_enabled(ctx) {
         oidc_route_manifest()
     } else {
         oidc_fallback_manifest()
@@ -314,12 +317,10 @@ pub fn oidc_route_manifest_for(state: &AppState) -> Vec<crate::web::routes::rout
 
 #[cfg(feature = "builtin-oidc")]
 async fn builtin_oidc_login(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let provider = state
-        .services
-        .sso
+    let provider = ctx
         .builtin_oidc_provider
         .as_ref()
         .ok_or_else(|| ApiError::bad_request("Builtin OIDC provider is not enabled".to_string()))?;
@@ -357,8 +358,8 @@ async fn builtin_oidc_login(
 }
 
 #[cfg(feature = "builtin-oidc")]
-async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
-    if let Some(provider) = &state.services.sso.builtin_oidc_provider {
+async fn jwks(State(ctx): State<SsoContext>) -> Result<Json<serde_json::Value>, ApiError> {
+    if let Some(provider) = &ctx.builtin_oidc_provider {
         let jwks = provider.get_jwks();
         return Ok(Json(
             serde_json::to_value(jwks).map_err(|e| ApiError::internal_with_log("Failed to serialize JWKS", &e))?,
@@ -368,15 +369,15 @@ async fn jwks(State(state): State<AppState>) -> Result<Json<serde_json::Value>, 
 }
 
 /// JWKS fallback endpoint - 当没有启用 OIDC 时返回空的 JWKS
-pub async fn jwks_fallback(State(_state): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+pub async fn jwks_fallback(State(_ctx): State<SsoContext>) -> Result<Json<serde_json::Value>, ApiError> {
     // 返回空的 JWKS 集合，符合 JWKS 规范
     Ok(Json(serde_json::json!({
         "keys": []
     })))
 }
 
-pub async fn get_openid_configuration(State(state): State<AppState>) -> Result<Json<OpenIdDiscovery>, ApiError> {
-    openid_discovery(State(state)).await
+pub async fn get_openid_configuration(State(ctx): State<SsoContext>) -> Result<Json<OpenIdDiscovery>, ApiError> {
+    openid_discovery(State(ctx)).await
 }
 
 /// OIDC UserInfo Response
@@ -390,7 +391,7 @@ pub struct OidcUserInfoResponse {
 
 /// 获取 OpenID Connect 用户信息
 async fn oidc_userinfo(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<OidcUserInfoResponse>, ApiError> {
     let user_id = &auth_user.user_id;
@@ -400,8 +401,7 @@ async fn oidc_userinfo(
     // 目前先使用 registration_service 获取本地 profile
 
     // 获取用户 profile 信息
-    let profile_res: Result<serde_json::Value, ApiError> =
-        state.services.core.registration_service.get_profile(user_id).await;
+    let profile_res: Result<serde_json::Value, ApiError> = ctx.registration_service.get_profile(user_id).await;
     let profile_val = profile_res?;
     let profile = profile_val.as_object().ok_or_else(|| ApiError::internal("Profile is not an object"))?;
 
@@ -458,7 +458,7 @@ pub struct OidcTokenResponse {
 /// OIDC Token 端点
 /// 处理授权码兑换和刷新令牌
 async fn oidc_token(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<OidcTokenRequest>,
 ) -> Result<Json<OidcTokenResponse>, ApiError> {
     // Validate input
@@ -466,7 +466,7 @@ async fn oidc_token(
 
     // 优先使用内置 OIDC Provider
     #[cfg(feature = "builtin-oidc")]
-    if let Some(builtin_provider) = &state.services.sso.builtin_oidc_provider {
+    if let Some(builtin_provider) = &ctx.builtin_oidc_provider {
         let request = BuiltinOidcTokenRequest {
             grant_type: body.grant_type.clone(),
             code: body.code.clone(),
@@ -494,12 +494,8 @@ async fn oidc_token(
     }
 
     // 检查外部 OIDC 服务是否启用
-    let oidc_service: &synapse_services::oidc_service::OidcService = state
-        .services
-        .sso
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &synapse_services::oidc_service::OidcService =
+        ctx.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcTokenRequest { grant_type, code, redirect_uri, refresh_token, scope, code_verifier, .. } = body;
 
@@ -511,7 +507,7 @@ async fn oidc_token(
 
             // 使用 OIDC 服务兑换令牌
             let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-                .exchange_code(&code, &redirect_uri, code_verifier.as_deref())
+                .exchange_code(&code, &redirect_uri, code_verifier.as_deref(), None)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
@@ -527,16 +523,13 @@ async fn oidc_token(
             let localpart: String = oidc_user.localpart.clone();
             let issuer: String = oidc_service.get_config().issuer.clone();
             let subject: String = oidc_user.subject.clone();
-            let server_name: String =
-                state.services.core.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
+            let server_name: String = ctx.config.server.server_name.clone().unwrap_or_else(|| "localhost".to_string());
             let matrix_user_id: String = format!("@{localpart}:{server_name}");
             let displayname: String = oidc_user.displayname.clone().unwrap_or(localpart.clone());
             let now_ts: i64 = current_unix_ts() as i64;
 
             // 检查 OIDC 绑定记录
-            let bound_user_id: Option<String> = state
-                .services
-                .sso
+            let bound_user_id: Option<String> = ctx
                 .oidc_mapping_storage
                 .get_bound_user_id(&issuer, &subject)
                 .await
@@ -544,23 +537,14 @@ async fn oidc_token(
 
             let matrix_user_id: String = if let Some(existing) = bound_user_id {
                 // 后续登录：忽略 IdP 当前声明的 localpart，使用首次绑定的本地用户。
-                state
-                    .services
-                    .sso
-                    .oidc_mapping_storage
+                ctx.oidc_mapping_storage
                     .update_last_authenticated(&issuer, &subject, now_ts)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to update OIDC user mapping", &e))?;
                 existing
             } else {
                 // 首次登录：若本地用户已存在但没有 OIDC 绑定记录，必须拒绝以防账号接管。
-                let existing_user = state
-                    .services
-                    .account
-                    .account_identity_service
-                    .get_user_by_id(&matrix_user_id)
-                    .await
-                    .unwrap_or(None);
+                let existing_user = ctx.account_identity_service.get_user_by_id(&matrix_user_id).await.unwrap_or(None);
                 if existing_user.is_some() {
                     ::tracing::warn!(
                         target: "security_audit",
@@ -577,18 +561,12 @@ async fn oidc_token(
 
                 tracing::info!("Creating new Matrix user from OIDC: {}", matrix_user_id);
                 let random_password: String = uuid::Uuid::new_v4().to_string();
-                state
-                    .services
-                    .core
-                    .registration_service
+                ctx.registration_service
                     .register_user(&localpart, &random_password, Some(&displayname), None)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to register OIDC user", &e))?;
 
-                state
-                    .services
-                    .sso
-                    .oidc_mapping_storage
+                ctx.oidc_mapping_storage
                     .insert_mapping(&issuer, &subject, &matrix_user_id, now_ts)
                     .await
                     .map_err(|e| ApiError::internal_with_log("Failed to insert OIDC user mapping", &e))?;
@@ -602,20 +580,15 @@ async fn oidc_token(
             let device_id: String = format!("OIDC{}", &uuid::Uuid::new_v4().to_string().replace("-", "")[..8]);
 
             // 注册设备
-            state
-                .services
-                .account
-                .account_device_list_service
-                .create_device(&device_id, &matrix_user_id, Some("OIDC Device"))
-                .await?;
+            ctx.account_device_list_service.create_device(&device_id, &matrix_user_id, Some("OIDC Device")).await?;
 
             // 生成 Matrix Access Token
-            let user_info = state.services.account.account_identity_service.get_user_by_username(&localpart).await?;
+            let user_info = ctx.account_identity_service.get_user_by_username(&localpart).await?;
 
             let is_admin: bool = user_info.is_some_and(|u| u.is_admin);
 
             let matrix_token: String =
-                state.services.core.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
+                ctx.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
 
             tracing::info!(
                 "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}, device_id: {}",
@@ -690,16 +663,12 @@ pub struct OidcAuthorizeRequest {
 /// OIDC Authorization handler
 /// Note: This endpoint does NOT require authentication - it's the first step in OIDC login
 async fn oidc_authorize(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     query: axum::extract::Query<OidcAuthorizeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &synapse_services::oidc_service::OidcService = state
-        .services
-        .sso
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &synapse_services::oidc_service::OidcService =
+        ctx.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcAuthorizeRequest { response_type, client_id: _, redirect_uri, scope: _, state: auth_state, nonce } =
         query.0;
@@ -735,18 +704,18 @@ async fn oidc_authorize(
 
 /// OIDC 登出
 async fn oidc_logout(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<OidcLogoutRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 如果提供了设备 ID，则删除该设备
     if let Some(device_id) = body.device_id {
-        state.services.account.account_device_list_service.delete_device(&device_id).await?;
+        ctx.account_device_list_service.delete_device(&device_id).await?;
     }
 
     // 如果提供了 refresh_token，则尝试撤销
     if let Some(refresh_token) = body.refresh_token {
-        state.services.admin.user.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
+        ctx.refresh_token_service.revoke_token(&refresh_token, "OIDC logout").await?;
     }
 
     tracing::info!("OIDC logout for user: {}", auth_user.user_id);
@@ -785,10 +754,10 @@ pub struct OpenIdDiscovery {
 
 /// OpenID Connect Server Discovery
 #[allow(clippy::unused_async)]
-pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<OpenIdDiscovery>, ApiError> {
+pub async fn openid_discovery(State(ctx): State<SsoContext>) -> Result<Json<OpenIdDiscovery>, ApiError> {
     // 如果启用了内置 OIDC Provider，直接使用其发现文档
     #[cfg(feature = "builtin-oidc")]
-    if let Some(provider) = &state.services.sso.builtin_oidc_provider {
+    if let Some(provider) = &ctx.builtin_oidc_provider {
         let doc = provider.get_discovery_document();
         return Ok(Json(OpenIdDiscovery {
             issuer: doc.issuer,
@@ -812,8 +781,8 @@ pub async fn openid_discovery(State(state): State<AppState>) -> Result<Json<Open
         }));
     }
 
-    let issuer = state.services.core.config.server.get_public_baseurl();
-    let oidc_config = &state.services.core.config.oidc;
+    let issuer = ctx.config.server.get_public_baseurl();
+    let oidc_config = &ctx.config.oidc;
 
     Ok(Json(OpenIdDiscovery {
         issuer: issuer.clone(),
@@ -848,16 +817,12 @@ pub struct OidcCallbackRequest {
 
 /// OIDC Callback handler - 处理用户授权后从 OIDC 提供商返回的回调
 async fn oidc_callback(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     query: axum::extract::Query<OidcCallbackRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // 检查 OIDC 服务是否启用
-    let oidc_service: &synapse_services::oidc_service::OidcService = state
-        .services
-        .sso
-        .oidc_service
-        .as_ref()
-        .ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
+    let oidc_service: &synapse_services::oidc_service::OidcService =
+        ctx.oidc_service.as_ref().ok_or_else(|| ApiError::bad_request("OIDC is not enabled".to_string()))?;
 
     let OidcCallbackRequest { code, state: callback_state, error, error_description } = query.0;
 
@@ -879,18 +844,19 @@ async fn oidc_callback(
     validate_state_pkce_binding(&auth_session)?;
 
     // 获取配置的回调 URL
-    let callback_url: String =
-        if auth_session.redirect_uri.is_empty() {
-            oidc_service.get_config().callback_url.clone().unwrap_or_else(|| {
-                format!("https://{}/_matrix/client/v3/oidc/callback", state.services.core.server_name)
-            })
-        } else {
-            auth_session.redirect_uri.clone()
-        };
+    let callback_url: String = if auth_session.redirect_uri.is_empty() {
+        oidc_service
+            .get_config()
+            .callback_url
+            .clone()
+            .unwrap_or_else(|| format!("https://{}/_matrix/client/v3/oidc/callback", ctx.server_name))
+    } else {
+        auth_session.redirect_uri.clone()
+    };
 
     // 兑换令牌
     let token_response: synapse_services::oidc_service::OidcTokenResponse = oidc_service
-        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()))
+        .exchange_code(&code, &callback_url, Some(auth_session.code_verifier.as_str()), Some(&auth_session.nonce))
         .await
         .map_err(|e| ApiError::internal_with_log("Token exchange failed", &e))?;
 
@@ -913,25 +879,20 @@ async fn oidc_callback(
 
     // 创建或登录 Matrix 用户
     // First check if user exists by localpart
-    let user_id: String = format!("@{}:{}", oidc_user.localpart, state.services.core.server_name);
+    let user_id: String = format!("@{}:{}", oidc_user.localpart, ctx.server_name);
 
-    let existing_user =
-        state.services.account.account_identity_service.get_user_by_username(&oidc_user.localpart).await?;
+    let existing_user = ctx.account_identity_service.get_user_by_username(&oidc_user.localpart).await?;
 
     let (user, access_token, refresh_token, device_id) = if let Some(existing) = existing_user {
         // User exists, generate tokens for them using a simple token generation
         // Use the existing user's admin status
         let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
-        let access_token: String = state
-            .services
-            .core
+        let access_token: String = ctx
             .auth_service
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-        let refresh_token: String = state
-            .services
-            .core
+        let refresh_token: String = ctx
             .auth_service
             .generate_refresh_token(&user_id, &device_id)
             .await
@@ -944,13 +905,7 @@ async fn oidc_callback(
         // Get displayname from OIDC user info
         let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
-        match state
-            .services
-            .core
-            .auth_service
-            .register(&oidc_user.localpart, &random_password, false, displayname)
-            .await
-        {
+        match ctx.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)
@@ -958,25 +913,19 @@ async fn oidc_callback(
                 if error_msg.contains("already taken") || error_msg.contains("in use") || error_msg.contains("conflict")
                 {
                     // User was created by another request, try to get them
-                    let existing = state
-                        .services
-                        .account
+                    let existing = ctx
                         .account_identity_service
                         .get_user_by_username(&oidc_user.localpart)
                         .await?
                         .ok_or_else(|| ApiError::internal("User creation failed".to_string()))?;
 
                     let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
-                    let access_token: String = state
-                        .services
-                        .core
+                    let access_token: String = ctx
                         .auth_service
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
-                    let refresh_token: String = state
-                        .services
-                        .core
+                    let refresh_token: String = ctx
                         .auth_service
                         .generate_refresh_token(&user_id, &device_id)
                         .await
@@ -995,7 +944,7 @@ async fn oidc_callback(
     Ok(Json(serde_json::json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": state.services.core.auth_service.token_expiry(),
+        "expires_in": ctx.auth_service.token_expiry(),
         "device_id": device_id,
         "user_id": user_id_for_log,
     })))

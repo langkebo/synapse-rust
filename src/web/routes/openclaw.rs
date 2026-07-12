@@ -1,3 +1,4 @@
+use crate::web::routes::context::AdminContext;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -329,27 +330,27 @@ pub fn openclaw_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteE
 // Route handlers — thin HTTP adapters delegating to OpenClawService
 // ---------------------------------------------------------------------------
 
-fn svc(state: &AppState) -> &Arc<OpenClawService> {
-    &state.openclaw_service
+fn svc(ctx: &AdminContext) -> &Arc<OpenClawService> {
+    &ctx.openclaw_service
 }
 
 async fn list_connections(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ConnectionResponse>>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let connections: Vec<synapse_storage::openclaw::OpenClawConnection> =
-        svc(&state).list_connections(&auth.user_id).await?;
+        svc(&ctx).list_connections(&auth.user_id).await?;
     Ok(Json(connections.into_iter().map(ConnectionResponse::from).collect()))
 }
 
 async fn create_connection(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&ctx)
         .create_connection(
             &auth.user_id,
             &req.name,
@@ -364,24 +365,24 @@ async fn create_connection(
 }
 
 async fn get_connection(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let conn: synapse_storage::openclaw::OpenClawConnection =
-        svc(&state).get_connection_for_user(id, &auth.user_id).await?;
+        svc(&ctx).get_connection_for_user(id, &auth.user_id).await?;
     Ok(Json(ConnectionResponse::from(conn)))
 }
 
 async fn update_connection(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let conn: synapse_storage::openclaw::OpenClawConnection = svc(&ctx)
         .update_connection(
             id,
             &auth.user_id,
@@ -397,23 +398,23 @@ async fn update_connection(
 }
 
 async fn delete_connection(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state).delete_connection(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).delete_connection(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn test_connection(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let (conn, is_healthy, latency_ms): (synapse_storage::openclaw::OpenClawConnection, bool, i64) =
-        svc(&state).test_connection(id, &auth.user_id).await?;
+        svc(&ctx).test_connection(id, &auth.user_id).await?;
     Ok(Json(serde_json::json!({
         "healthy": is_healthy,
         "latency_ms": latency_ms,
@@ -423,13 +424,13 @@ async fn test_connection(
 }
 
 async fn list_conversations(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<ConversationResponse>>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let (conversations, next_batch): (Vec<synapse_storage::openclaw::AiConversation>, Option<String>) =
-        svc(&state).list_conversations(&auth.user_id, query.limit, query.from).await?;
+        svc(&ctx).list_conversations(&auth.user_id, query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: Some(conversations.len() as i64),
         limit: query.limit,
@@ -439,12 +440,12 @@ async fn list_conversations(
 }
 
 async fn create_conversation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Json(req): Json<CreateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conv = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&ctx)
         .create_conversation(
             &auth.user_id,
             req.connection_id,
@@ -459,23 +460,23 @@ async fn create_conversation(
 }
 
 async fn get_conversation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conv = svc(&state).get_conversation_for_user(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&ctx).get_conversation_for_user(id, &auth.user_id).await?;
     Ok(Json(ConversationResponse::from(conv)))
 }
 
 async fn update_conversation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateConversationRequest>,
 ) -> Result<Json<ConversationResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let conv = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let conv = svc(&ctx)
         .update_conversation(
             id,
             &auth.user_id,
@@ -490,24 +491,24 @@ async fn update_conversation(
 }
 
 async fn delete_conversation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state).delete_conversation(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).delete_conversation(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_messages(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(conversation_id): Path<i64>,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<MessageResponse>>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let (messages, next_batch): (Vec<synapse_storage::openclaw::AiMessage>, Option<String>) =
-        svc(&state).list_messages(conversation_id, &auth.user_id, query.limit, query.from, query.before).await?;
+        svc(&ctx).list_messages(conversation_id, &auth.user_id, query.limit, query.from, query.before).await?;
     Ok(Json(PaginatedResponse {
         total: Some(messages.len() as i64),
         limit: query.limit,
@@ -517,13 +518,13 @@ async fn list_messages(
 }
 
 async fn send_message(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(conversation_id): Path<i64>,
     Json(req): Json<SendMessageRequest>,
 ) -> Result<Json<MessageResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let msg = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let msg = svc(&ctx)
         .send_message(
             conversation_id,
             &auth.user_id,
@@ -537,23 +538,23 @@ async fn send_message(
 }
 
 async fn delete_message(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state).delete_message(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).delete_message(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_generations(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Query(query): Query<PaginationQuery>,
 ) -> Result<Json<PaginatedResponse<GenerationResponse>>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
     let (generations, next_batch): (Vec<synapse_storage::openclaw::AiGeneration>, Option<String>) =
-        svc(&state).list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from).await?;
+        svc(&ctx).list_generations(&auth.user_id, query.r#type.as_deref(), query.limit, query.from).await?;
     Ok(Json(PaginatedResponse {
         total: Some(generations.len() as i64),
         limit: query.limit,
@@ -563,52 +564,51 @@ async fn list_generations(
 }
 
 async fn create_generation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Json(req): Json<CreateGenerationRequest>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let generation =
-        svc(&state).create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let generation = svc(&ctx).create_generation(&auth.user_id, req.conversation_id, &req.r#type, &req.prompt).await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn get_generation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<GenerationResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let generation = svc(&state).get_generation_for_user(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let generation = svc(&ctx).get_generation_for_user(id, &auth.user_id).await?;
     Ok(Json(GenerationResponse::from(generation)))
 }
 
 async fn delete_generation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state).delete_generation(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).delete_generation(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_chat_roles(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
 ) -> Result<Json<Vec<ChatRoleResponse>>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let roles: Vec<synapse_storage::openclaw::AiChatRole> = svc(&state).list_chat_roles(&auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let roles: Vec<synapse_storage::openclaw::AiChatRole> = svc(&ctx).list_chat_roles(&auth.user_id).await?;
     Ok(Json(roles.into_iter().map(ChatRoleResponse::from).collect()))
 }
 
 async fn create_chat_role(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Json(req): Json<CreateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: synapse_storage::openclaw::AiChatRole = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let role: synapse_storage::openclaw::AiChatRole = svc(&ctx)
         .create_chat_role(
             &auth.user_id,
             &req.name,
@@ -626,23 +626,23 @@ async fn create_chat_role(
 }
 
 async fn get_chat_role(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: synapse_storage::openclaw::AiChatRole = svc(&state).get_chat_role_for_user(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let role: synapse_storage::openclaw::AiChatRole = svc(&ctx).get_chat_role_for_user(id, &auth.user_id).await?;
     Ok(Json(ChatRoleResponse::from(role)))
 }
 
 async fn update_chat_role(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
     Json(req): Json<UpdateChatRoleRequest>,
 ) -> Result<Json<ChatRoleResponse>, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    let role: synapse_storage::openclaw::AiChatRole = svc(&state)
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    let role: synapse_storage::openclaw::AiChatRole = svc(&ctx)
         .update_chat_role(
             id,
             &auth.user_id,
@@ -661,11 +661,11 @@ async fn update_chat_role(
 }
 
 async fn delete_chat_role(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth: AuthInfo,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, ApiError> {
-    svc(&state).ensure_user_allowed(auth.is_guest)?;
-    svc(&state).delete_chat_role(id, &auth.user_id).await?;
+    svc(&ctx).ensure_user_allowed(auth.is_guest)?;
+    svc(&ctx).delete_chat_role(id, &auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,6 +1,6 @@
 use super::{extract_origin_candidate, is_origin_allowed, is_safe_http_method, same_origin};
 use crate::common::error::ApiError;
-use crate::web::routes::AppState;
+use crate::web::routes::context::CoreContext;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Request};
 use axum::response::{IntoResponse, Response};
@@ -72,8 +72,8 @@ fn extract_cookie_session_id_for_csrf(headers: &HeaderMap) -> Option<String> {
     })
 }
 
-pub async fn csrf_middleware(State(state): State<AppState>, request: Request<Body>, next: Next) -> Response {
-    let csrf_manager = CsrfTokenManager::new(state.services.core.config.security.csrf_secret.clone());
+pub async fn csrf_middleware(State(ctx): State<CoreContext>, request: Request<Body>, next: Next) -> Response {
+    let csrf_manager = CsrfTokenManager::new(ctx.config.security.csrf_secret.clone());
     let method = request.method().clone();
     let headers = request.headers().clone();
     let session_id = extract_cookie_session_id_for_csrf(&headers);
@@ -126,6 +126,15 @@ mod tests {
     use synapse_services::ServiceContainer;
     #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
+
+    // Serializes the tests that mutate the process-global TRUST_FORWARDED_HEADERS
+    // flag so they never overlap under parallel/shuffled test execution. Lock is
+    // poison-tolerant because these tests assert (and may panic) while holding it.
+    static FORWARDED_TRUST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_forwarded_trust() -> std::sync::MutexGuard<'static, ()> {
+        FORWARDED_TRUST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn test_csrf_token_round_trip() {
@@ -291,6 +300,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_ignores_forwarded_headers_by_default() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-proto", "https".parse().expect("valid proto header"));
@@ -300,6 +312,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_host_header_when_forwarded_not_trusted() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-host", "evil.example.com".parse().expect("valid host header"));
@@ -310,6 +325,7 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_forwarded_host_and_proto_when_trusted() {
+        let _guard = lock_forwarded_trust();
         super::super::set_trust_forwarded_headers(true);
 
         let mut headers = HeaderMap::new();

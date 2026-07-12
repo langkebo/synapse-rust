@@ -432,6 +432,16 @@ impl LifecycleService {
         }
 
         let room_alias = self.format_room_alias(config.room_alias_name.as_deref());
+
+        // Invalidate room-state cache after room creation writes initial state.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        // After the transaction commits, enqueue the initial state events for
+        // any matching application services.  Events created inside the
+        // transaction bypass the messaging layer's appservice dispatch, so we
+        // replay them here.
+        self.dispatch_appservice_events_for_room(&room_id).await;
+
         Ok(Self::build_room_response(&room_id, room_alias.as_deref()))
     }
 
@@ -459,6 +469,53 @@ impl LifecycleService {
             "room_id": room_id,
             "room_alias": room_alias
         })
+    }
+
+    /// After `create_room` commits its transaction, replay the room's
+    /// initial state events to any matching application services.
+    ///
+    /// Events created inside the transaction bypass the messaging layer's
+    /// appservice dispatch (which only fires when no transaction is
+    /// supplied).  This method queries the committed state events and
+    /// enqueues each one so bridges receive the full room creation payload.
+    async fn dispatch_appservice_events_for_room(&self, room_id: &str) {
+        let Some(app_service_manager) = &self.app_service_manager else {
+            return;
+        };
+
+        let state_events = match self.event_storage.get_state_events(room_id).await {
+            Ok(events) => events,
+            Err(error) => {
+                ::tracing::warn!(
+                    error = %error,
+                    room_id = %room_id,
+                    "Failed to load state events for appservice dispatch after room creation"
+                );
+                return;
+            }
+        };
+
+        for event in state_events {
+            if let Err(error) = app_service_manager
+                .enqueue_matching_event(
+                    &event.event_id,
+                    &event.room_id,
+                    event.event_type.as_deref().unwrap_or(""),
+                    &event.sender,
+                    &event.content,
+                    event.state_key.as_deref(),
+                )
+                .await
+            {
+                ::tracing::warn!(
+                    error = %error,
+                    event_id = %event.event_id,
+                    room_id = %event.room_id,
+                    event_type = ?event.event_type,
+                    "Failed to enqueue application service event after room creation"
+                );
+            }
+        }
     }
 }
 

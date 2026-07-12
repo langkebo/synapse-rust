@@ -66,7 +66,7 @@ pub struct CaptchaTemplate {
     pub is_default: bool,
     pub is_enabled: bool,
     pub created_ts: i64,
-    pub updated_ts: i64,
+    pub updated_ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

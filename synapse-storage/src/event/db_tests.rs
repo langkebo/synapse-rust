@@ -1,5 +1,6 @@
 use super::*;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 
 async fn test_pool() -> Arc<Pool<Postgres>> {

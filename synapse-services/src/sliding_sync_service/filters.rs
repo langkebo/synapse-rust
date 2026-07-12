@@ -200,7 +200,7 @@ impl SlidingSyncService {
         room_json["limited"] = json!(limited);
         room_json["prev_batch"] = json!(prev_batch);
         room_json["num_live"] = json!(config.timeline_limit.filter(|limit| *limit > 0).map_or(0, |_| timeline.len()));
-        room_json["bump_stamp"] = json!(room.bump_stamp);
+        room_json["bump_stamp"] = json!(room.bump_stamp.unwrap_or(0));
 
         Ok(room_json)
     }
@@ -216,7 +216,7 @@ impl SlidingSyncService {
             "invited": room.is_invited,
             "highlight_count": room.highlight_count,
             "notification_count": room.notification_count,
-            "timestamp": room.timestamp,
+            "timestamp": room.timestamp.unwrap_or(0),
         })
     }
 

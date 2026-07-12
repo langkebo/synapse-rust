@@ -21,7 +21,7 @@ pub struct CreateFilterRequest {
 }
 
 #[async_trait]
-pub trait FilterStoreApi {
+pub trait FilterStoreApi: Send + Sync {
     async fn create_filter(&self, request: CreateFilterRequest) -> Result<Filter, ApiError>;
     async fn get_filter(&self, user_id: &str, filter_id: &str) -> Result<Option<Filter>, ApiError>;
     async fn get_filters_by_user(&self, user_id: &str) -> Result<Vec<Filter>, ApiError>;

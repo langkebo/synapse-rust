@@ -45,7 +45,7 @@ pub struct BackgroundUpdate {
     pub progress: serde_json::Value,
     pub total_items: i32,
     pub processed_items: i32,
-    pub created_ts: i64,
+    pub created_ts: Option<i64>,
     pub started_ts: Option<i64>,
     pub completed_ts: Option<i64>,
     pub updated_ts: Option<i64>,
@@ -240,7 +240,7 @@ impl BackgroundUpdateStorage {
         .await?;
 
         let next_from = if rows.len() as i64 == limit {
-            rows.last().map(|row| encode_background_update_cursor(row.created_ts, &row.job_name))
+            rows.last().map(|row| encode_background_update_cursor(row.created_ts.unwrap_or(0), &row.job_name))
         } else {
             None
         };
@@ -654,7 +654,7 @@ mod tests {
             progress: serde_json::json!(50),
             total_items: 100,
             processed_items: 50,
-            created_ts: 1234567800,
+            created_ts: Some(1234567800),
             started_ts: Some(1234567800),
             completed_ts: None,
             updated_ts: Some(1234567890),
@@ -682,7 +682,7 @@ mod tests {
             progress: serde_json::json!(100),
             total_items: 100,
             processed_items: 100,
-            created_ts: 1234567800,
+            created_ts: Some(1234567800),
             started_ts: Some(1234567800),
             completed_ts: Some(1234567890),
             updated_ts: Some(1234567890),
@@ -924,7 +924,7 @@ mod tests {
         assert_eq!(update.sleep_ms, 200);
         assert_eq!(update.max_retries, 3);
         assert_eq!(update.processed_items, 0);
-        assert!(update.created_ts > 0);
+        assert!(update.created_ts.unwrap_or(0) > 0);
     }
 
     #[tokio::test]

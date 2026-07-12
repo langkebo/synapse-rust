@@ -559,8 +559,18 @@ impl SamlService {
             }
         }
 
-        if self.config.want_response_signed || self.config.want_assertions_signed {
-            if let Err(e) = self.verify_saml_signature(response) {
+        // OPT-022: Always require at least one signature level (response or assertion).
+        // Only skip if metadata/certificate is unavailable (cannot verify without it).
+        match self.verify_saml_signature(response) {
+            Ok(()) => {}
+            Err(e) if e.contains("No IdP metadata") || e.contains("No IdP certificate") => {
+                tracing::debug!(
+                    error = %e,
+                    issuer = %issuer,
+                    "SAML signature verification unavailable — skipping"
+                );
+            }
+            Err(e) => {
                 tracing::warn!(
                     error = %e,
                     issuer = %issuer,
@@ -569,9 +579,7 @@ impl SamlService {
                     has_expected_in_response_to = expected_in_response_to.is_some(),
                     "SAML signature verification failed"
                 );
-                if self.config.want_response_signed || self.config.want_assertions_signed {
-                    return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
-                }
+                return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
             }
         }
 
@@ -596,12 +604,12 @@ impl SamlService {
         let has_response_sig = xml.contains("<ds:Signature") || xml.contains("<Signature");
         let has_assertion_sig = xml.contains("<ds:Signature") && xml.contains("<saml:Assertion");
 
-        if self.config.want_response_signed && !has_response_sig && !has_assertion_sig {
-            return Err("SAML response is not signed but signature is required".to_string());
-        }
-
+        // OPT-022: At least one of response or assertion must be signed, regardless of
+        // want_response_signed / want_assertions_signed flags.
         if !has_response_sig && !has_assertion_sig {
-            return Ok(());
+            return Err(
+                "Neither SAML response nor assertion is signed — at least one signature level is required".to_string()
+            );
         }
 
         let signature_value = Self::extract_signature_value(xml);
@@ -1472,5 +1480,58 @@ mod tests {
 
         let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
         assert!(error.to_string().contains("recipient mismatch"));
+    }
+
+    #[tokio::test]
+    async fn saml_requires_at_least_one_signature() {
+        let mut config = create_test_config();
+        config.want_response_signed = false;
+        config.want_assertions_signed = false;
+
+        let pool = Arc::new(
+            sqlx::PgPool::connect_lazy("postgresql://synapse:synapse@localhost:5432/synapse")
+                .expect("valid lazy postgres url"),
+        );
+        let storage = Arc::new(SamlStorage::new(&pool));
+        let mut service = SamlService::new(Arc::new(config), storage, "localhost".to_string());
+
+        // Seed cached metadata with a dummy certificate so that verify_saml_signature
+        // proceeds past the metadata/certificate checks and reaches the no-signature check.
+        service.cached_metadata = Some(SamlMetadata {
+            entity_id: "https://idp.example.com".to_string(),
+            sso_url: "https://idp.example.com/sso".to_string(),
+            slo_url: None,
+            certificate: "ZHVtbXktY2VydGlmaWNhdGUtYmFzZTY0".to_string(), // "dummy-certificate-base64"
+            valid_until: None,
+        });
+
+        let acs_url = service.config.get_sp_acs_url(&service.server_name);
+        // XML response without any <Signature> or <ds:Signature> elements
+        let xml = format!(
+            r#"<samlp:Response InResponseTo="id_123">
+                <samlp:Status>
+                    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+                </samlp:Status>
+                <saml:Issuer>https://idp.example.com</saml:Issuer>
+                <saml:Assertion>
+                    <saml:Conditions NotBefore="{}" NotOnOrAfter="{}">
+                        <saml:AudienceRestriction>
+                            <saml:Audience>https://matrix.example.com</saml:Audience>
+                        </saml:AudienceRestriction>
+                    </saml:Conditions>
+                    <saml:Subject>
+                        <saml:SubjectConfirmation>
+                            <saml:SubjectConfirmationData Recipient="{}"/>
+                        </saml:SubjectConfirmation>
+                    </saml:Subject>
+                </saml:Assertion>
+            </samlp:Response>"#,
+            (Utc::now() - chrono::Duration::minutes(1)).to_rfc3339(),
+            (Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
+            acs_url
+        );
+
+        let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
+        assert!(error.to_string().contains("signature"), "Should reject unsigned SAML response; got: {}", error);
     }
 }

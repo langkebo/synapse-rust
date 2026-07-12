@@ -279,6 +279,15 @@ async fn test_captcha_storage_config() {
 async fn test_captcha_service_generate_code() {
     let pool = crate::require_test_pool().await;
 
+    ensure_default_template(
+        &pool,
+        "default_image",
+        "image",
+        None,
+        "Your verification code is {{code}} and expires in {{expiry_minutes}} minutes.",
+    )
+    .await;
+
     let storage = Arc::new(CaptchaStorage::new(&pool));
     let service = CaptchaService::new(storage);
 
@@ -299,6 +308,15 @@ async fn test_captcha_service_generate_code() {
 #[tokio::test]
 async fn test_captcha_service_verify() {
     let pool = crate::require_test_pool().await;
+
+    ensure_default_template(
+        &pool,
+        "default_image",
+        "image",
+        None,
+        "Your verification code is {{code}} and expires in {{expiry_minutes}} minutes.",
+    )
+    .await;
 
     let storage = Arc::new(CaptchaStorage::new(&pool));
     let service = CaptchaService::new(storage.clone());

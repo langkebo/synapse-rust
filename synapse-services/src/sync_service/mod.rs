@@ -35,7 +35,7 @@ pub struct SyncService {
     pub(crate) room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub(crate) room_account_data_storage: RoomAccountDataStorage,
     pub(crate) account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-    pub(crate) filter_storage: FilterStorage,
+    pub(crate) filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub(crate) device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub(crate) device_key_storage: DeviceKeyStorage,
     pub(crate) key_rotation_storage: KeyRotationStorage,
@@ -43,6 +43,7 @@ pub struct SyncService {
     pub(crate) lazy_loaded_members_cache: Arc<RwLock<HashMap<LazyLoadedMembersCacheKey, HashSet<String>>>>,
     pub(crate) metrics: Arc<MetricsCollector>,
     pub(crate) performance: synapse_common::config::PerformanceConfig,
+    pub(crate) cache: Arc<synapse_cache::CacheManager>,
 }
 
 /// Maximum number of (user, device, room) entries kept in the in-memory
@@ -71,6 +72,7 @@ impl SyncService {
             lazy_loaded_members_cache: Arc::new(RwLock::new(HashMap::new())),
             metrics: deps.metrics,
             performance: deps.performance,
+            cache: deps.cache,
         }
     }
 
@@ -82,13 +84,14 @@ impl SyncService {
         room_storage: Arc<synapse_storage::room::RoomStorage>,
         room_account_data_storage: RoomAccountDataStorage,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-        filter_storage: FilterStorage,
+        filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
         device_storage: Arc<synapse_storage::device::DeviceStorage>,
         device_key_storage: DeviceKeyStorage,
         key_rotation_storage: KeyRotationStorage,
         to_device_storage: synapse_e2ee::to_device::ToDeviceStorage,
         metrics: Arc<MetricsCollector>,
         performance: synapse_common::config::PerformanceConfig,
+        cache: Arc<synapse_cache::CacheManager>,
     ) -> Self {
         Self::from_deps(SyncServiceDeps {
             presence_storage,
@@ -104,6 +107,7 @@ impl SyncService {
             to_device_storage,
             metrics,
             performance,
+            cache,
         })
     }
 

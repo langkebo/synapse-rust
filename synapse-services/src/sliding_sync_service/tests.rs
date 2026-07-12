@@ -3,6 +3,7 @@ use synapse_storage::device::DeviceStorage;
 use synapse_storage::event::EventStorage;
 use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::sliding_sync::{SlidingSyncFilters, SlidingSyncListData, SlidingSyncRoom, SlidingSyncStorage};
+use synapse_storage::test_mocks::InMemoryEventStore;
 use synapse_storage::PresenceStorage;
 
 #[tokio::test]
@@ -15,7 +16,7 @@ async fn test_room_to_json() {
         room_id: "!room:example.com".to_string(),
         conn_id: None,
         list_key: Some("main".to_string()),
-        bump_stamp: 1234567890000,
+        bump_stamp: Some(1234567890000),
         highlight_count: 5,
         notification_count: 10,
         is_dm: true,
@@ -24,7 +25,7 @@ async fn test_room_to_json() {
         is_invited: false,
         name: Some("Test Room".to_string()),
         avatar: Some("mxc://example.com/avatar".to_string()),
-        timestamp: 1234567890000,
+        timestamp: Some(1234567890000),
         created_ts: 1234567890000,
         updated_ts: 1234567890000,
     };
@@ -468,7 +469,7 @@ fn room_to_json_none_name_and_avatar() {
         room_id: "!r:ex.com".to_string(),
         conn_id: None,
         list_key: None,
-        bump_stamp: 0,
+        bump_stamp: Some(0),
         highlight_count: 0,
         notification_count: 0,
         is_dm: false,
@@ -477,7 +478,7 @@ fn room_to_json_none_name_and_avatar() {
         is_invited: false,
         name: None,
         avatar: None,
-        timestamp: 0,
+        timestamp: Some(0),
         created_ts: 0,
         updated_ts: 0,
     };
@@ -522,4 +523,113 @@ fn make_state_event(event_type: Option<&str>, state_key: Option<&str>) -> synaps
         user_id: Some("@sender:ex.com".to_string()),
         stream_ordering: Some(1),
     }
+}
+
+// ── Room-state cache tests (OPT-015-d) ──────────────────────────
+
+/// Build a `SlidingSyncService` with an in-memory event store so that
+/// `get_state_events` is backed by a controllable fake rather than Postgres.
+fn create_cached_test_service(event_store: Arc<InMemoryEventStore>) -> SlidingSyncService {
+    let pool = Arc::new(
+        sqlx::postgres::PgPoolOptions::new().max_connections(1).connect_lazy("postgres://localhost/test").unwrap(),
+    );
+    SlidingSyncService {
+        storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
+        cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
+        event_storage: event_store as Arc<dyn synapse_storage::event::EventStoreApi>,
+        device_key_storage: DeviceKeyStorage::new(&pool),
+        typing_service: Arc::new(crate::typing_service::TypingService::default()),
+        presence_storage: Arc::new(PresenceStorage::new(
+            pool.clone(),
+            Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
+        )),
+        member_storage: Arc::new(RoomMemberStorage::new(&pool, "localhost")),
+        device_storage: Arc::new(DeviceStorage::new(&pool)),
+        to_device_storage: ToDeviceStorage::new(&pool),
+        connection_tracker: Arc::new(
+            moka::sync::Cache::builder()
+                .max_capacity(MAX_TRACKED_CONNECTIONS)
+                .time_to_idle(std::time::Duration::from_millis(CONNECTION_TTL_MS as u64))
+                .build(),
+        ),
+        metrics: Arc::new(MetricsCollector::new()),
+        latency_threshold_ms: PerformanceConfig::default().sliding_sync_latency_threshold_ms,
+    }
+}
+
+#[tokio::test]
+async fn room_state_cache_hit_avoids_storage() {
+    let event_store = Arc::new(InMemoryEventStore::new());
+    let svc = create_cached_test_service(event_store.clone());
+
+    let room_id = "!test:example.com";
+
+    // First call — no state events in store, populates cache with empty vec.
+    let result1 =
+        svc.build_required_state_events(room_id, Some(&vec![vec!["*".to_string(), "*".to_string()]])).await.unwrap();
+    assert!(result1.is_empty(), "first call should return empty");
+
+    // Inject a state event into the store AFTER the cache was populated.
+    let _ = event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$ev1:example.com".to_string(),
+            room_id: room_id.to_string(),
+            user_id: "@alice:example.com".to_string(),
+            event_type: "m.room.name".to_string(),
+            content: serde_json::json!({"name": "CachedRoom"}),
+            state_key: Some("".to_string()),
+            origin_server_ts: 1000,
+            redacts: None,
+        })
+        .await
+        .unwrap();
+
+    // Second call — should hit cache and return empty, NOT the newly added event.
+    let result2 =
+        svc.build_required_state_events(room_id, Some(&vec![vec!["*".to_string(), "*".to_string()]])).await.unwrap();
+
+    assert!(
+        result2.is_empty(),
+        "second call should return cached empty vec, NOT the new state event. Found {} event(s)",
+        result2.len()
+    );
+}
+
+#[tokio::test]
+async fn room_state_cache_invalidation_clears_on_write() {
+    let event_store = Arc::new(InMemoryEventStore::new());
+    let svc = create_cached_test_service(event_store.clone());
+
+    let room_id = "!test:example.com";
+
+    // First call — caches empty state for the room.
+    let _ =
+        svc.build_required_state_events(room_id, Some(&vec![vec!["*".to_string(), "*".to_string()]])).await.unwrap();
+
+    // Inject a state event into the store.
+    let _ = event_store
+        .create_event(synapse_storage::event::CreateEventParams {
+            event_id: "$ev2:example.com".to_string(),
+            room_id: room_id.to_string(),
+            user_id: "@bob:example.com".to_string(),
+            event_type: "m.room.name".to_string(),
+            content: serde_json::json!({"name": "FreshRoom"}),
+            state_key: Some("".to_string()),
+            origin_server_ts: 2000,
+            redacts: None,
+        })
+        .await
+        .unwrap();
+
+    // Manually invalidate the cache (simulating what a state-event write does).
+    let _ = svc.cache.delete(&format!("room_state:{room_id}")).await;
+
+    // Third call — cache miss → should return the newly added event from storage.
+    let result =
+        svc.build_required_state_events(room_id, Some(&vec![vec!["*".to_string(), "*".to_string()]])).await.unwrap();
+
+    assert!(!result.is_empty(), "after invalidation, should return fresh state from storage");
+    assert_eq!(result.len(), 1, "should return exactly one state event");
+    let name = result[0].get("content").and_then(|c| c.get("name")).and_then(|n| n.as_str());
+    assert_eq!(name, Some("FreshRoom"), "should return the newly added event, not cached empty");
 }

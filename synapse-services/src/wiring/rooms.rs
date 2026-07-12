@@ -9,11 +9,11 @@ use crate::container::SharedInfra;
 
 #[derive(Clone)]
 pub struct RoomSyncServices {
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
+    pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+    pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
     pub room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>,
-    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
+    pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
@@ -26,27 +26,29 @@ pub struct RoomSyncServices {
     pub relations_service: Arc<crate::relations_service::RelationsService>,
     pub thread_storage: Arc<dyn synapse_storage::thread::ThreadStoreApi>,
     pub thread_service: Arc<crate::thread_service::ThreadService>,
-    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
+    pub room_tag_storage: Arc<dyn synapse_storage::room_tag::RoomTagStoreApi>,
 }
 
 impl RoomSyncServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,
         auth_service: &Arc<dyn Auth>,
         presence_storage: &Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
+        member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
+        event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
+        app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
+        key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
+        federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
-        let member_storage: Arc<synapse_storage::membership::RoomMemberStorage> =
-            Arc::new(RoomMemberStorage::new(&infra.pool, &server_name_for_storage));
-        let room_storage_concrete = Arc::new(RoomStorage::new(&infra.pool));
-        let room_storage: Arc<synapse_storage::room::RoomStorage> = room_storage_concrete.clone();
-        let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
-        let event_storage: Arc<synapse_storage::event::EventStorage> = event_storage_concrete.clone();
+        let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
+        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
+            Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
-        let relations_storage: Arc<synapse_storage::relations::RelationsStorage> =
-            Arc::new(synapse_storage::relations::RelationsStorage::new(&infra.pool));
+        let relations_storage = Arc::new(synapse_storage::relations::RelationsStorage::new(&infra.pool));
         let room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi> =
             Arc::new(synapse_storage::room_summary::RoomSummaryStorage::new(&infra.pool));
         let room_tag_storage = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(infra.pool.clone()));
@@ -58,8 +60,10 @@ impl RoomSyncServices {
         ));
 
         #[cfg(feature = "beacons")]
-        let beacon_service =
-            Arc::new(crate::beacon_service::BeaconService::new(infra.pool.clone(), infra.cache.clone()));
+        let beacon_storage: Arc<dyn synapse_storage::beacon::BeaconStoreApi> =
+            Arc::new(BeaconStorage::new(infra.pool.clone()));
+        #[cfg(feature = "beacons")]
+        let beacon_service = Arc::new(crate::beacon_service::BeaconService::new(beacon_storage, infra.cache.clone()));
 
         let room_service = Arc::new(crate::room_service::RoomService::new(crate::room_service::RoomServiceConfig {
             room_storage: room_storage.clone(),
@@ -73,14 +77,19 @@ impl RoomSyncServices {
             server_name: infra.config.server.name.clone(),
             task_queue: infra.task_queue.clone(),
             relations_storage: relations_storage.clone(),
-            event_broadcaster: None,
-            app_service_manager: None,
-            key_rotation_manager: None,
-            federation_client: None,
+            event_broadcaster: Some(event_broadcaster),
+            app_service_manager: Some(app_service_manager),
+            key_rotation_manager: Some(key_rotation_manager),
+            federation_client: Some(federation_client),
             #[cfg(feature = "beacons")]
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
+            cache: infra.cache.clone(),
+            key_rotation_storage: Some(
+                Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()))
+                    as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>,
+            ),
         }));
 
         let sync_room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);
@@ -96,13 +105,15 @@ impl RoomSyncServices {
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
-                filter_storage: FilterStorage::new(&infra.pool),
+                filter_storage: Arc::new(FilterStorage::new(&infra.pool))
+                    as Arc<dyn synapse_storage::filter::FilterStoreApi>,
                 device_storage: device_storage.clone(),
                 device_key_storage: sync_device_key_storage.clone(),
                 key_rotation_storage: sync_key_rotation_storage,
                 to_device_storage: to_device_storage.clone(),
                 metrics: infra.metrics.clone(),
                 performance: infra.config.performance.clone(),
+                cache: infra.cache.clone(),
             }));
 
         let typing_service = Arc::new(crate::typing_service::TypingService::new(infra.cache.clone()));

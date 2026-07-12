@@ -532,6 +532,10 @@ impl FriendRoomService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to save m.direct account data", &e))?;
 
+        // Invalidate the account-data cache for this user so the next /sync
+        // will re-read the fresh m.direct data (OPT-015-b, audit 04 §5).
+        let _ = self.cache.delete(&format!("account_data:{user_id}")).await;
+
         Ok(())
     }
 

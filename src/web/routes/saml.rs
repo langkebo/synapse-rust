@@ -1,4 +1,5 @@
 use crate::common::error::ApiError;
+use crate::web::routes::context::SsoContext;
 use crate::web::routes::AppState;
 use crate::web::AuthenticatedUser;
 use axum::{
@@ -52,62 +53,59 @@ pub struct SamlMetadataResponse {
 }
 
 pub async fn saml_login(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
+    let auth_request = ctx.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
 
     Ok(Json(SamlLoginResponse { redirect_url: auth_request.redirect_url }))
 }
 
 pub async fn saml_login_redirect(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SamlLoginQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let auth_request = state.services.sso.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
+    let auth_request = ctx.saml_service.get_auth_redirect(query.redirect_url.as_deref()).await?;
 
     Ok(Redirect::temporary(&auth_request.redirect_url))
 }
 
 pub async fn saml_callback_post(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<SamlCallbackBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    handle_saml_callback(&state, body.saml_response.as_deref(), body.relay_state.as_deref()).await
+    handle_saml_callback(&ctx, body.saml_response.as_deref(), body.relay_state.as_deref()).await
 }
 
 pub async fn saml_callback_get(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    handle_saml_callback(&state, query.saml_response.as_deref(), query.relay_state.as_deref()).await
+    handle_saml_callback(&ctx, query.saml_response.as_deref(), query.relay_state.as_deref()).await
 }
 
 async fn handle_saml_callback(
-    state: &AppState,
+    ctx: &SsoContext,
     saml_response: Option<&str>,
     relay_state: Option<&str>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let saml_response = saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    let auth_result =
-        state.services.sso.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
+    let auth_result = ctx.saml_service.process_auth_response(saml_response, relay_state, None, None).await?;
 
-    let user = state
-        .services
-        .account
+    let user = ctx
         .account_identity_service
         .get_user_by_id(&auth_result.user_id)
         .await?
@@ -115,18 +113,11 @@ async fn handle_saml_callback(
 
     let device_id = format!("SAML_{}", uuid::Uuid::new_v4().as_simple());
 
-    let access_token =
-        state.services.core.auth_service.generate_access_token(&auth_result.user_id, &device_id, user.is_admin).await?;
+    let access_token = ctx.auth_service.generate_access_token(&auth_result.user_id, &device_id, user.is_admin).await?;
 
     let expires_in = 3600_i64;
 
-    let refresh_token = match state
-        .services
-        .core
-        .auth_service
-        .generate_refresh_token(&auth_result.user_id, &device_id)
-        .await
-    {
+    let refresh_token = match ctx.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await {
         Ok(token) => Some(token),
         Err(e) => {
             ::tracing::warn!(
@@ -143,25 +134,21 @@ async fn handle_saml_callback(
 }
 
 pub async fn saml_logout(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let mapping = state.services.sso.saml_service.get_user_mapping(&_auth_user.user_id).await?;
+    let mapping = ctx.saml_service.get_user_mapping(&_auth_user.user_id).await?;
 
     if let Some(_mapping) = mapping {
-        let sessions = state.services.sso.saml_service.get_session_by_user(&_auth_user.user_id).await?;
+        let sessions = ctx.saml_service.get_session_by_user(&_auth_user.user_id).await?;
 
         if let Some(session) = sessions {
-            let redirect_url = state
-                .services
-                .sso
-                .saml_service
-                .initiate_logout(&session.session_id, Some("User initiated logout"))
-                .await?;
+            let redirect_url =
+                ctx.saml_service.initiate_logout(&session.session_id, Some("User initiated logout")).await?;
 
             return Ok(Json(serde_json::json!({
                 "redirect_url": redirect_url
@@ -175,28 +162,28 @@ pub async fn saml_logout(
 }
 
 pub async fn saml_logout_callback(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SamlCallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
     let saml_response = query.saml_response.ok_or_else(|| ApiError::bad_request("Missing SAML response"))?;
 
-    state.services.sso.saml_service.process_logout_response(&saml_response).await?;
+    ctx.saml_service.process_logout_response(&saml_response).await?;
 
     Ok(Json(serde_json::json!({
         "message": "Logout successful"
     })))
 }
 
-pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+pub async fn get_saml_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
+    let metadata = ctx.saml_service.get_idp_metadata().await?;
 
     Ok(Json(SamlMetadataResponse {
         entity_id: metadata.entity_id,
@@ -206,13 +193,13 @@ pub async fn get_saml_metadata(State(state): State<AppState>) -> Result<impl Int
     }))
 }
 
-pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+pub async fn get_sp_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let config = state.services.sso.saml_service.get_config();
-    let server_name = &state.services.core.server_name;
+    let config = ctx.saml_service.get_config();
+    let server_name = &ctx.server_name;
 
     let sp_entity_id = &config.sp_entity_id;
     let acs_url = config.get_sp_acs_url(server_name);
@@ -242,12 +229,12 @@ pub async fn get_sp_metadata(State(state): State<AppState>) -> Result<impl IntoR
     Ok(([(header::CONTENT_TYPE, "application/xml; charset=utf-8")], metadata))
 }
 
-pub async fn refresh_idp_metadata(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    if !state.services.sso.saml_service.is_enabled() {
+pub async fn refresh_idp_metadata(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let metadata = state.services.sso.saml_service.get_idp_metadata().await?;
+    let metadata = ctx.saml_service.get_idp_metadata().await?;
 
     Ok(Json(SamlMetadataResponse {
         entity_id: metadata.entity_id,
@@ -319,11 +306,11 @@ pub struct SamlLogoutAdminResponse {
 }
 
 pub async fn list_saml_mappings_admin(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Query(query): Query<SamlMappingListQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(50).clamp(1, 500);
-    let rows = state.services.sso.saml_service.list_user_mappings(limit, query.from.as_deref()).await?;
+    let rows = ctx.saml_service.list_user_mappings(limit, query.from.as_deref()).await?;
 
     let next_token = if rows.len() as i64 == limit { rows.last().map(|r| r.name_id.clone()) } else { None };
 
@@ -331,12 +318,10 @@ pub async fn list_saml_mappings_admin(
 }
 
 pub async fn get_saml_mapping_admin(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let row = state
-        .services
-        .sso
+    let row = ctx
         .saml_service
         .get_user_mapping_any_issuer(&name_id)
         .await?
@@ -345,16 +330,14 @@ pub async fn get_saml_mapping_admin(
 }
 
 pub async fn update_saml_mapping_admin(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
     Json(body): Json<UpdateSamlMappingBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.user_id.is_none() && body.attributes.is_none() {
         return Err(ApiError::bad_request("At least one of user_id / attributes must be provided"));
     }
-    let row = state
-        .services
-        .sso
+    let row = ctx
         .saml_service
         .update_user_mapping_by_name_id(&name_id, body.user_id.as_deref(), body.attributes.as_ref())
         .await?
@@ -363,10 +346,10 @@ pub async fn update_saml_mapping_admin(
 }
 
 pub async fn delete_saml_mapping_admin(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Path(name_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let removed = state.services.sso.saml_service.delete_user_mapping_by_name_id(&name_id).await?;
+    let removed = ctx.saml_service.delete_user_mapping_by_name_id(&name_id).await?;
     if removed == 0 {
         return Err(ApiError::not_found("SAML user mapping not found"));
     }
@@ -374,17 +357,17 @@ pub async fn delete_saml_mapping_admin(
 }
 
 pub async fn saml_logout_admin(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<SamlLogoutAdminBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.user_id.is_empty() {
         return Err(ApiError::bad_request("user_id is required"));
     }
-    if !state.services.sso.saml_service.is_enabled() {
+    if !ctx.saml_service.is_enabled() {
         return Err(ApiError::forbidden("SAML authentication is not enabled"));
     }
 
-    let session = state.services.sso.saml_service.get_session_by_user(&body.user_id).await?;
+    let session = ctx.saml_service.get_session_by_user(&body.user_id).await?;
 
     let Some(session) = session else {
         return Ok(Json(SamlLogoutAdminResponse {
@@ -394,21 +377,20 @@ pub async fn saml_logout_admin(
         }));
     };
 
-    let redirect_url =
-        state.services.sso.saml_service.initiate_logout(&session.session_id, Some("Admin initiated logout")).await.ok();
+    let redirect_url = ctx.saml_service.initiate_logout(&session.session_id, Some("Admin initiated logout")).await.ok();
 
     Ok(Json(SamlLogoutAdminResponse { user_id: body.user_id, redirect_url, sessions_invalidated: 1 }))
 }
 
-pub async fn get_saml_admin_config(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(state.services.sso.saml_service.effective_config()))
+pub async fn get_saml_admin_config(State(ctx): State<SsoContext>) -> Result<impl IntoResponse, ApiError> {
+    Ok(Json(ctx.saml_service.effective_config()))
 }
 
 pub async fn update_saml_admin_config(
-    State(state): State<AppState>,
+    State(ctx): State<SsoContext>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let merged = state.services.sso.saml_service.apply_runtime_overrides(body).await?;
+    let merged = ctx.saml_service.apply_runtime_overrides(body).await?;
     Ok(Json(merged))
 }
 
@@ -430,16 +412,24 @@ pub fn create_saml_router(state: AppState) -> axum::Router<AppState> {
         .route("/_matrix/client/v3/saml/metadata", get(get_saml_metadata))
         .route("/_matrix/client/v3/saml/sp_metadata", get(get_sp_metadata));
 
-    let admin_routes = axum::Router::new()
-        .route("/_synapse/admin/v1/saml/metadata/refresh", post(refresh_idp_metadata))
-        .route("/_synapse/admin/v1/saml/config", get(get_saml_admin_config).put(update_saml_admin_config))
-        .route("/_synapse/admin/v1/saml/mappings", get(list_saml_mappings_admin))
-        .route(
-            "/_synapse/admin/v1/saml/mapping/{name_id}",
-            get(get_saml_mapping_admin).put(update_saml_mapping_admin).delete(delete_saml_mapping_admin),
-        )
-        .route("/_synapse/admin/v1/saml/logout", post(saml_logout_admin))
-        .route_layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::admin_auth_middleware));
+    let admin_routes =
+        axum::Router::new()
+            .route("/_synapse/admin/v1/saml/metadata/refresh", post(refresh_idp_metadata))
+            .route("/_synapse/admin/v1/saml/config", get(get_saml_admin_config).put(update_saml_admin_config))
+            .route("/_synapse/admin/v1/saml/mappings", get(list_saml_mappings_admin))
+            .route(
+                "/_synapse/admin/v1/saml/mapping/{name_id}",
+                get(get_saml_mapping_admin).put(update_saml_mapping_admin).delete(delete_saml_mapping_admin),
+            )
+            .route("/_synapse/admin/v1/saml/logout", post(saml_logout_admin))
+            .route_layer(
+                middleware::from_fn_with_state(
+                    <crate::web::routes::context::AdminContext as axum::extract::FromRef<
+                        crate::web::routes::AppState,
+                    >>::from_ref(&state),
+                    crate::web::middleware::admin_auth_middleware,
+                ),
+            );
 
     public_routes.merge(admin_routes).with_state(state)
 }

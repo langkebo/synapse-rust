@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -64,9 +65,14 @@ pub fn account_data_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
     )
 }
 
-async fn sync_secret_storage_account_data_best_effort(state: &AppState, user_id: &str, data_type: &str, body: &Value) {
+async fn sync_secret_storage_account_data_best_effort(
+    ctx: &AdminContext,
+    user_id: &str,
+    data_type: &str,
+    body: &Value,
+) {
     if let Some(key_id) = data_type.strip_prefix("m.secret_storage.key.") {
-        if let Err(error) = state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, body).await {
+        if let Err(error) = ctx.ssss_service.store_account_data_key(user_id, key_id, body).await {
             tracing::warn!(
                 user_id,
                 key_id,
@@ -85,7 +91,7 @@ async fn sync_secret_storage_account_data_best_effort(state: &AppState, user_id:
         return;
     };
 
-    match state.services.e2ee.ssss_service.get_key(user_id, key_id).await {
+    match ctx.ssss_service.get_key(user_id, key_id).await {
         Ok(Some(_)) => return,
         Ok(None) => {}
         Err(error) => {
@@ -99,11 +105,9 @@ async fn sync_secret_storage_account_data_best_effort(state: &AppState, user_id:
     }
 
     let key_data_type = format!("m.secret_storage.key.{key_id}");
-    match state.services.core.account_data_service.get_account_data(user_id, &key_data_type).await {
+    match ctx.account_data_service.get_account_data(user_id, &key_data_type).await {
         Ok(Some(key_content)) => {
-            if let Err(error) =
-                state.services.e2ee.ssss_service.store_account_data_key(user_id, key_id, &key_content).await
-            {
+            if let Err(error) = ctx.ssss_service.store_account_data_key(user_id, key_id, &key_content).await {
                 tracing::warn!(
                     user_id,
                     key_id,
@@ -123,7 +127,7 @@ async fn sync_secret_storage_account_data_best_effort(state: &AppState, user_id:
 }
 
 async fn list_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -131,7 +135,7 @@ async fn list_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let account_data = state.services.core.account_data_service.list_account_data(&user_id).await?;
+    let account_data = ctx.account_data_service.list_account_data(&user_id).await?;
 
     Ok(Json(json!({
         "account_data": account_data
@@ -139,7 +143,7 @@ async fn list_account_data(
 }
 
 async fn set_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, data_type)): Path<(String, String)>,
     Json(body): Json<Value>,
@@ -148,14 +152,14 @@ async fn set_account_data(
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    state.services.core.account_data_service.set_account_data(&user_id, &data_type, &body).await?;
-    sync_secret_storage_account_data_best_effort(&state, &user_id, &data_type, &body).await;
+    ctx.account_data_service.set_account_data(&user_id, &data_type, &body).await?;
+    sync_secret_storage_account_data_best_effort(&ctx, &user_id, &data_type, &body).await;
 
     Ok(Json(json!({})))
 }
 
 async fn get_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, data_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -163,7 +167,7 @@ async fn get_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = state.services.core.account_data_service.get_account_data(&user_id, &data_type).await?;
+    let result = ctx.account_data_service.get_account_data(&user_id, &data_type).await?;
 
     match result {
         Some(content) => Ok(Json(content)),
@@ -184,7 +188,7 @@ async fn get_account_data(
                 // yet written a `m.secret_storage.default_key` account_data
                 // event, surface the first key as the default so stock
                 // Element/Synapse clients can still discover SSSS.
-                match state.services.e2ee.ssss_service.get_all_keys(&user_id).await {
+                match ctx.ssss_service.get_all_keys(&user_id).await {
                     Ok(keys) if !keys.is_empty() => Ok(Json(json!({ "key_id": keys[0].key_id }))),
                     _ => Err(ApiError::not_found("Account data not found".to_string())),
                 }
@@ -193,7 +197,7 @@ async fn get_account_data(
                 // synthesise a minimal key info payload from the internal
                 // SSSS row so clients can complete bootstrap without us
                 // having to teach Element how to call the internal API.
-                match state.services.e2ee.ssss_service.get_key(&user_id, key_id).await {
+                match ctx.ssss_service.get_key(&user_id, key_id).await {
                     Ok(Some(key)) => Ok(Json(json!({
                         "algorithm": key.algorithm,
                         "auth_data": {
@@ -210,7 +214,7 @@ async fn get_account_data(
 }
 
 async fn set_room_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, data_type)): Path<(String, String, String)>,
     Json(body): Json<Value>,
@@ -219,13 +223,13 @@ async fn set_room_account_data(
         return Err(ApiError::forbidden("Cannot set account data for other users".to_string()));
     }
 
-    state.services.core.account_data_service.set_room_account_data(&user_id, &room_id, &data_type, &body).await?;
+    ctx.account_data_service.set_room_account_data(&user_id, &room_id, &data_type, &body).await?;
 
     Ok(Json(json!({})))
 }
 
 async fn get_room_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, data_type)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -233,7 +237,7 @@ async fn get_room_account_data(
         return Err(ApiError::forbidden("Cannot get account data for other users".to_string()));
     }
 
-    let result = state.services.core.account_data_service.get_room_account_data(&user_id, &room_id, &data_type).await?;
+    let result = ctx.account_data_service.get_room_account_data(&user_id, &room_id, &data_type).await?;
 
     match result {
         Some(data) => Ok(Json(data)),
@@ -242,7 +246,7 @@ async fn get_room_account_data(
 }
 
 async fn create_filter(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
@@ -251,7 +255,7 @@ async fn create_filter(
         return Err(ApiError::forbidden("Cannot create filter for other users".to_string()));
     }
 
-    let filter_id = state.services.core.account_data_service.create_filter(&user_id, body).await?;
+    let filter_id = ctx.account_data_service.create_filter(&user_id, body).await?;
 
     Ok(Json(json!({
         "filter_id": filter_id
@@ -259,7 +263,7 @@ async fn create_filter(
 }
 
 async fn get_filter(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, filter_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -267,7 +271,7 @@ async fn get_filter(
         return Err(ApiError::forbidden("Cannot get filter for other users".to_string()));
     }
 
-    let result = state.services.core.account_data_service.get_filter(&user_id, &filter_id).await?;
+    let result = ctx.account_data_service.get_filter(&user_id, &filter_id).await?;
 
     match result {
         Some(content) => Ok(Json(content)),
@@ -276,7 +280,7 @@ async fn get_filter(
 }
 
 async fn delete_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, data_type)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -284,7 +288,7 @@ async fn delete_account_data(
         return Err(ApiError::forbidden("Cannot delete account data for other users".to_string()));
     }
 
-    let deleted = state.services.core.account_data_service.delete_account_data(&user_id, &data_type).await?;
+    let deleted = ctx.account_data_service.delete_account_data(&user_id, &data_type).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Account data not found".to_string()));
@@ -294,7 +298,7 @@ async fn delete_account_data(
 }
 
 async fn delete_room_account_data(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, room_id, data_type)): Path<(String, String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -302,8 +306,7 @@ async fn delete_room_account_data(
         return Err(ApiError::forbidden("Cannot delete room account data for other users".to_string()));
     }
 
-    let deleted =
-        state.services.core.account_data_service.delete_room_account_data(&user_id, &room_id, &data_type).await?;
+    let deleted = ctx.account_data_service.delete_room_account_data(&user_id, &room_id, &data_type).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Room account data not found".to_string()));
@@ -313,7 +316,7 @@ async fn delete_room_account_data(
 }
 
 async fn delete_filter(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path((user_id, filter_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
@@ -321,7 +324,7 @@ async fn delete_filter(
         return Err(ApiError::forbidden("Cannot delete filter for other users".to_string()));
     }
 
-    let deleted = state.services.core.account_data_service.delete_filter(&user_id, &filter_id).await?;
+    let deleted = ctx.account_data_service.delete_filter(&user_id, &filter_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Filter not found".to_string()));
@@ -331,7 +334,7 @@ async fn delete_filter(
 }
 
 async fn get_openid_token(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
@@ -339,13 +342,12 @@ async fn get_openid_token(
         return Err(ApiError::forbidden("Cannot get OpenID token for other users".to_string()));
     }
 
-    let (token, expires_in) =
-        state.services.core.account_data_service.create_openid_token(&user_id, None, 3600).await?;
+    let (token, expires_in) = ctx.account_data_service.create_openid_token(&user_id, None, 3600).await?;
 
     Ok(Json(json!({
         "access_token": token,
         "token_type": "Bearer",
-        "matrix_server_name": state.services.core.server_name,
+        "matrix_server_name": ctx.server_name,
         "expires_in": expires_in
     })))
 }

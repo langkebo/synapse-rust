@@ -154,7 +154,7 @@ impl crate::auth::Auth for FakeAuth {
         Ok("$2b$12$mockhash".to_string())
     }
 
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn generate_email_verification_token(&self) -> Result<String, ApiError> {
         Ok("mock-email-token".to_string())
     }
 
@@ -378,7 +378,7 @@ impl RegistrationTokenApi for InMemoryRegistrationTokenService {
             expires_at: request.expires_at,
             created_by: request.created_by,
             created_ts: now,
-            updated_ts: now,
+            updated_ts: Some(now),
             last_used_ts: None,
             allowed_email_domains: request.allowed_email_domains,
             allowed_user_ids: request.allowed_user_ids,

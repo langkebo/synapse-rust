@@ -1,0 +1,264 @@
+//! Regression tests for latent NULL-decode bugs (OPT-013, audit 03 §7).
+//!
+//! Each test proves a `FromRow` struct can decode a NULL from a nullable
+//! column WITHOUT seeding tables/FKs, by decoding a synthetic SELECT whose
+//! column list matches the struct's non-`#[sqlx(skip)]` fields.
+
+use super::TestContext;
+use synapse_storage::module::{AccountValidity, ModuleExecutionLog};
+
+#[tokio::test]
+async fn account_validity_decodes_null_expiration_at() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: AccountValidity = sqlx::query_as(
+        "SELECT $1::text AS user_id, NULL::bigint AS expiration_at, NULL::bigint AS last_check_at, \
+         NULL::text AS renewal_token, true AS is_valid, 0::bigint AS created_ts, 0::bigint AS updated_ts",
+    )
+    .bind("@opt013_av:localhost")
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL expiration_at must decode to None, not error");
+    assert_eq!(row.expiration_at, None);
+}
+
+#[tokio::test]
+async fn module_execution_log_decodes_null_execution_time_ms() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: ModuleExecutionLog = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS module_name, ''::text AS module_type, \
+         NULL::text AS event_id, NULL::text AS room_id, NULL::bigint AS execution_time_ms, \
+         true AS is_success, NULL::text AS error_message, NULL::jsonb AS metadata, \
+         0::bigint AS executed_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL execution_time_ms must decode to None, not error");
+    assert_eq!(row.execution_time_ms, None);
+}
+
+#[tokio::test]
+async fn user_privacy_settings_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::privacy::UserPrivacySettings = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS user_id, ''::text AS profile_visibility, \
+         ''::text AS avatar_visibility, ''::text AS displayname_visibility, \
+         ''::text AS presence_visibility, ''::text AS room_membership_visibility, \
+         0::bigint AS created_ts, NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
+
+#[tokio::test]
+async fn background_update_decodes_null_created_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::background_update::BackgroundUpdate = sqlx::query_as(
+        "SELECT ''::text AS job_name, ''::text AS job_type, NULL::text AS description, \
+         NULL::text AS table_name, NULL::text AS column_name, ''::text AS status, \
+         '{}'::jsonb AS progress, 0::int AS total_items, 0::int AS processed_items, \
+         NULL::bigint AS created_ts, NULL::bigint AS started_ts, NULL::bigint AS completed_ts, \
+         NULL::bigint AS updated_ts, NULL::text AS error_message, 0::int AS retry_count, \
+         0::int AS max_retries, 0::int AS batch_size, 0::int AS sleep_ms, \
+         NULL::jsonb AS depends_on, NULL::jsonb AS metadata",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL created_ts must decode to None, not error");
+    assert_eq!(row.created_ts, None);
+}
+
+#[tokio::test]
+async fn captcha_template_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::captcha::CaptchaTemplate = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS template_name, ''::text AS captcha_type, \
+         NULL::text AS subject, ''::text AS content, '{}'::jsonb AS variables, \
+         true AS is_default, true AS is_enabled, 0::bigint AS created_ts, \
+         NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
+
+#[tokio::test]
+async fn application_service_transaction_decodes_null_sent_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::application_service::ApplicationServiceTransaction = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS as_id, ''::text AS txn_id, \
+         NULL::text AS transaction_id, '{}'::jsonb AS events, NULL::bigint AS sent_ts, \
+         NULL::bigint AS completed_ts, 0::int AS retry_count, NULL::text AS last_error",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL sent_ts must decode to None, not error");
+    assert_eq!(row.sent_ts, None);
+}
+
+#[tokio::test]
+async fn registration_token_decodes_null_updated_ts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::registration_token::RegistrationToken = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS token, ''::text AS token_type, \
+         NULL::text AS description, 0::int AS max_uses, 0::int AS uses_count, \
+         true AS is_used, true AS is_enabled, NULL::bigint AS expires_at, \
+         NULL::text AS created_by, 0::bigint AS created_ts, NULL::bigint AS updated_ts, \
+         NULL::bigint AS last_used_ts, NULL::text[] AS allowed_email_domains, \
+         NULL::text[] AS allowed_user_ids, NULL::text[] AS auto_join_rooms, \
+         NULL::text AS display_name, NULL::text AS email",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL updated_ts must decode to None, not error");
+    assert_eq!(row.updated_ts, None);
+}
+
+#[tokio::test]
+async fn registration_token_usage_decodes_null_token_id() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::registration_token::RegistrationTokenUsage = sqlx::query_as(
+        "SELECT 0::bigint AS id, NULL::bigint AS token_id, ''::text AS token, \
+         ''::text AS user_id, NULL::text AS username, NULL::text AS email, \
+         NULL::text AS ip_address, NULL::text AS user_agent, 0::bigint AS used_ts, \
+         true AS is_success, NULL::text AS error_message",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL token_id must decode to None, not error");
+    assert_eq!(row.token_id, None);
+}
+
+#[tokio::test]
+async fn sliding_sync_room_decodes_null_bump_stamp_and_timestamp() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::SlidingSyncRoom = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS user_id, ''::text AS device_id, ''::text AS room_id, \
+         NULL::text AS conn_id, NULL::text AS list_key, NULL::bigint AS bump_stamp, \
+         0::int AS highlight_count, 0::int AS notification_count, true AS is_dm, \
+         true AS is_encrypted, true AS is_tombstoned, true AS invited, NULL::text AS name, \
+         NULL::text AS avatar, NULL::bigint AS timestamp, 0::bigint AS created_ts, 0::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL bump_stamp/timestamp must decode to None, not error");
+    assert_eq!(row.bump_stamp, None);
+    assert_eq!(row.timestamp, None);
+}
+
+#[tokio::test]
+async fn admin_room_token_sync_entry_decodes_null_room_timestamp_and_bump_stamp() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::AdminRoomTokenSyncEntry = sqlx::query_as(
+        "SELECT ''::text AS user_id, ''::text AS device_id, NULL::text AS conn_id, \
+         NULL::text AS list_key, NULL::bigint AS pos, NULL::bigint AS token_created_ts, \
+         NULL::bigint AS token_expires_at, NULL::bigint AS room_timestamp, 0::bigint AS room_updated_ts, \
+         NULL::bigint AS bump_stamp, 0::int AS highlight_count, 0::int AS notification_count, \
+         true AS is_dm, true AS is_encrypted, true AS is_tombstoned, true AS invited, \
+         NULL::text AS name, NULL::text AS avatar, true AS is_expired",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL room_timestamp/bump_stamp must decode to None, not error");
+    assert_eq!(row.room_timestamp, None);
+    assert_eq!(row.bump_stamp, None);
+}
+
+#[tokio::test]
+async fn space_summary_decodes_null_children_count_and_member_count() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::SpaceSummary = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS space_id, '{}'::jsonb AS summary, \
+         NULL::bigint AS children_count, NULL::bigint AS member_count, 0::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL children_count/member_count must decode to None, not error");
+    assert_eq!(row.children_count, None);
+    assert_eq!(row.member_count, None);
+}
+
+#[tokio::test]
+async fn room_summary_decodes_null_member_counts() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::room_summary::RoomSummary = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS room_id, NULL::text AS room_type, NULL::text AS name, \
+         NULL::text AS topic, NULL::text AS avatar_url, NULL::text AS canonical_alias, \
+         ''::text AS join_rules, ''::text AS history_visibility, ''::text AS guest_access, \
+         true AS is_direct, true AS is_space, true AS is_encrypted, NULL::bigint AS member_count, \
+         NULL::bigint AS joined_member_count, NULL::bigint AS invited_member_count, \
+         '{}'::jsonb AS hero_users, NULL::text AS last_event_id, NULL::bigint AS last_event_ts, \
+         NULL::bigint AS last_message_ts, 0::bigint AS unread_notifications, 0::bigint AS unread_highlight, \
+         NULL::bigint AS updated_ts, NULL::bigint AS created_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL member counts must decode to None, not error");
+    assert_eq!(row.member_count, None);
+    assert_eq!(row.joined_member_count, None);
+    assert_eq!(row.invited_member_count, None);
+}
+
+#[tokio::test]
+async fn user_decodes_null_generation() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::user::User = sqlx::query_as(
+        "SELECT ''::text AS user_id, ''::text AS username, NULL::text AS password_hash, \
+         false AS is_admin, false AS is_guest, false AS is_shadow_banned, false AS is_deactivated, \
+         0::bigint AS created_ts, NULL::bigint AS updated_ts, NULL::text AS displayname, \
+         NULL::text AS avatar_url, NULL::text AS email, NULL::text AS phone, NULL::bigint AS generation, \
+         NULL::text AS consent_version, NULL::text AS appservice_id, NULL::text AS user_type, \
+         NULL::bigint AS invalid_update_at, NULL::text AS migration_state, NULL::bigint AS password_changed_ts, \
+         false AS is_password_change_required, NULL::bigint AS password_expires_at, 0::int AS failed_login_attempts, \
+         NULL::bigint AS locked_until, false AS must_change_password",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL generation must decode to None, not error");
+    assert_eq!(row.generation, None);
+}
+
+#[tokio::test]
+async fn thread_root_decodes_null_reply_count() {
+    let Some(ctx) = TestContext::new().await else {
+        return;
+    };
+    let row: synapse_storage::thread::ThreadRoot = sqlx::query_as(
+        "SELECT 0::bigint AS id, ''::text AS room_id, ''::text AS root_event_id, ''::text AS sender, \
+         NULL::text AS thread_id, NULL::bigint AS reply_count, NULL::text AS last_reply_event_id, \
+         NULL::text AS last_reply_sender, NULL::bigint AS last_reply_ts, NULL::jsonb AS participants, \
+         false AS is_fetched, 0::bigint AS created_ts, NULL::bigint AS updated_ts",
+    )
+    .fetch_one(&*ctx.pool)
+    .await
+    .expect("NULL reply_count must decode to None, not error");
+    assert_eq!(row.reply_count, None);
+}

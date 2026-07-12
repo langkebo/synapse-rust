@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::{
-    admin_federation::{AdminFederationStorage, FederationCacheRecord, FederationDestinationRecord},
+    admin_federation::{AdminFederationStoreApi, FederationCacheRecord, FederationDestinationRecord},
     federation_blacklist::FederationBlacklistStoreApi,
 };
 use tracing::{info, instrument, warn};
@@ -93,14 +93,14 @@ type DestinationListResult = Result<(Vec<DestinationInfo>, i64, Option<Destinati
 type PendingFederationListResult = Result<(Vec<PendingFederationInfo>, i64, Option<PendingFederationCursor>), ApiError>;
 
 pub struct AdminFederationService {
-    storage: AdminFederationStorage,
+    storage: Arc<dyn AdminFederationStoreApi>,
     federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
     federation_blacklist_service: Arc<FederationBlacklistService>,
 }
 
 impl AdminFederationService {
     pub fn new(
-        storage: AdminFederationStorage,
+        storage: Arc<dyn AdminFederationStoreApi>,
         federation_blacklist_storage: Arc<dyn FederationBlacklistStoreApi>,
         federation_blacklist_service: Arc<FederationBlacklistService>,
     ) -> Self {

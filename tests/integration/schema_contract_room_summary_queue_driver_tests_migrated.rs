@@ -321,7 +321,7 @@ async fn test_schema_contract_room_summary_queue_failed_items_are_not_reprocesse
     .await
     .expect("Failed to query missing event queue row");
     assert_eq!(row.get::<String, _>("status"), "failed");
-    assert_eq!(row.get::<Option<String>, _>("error_message").as_deref(), Some("Not found: Event not found"));
+    assert_eq!(row.get::<Option<String>, _>("error_message").as_deref(), Some("M_NOT_FOUND: Event not found"));
     assert_eq!(row.get::<i32, _>("retry_count"), 1);
 
     let processed_second = service.process_pending_updates(10).await.expect("Failed to process queue a second time");

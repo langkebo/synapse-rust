@@ -103,7 +103,15 @@ pub async fn build_database_pool(config: &Config) -> Result<PgPool, Box<dyn std:
             }
             Err(e) => {
                 ::tracing::error!("Failed to run schema health check: {}", e);
-                // 非致命错误，继续启动
+                // Schema health check itself failed — this is NOT safe to ignore.
+                // We might be running against a half-migrated schema.
+                return Err(format!(
+                    "Database schema health check failed to execute: {e}. \
+                     This may indicate a connectivity issue or a corrupt migration state. \
+                     Fix the database connection or set SYNAPSE_SKIP_SCHEMA_CHECK=true \
+                     to bypass this check (NOT recommended for production)."
+                )
+                .into());
             }
         }
     }

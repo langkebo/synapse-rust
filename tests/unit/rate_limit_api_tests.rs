@@ -271,3 +271,20 @@ fn is_valid_rate_limit(limit: i64) -> bool {
 fn is_valid_window(window: i64) -> bool {
     window > 0
 }
+
+// OPT-005 (audit 05 §7 / 07 #5): sensitive auth endpoints must carry explicit,
+// tight rate-limit rules in docker/config/rate_limit.yaml rather than falling
+// through to the permissive default (per_second: 50).
+#[test]
+#[allow(clippy::expect_used)]
+fn sensitive_endpoints_have_tight_limits() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docker/config/rate_limit.yaml");
+    let raw = std::fs::read_to_string(path).expect("read rate_limit.yaml");
+    let cfg: synapse_rust::common::rate_limit_config::RateLimitConfigFile =
+        serde_yaml::from_str(&raw).expect("parse rate_limit.yaml");
+    for p in ["/_matrix/client/v3/register", "/_matrix/client/v3/account/password"] {
+        let rule =
+            cfg.endpoints.iter().find(|e| e.path == p).unwrap_or_else(|| panic!("no explicit rate-limit rule for {p}"));
+        assert!(rule.rule.per_second <= 5, "{p} must be tightly limited, got {}", rule.rule.per_second);
+    }
+}

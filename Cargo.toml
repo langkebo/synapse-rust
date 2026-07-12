@@ -1,6 +1,6 @@
 [package]
 name = "synapse-rust"
-version = "6.0.4"
+version = "6.0.5"
 edition = "2021"
 rust-version = "1.93.0"
 authors = ["Synapse Rust Team"]
@@ -61,6 +61,7 @@ openapi-docs = ["dep:utoipa", "dep:utoipa-swagger-ui"]
 
 [dependencies]
 tokio = { version = "1.49", features = ["full", "test-util"] }
+tokio-util = "0.7"
 async-trait = "0.1"
 
 axum = { version = "0.8", optional = true, features = ["macros"] }
@@ -216,7 +217,7 @@ members = [
 [[test]]
 name = "integration"
 path = "tests/integration/mod.rs"
-required-features = ["test-utils"]
+required-features = ["test-utils", "privacy-ext", "voice-extended", "voip-tracking", "beacons", "server-notifications"]
 
 [[test]]
 name = "unit"

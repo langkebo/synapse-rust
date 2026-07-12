@@ -956,7 +956,7 @@ impl ApiError {
     }
 
     pub fn http_status(&self) -> StatusCode {
-        self.code.http_status()
+        self.kind.default_http_status()
     }
 
     pub fn retry_after_ms(&self) -> Option<u64> {
@@ -991,7 +991,11 @@ impl IntoResponse for ApiError {
 
         let errcode = self.code_str().to_string();
         let error_msg = self.message();
-        let status_code = self.code.http_status();
+        // Use `kind` (explicit HTTP semantic kind) for the HTTP status code,
+        // and `code` (Matrix error code) only for the `errcode` JSON field.
+        // This lets e.g. `ApiError::unrecognized()` (kind=NotFound, code=Unrecognized)
+        // correctly return 404 while keeping `M_UNRECOGNIZED` in the body.
+        let status_code = self.kind.default_http_status();
 
         // Emit metrics
         if let Some(collector) = ERROR_METRICS.get() {

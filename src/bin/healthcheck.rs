@@ -2,6 +2,8 @@ use reqwest::Client;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
+const HEALTH_PATHS: [&str; 1] = ["/health"];
+
 fn env_flag(name: &str) -> bool {
     std::env::var(name).map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES")).unwrap_or(false)
 }
@@ -19,7 +21,7 @@ async fn main() {
     };
 
     if !tcp_only {
-        let paths = ["/health", "/_matrix/client/versions", "/_matrix/federation/v1/version"];
+        let paths = HEALTH_PATHS;
 
         for path in paths {
             match client.get(format!("{base_url}{path}")).send().await {
@@ -37,4 +39,21 @@ async fn main() {
     }
 
     std::process::exit(1);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_probe_must_not_trust_versions() {
+        assert!(
+            !HEALTH_PATHS.contains(&"/_matrix/client/versions"),
+            "/versions returns 200 without DB; must not be a health signal"
+        );
+        assert!(
+            !HEALTH_PATHS.contains(&"/_matrix/federation/v1/version"),
+            "/federation version returns 200 without DB; must not be a health signal"
+        );
+    }
 }

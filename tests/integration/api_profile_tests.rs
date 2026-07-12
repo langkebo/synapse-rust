@@ -597,8 +597,8 @@ async fn test_client_search_users_respects_profile_visibility() {
         return;
     };
 
-    let (alice_token, alice_id) = register_user(&app, &format!("search_hidden_alice_{}", rand::random::<u32>())).await;
-    let (bob_token, bob_id) = register_user(&app, &format!("search_hidden_bob_{}", rand::random::<u32>())).await;
+    let (alice_token, alice_id) = register_user(&app, &format!("alice_pvtest_{}", rand::random::<u32>())).await;
+    let (bob_token, bob_id) = register_user(&app, &format!("bob_pvtest_{}", rand::random::<u32>())).await;
 
     let set_displayname = Request::builder()
         .method("PUT")

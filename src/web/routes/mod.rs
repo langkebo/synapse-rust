@@ -178,7 +178,7 @@ pub use relations::create_relations_router;
 pub use rendezvous::create_rendezvous_router;
 pub use room::create_room_router;
 pub(crate) use room_access::{
-    ensure_room_member, ensure_room_member_ctx, ensure_room_member_strict, ensure_room_member_strict_ctx,
+    ensure_room_member_admin, ensure_room_member_ctx, ensure_room_member_strict_admin, ensure_room_member_strict_ctx,
     is_member_ctx, is_member_or_creator_ctx,
 };
 pub use room_summary::create_room_summary_router;

@@ -8,13 +8,18 @@ use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::web::routes::create_router;
 use synapse_rust::web::AppState;
 use synapse_services::telemetry_service::TelemetryAlertSeverity;
-use synapse_services::ServiceContainer;
+use synapse_services::{ApplicationServiceScheduler, ServiceContainer};
 use synapse_storage::application_service::{ApplicationServiceStorage, RegisterApplicationServiceRequest};
 use tower::ServiceExt;
 use wiremock::{matchers::method, Mock, MockServer, ResponseTemplate};
 
 async fn setup_test_app() -> Option<(axum::Router, AppState)> {
-    let pool = super::get_test_pool().await?;
+    // Use require_test_pool() for per-test schema isolation. The telemetry
+    // tests assert exact appservice counts (e.g. total_services == 3), which
+    // break when leftover registrations from earlier tests persist in the
+    // shared pool. Each call to require_test_pool() clones a fresh schema
+    // from the template, providing isolation without re-running migrations.
+    let pool = super::require_test_pool().await;
     let container = ServiceContainer::new_test_with_pool(pool).await;
     let cache = Arc::new(CacheManager::new(&CacheConfig::default()));
     let state = AppState::new(container, cache);
@@ -506,22 +511,22 @@ async fn test_telemetry_metrics_preserve_explainable_mixed_contention_counts() {
             .expect("event-heavy b enqueue should succeed");
     }
 
-    state
-        .services
-        .admin
-        .modules
-        .app_service_scheduler
-        .run_once()
-        .await
-        .expect("mixed contention tick one should complete");
-    state
-        .services
-        .admin
-        .modules
-        .app_service_scheduler
-        .run_once()
-        .await
-        .expect("mixed contention tick two should complete");
+    // Create a scheduler with max_services_per_tick=2 (lowered from the
+    // default 8) so that 4 registered services exceed the per-tick dispatch
+    // limit. This triggers CapacityLimited observations for the services
+    // that cannot be dispatched in the first tick, exercising the
+    // capacity-limited counter that the test asserts against.
+    let scheduler = ApplicationServiceScheduler::with_capacity_options(
+        state.services.admin.modules.app_service_manager.clone(),
+        100, // max_events_per_txn
+        500, // tick_interval_ms
+        2,   // max_services_per_tick
+        50,  // high_pending_event_threshold
+        2,   // high_pending_transaction_threshold
+    );
+
+    scheduler.run_once().await.expect("mixed contention tick one should complete");
+    scheduler.run_once().await.expect("mixed contention tick two should complete");
 
     let request = Request::builder()
         .uri("/_synapse/admin/v1/telemetry/metrics")

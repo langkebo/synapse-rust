@@ -140,7 +140,7 @@ pub(crate) fn register_error_response(status: u16, errcode: &str, error: &str) -
 /// Mirrors `extract_registration_client_ip` from the original admin/register.rs.
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
     let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
-    extract_client_ip(headers, &priority)
+    extract_client_ip(headers, &priority, None, &[])
 }
 
 /// Returns true when the supplied string is either the literal "localhost" or

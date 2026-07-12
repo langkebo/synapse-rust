@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "synapse-rust performance AFTER (post-optimization re-measure)",
+  "date": "2026-07-12",
+  "branch": "optimization/audit-2026-07",
+  "compared_against": "docs/audit/05_performance_baseline.json (branch feat/architecture-optimization-round2, 2026-07-10)",
+  "method": "Identical to baseline: faithful mirror tables with the exact hot-path index DDL, seeded at the same production-scale volumes, warmed, then EXPLAIN (ANALYZE, BUFFERS, TIMING ON) on the same 7 DB-layer query shapes. Same seed (/tmp/bench_seed.sql) and same probe script (/tmp/bench_explain.sql) as documented in the baseline reproduction.",
+  "honest_caveats": [
+    "exec_ms values are DB-layer planner+execution times on a single warm connection, NOT end-to-end HTTP P50/P95/P99. Same measurement class as the baseline.",
+    "All shapes are sub-millisecond on warm mirror tables. Run-to-run variance at this scale (tenths of a microsecond to ~0.15ms) EXCEEDS any real signal, so per-scenario exec_ms deltas below are NOT claimed as genuine speedups. The load-bearing result is the PLAN (index hit / seq-scan absence), not the microsecond delta.",
+    "Live latency/QPS/memory/cache-hit-rate remain NOT captured this run — no built+running homeserver on :8008 with seeded scenario data was available, exactly as in the baseline. These dimensions are unchanged in coverage, not measured-and-flat.",
+    "Mirror tables carry the production index definitions but no FK/trigger/write-amplification overhead.",
+    "The `user_id = ANY(ARRAY(SELECT ... generate_series))` shape (Scenario 6) drives planner choice between plain Index Scan and Bitmap Heap Scan; the choice flips run-to-run and is not controlled by any code change on this branch."
+  ],
+
+  "explain_verification": {
+    "note": "Same dataset and shapes as baseline. exec_ms = EXPLAIN ANALYZE Execution Time. ALL shapes hit the intended index; ZERO seq scans — index strategy preserved end-to-end after 24 optimization tasks.",
+    "dataset": {"events": 120000, "room_memberships": 51000, "device_keys": 30000, "one_time_keys": 40000, "account_data": 50004, "hot_room_members": 1000, "hot_room_events": 60000},
+    "queries": [
+      {"scenario": "1. /sync full members (1000-member room)", "plan": "Bitmap Index Scan idx_room_memberships_room_membership", "rows": 1000, "baseline_exec_ms": 0.114, "after_exec_ms": 0.082, "buffers": 11, "verdict": "INDEX HIT", "annotation": "flat (sub-ms noise; plan variant Bitmap vs baseline plain Index Scan, both index-served)"},
+      {"scenario": "2. /sync incremental (since=stream_ordering, LIMIT 100)", "plan": "Index Scan idx_events_room_stream_ordering + Limit", "rows": 100, "baseline_exec_ms": 0.041, "after_exec_ms": 0.027, "buffers": 5, "verdict": "INDEX HIT", "annotation": "flat (sub-ms noise). Planner still prefers the narrow idx_events_room_stream_ordering over idx_events_sync_covering at LIMIT 100 — matches baseline observation; covering index does not win at this LIMIT."},
+      {"scenario": "3. /sliding_sync timeline (origin_server_ts DESC, LIMIT 50)", "plan": "Index Scan idx_events_room_time", "rows": 50, "baseline_exec_ms": 0.046, "after_exec_ms": 0.015, "buffers": 4, "verdict": "INDEX HIT", "annotation": "flat (sub-ms noise)"},
+      {"scenario": "4. send msg -> latest stream_ordering", "plan": "Index Only Scan idx_events_room_stream_ordering (Heap Fetches: 1)", "rows": 1, "baseline_exec_ms": 0.024, "after_exec_ms": 0.013, "buffers": 4, "verdict": "INDEX-ONLY HIT", "annotation": "flat (sub-ms noise)"},
+      {"scenario": "6. device key query (100 users, user_id=ANY)", "plan": "Bitmap Heap Scan idx_device_keys_user_device", "rows": 100, "baseline_exec_ms": 0.447, "after_exec_ms": 0.600, "buffers": 301, "verdict": "INDEX HIT", "annotation": "WATCH (sub-ms, still index-served). This run's planner chose a Bitmap Heap Scan (301 buffers) vs the baseline's plain Index Scan (204 buffers); the ANY(ARRAY(subquery)) shape flips plans run-to-run. Not a code regression — no device_keys read path changed on this branch. Absolute cost remains 0.6ms."},
+      {"scenario": "6b. OTK atomic claim (user+device+algorithm, unused, LIMIT 1)", "plan": "Index Scan idx_one_time_keys_user_device (Filter: NOT used AND algorithm)", "rows": 1, "baseline_exec_ms": 0.019, "after_exec_ms": 0.014, "buffers": 4, "verdict": "INDEX HIT", "annotation": "flat (sub-ms noise)"},
+      {"scenario": "aux. account_data list by user", "plan": "Bitmap Index Scan idx_account_data_user_type", "rows": 5, "baseline_exec_ms": 0.023, "after_exec_ms": 0.018, "buffers": 5, "verdict": "INDEX HIT", "annotation": "flat (sub-ms noise)"}
+    ],
+    "seq_scans": 0,
+    "index_hit_rate": "7/7 shapes index-served, identical to baseline"
+  },
+
+  "n_plus_1_verification": {
+    "finding_id": "audit-03 / OPT-012 — device delete_devices_batch N+1",
+    "location": "synapse-storage/src/device/mod.rs",
+    "method": "Structural query-count proof by reading the batch helpers (not runtime pg_stat_statements — no live traffic this run).",
+    "before": "delete_devices_batch looped per device, calling delete_lazy_loaded_members_for_device + record_device_list_change once EACH → 2*N queries for N deleted devices.",
+    "after": "Rows are grouped by user_id (HashMap), then per user-group exactly ONE call each to: delete_lazy_loaded_members_for_devices_batch (single `DELETE ... WHERE user_id=$1 AND device_id = ANY($2)`, mod.rs:347) and record_device_list_changes_batch (single CTE `INSERT ... UNNEST($3::TEXT[])`, mod.rs:202).",
+    "query_count": "2 queries per DISTINCT user_id, independent of device count (was 2*N).",
+    "verdict": "ELIMINATED",
+    "annotation": "PASS. For the common single-user multi-device delete, query count drops from 2*N to 2. Covered by test test_delete_devices_batch_uses_batch_side_effects (creates 3 devices, deletes batch, asserts 3 device_lists_changes rows written via the batch path)."
+  },
+
+  "measured_dimensions": {
+    "db_query_plan_latency": "captured (EXPLAIN ANALYZE) — no regression, 7/7 index hits",
+    "index_hit_verification": "captured (0 seq scans)",
+    "n_plus_1_regression_check": "captured (structural) — OPT-012 eliminated",
+    "db_query_count_per_endpoint": "structural (device delete path verified; others per audit-04 inventory, not runtime-counted)",
+    "http_p50_p95_p99": "NOT captured (no running server) — same as baseline",
+    "qps_throughput": "NOT captured — same as baseline",
+    "memory_footprint": "NOT captured — same as baseline",
+    "cache_hit_rate": "NOT captured (no live traffic) — same as baseline"
+  },
+
+  "verdict": {
+    "regressions_requiring_rollback": 0,
+    "db_layer": "No hot-path shape regressed at the plan level. All 7 still index-served, 0 seq scans. Absolute exec_ms deltas are within sub-ms run-to-run noise and are reported as FLAT, not as speedups.",
+    "watch_items": ["Scenario 6 (device_keys ANY) chose a bitmap plan this run at ~0.6ms — planner variance on the ANY(ARRAY(subquery)) shape, not a code change; re-check under a real running server with pg_stat_statements."],
+    "n_plus_1": "OPT-012 device delete N+1 structurally eliminated (2*N -> 2 queries per user).",
+    "live_latency": "p50/p95/p99, QPS, cache-hit-rate, memory still require a running homeserver + seed script (none exists) — carried forward from baseline next_steps, NOT achievable in this environment."
+  }
+}

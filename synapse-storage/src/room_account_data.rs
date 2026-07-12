@@ -6,7 +6,7 @@ use std::sync::Arc;
 use synapse_common::ApiError;
 
 #[async_trait]
-pub trait RoomAccountDataStoreApi {
+pub trait RoomAccountDataStoreApi: Send + Sync {
     async fn get_room_account_data_content(
         &self,
         user_id: &str,

@@ -42,6 +42,7 @@ synapse-e2ee = { path = "../synapse-e2ee", default-features = false }
 synapse-federation = { path = "../synapse-federation" }
 
 tokio = { version = "1.49", features = ["full", "test-util"] }
+tokio-util = "0.7"
 async-trait = "0.1"
 
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono", "json", "uuid", "ipnetwork", "migrate", "macros"] }

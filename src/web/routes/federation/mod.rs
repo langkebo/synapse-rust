@@ -1,7 +1,8 @@
 use crate::common::*;
+use crate::web::routes::context::FederationContext;
 use crate::web::routes::AppState;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{FromRef, Json, Query, State},
     http::{header::HeaderName, HeaderValue},
     middleware,
     response::IntoResponse,
@@ -41,43 +42,49 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
     user_id.rsplit_once(':').is_some_and(|(_, server_name)| server_name == origin)
 }
 
-async fn validate_federation_origin_in_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_members =
-        state.services.rooms.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
+async fn validate_federation_origin_in_room(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
+    let joined_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
 
     if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
         // Server is in the room — now check room-level server ACL
-        check_server_acl(state, room_id, origin).await?;
+        check_server_acl(ctx, room_id, origin).await?;
         return Ok(());
     }
 
     Err(ApiError::forbidden("Authenticated server has no joined members in this room".to_string()))
 }
 
-async fn validate_federation_origin_can_observe_room(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
+async fn validate_federation_origin_can_observe_room(
+    ctx: &FederationContext,
+    room_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
     // Aligned with Synapse v1.153: allow servers with any non-banned
     // membership (join, invite, leave) to access room state/backfill.
     // Previously only checked "join" membership, which was overly
     // restrictive and could cause federation issues for servers that
     // have invited or previously-left members.
-    let has_member =
-        state.services.rooms.room_service.membership.has_any_non_banned_member_from_server(room_id, origin).await?;
+    let has_member = ctx.room_service.membership.has_any_non_banned_member_from_server(room_id, origin).await?;
 
     if has_member {
         // Server has a member in the room — now check room-level server ACL
-        check_server_acl(state, room_id, origin).await?;
+        check_server_acl(ctx, room_id, origin).await?;
         return Ok(());
     }
 
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
-async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: &str, origin: &str) -> ApiResult<()> {
+async fn validate_federation_origin_shares_user_room(
+    ctx: &FederationContext,
+    user_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
     // Short-circuit when the requesting server is the local server: we only
     // need to confirm the user has joined at least one room. The cross-server
     // membership check below is irrelevant for same-origin requests.
-    if origin == state.services.core.server_name.as_str() {
-        let joined_room_ids = state.services.rooms.room_service.membership.get_joined_rooms(user_id).await?;
+    if origin == ctx.server_name.as_str() {
+        let joined_room_ids = ctx.room_service.membership.get_joined_rooms(user_id).await?;
         if joined_room_ids.is_empty() {
             return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
         }
@@ -86,7 +93,7 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 
     // Single EXISTS query replacing the previous get_joined_rooms + per-room
     // get_room_members N+1 pattern. See NEW-P1-03 in the comprehensive review.
-    let shares = state.services.rooms.room_service.membership.user_shares_room_with_server(user_id, origin).await?;
+    let shares = ctx.room_service.membership.user_shares_room_with_server(user_id, origin).await?;
 
     if shares {
         Ok(())
@@ -100,9 +107,8 @@ async fn validate_federation_origin_shares_user_room(state: &AppState, user_id: 
 ///
 /// This should be called for inbound federation requests that are scoped to a
 /// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
-async fn check_server_acl(state: &AppState, room_id: &str, origin: &str) -> ApiResult<()> {
-    let acl_events =
-        state.services.rooms.room_service.messaging.get_state_events_by_type(room_id, "m.room.server_acl").await?;
+async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
+    let acl_events = ctx.room_service.messaging.get_state_events_by_type(room_id, "m.room.server_acl").await?;
 
     let Some(acl_event) = acl_events.first() else {
         // No ACL event exists — all servers are allowed
@@ -126,35 +132,35 @@ async fn check_server_acl(state: &AppState, room_id: &str, origin: &str) -> ApiR
     Ok(())
 }
 
-fn increment_counter(state: &AppState, name: &str) {
-    if let Some(counter) = state.services.core.metrics.get_counter(name) {
+fn increment_counter(ctx: &FederationContext, name: &str) {
+    if let Some(counter) = ctx.metrics.get_counter(name) {
         counter.inc();
     } else {
-        state.services.core.metrics.register_counter(name.to_string()).inc();
+        ctx.metrics.register_counter(name.to_string()).inc();
     }
 }
 
-fn observe_histogram(state: &AppState, name: &str, value: f64) {
-    if let Some(histogram) = state.services.core.metrics.get_histogram(name) {
+fn observe_histogram(ctx: &FederationContext, name: &str, value: f64) {
+    if let Some(histogram) = ctx.metrics.get_histogram(name) {
         histogram.observe(value);
     } else {
-        state.services.core.metrics.register_histogram(name.to_string()).observe(value);
+        ctx.metrics.register_histogram(name.to_string()).observe(value);
     }
 }
 
-fn increment_gauge(state: &AppState, name: &str) {
-    if let Some(gauge) = state.services.core.metrics.get_gauge(name) {
+fn increment_gauge(ctx: &FederationContext, name: &str) {
+    if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.inc();
     } else {
-        state.services.core.metrics.register_gauge(name.to_string()).inc();
+        ctx.metrics.register_gauge(name.to_string()).inc();
     }
 }
 
-fn decrement_gauge(state: &AppState, name: &str) {
-    if let Some(gauge) = state.services.core.metrics.get_gauge(name) {
+fn decrement_gauge(ctx: &FederationContext, name: &str) {
+    if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.dec();
     } else {
-        state.services.core.metrics.register_gauge(name.to_string()).dec();
+        ctx.metrics.register_gauge(name.to_string()).dec();
     }
 }
 
@@ -171,9 +177,8 @@ async fn acquire_with_timeout(
     Ok((permit, started.elapsed().as_millis() as u64))
 }
 
-async fn federation_version(State(state): State<AppState>) -> impl IntoResponse {
-    let route_owner =
-        synapse_services::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+async fn federation_version(State(ctx): State<FederationContext>) -> impl IntoResponse {
+    let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
     (
         [(HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
         Json(json!({
@@ -185,26 +190,27 @@ async fn federation_version(State(state): State<AppState>) -> impl IntoResponse 
     )
 }
 
-async fn federation_discovery(State(state): State<AppState>) -> Json<Value> {
+async fn federation_discovery(State(ctx): State<FederationContext>) -> Json<Value> {
     Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "server_name": state.services.core.server_name,
+        "server_name": ctx.server_name,
         "capabilities": {
-            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&state.services.core.config),
+            "m.change_password": crate::web::routes::handlers::versions::change_password_capability_enabled(&ctx.config),
             "m.room_versions": federation_room_versions_capability()
         }
     }))
 }
 
-async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+async fn openid_userinfo(
+    State(ctx): State<FederationContext>,
+    Query(params): Query<Value>,
+) -> Result<Json<Value>, ApiError> {
     let access_token = params
         .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing access_token parameter"))?;
 
-    let token = state
-        .services
-        .core
+    let token = ctx
         .account_data_service
         .validate_openid_token(access_token)
         .await?
@@ -215,11 +221,11 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
         .ok_or_else(|| ApiError::unauthorized("Invalid subject in OpenID token".to_string()))?;
 
     // Validate that the sub belongs to this homeserver
-    if user_server_name != state.services.core.server_name.as_str() {
+    if user_server_name != ctx.server_name.as_str() {
         return Err(ApiError::not_found("User does not belong to this server".to_string()));
     }
 
-    let user_exists = state.services.account.account_identity_service.user_exists(&token.user_id).await?;
+    let user_exists = ctx.account_identity_service.user_exists(&token.user_id).await?;
     if !user_exists {
         return Err(ApiError::unauthorized("Invalid or expired OpenID token".to_string()));
     }
@@ -229,7 +235,9 @@ async fn openid_userinfo(State(state): State<AppState>, Query(params): Query<Val
     })))
 }
 
-pub fn create_federation_router(state: AppState) -> Router<AppState> {
+pub fn create_federation_router(state: &AppState) -> Router<AppState> {
+    let fed_ctx = FederationContext::from_ref(state);
+
     let public = Router::new()
         .route("/_matrix/federation/v2/server", get(keys::server_key))
         .route("/_matrix/key/v2/server", get(keys::server_key))
@@ -296,8 +304,11 @@ pub fn create_federation_router(state: AppState) -> Router<AppState> {
     // Layer order (innermost to outermost): auth first (populates
     // FederationRequestAuth), then per-origin rate limiting (consumes it).
     let protected = protected
-        .layer(middleware::from_fn_with_state(state.clone(), crate::web::middleware::federation_rate_limit_middleware))
-        .layer(middleware::from_fn_with_state(state, crate::web::middleware::federation_auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            fed_ctx.clone(),
+            crate::web::middleware::federation_rate_limit_middleware,
+        ))
+        .layer(middleware::from_fn_with_state(fed_ctx, crate::web::middleware::federation_auth_middleware));
 
     public.merge(protected)
 }

@@ -204,6 +204,9 @@ impl MembershipService {
             }
         }
 
+        // Invalidate room-state cache after persisting federated state events.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // 6. Add the user as a joined member.
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
@@ -245,6 +248,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist join event after federation join");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -345,6 +351,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist leave event after federation leave");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -452,6 +461,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist invite event after federation invite");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(())
@@ -537,6 +549,9 @@ impl MembershipService {
             .await
         {
             ::tracing::warn!(error = %e, "Failed to persist third-party invite event");
+        } else {
+            // Invalidate room-state cache after membership state change.
+            let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
         }
 
         Ok(signed_event)

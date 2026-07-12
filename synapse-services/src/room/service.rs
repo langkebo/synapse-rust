@@ -3,12 +3,12 @@ use crate::*;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use synapse_cache::CacheManager;
 use synapse_common::generate_event_id;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_common::validation::Validator;
-use synapse_storage::StateEvent;
-use synapse_storage::UserStore;
+use synapse_storage::room_tag::RoomTagStoreApi;
+use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, StateEvent, UserStore};
 use tokio::sync::RwLock;
 
 use super::infrastructure::RoomInfrastructure;
@@ -45,17 +45,17 @@ pub struct CreateRoomConfig {
 }
 
 pub struct RoomServiceConfig {
-    pub room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
-    pub event_storage: Arc<synapse_storage::event::EventStorage>,
-    pub room_tag_storage: Arc<synapse_storage::room_tag::RoomTagStorage>,
+    pub room_storage: Arc<dyn RoomStoreApi>,
+    pub member_storage: Arc<dyn MemberStoreApi>,
+    pub event_storage: Arc<dyn EventStoreApi>,
+    pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub auth_service: Arc<dyn Auth>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
-    pub relations_storage: Arc<synapse_storage::relations::RelationsStorage>,
+    pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
     pub event_broadcaster: Option<Arc<synapse_federation::event_broadcaster::EventBroadcaster>>,
     pub app_service_manager: Option<Arc<crate::application_service::ApplicationServiceManager>>,
     /// Server signing key manager, used to sign locally-produced PDUs before
@@ -68,6 +68,11 @@ pub struct RoomServiceConfig {
     pub beacon_service: Option<Arc<crate::beacon_service::BeaconService>>,
     #[cfg(not(feature = "beacons"))]
     pub beacon_service: Option<()>,
+    pub cache: Arc<CacheManager>,
+    /// Optional key-rotation storage injected into the membership sub-service so
+    /// that leaving a LOCAL encrypted room marks the megolm session for
+    /// rotation (forward secrecy). `None` in test setups.
+    pub key_rotation_storage: Option<Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>>,
 }
 
 pub struct RoomService {
@@ -79,28 +84,29 @@ pub struct RoomService {
     pub state: RoomStateService,
     /// Domain sub-service: room lifecycle operations (create, upgrade, migration)
     pub lifecycle: LifecycleService,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
-    pub(crate) member_storage: Arc<synapse_storage::membership::RoomMemberStorage>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
+    pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub validator: Arc<Validator>,
     pub server_name: String,
     pub task_queue: Option<Arc<RedisTaskQueue>>,
     pub active_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     pub room_summary_service: Arc<RoomSummaryService>,
-    pub(crate) event_storage: Arc<synapse_storage::event::EventStorage>,
+    pub(crate) event_storage: Arc<dyn EventStoreApi>,
     /// Shared infrastructure injected into sub-services.
     pub(crate) infra: RoomInfrastructure,
 }
 
 impl RoomService {
     pub fn new(config: RoomServiceConfig) -> Self {
-        // Build shared infrastructure FIRST so its event_broadcaster Arc<RwLock>
-        // can be shared with MembershipService (avoids a separate wrapper).
+        // Build shared infrastructure FIRST so its handles can be cloned into
+        // MembershipService/MessagingService. Values are supplied once here and
+        // immutable thereafter.
         let infra = RoomInfrastructure {
-            event_broadcaster: Arc::new(RwLock::new(config.event_broadcaster.clone())),
-            app_service_manager: Arc::new(RwLock::new(config.app_service_manager.clone())),
-            key_rotation_manager: Arc::new(RwLock::new(config.key_rotation_manager.clone())),
-            federation_client: Arc::new(RwLock::new(config.federation_client.clone())),
+            event_broadcaster: config.event_broadcaster.clone(),
+            app_service_manager: config.app_service_manager.clone(),
+            key_rotation_manager: config.key_rotation_manager.clone(),
+            federation_client: config.federation_client.clone(),
         };
 
         let membership_cfg = MembershipServiceConfig {
@@ -114,6 +120,9 @@ impl RoomService {
             key_rotation_manager: infra.key_rotation_manager.clone(),
             event_broadcaster: infra.event_broadcaster.clone(),
             room_summary_service: config.room_summary_service.clone(),
+            cache: config.cache.clone(),
+            key_rotation_storage: config.key_rotation_storage.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let membership = MembershipService::new(membership_cfg);
 
@@ -132,6 +141,7 @@ impl RoomService {
             app_service_manager: infra.app_service_manager.clone(),
             key_rotation_manager: infra.key_rotation_manager.clone(),
             room_summary_service: config.room_summary_service.clone(),
+            cache: config.cache.clone(),
         };
         let messaging = MessagingService::new(messaging_cfg);
 
@@ -153,6 +163,8 @@ impl RoomService {
             validator: config.validator.clone(),
             server_name: config.server_name.clone(),
             room_summary_service: Some(config.room_summary_service.clone()),
+            cache: config.cache.clone(),
+            app_service_manager: config.app_service_manager.clone(),
         };
         let lifecycle = LifecycleService::new(lifecycle_cfg);
 
@@ -176,28 +188,6 @@ impl RoomService {
 
     pub fn room_summary_service(&self) -> &RoomSummaryService {
         &self.room_summary_service
-    }
-
-    pub fn start_cleanup_task(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let active_tasks = self.active_tasks.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let mut tasks = active_tasks.write().await;
-                let before = tasks.len();
-                tasks.retain(|_key, handle| !handle.is_finished());
-                let after = tasks.len();
-                if before != after {
-                    ::tracing::debug!(
-                        target: "room_service_cleanup",
-                        cleaned = before - after,
-                        remaining = after,
-                        "Cleaned up completed background tasks"
-                    );
-                }
-            }
-        })
     }
 
     pub async fn cleanup_completed_tasks(&self) -> usize {
@@ -224,31 +214,6 @@ impl RoomService {
         }
     }
 
-    pub async fn set_event_broadcaster(
-        &self,
-        event_broadcaster: Arc<synapse_federation::event_broadcaster::EventBroadcaster>,
-    ) {
-        self.infra.set_event_broadcaster(event_broadcaster).await;
-    }
-
-    pub async fn set_key_rotation_manager(&self, key_rotation_manager: Arc<synapse_federation::KeyRotationManager>) {
-        self.infra.set_key_rotation_manager(key_rotation_manager).await;
-    }
-
-    pub async fn set_federation_client(
-        &self,
-        federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
-    ) {
-        self.infra.set_federation_client(federation_client).await;
-    }
-
-    pub async fn set_app_service_manager(
-        &self,
-        app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
-    ) {
-        self.infra.set_app_service_manager(app_service_manager).await;
-    }
-
     pub async fn dispatch_appservice_event(
         &self,
         event_id: &str,
@@ -258,8 +223,7 @@ impl RoomService {
         content: &serde_json::Value,
         state_key: Option<&str>,
     ) {
-        let app_service_manager = self.infra.app_service_manager.read().await.clone();
-        let Some(app_service_manager) = app_service_manager else {
+        let Some(app_service_manager) = &self.infra.app_service_manager else {
             return;
         };
 

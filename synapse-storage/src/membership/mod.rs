@@ -324,7 +324,7 @@ impl RoomMemberStorage {
         sqlx::query(
             r"
             UPDATE room_memberships SET membership = 'leave', banned_by = NULL
-            WHERE room_id = $1 AND user_id = $2
+            WHERE room_id = $1 AND user_id = $2 AND membership = 'ban'
             ",
         )
         .bind(room_id)

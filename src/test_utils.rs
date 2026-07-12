@@ -486,12 +486,34 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
     .map_err(|error| format!("failed to connect admin pool for clone: {error}"))?;
 
     // Clone: create schema + copy all tables from template using DDL generation.
-    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters.
+    // INCLUDING ALL copies defaults, constraints, indexes, and storage parameters
+    // (but NOT foreign keys — LIKE never copies FKs, so seed-copy order is unconstrained).
+    //
+    // Structure-only LIKE does not copy rows, so migration-seeded *reference/config*
+    // rows (e.g. the server_media_quota id=1 row) are missing in clones. We copy those
+    // for a curated allowlist of config tables so per-test clones behave like a
+    // freshly-migrated DB. The development-only `@admin:localhost` seed in `users` is
+    // intentionally NOT copied — tests manage their own users and many assert an empty
+    // users table.
+    const SEED_REFERENCE_TABLES: &[&str] = &["server_media_quota", "server_retention_policy", "sync_stream_id"];
+    let seed_copy_stmts = SEED_REFERENCE_TABLES
+        .iter()
+        .map(|table| {
+            format!(
+                "                IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = '{template_name}' AND tablename = '{table}') THEN
+                    EXECUTE format('INSERT INTO %I.%I SELECT * FROM %I.%I', '{schema_name}', '{table}', '{template_name}', '{table}');
+                END IF;"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let clone_sql = format!(
         r"
         DO $$
         DECLARE
             r RECORD;
+            v_attempts INTEGER;
+            v_created INTEGER;
         BEGIN
             EXECUTE format('CREATE SCHEMA %I', '{schema_name}');
             FOR r IN
@@ -502,7 +524,44 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     '{schema_name}', r.tablename, '{template_name}', r.tablename
                 );
             END LOOP;
-            -- Copy sequences with current values
+            -- Restore original index names from template.
+            -- CREATE TABLE LIKE ... INCLUDING ALL copies indexes but PostgreSQL
+            -- assigns auto-generated names. Tests check for specific index names
+            -- via has_index_named(), so we drop non-constraint indexes (which
+            -- have auto-generated names) and recreate them from the template's
+            -- index definitions (which have the original names).
+            FOR r IN
+                SELECT c.relname AS idx_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{schema_name}'
+                JOIN pg_index i ON i.indexrelid = c.oid
+                WHERE c.relkind = 'i'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_constraint con WHERE con.conindid = c.oid
+                  )
+            LOOP
+                EXECUTE format('DROP INDEX %I.%I', '{schema_name}', r.idx_name);
+            END LOOP;
+            FOR r IN
+                SELECT t.indexdef AS def
+                FROM pg_indexes t
+                WHERE t.schemaname = '{template_name}'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM pg_constraint con
+                      JOIN pg_class c ON c.oid = con.conindid
+                      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = '{template_name}'
+                      WHERE c.relname = t.indexname
+                  )
+            LOOP
+                BEGIN
+                    EXECUTE REPLACE(r.def, '{template_name}.', '{schema_name}.');
+                EXCEPTION WHEN OTHERS THEN
+                    NULL;
+                END;
+            END LOOP;
+            -- Copy migration seed rows for reference/config tables only.
+{seed_copy_stmts}
+            -- Copy sequences with their current values so id generation stays consistent.
             FOR r IN
                 SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = '{template_name}'
             LOOP
@@ -510,6 +569,38 @@ async fn clone_schema_from_template(database_url: &str, template_name: &str) -> 
                     'CREATE SEQUENCE IF NOT EXISTS %I.%I',
                     '{schema_name}', r.sequence_name
                 );
+                EXECUTE format(
+                    'SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
+                    '{schema_name}.' || r.sequence_name,
+                    '{template_name}', r.sequence_name,
+                    '{template_name}', r.sequence_name
+                );
+            END LOOP;
+            -- Clone views from the template schema.
+            -- Views are NOT copied by CREATE TABLE LIKE, so we recreate them.
+            -- pg_views.definition stores schema-qualified table references (resolved
+            -- at creation time), so we must replace the template schema name with the
+            -- new schema name to make views reference the cloned tables.
+            EXECUTE format('SET search_path TO %I, public', '{schema_name}');
+            v_attempts := 0;
+            LOOP
+                v_attempts := v_attempts + 1;
+                v_created := 0;
+                FOR r IN
+                    SELECT viewname, definition FROM pg_views WHERE schemaname = '{template_name}' ORDER BY viewname
+                LOOP
+                    BEGIN
+                        EXECUTE format(
+                            'CREATE OR REPLACE VIEW %I.%I AS %s',
+                            '{schema_name}', r.viewname,
+                            REPLACE(r.definition, '{template_name}.', '{schema_name}.')
+                        );
+                        v_created := v_created + 1;
+                    EXCEPTION WHEN OTHERS THEN
+                        NULL;
+                    END;
+                END LOOP;
+                EXIT WHEN v_created = 0 OR v_attempts >= 5;
             END LOOP;
         END $$;
         "

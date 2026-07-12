@@ -2,6 +2,7 @@ use super::types::*;
 use super::SyncService;
 use crate::map_internal;
 use synapse_common::*;
+use synapse_storage::event::SinceFilter;
 
 use serde_json::json;
 
@@ -93,7 +94,7 @@ impl SyncService {
         let limit = 100i64;
         let events = self
             .event_storage
-            .get_room_events_since_batch(&room_ids, since_ts, limit)
+            .get_room_events_batch_since(&room_ids, SinceFilter::OriginServerTs(since_ts), limit)
             .await
             .map_err(map_internal!("Failed to get events"))?;
 

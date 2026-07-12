@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::SyncContext;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{extract::State, routing::post, Json, Router};
 use synapse_storage::sliding_sync::{SlidingSyncRequest, SlidingSyncResponse};
@@ -32,7 +33,7 @@ pub fn sliding_sync_route_manifest() -> Vec<crate::web::routes::route_ledger::Ro
 
 #[axum::debug_handler]
 async fn sliding_sync(
-    State(state): State<AppState>,
+    State(ctx): State<SyncContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<SlidingSyncRequest>,
 ) -> Result<Json<SlidingSyncResponse>, ApiError> {
@@ -46,16 +47,16 @@ async fn sliding_sync(
     // Get device_id or use default
     let device_id = auth_user.device_id.unwrap_or_else(|| "default".to_string());
 
-    let file_config = state.sync_rate_limit_override();
+    let file_config = ctx.sync_rate_limit_override();
     let sync_rate_limit_enabled =
-        file_config.as_ref().map_or(state.services.core.config.rate_limit.sync.enabled, |config| config.sync.enabled);
+        file_config.as_ref().map_or(ctx.config.rate_limit.sync.enabled, |config| config.sync.enabled);
 
     if sync_rate_limit_enabled {
         let (per_second, burst_size): (u32, u32) =
-            resolve_sliding_sync_rate_limit(&state, file_config.as_ref(), body.pos.is_none());
+            resolve_sliding_sync_rate_limit(&ctx, file_config.as_ref(), body.pos.is_none());
         let kind: &str = if body.pos.is_none() { "initial" } else { "incremental" };
         let rate_limit_key: String = format!("ratelimit:sliding_sync:{}:{}:{}", auth_user.user_id, device_id, kind);
-        let decision: crate::cache::RateLimitDecision = state
+        let decision: crate::cache::RateLimitDecision = ctx
             .cache
             .rate_limit_token_bucket_take(&rate_limit_key, per_second, burst_size)
             .await
@@ -75,30 +76,25 @@ async fn sliding_sync(
     // inspired by Synapse v1.153.0rc3 which reverted a sliding-sync
     // optimisation after performance regressions went unnoticed.
     let sync_start = std::time::Instant::now();
-    let response: SlidingSyncResponse =
-        state.services.rooms.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
+    let response: SlidingSyncResponse = ctx.sliding_sync_service.sync(&auth_user.user_id, &device_id, body).await?;
     let elapsed_ms = sync_start.elapsed().as_millis() as u64;
 
     // Record duration in histogram for p50/p95/p99 observability.
-    let histogram = state
-        .services
-        .core
+    let histogram = ctx
         .metrics
         .get_histogram("sliding_sync_duration_ms")
-        .unwrap_or_else(|| state.services.core.metrics.register_histogram("sliding_sync_duration_ms".to_string()));
+        .unwrap_or_else(|| ctx.metrics.register_histogram("sliding_sync_duration_ms".to_string()));
     histogram.observe(elapsed_ms as f64);
 
     // Increment total request counter.
-    let total_counter = state
-        .services
-        .core
+    let total_counter = ctx
         .metrics
         .get_counter("sliding_sync_requests_total")
-        .unwrap_or_else(|| state.services.core.metrics.register_counter("sliding_sync_requests_total".to_string()));
+        .unwrap_or_else(|| ctx.metrics.register_counter("sliding_sync_requests_total".to_string()));
     total_counter.inc();
 
     // Slow-request gate: warn + counter when threshold exceeded.
-    let threshold_ms = state.services.core.config.performance.sliding_sync_latency_threshold_ms;
+    let threshold_ms = ctx.config.performance.sliding_sync_latency_threshold_ms;
     if elapsed_ms > threshold_ms {
         ::tracing::warn!(
             user_id = %auth_user.user_id,
@@ -107,10 +103,10 @@ async fn sliding_sync(
             threshold_ms = threshold_ms,
             "Sliding sync response exceeded latency threshold"
         );
-        let slow_counter =
-            state.services.core.metrics.get_counter("sliding_sync_slow_requests_total").unwrap_or_else(|| {
-                state.services.core.metrics.register_counter("sliding_sync_slow_requests_total".to_string())
-            });
+        let slow_counter = ctx
+            .metrics
+            .get_counter("sliding_sync_slow_requests_total")
+            .unwrap_or_else(|| ctx.metrics.register_counter("sliding_sync_slow_requests_total".to_string()));
         slow_counter.inc();
     }
 
@@ -118,7 +114,7 @@ async fn sliding_sync(
 }
 
 fn resolve_sliding_sync_rate_limit(
-    state: &AppState,
+    ctx: &SyncContext,
     file_config: Option<&crate::web::routes::state::SyncRateLimitOverride>,
     is_initial: bool,
 ) -> (u32, u32) {
@@ -131,7 +127,7 @@ fn resolve_sliding_sync_rate_limit(
             }
         }
         _ => {
-            let config = &state.services.core.config.rate_limit.sync;
+            let config = &ctx.config.rate_limit.sync;
             if is_initial {
                 (config.initial.per_second, config.initial.burst_size)
             } else {
@@ -150,9 +146,13 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use crate::common::RateLimitConfigFile;
     #[cfg(feature = "test-utils")]
+    use crate::web::routes::context::SyncContext;
+    #[cfg(feature = "test-utils")]
     use crate::web::routes::state::SyncRateLimitOverride;
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
+    #[cfg(feature = "test-utils")]
+    use axum::extract::FromRef;
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
 
@@ -177,8 +177,9 @@ mod tests {
         let sync_override =
             SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (11, 22));
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), false), (33, 44));
+        let ctx = SyncContext::from_ref(&state);
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), true), (11, 22));
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), false), (33, 44));
     }
 
     #[cfg(feature = "test-utils")]
@@ -200,7 +201,8 @@ mod tests {
         let sync_override =
             SyncRateLimitOverride { fail_open_on_error: file_config.fail_open_on_error, sync: file_config.sync };
 
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, Some(&sync_override), true), (5, 50));
-        assert_eq!(resolve_sliding_sync_rate_limit(&state, None, false), (6, 60));
+        let ctx = SyncContext::from_ref(&state);
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, Some(&sync_override), true), (5, 50));
+        assert_eq!(resolve_sliding_sync_rate_limit(&ctx, None, false), (6, 60));
     }
 }

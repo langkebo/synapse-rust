@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use synapse_cache::CacheManager;
 use synapse_storage::beacon::{
-    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStorage, CreateBeaconInfoParams,
+    BeaconInfo, BeaconInfoWithLocations, BeaconLocation, BeaconStoreApi, CreateBeaconInfoParams,
     CreateBeaconLocationParams,
 };
 
@@ -12,13 +12,13 @@ const BEACON_ROOM_BACKPRESSURE_BUCKET_CAPACITY: u32 = 20;
 const BEACON_ROOM_BACKPRESSURE_REFILL_PER_SEC: u32 = 5;
 
 pub struct BeaconService {
-    storage: BeaconStorage,
+    storage: Arc<dyn BeaconStoreApi>,
     cache: Arc<CacheManager>,
 }
 
 impl BeaconService {
-    pub fn new(pool: Arc<sqlx::Pool<sqlx::Postgres>>, cache: Arc<CacheManager>) -> Self {
-        Self { storage: BeaconStorage::new(pool), cache }
+    pub fn new(storage: Arc<dyn BeaconStoreApi>, cache: Arc<CacheManager>) -> Self {
+        Self { storage, cache }
     }
 
     pub async fn create_beacon(

@@ -1,4 +1,5 @@
-use crate::web::routes::{ensure_room_member, validate_room_alias, ApiError, AppState, AuthenticatedUser};
+use crate::web::routes::context::RoomContext;
+use crate::web::routes::{ensure_room_member_ctx, validate_room_alias, ApiError, AuthenticatedUser};
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -36,15 +37,13 @@ fn encode_public_rooms_cursor(created_ts: i64, room_id: &str) -> String {
 }
 
 async fn ensure_room_alias_write_allowed(
-    state: &AppState,
+    ctx: &RoomContext,
     auth_user: &AuthenticatedUser,
     room_id: &str,
 ) -> Result<(), ApiError> {
-    ensure_room_member(state, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
+    ensure_room_member_ctx(ctx, auth_user, room_id, "You must be a member of this room to manage aliases").await?;
 
-    let is_creator = state
-        .services
-        .rooms
+    let is_creator = ctx
         .room_service
         .state
         .is_room_creator(room_id, &auth_user.user_id)
@@ -78,14 +77,12 @@ pub struct PublicRoom {
 }
 
 pub async fn get_directory_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
-    let room_id = state
-        .services
-        .extensions
+    let room_id = ctx
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
@@ -94,15 +91,15 @@ pub async fn get_directory_room(
     if let Some(rid) = room_id {
         return Ok(Json(json!({
             "room_id": rid,
-            "servers": [state.services.core.server_name.clone()],
+            "servers": [ctx.server_name.clone()],
         })));
     }
 
     // Local lookup failed — if the alias belongs to a remote server, try
     // federation directory query.
     // Reference: element-hq/synapse `synapse/handlers/directory.py::DirectoryHandler.get_association`
-    if let Some(remote_server) = extract_remote_server_from_alias(&room_alias, &state.services.core.server_name) {
-        let federation_client = state.services.federation.federation_client.clone();
+    if let Some(remote_server) = extract_remote_server_from_alias(&room_alias, &ctx.server_name) {
+        let federation_client = ctx.federation_client.clone();
         match federation_client.query_directory(&remote_server, &room_alias).await {
             Ok(dir_response) => {
                 return Ok(Json(json!({
@@ -137,7 +134,7 @@ fn extract_remote_server_from_alias(alias: &str, local_server: &str) -> Option<S
 }
 
 pub async fn set_room_alias_handler(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
     Json(body): Json<SetRoomAliasBody>,
@@ -146,12 +143,9 @@ pub async fn set_room_alias_handler(
 
     let room_id = &body.room_id;
 
-    ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
+    ensure_room_alias_write_allowed(&ctx, &auth_user, room_id).await?;
 
-    state
-        .services
-        .extensions
-        .directory_service
+    ctx.directory_service
         .set_room_alias(room_id, &room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to set alias", &e))?;
@@ -164,28 +158,23 @@ pub async fn set_room_alias_handler(
 }
 
 pub async fn remove_room_alias(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
-    let existing = state
-        .services
-        .extensions
+    let existing = ctx
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to get alias", &e))?;
 
     if let Some(room_id) = &existing {
-        ensure_room_alias_write_allowed(&state, &auth_user, room_id).await?;
+        ensure_room_alias_write_allowed(&ctx, &auth_user, room_id).await?;
     }
 
-    state
-        .services
-        .extensions
-        .directory_service
+    ctx.directory_service
         .remove_room_alias(&room_alias)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to remove alias", &e))?;
@@ -197,14 +186,12 @@ pub async fn remove_room_alias(
 }
 
 pub async fn get_alias_servers(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(room_alias): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_alias(&room_alias)?;
 
-    let room_id = state
-        .services
-        .extensions
+    let room_id = ctx
         .directory_service
         .get_room_id_by_alias(&room_alias)
         .await
@@ -212,14 +199,14 @@ pub async fn get_alias_servers(
 
     match room_id {
         Some(_) => Ok(Json(json!({
-            "servers": [state.services.core.server_name.clone()]
+            "servers": [ctx.server_name.clone()]
         }))),
         None => Err(ApiError::not_found("Room not found".to_string())),
     }
 }
 
 pub async fn get_public_rooms_handler(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Query(query): Query<PublicRoomsQuery>,
 ) -> Result<Json<Value>, ApiError> {
     query.validate().map_err(|e| ApiError::bad_request(format!("Invalid query: {e}")))?;
@@ -229,15 +216,12 @@ pub async fn get_public_rooms_handler(
 
     let (rooms, total) = tokio::try_join!(
         async {
-            state
-                .services
-                .rooms
-                .room_service
+            ctx.room_service
                 .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.state.count_public_rooms().await }
+        async { ctx.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -279,7 +263,7 @@ pub async fn get_public_rooms_handler(
 }
 
 pub async fn search_public_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let _filter = body.get("filter").and_then(|v| v.as_str());
@@ -288,15 +272,12 @@ pub async fn search_public_rooms(
 
     let (rooms, total) = tokio::try_join!(
         async {
-            state
-                .services
-                .rooms
-                .room_service
+            ctx.room_service
                 .state
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { state.services.rooms.room_service.state.count_public_rooms().await }
+        async { ctx.room_service.state.count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {

@@ -11,6 +11,7 @@ use std::future::Future;
 use validator::Validate;
 
 use crate::common::ApiError;
+use crate::web::routes::context::RoomContext;
 pub(super) use crate::web::routes::response_helpers::{created_json_from, json_from, json_vec_from};
 use crate::web::routes::{AppState, AuthenticatedUser, OptionalAuthenticatedUser};
 
@@ -27,12 +28,10 @@ use summary::create_space_summary_routes;
 pub(super) use types::*;
 
 pub(super) async fn resolve_space_by_room(
-    state: &AppState,
+    state: &RoomContext,
     space_room_id: &str,
 ) -> Result<synapse_storage::space::Space, ApiError> {
     let space: Option<synapse_storage::space::Space> = state
-        .services
-        .rooms
         .space_service
         .get_space_by_room(space_room_id)
         .await
@@ -42,12 +41,10 @@ pub(super) async fn resolve_space_by_room(
 }
 
 pub(super) async fn resolve_space(
-    state: &AppState,
+    state: &RoomContext,
     space_identifier: &str,
 ) -> Result<synapse_storage::space::Space, ApiError> {
     let space: Option<synapse_storage::space::Space> = state
-        .services
-        .rooms
         .space_service
         .get_space(space_identifier)
         .await
@@ -61,12 +58,12 @@ pub(super) async fn resolve_space(
 }
 
 pub(super) async fn with_resolved_space<T, F, Fut>(
-    state: AppState,
+    state: RoomContext,
     space_room_id: String,
     operation: F,
 ) -> Result<T, ApiError>
 where
-    F: FnOnce(AppState, synapse_storage::space::Space) -> Fut,
+    F: FnOnce(RoomContext, synapse_storage::space::Space) -> Fut,
     Fut: Future<Output = Result<T, ApiError>>,
 {
     let space = resolve_space(&state, &space_room_id).await?;
@@ -74,7 +71,7 @@ where
 }
 
 pub(super) async fn can_user_view_space(
-    state: &AppState,
+    state: &RoomContext,
     space: &synapse_storage::space::Space,
     auth_user: &OptionalAuthenticatedUser,
 ) -> Result<bool, ApiError> {
@@ -83,13 +80,13 @@ pub(super) async fn can_user_view_space(
     }
 
     match auth_user.user_id.as_deref() {
-        Some(user_id) => state.services.rooms.space_service.check_user_can_see_space(&space.space_id, user_id).await,
+        Some(user_id) => state.space_service.check_user_can_see_space(&space.space_id, user_id).await,
         None => Ok(false),
     }
 }
 
 pub(super) async fn ensure_space_visible(
-    state: &AppState,
+    state: &RoomContext,
     space: &synapse_storage::space::Space,
     auth_user: &OptionalAuthenticatedUser,
 ) -> Result<(), ApiError> {
@@ -105,13 +102,13 @@ pub(super) async fn ensure_space_visible(
 }
 
 pub(super) async fn with_visible_space<T, F, Fut>(
-    state: AppState,
+    state: RoomContext,
     space_room_id: String,
     auth_user: OptionalAuthenticatedUser,
     operation: F,
 ) -> Result<T, ApiError>
 where
-    F: FnOnce(AppState, synapse_storage::space::Space, OptionalAuthenticatedUser) -> Fut,
+    F: FnOnce(RoomContext, synapse_storage::space::Space, OptionalAuthenticatedUser) -> Fut,
     Fut: Future<Output = Result<T, ApiError>>,
 {
     let space = resolve_space(&state, &space_room_id).await?;

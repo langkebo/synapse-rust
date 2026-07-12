@@ -2,7 +2,7 @@
 
 use crate::common::error::{ApiError, ApiResult};
 use serde_json::json;
-use synapse_common::generate_event_id;
+use synapse_common::{generate_event_id, is_legal, Membership, TransitionCtx};
 use synapse_storage::CreateEventParams;
 
 use super::service::MembershipService;
@@ -65,49 +65,20 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        let effective_join_rule = if let Some(event) = self
-            .event_storage
-            .get_state_events_by_type(room_id, "m.room.join_rules")
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room join rules", &e))?
-            .into_iter()
-            .find(|event| event.state_key.as_deref().unwrap_or_default().is_empty())
-        {
-            event.content.get("join_rule").and_then(|value| value.as_str()).map(|value| value.to_string())
-        } else {
-            None
-        };
+        let join_rule = self.resolve_join_rule(room_id).await?;
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, user_id).await?;
 
-        let room = self
-            .room_storage
-            .get_room(room_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?
-            .ok_or_else(|| ApiError::not_found("Room not found".to_string()))?;
-
-        let join_rule = effective_join_rule
-            .or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone()))
-            .unwrap_or_else(|| if room.is_public { "public".to_string() } else { "invite".to_string() });
-
-        let existing_member = self
-            .member_storage
-            .get_room_member(room_id, user_id)
-            .await
-            .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
-
-        if let Some(member) = existing_member.as_ref() {
-            if member.membership == "join" {
-                return Ok(());
-            }
-
-            if member.membership == "ban" || member.is_banned.unwrap_or(false) {
-                return Err(ApiError::forbidden("You are banned from this room".to_string()));
-            }
+        // Idempotent no-op: already joined — don't emit a duplicate join event.
+        if from == Some(Membership::Join) {
+            return Ok(());
         }
 
-        if join_rule != "public" && existing_member.as_ref().is_none_or(|member| member.membership != "invite") {
-            return Err(ApiError::forbidden("Room is invite-only".to_string()));
-        }
+        // Delegate the state-machine verdict to the single membership-transition
+        // rulebook. Joins need no power level, so the state-only ctx is exact;
+        // restricted-join authorization resolution is not yet wired, so
+        // restricted rooms fail closed (require an explicit invite).
+        let ctx = TransitionCtx::state_only(join_rule, /* actor_is_target */ true, target_is_banned, false);
+        is_legal(from, Membership::Join, &ctx)?;
 
         self.member_storage
             .add_member(room_id, user_id, "join", None, None, None, None)
@@ -139,6 +110,12 @@ impl MembershipService {
             )
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member join event", &e))?;
+
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
+        // Enqueue the join event for matching application services.
+        self.dispatch_appservice_event(&join_event).await;
 
         // Best-effort: sign and broadcast the join event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&join_event).await {
@@ -201,6 +178,9 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to record m.room.member leave event", &e))?;
 
+        // Invalidate room-state cache after membership state change.
+        let _ = self.cache.delete(&format!("room_state:{room_id}")).await;
+
         // Best-effort: sign and broadcast the leave event to federation peers.
         if let Err(e) = self.sign_and_broadcast_event(&leave_event).await {
             ::tracing::warn!(
@@ -209,6 +189,24 @@ impl MembershipService {
                 error = %e,
                 "Failed to sign and broadcast leave event"
             );
+        }
+
+        // Forward secrecy: when a member leaves a LOCAL encrypted room, mark the
+        // room's megolm session for rotation so the departed member cannot
+        // decrypt future messages. Remote rooms return early above.
+        if let Some(key_rotation_storage) = &self.key_rotation_storage {
+            let encryption_state =
+                self.get_state_events_by_type(room_id, "m.room.encryption").await.unwrap_or_default();
+            if !encryption_state.is_empty() {
+                if let Err(e) = key_rotation_storage.mark_key_rotation_needed(room_id, user_id).await {
+                    ::tracing::warn!(
+                        room_id = %room_id,
+                        user_id = %user_id,
+                        error = %e,
+                        "Failed to mark key rotation needed after leave of encrypted room"
+                    );
+                }
+            }
         }
 
         Ok(())
@@ -247,5 +245,103 @@ impl MembershipService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_e2ee::test_mocks::InMemoryKeyRotationStorage;
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
+    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::FakeAuth;
+
+    use super::super::service::{MembershipService, MembershipServiceConfig};
+
+    const ROOM_ID: &str = "!enc:localhost";
+    const USER_ID: &str = "@bob:localhost";
+
+    /// Build a [`MembershipService`] wired with in-memory mocks and the given
+    /// key-rotation spy, seeded with `@bob:localhost` joined to `!enc:localhost`.
+    async fn build_service(spy: Arc<InMemoryKeyRotationStorage>) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        member_store.add_member(ROOM_ID, USER_ID, "join", None).await.unwrap();
+
+        let event_store = InMemoryEventStore::new();
+        let room_store = InMemoryRoomStore::new();
+
+        let event_storage: Arc<dyn EventStoreApi> = Arc::new(event_store);
+        let member_storage: Arc<dyn MemberStoreApi> = Arc::new(member_store);
+        let room_storage: Arc<dyn RoomStoreApi> = Arc::new(room_store);
+        let user_storage: Arc<dyn UserStore> = Arc::new(FakeUserStore::new());
+
+        let room_summary_service = Arc::new(RoomSummaryService::new(
+            Arc::new(InMemoryRoomSummaryStore::new()),
+            event_storage.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_storage,
+            user_storage,
+            auth_service: Arc::new(FakeAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: Arc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: Some(spy),
+            app_service_manager: None,
+        })
+    }
+
+    /// Seed an `m.room.encryption` state event into the service's event store.
+    async fn seed_encryption_event(svc: &MembershipService) {
+        svc.event_storage
+            .create_event(
+                synapse_storage::CreateEventParams {
+                    event_id: "$enc:localhost".to_string(),
+                    room_id: ROOM_ID.to_string(),
+                    user_id: USER_ID.to_string(),
+                    event_type: "m.room.encryption".to_string(),
+                    content: serde_json::json!({ "algorithm": "m.megolm.v1.aes-sha2" }),
+                    state_key: Some("".to_string()),
+                    origin_server_ts: 1_000,
+                    redacts: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn leave_encrypted_room_marks_key_rotation() {
+        let spy = Arc::new(InMemoryKeyRotationStorage::new());
+        let svc = build_service(spy.clone()).await;
+        seed_encryption_event(&svc).await;
+
+        svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
+
+        assert_eq!(spy.marked_rotations().await, vec![(ROOM_ID.to_string(), USER_ID.to_string())]);
+    }
+
+    #[tokio::test]
+    async fn leave_unencrypted_room_does_not_mark_rotation() {
+        let spy = Arc::new(InMemoryKeyRotationStorage::new());
+        let svc = build_service(spy.clone()).await;
+        // No m.room.encryption state event seeded.
+
+        svc.leave_room(ROOM_ID, USER_ID).await.unwrap();
+
+        assert!(spy.marked_rotations().await.is_empty());
     }
 }

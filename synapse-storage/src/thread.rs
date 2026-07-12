@@ -10,7 +10,7 @@ pub struct ThreadRoot {
     pub root_event_id: String,
     pub sender: String,
     pub thread_id: Option<String>,
-    pub reply_count: i64,
+    pub reply_count: Option<i64>,
     pub last_reply_event_id: Option<String>,
     pub last_reply_sender: Option<String>,
     pub last_reply_ts: Option<i64>,
@@ -1055,7 +1055,7 @@ mod tests {
             root_event_id: "$event1".to_string(),
             sender: "@user:example.com".to_string(),
             thread_id: Some("thread-001".to_string()),
-            reply_count: 0,
+            reply_count: Some(0),
             last_reply_event_id: None,
             last_reply_sender: None,
             last_reply_ts: None,
@@ -1103,7 +1103,7 @@ mod tests {
         assert_eq!(thread.id, 1);
         assert_eq!(thread.room_id, "!test:example.com");
         assert_eq!(thread.sender, "@user:example.com");
-        assert_eq!(thread.reply_count, 0);
+        assert_eq!(thread.reply_count, Some(0));
         assert!(!thread.is_fetched);
     }
 
@@ -1298,7 +1298,7 @@ mod db_tests {
         assert!(root.id > 0);
         assert_eq!(root.room_id, room_id);
         assert_eq!(root.thread_id, Some(thread_id.clone()));
-        assert_eq!(root.reply_count, 0);
+        assert_eq!(root.reply_count, Some(0));
         assert!(!root.is_fetched);
 
         cleanup_thread_data(&pool, &room_id, &thread_id).await;

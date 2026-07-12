@@ -11,18 +11,19 @@ use serde_json::json;
 use std::sync::Arc;
 use synapse_common::ApiError;
 use synapse_storage::space::*;
+use synapse_storage::RoomStoreApi;
 use tracing::{error, info, instrument, warn};
 
 pub struct SpaceService {
     pub(crate) space_storage: Arc<dyn SpaceStoreApi>,
-    pub(crate) room_storage: Arc<synapse_storage::room::RoomStorage>,
+    pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) server_name: String,
 }
 
 impl SpaceService {
     pub fn new(
         space_storage: Arc<dyn SpaceStoreApi>,
-        room_storage: Arc<synapse_storage::room::RoomStorage>,
+        room_storage: Arc<dyn RoomStoreApi>,
         server_name: String,
     ) -> Self {
         Self { space_storage, room_storage, server_name }

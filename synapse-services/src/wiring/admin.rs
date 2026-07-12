@@ -20,7 +20,7 @@ pub struct AdminUserServices {
     pub admin_user_service: Arc<crate::admin_user_service::AdminUserService>,
     pub email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi>,
     pub admin_token_service: Arc<crate::admin_token_service::AdminTokenService>,
-    pub refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage>,
+    pub refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi>,
     pub refresh_token_service: Arc<crate::refresh_token_service::RefreshTokenService>,
     pub registration_token_storage: Arc<dyn synapse_storage::registration_token::RegistrationTokenStoreApi>,
     pub registration_token_service: Arc<crate::registration_token_service::RegistrationTokenService>,
@@ -88,6 +88,7 @@ pub struct AdminServices {
 }
 
 impl AdminServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,
@@ -96,6 +97,7 @@ impl AdminServices {
         metrics: &Arc<MetricsCollector>,
         auth_service: &Arc<dyn Auth>,
         user_storage: &Arc<dyn UserStore>,
+        shutdown_token: &tokio_util::sync::CancellationToken,
     ) -> Self {
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
             auth_service.clone(),
@@ -146,7 +148,7 @@ impl AdminServices {
             Arc::new(audit_storage.clone()),
         ));
 
-        let refresh_token_storage: Arc<synapse_storage::refresh_token::RefreshTokenStorage> =
+        let refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi> =
             Arc::new(synapse_storage::refresh_token::RefreshTokenStorage::new(pool));
         let refresh_token_service = Arc::new(crate::refresh_token_service::RefreshTokenService::new(
             refresh_token_storage.clone(),
@@ -173,7 +175,8 @@ impl AdminServices {
         let federation_blacklist_service = Arc::new(
             crate::federation_blacklist_service::FederationBlacklistService::new(federation_blacklist_storage.clone()),
         );
-        let admin_federation_storage = synapse_storage::admin_federation::AdminFederationStorage::new(pool);
+        let admin_federation_storage: Arc<dyn synapse_storage::admin_federation::AdminFederationStoreApi> =
+            Arc::new(synapse_storage::admin_federation::AdminFederationStorage::new(pool));
         let admin_federation_service = Arc::new(crate::admin_federation_service::AdminFederationService::new(
             admin_federation_storage,
             federation_blacklist_storage.clone(),
@@ -182,8 +185,7 @@ impl AdminServices {
 
         let push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi> =
             Arc::new(synapse_storage::push_notification::PushNotificationStorage::new(pool));
-        let account_data_storage_for_push: Arc<synapse_storage::account_data::AccountDataStorage> =
-            Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
+        let account_data_storage_for_push = Arc::new(synapse_storage::account_data::AccountDataStorage::new(pool));
         let push_notification_service = Arc::new(
             crate::push_notification_service::PushNotificationService::new(push_notification_storage.clone())
                 .with_account_data_storage(account_data_storage_for_push),
@@ -223,7 +225,7 @@ impl AdminServices {
         let should_start_app_service_scheduler =
             should_run_global_maintenance(&config.worker) && !config.server.app_service_config_files.is_empty();
         if should_start_app_service_scheduler {
-            app_service_scheduler.clone().start();
+            let _ = app_service_scheduler.clone().start(shutdown_token.clone());
         } else {
             ::tracing::info!(
                 worker_type = current_instance_worker_type(&config.worker).as_str(),
@@ -256,8 +258,8 @@ impl AdminServices {
         let admin_user_service = Arc::new(crate::admin_user_service::AdminUserService::new(
             pool.clone(),
             user_storage.clone(),
-            DeviceStorage::new(pool),
-            RoomStorage::new(pool),
+            Arc::new(DeviceStorage::new(pool)),
+            Arc::new(RoomStorage::new(pool)),
             Arc::new(RoomMemberStorage::new(pool, config.server.get_server_name())),
             config.server.name.clone(),
         ));

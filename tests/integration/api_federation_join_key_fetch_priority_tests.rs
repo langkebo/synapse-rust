@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use synapse_common::canonical_json;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::federation::signing::canonical_federation_request_bytes;
 use synapse_rust::web::routes::state::AppState;
@@ -24,11 +25,30 @@ struct KeyFetchMetrics {
     delay_ms: u64,
     key_id: String,
     key_b64: String,
+    /// The server name returned in key responses (matches the mock server's
+    /// bind address so that signature validation accepts it).
+    server_name: String,
+    /// Ed25519 signing key used to self-sign the key response.
+    signing_key: ed25519_dalek::SigningKey,
 }
 
 impl KeyFetchMetrics {
-    fn new(delay_ms: u64, key_id: String, key_b64: String) -> Self {
-        Self { inflight: AtomicUsize::new(0), max_inflight: AtomicUsize::new(0), delay_ms, key_id, key_b64 }
+    fn new(
+        delay_ms: u64,
+        key_id: String,
+        key_b64: String,
+        server_name: String,
+        signing_key: ed25519_dalek::SigningKey,
+    ) -> Self {
+        Self {
+            inflight: AtomicUsize::new(0),
+            max_inflight: AtomicUsize::new(0),
+            delay_ms,
+            key_id,
+            key_b64,
+            server_name,
+            signing_key,
+        }
     }
 
     fn on_start(&self) {
@@ -47,6 +67,25 @@ impl KeyFetchMetrics {
     fn on_end(&self) {
         self.inflight.fetch_sub(1, Ordering::SeqCst);
     }
+
+    /// Build a self-signed server key response.
+    fn signed_key_response(&self) -> Value {
+        let mut body = json!({
+            "server_name": self.server_name,
+            "verify_keys": {
+                self.key_id.clone(): { "key": self.key_b64.clone() }
+            },
+            "old_verify_keys": {},
+            "valid_until_ts": 9999999999999i64
+        });
+        let canonical = canonical_json(&body).unwrap();
+        let sig = self.signing_key.sign(canonical.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("signatures".to_string(), json!({ self.server_name.clone(): { self.key_id.clone(): sig_b64 } }));
+        }
+        body
+    }
 }
 
 async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyFetchMetrics>>) -> (StatusCode, Json<Value>) {
@@ -54,30 +93,32 @@ async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyFetchMetrics>>)
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
 
-    (
-        StatusCode::OK,
-        Json(json!({
-            "server_name": "mock.test",
-            "verify_keys": {
-                metrics.key_id.clone(): { "key": metrics.key_b64.clone() }
-            },
-            "old_verify_keys": {},
-            "valid_until_ts": 9999999999999i64
-        })),
-    )
+    (StatusCode::OK, Json(metrics.signed_key_response()))
 }
 
-async fn start_key_server(delay_ms: u64, key_id: &str, key_b64: &str) -> (String, Arc<KeyFetchMetrics>) {
-    let metrics = Arc::new(KeyFetchMetrics::new(delay_ms, key_id.to_string(), key_b64.to_string()));
-    let app = Router::new().route("/_matrix/key/v2/server", get(handle_server_keys)).with_state(metrics.clone());
-
+async fn start_key_server(
+    delay_ms: u64,
+    key_id: &str,
+    key_b64: &str,
+    signing_key: &ed25519_dalek::SigningKey,
+) -> (String, Arc<KeyFetchMetrics>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let origin = format!("127.0.0.1:{}", addr.port());
+    let metrics = Arc::new(KeyFetchMetrics::new(
+        delay_ms,
+        key_id.to_string(),
+        key_b64.to_string(),
+        origin.clone(),
+        signing_key.clone(),
+    ));
+    let app = Router::new().route("/_matrix/key/v2/server", get(handle_server_keys)).with_state(metrics.clone());
+
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
 
-    (format!("127.0.0.1:{}", addr.port()), metrics)
+    (origin, metrics)
 }
 
 async fn setup_ingress_app(server_name: &str, key_fetch_max_concurrency: usize) -> Option<axum::Router> {
@@ -131,7 +172,7 @@ async fn test_join_related_requests_can_bypass_general_key_fetch_saturation() {
     let Some(app) = setup_ingress_app(destination, 2).await else {
         return;
     };
-    let (origin, metrics) = start_key_server(200, key_id, &verify_key_b64).await;
+    let (origin, metrics) = start_key_server(200, key_id, &verify_key_b64, &signing_key).await;
 
     let txn_uri = "/_matrix/federation/v1/send/txn1";
     let txn_body = json!({ "origin": origin, "pdus": [] });

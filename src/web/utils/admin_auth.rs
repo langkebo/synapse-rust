@@ -6,10 +6,12 @@ use axum::http::{HeaderMap, Method};
 use hmac::{Hmac, Mac};
 use serde_json::json;
 use sha1::Sha1;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use synapse_common::crypto::secure_compare;
 use synapse_storage::audit::CreateAuditEventRequest;
 use synapse_storage::user::User;
+use synapse_storage::UserStore;
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -204,19 +206,27 @@ fn normalize_admin_path(path: &str) -> String {
     path.to_string()
 }
 
-pub(crate) async fn enforce_admin_login_mfa(
-    state: &AppState,
+/// Variant that works with individual service references instead of &AppState.
+pub(crate) async fn enforce_admin_login_mfa_svc(
+    security: &SecurityConfig,
+    user_storage: &Arc<dyn UserStore>,
     username: &str,
     mfa_code: Option<&str>,
 ) -> Result<(), ApiError> {
-    if !state.services.core.config.security.admin_mfa_required {
+    enforce_admin_login_mfa_impl(security, user_storage, username, mfa_code).await
+}
+
+async fn enforce_admin_login_mfa_impl(
+    security: &SecurityConfig,
+    user_storage: &Arc<dyn UserStore>,
+    username: &str,
+    mfa_code: Option<&str>,
+) -> Result<(), ApiError> {
+    if !security.admin_mfa_required {
         return Ok(());
     }
 
-    let Some(user) = state
-        .services
-        .account
-        .user_storage
+    let Some(user) = user_storage
         .get_user_by_identifier(username)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load user for admin MFA", &e))?
@@ -233,7 +243,7 @@ pub(crate) async fn enforce_admin_login_mfa(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::forbidden("Admin login requires MFA code".to_string()))?;
 
-    verify_totp_code(&state.services.core.config.security, mfa_code, Some(&user))
+    verify_totp_code(security, mfa_code, Some(&user))
 }
 
 pub(crate) fn normalize_admin_role(user_type: Option<&str>) -> String {

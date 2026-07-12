@@ -1,7 +1,8 @@
 use super::auth_compat::{request_email_verification_with_submit_path, session_client_secret};
 use crate::common::ApiError;
 use crate::web::extractors::{AuthenticatedUser, MatrixJson, OptionalAuthenticatedUser};
-use crate::web::routes::{validate_user_id, AppState};
+use crate::web::routes::context::AuthContext;
+use crate::web::routes::validate_user_id;
 use crate::web::utils::auth::bearer_token;
 use crate::web::utils::auth::resolve_request_id;
 use axum::{
@@ -14,7 +15,7 @@ use serde_json::{json, Value};
 use synapse_services::uia_service::UiaService;
 
 pub(crate) async fn whoami(
-    State(_state): State<AppState>,
+    State(_ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     Ok(Json(json!({
@@ -25,35 +26,34 @@ pub(crate) async fn whoami(
 }
 
 pub(crate) async fn can_view_profile_for_requester(
-    state: &AppState,
+    account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     requester_id: Option<&str>,
     user_id: &str,
 ) -> Result<bool, ApiError> {
-    let results = can_view_profile_for_requester_batch(state, requester_id, &[user_id.to_string()]).await?;
+    let results =
+        can_view_profile_for_requester_batch(account_identity_service, requester_id, &[user_id.to_string()]).await?;
     Ok(results.get(user_id).copied().unwrap_or(true))
 }
 
 pub(crate) async fn can_view_profile_for_requester_batch(
-    state: &AppState,
+    account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     requester_id: Option<&str>,
     user_ids: &[String],
 ) -> Result<std::collections::HashMap<String, bool>, ApiError> {
-    state.services.account.account_identity_service.can_view_profile_for_requester_batch(requester_id, user_ids).await
+    account_identity_service.can_view_profile_for_requester_batch(requester_id, user_ids).await
 }
 
 pub(crate) async fn enforce_profile_visibility(
-    state: &AppState,
+    auth_service: &(dyn synapse_services::auth::Auth + Send + Sync),
+    account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     headers: &HeaderMap,
     user_id: &str,
 ) -> Result<(), ApiError> {
     let token = bearer_token(headers).ok();
-    let requester_id = if let Some(t) = token {
-        state.services.core.auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id)
-    } else {
-        None
-    };
+    let requester_id =
+        if let Some(t) = token { auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id) } else { None };
 
-    if !can_view_profile_for_requester(state, requester_id.as_deref(), user_id).await? {
+    if !can_view_profile_for_requester(account_identity_service, requester_id.as_deref(), user_id).await? {
         return Err(ApiError::forbidden("Profile is private or not visible to you".to_string()));
     }
 
@@ -61,37 +61,37 @@ pub(crate) async fn enforce_profile_visibility(
 }
 
 pub(crate) async fn get_profile(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(&state, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
     // Reference: element-hq/synapse `synapse/handlers/profile.py::ProfileHandler.get_profile`
-    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+    if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
         return Ok(Json(remote_profile));
     }
 
-    Ok(Json(state.services.core.registration_service.get_profile(&user_id).await?))
+    Ok(Json(ctx.registration_service.get_profile(&user_id).await?))
 }
 
 pub(crate) async fn get_displayname(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(&state, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
-    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+    if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
         let displayname = remote_profile.get("displayname").and_then(|v| v.as_str()).unwrap_or("");
         return Ok(Json(json!({ "displayname": displayname })));
     }
 
-    let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
+    let profile = ctx.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -101,20 +101,20 @@ pub(crate) async fn get_displayname(
 }
 
 pub(crate) async fn get_avatar_url(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(&state, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
-    if let Some(remote_profile) = try_fetch_remote_profile(&state, &user_id).await? {
+    if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
         let avatar_url = remote_profile.get("avatar_url").and_then(|v| v.as_str()).unwrap_or("");
         return Ok(Json(json!({ "avatar_url": avatar_url })));
     }
 
-    let profile = state.services.core.registration_service.get_profile(&user_id).await.map_err(|e| {
+    let profile = ctx.registration_service.get_profile(&user_id).await.map_err(|e| {
         tracing::error!("Failed to get profile: {e}");
         ApiError::database("A database error occurred".to_string())
     })?;
@@ -128,14 +128,14 @@ pub(crate) async fn get_avatar_url(
 /// (caller should fall back to the local DB) and `Ok(Some(json))` for
 /// successfully fetched remote profiles. Remote fetch failures are
 /// propagated as `M_NOT_FOUND` so clients see a consistent error shape.
-async fn try_fetch_remote_profile(state: &AppState, user_id: &str) -> Result<Option<Value>, ApiError> {
-    let local_server = state.services.core.server_name.as_str();
+async fn try_fetch_remote_profile(ctx: &AuthContext, user_id: &str) -> Result<Option<Value>, ApiError> {
+    let local_server = ctx.server_name.as_str();
     let server_name = match user_id.rsplit_once(':') {
         Some((_, srv)) if srv != local_server => srv,
         _ => return Ok(None),
     };
 
-    let federation_client = state.services.federation.federation_client.clone();
+    let federation_client = ctx.federation_client.clone();
     let profile = federation_client.query_profile(server_name, user_id).await.map_err(|e| {
         tracing::warn!(user_id = %user_id, server = %server_name, error = %e, "Federation query_profile failed");
         ApiError::not_found("Profile not found on remote server".to_string())
@@ -149,7 +149,7 @@ async fn try_fetch_remote_profile(state: &AppState, user_id: &str) -> Result<Opt
 }
 
 pub(crate) async fn update_displayname(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
@@ -169,14 +169,14 @@ pub(crate) async fn update_displayname(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    state.services.account.account_identity_service.ensure_active_user_exists(&user_id).await?;
+    ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
 
-    state.services.core.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
+    ctx.registration_service.update_user_profile(&user_id, Some(displayname), None).await?;
     Ok(Json(json!({})))
 }
 
 pub(crate) async fn update_avatar(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Path(user_id): Path<String>,
     Json(body): Json<Value>,
@@ -196,14 +196,14 @@ pub(crate) async fn update_avatar(
         return Err(ApiError::forbidden("Access denied".to_string()));
     }
 
-    state.services.account.account_identity_service.ensure_active_user_exists(&user_id).await?;
+    ctx.account_identity_service.ensure_active_user_exists(&user_id).await?;
 
-    state.services.core.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
+    ctx.registration_service.update_user_profile(&user_id, None, Some(avatar_url)).await?;
     Ok(Json(json!({})))
 }
 
 pub(crate) async fn change_password_uia(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: OptionalAuthenticatedUser,
     Json(body): Json<Value>,
@@ -220,15 +220,10 @@ pub(crate) async fn change_password_uia(
     if auth_type.is_empty() {
         let user_id =
             auth_user.user_id.as_deref().ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
-        let session = state
-            .services
-            .extensions
-            .uia_service
-            .create_session(user_id, UiaService::get_password_change_flows())
-            .await;
+        let session = ctx.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
         return Ok((
             StatusCode::UNAUTHORIZED,
-            Json(state.services.extensions.uia_service.build_uia_response(
+            Json(ctx.uia_service.build_uia_response(
                 &session,
                 "M_UIA_REQUIRED",
                 "User-Interactive Authentication required",
@@ -262,7 +257,7 @@ pub(crate) async fn change_password_uia(
                 if username.starts_with('@') {
                     username.to_string()
                 } else {
-                    format!("@{}:{}", username, state.services.core.server_name)
+                    format!("@{}:{}", username, ctx.server_name)
                 }
             } else {
                 authenticated_user_id.to_string()
@@ -272,10 +267,7 @@ pub(crate) async fn change_password_uia(
                 return Err(ApiError::forbidden("User mismatch".to_string()));
             }
 
-            state
-                .services
-                .core
-                .registration_service
+            ctx.registration_service
                 .change_password(authenticated_user_id, Some(password), new_password, auth_user.device_id.as_deref())
                 .await?;
 
@@ -295,10 +287,7 @@ pub(crate) async fn change_password_uia(
             let sid_int: i64 =
                 sid.parse().map_err(|_| ApiError::bad_request("Invalid session ID format".to_string()))?;
 
-            let verification_token = state
-                .services
-                .admin
-                .user
+            let verification_token = ctx
                 .email_verification_storage
                 .claim_used_token(sid_int)
                 .await
@@ -332,7 +321,7 @@ pub(crate) async fn change_password_uia(
                 ApiError::bad_request("Verification session is not valid for password reset".to_string())
             })?;
 
-            state.services.core.registration_service.change_password(&user_id, None, new_password, None).await?;
+            ctx.registration_service.change_password(&user_id, None, new_password, None).await?;
 
             Ok(Json(json!({})).into_response())
         }
@@ -341,15 +330,10 @@ pub(crate) async fn change_password_uia(
                 .user_id
                 .as_deref()
                 .ok_or_else(|| ApiError::unauthorized("Access token required".to_string()))?;
-            let session = state
-                .services
-                .extensions
-                .uia_service
-                .create_session(user_id, UiaService::get_password_change_flows())
-                .await;
+            let session = ctx.uia_service.create_session(user_id, UiaService::get_password_change_flows()).await;
             Ok((
                 StatusCode::UNAUTHORIZED,
-                Json(state.services.extensions.uia_service.build_uia_response(
+                Json(ctx.uia_service.build_uia_response(
                     &session,
                     "M_UIA_REQUIRED",
                     "m.login.password or m.login.email.identity authentication required",
@@ -361,7 +345,7 @@ pub(crate) async fn change_password_uia(
 }
 
 pub(crate) async fn request_password_email_verification(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -376,12 +360,8 @@ pub(crate) async fn request_password_email_verification(
     // m.login.email.identity 分支显式拒绝 user_id 为空的 session，
     // 所以占位会话无法被用来重置任何账户的密码，但响应却与命中账户
     // 的情况完全一致 —— 切断 OWASP A07 类账户枚举通道。
-    let resolved_user_id = state
-        .services
-        .account
-        .account_identity_service
-        .resolve_password_reset_user_id_by_email(email, &request_id)
-        .await;
+    let resolved_user_id =
+        ctx.account_identity_service.resolve_password_reset_user_id_by_email(email, &request_id).await;
 
     if resolved_user_id.is_none() {
         ::tracing::info!(
@@ -394,7 +374,7 @@ pub(crate) async fn request_password_email_verification(
     }
 
     request_email_verification_with_submit_path(
-        &state,
+        &ctx,
         &body,
         "/_matrix/client/v3/account/password/email/submitToken",
         resolved_user_id.as_deref(),
@@ -405,21 +385,14 @@ pub(crate) async fn request_password_email_verification(
 }
 
 pub(crate) async fn deactivate_account(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<axum::response::Response, ApiError> {
     let auth = body.get("auth");
-    if let Err(uia_response) = state
-        .services
-        .account
+    if let Err(uia_response) = ctx
         .account_identity_service
-        .require_deactivate_account_uia(
-            &state.services.extensions.uia_service,
-            auth,
-            &auth_user.user_id,
-            &state.services.core.auth_service,
-        )
+        .require_deactivate_account_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.auth_service)
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());
@@ -427,11 +400,11 @@ pub(crate) async fn deactivate_account(
 
     let user_id = auth_user.user_id.clone();
 
-    state.services.core.registration_service.deactivate_account(&user_id).await?;
+    ctx.registration_service.deactivate_account(&user_id).await?;
 
-    state.services.core.cache.delete(&format!("user:active:{user_id}")).await;
+    ctx.cache.delete(&format!("user:active:{user_id}")).await;
 
-    state.services.core.cache.delete(&format!("token:{}", auth_user.access_token)).await;
+    ctx.cache.delete(&format!("token:{}", auth_user.access_token)).await;
 
     Ok(Json(json!({
         "id_server_unbind_result": "success"
@@ -440,12 +413,12 @@ pub(crate) async fn deactivate_account(
 }
 
 pub(crate) async fn get_threepids(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    let threepids = state.services.account.account_identity_service.get_user_threepids(user_id).await?;
+    let threepids = ctx.account_identity_service.get_user_threepids(user_id).await?;
 
     let threepids_list: Vec<Value> = threepids
         .iter()
@@ -465,7 +438,7 @@ pub(crate) async fn get_threepids(
 }
 
 pub(crate) async fn add_threepid(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
@@ -487,10 +460,7 @@ pub(crate) async fn add_threepid(
 
     // 原子消费已校验会话：DELETE ... RETURNING 在单条 SQL 中完成"取出 + 删除",
     // 任何后续校验失败时 token 都已物理销毁，不能被重放。
-    let verification_token = state
-        .services
-        .admin
-        .user
+    let verification_token = ctx
         .email_verification_storage
         .claim_used_token(sid_int)
         .await
@@ -552,13 +522,8 @@ pub(crate) async fn add_threepid(
     let medium = "email";
     let address = verification_token.email.as_str();
 
-    let rows_affected = state
-        .services
-        .account
-        .account_identity_service
-        .add_verified_threepid(user_id, medium, address, now, now)
-        .await
-        .map_err(|e| {
+    let rows_affected =
+        ctx.account_identity_service.add_verified_threepid(user_id, medium, address, now, now).await.map_err(|e| {
             tracing::error!(
                 request_id = %request_id,
                 user_id = %user_id,
@@ -591,12 +556,8 @@ pub(crate) async fn add_threepid(
     if let (Some(id_server), Some(is_sid), Some(id_access_token), Some(is_client_secret)) =
         (id_server, is_sid, id_access_token, is_client_secret)
     {
-        if let Err(e) = state
-            .services
-            .extensions
-            .identity_service
-            .bind_three_pid(id_server, id_access_token, is_sid, is_client_secret, user_id)
-            .await
+        if let Err(e) =
+            ctx.identity_service.bind_three_pid(id_server, id_access_token, is_sid, is_client_secret, user_id).await
         {
             ::tracing::warn!(
                 request_id = %request_id,
@@ -614,14 +575,14 @@ pub(crate) async fn add_threepid(
 }
 
 pub(crate) async fn request_3pid_add_email_verification(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     headers: HeaderMap,
     auth_user: AuthenticatedUser,
     MatrixJson(body): MatrixJson<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     request_email_verification_with_submit_path(
-        &state,
+        &ctx,
         &body,
         "/_matrix/client/v3/account/3pid/email/submitToken",
         Some(auth_user.user_id.as_str()),
@@ -644,28 +605,22 @@ pub(crate) struct DeleteThreepidRequest {
 }
 
 pub(crate) async fn delete_threepid(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
-    state
-        .services
-        .account
-        .account_identity_service
-        .remove_threepid(user_id, &body.medium, &body.address)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete threepid: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
+        tracing::error!("Failed to delete threepid: {e}");
+        ApiError::database("A database error occurred".to_string())
+    })?;
 
     Ok(Json(json!({})))
 }
 
 pub(crate) async fn unbind_threepid(
-    State(state): State<AppState>,
+    State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<DeleteThreepidRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -675,12 +630,8 @@ pub(crate) async fn unbind_threepid(
     // identity server first. Local removal proceeds regardless of remote
     // outcome to avoid leaking stale local bindings.
     if let (Some(id_server), Some(id_access_token)) = (&body.id_server, &body.id_access_token) {
-        if let Err(e) = state
-            .services
-            .extensions
-            .identity_service
-            .unbind_three_pid(id_server, id_access_token, &body.address, &body.medium)
-            .await
+        if let Err(e) =
+            ctx.identity_service.unbind_three_pid(id_server, id_access_token, &body.address, &body.medium).await
         {
             tracing::warn!(
                 id_server = %id_server,
@@ -691,16 +642,10 @@ pub(crate) async fn unbind_threepid(
         }
     }
 
-    state
-        .services
-        .account
-        .account_identity_service
-        .remove_threepid(user_id, &body.medium, &body.address)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to unbind threepid: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
+    ctx.account_identity_service.remove_threepid(user_id, &body.medium, &body.address).await.map_err(|e| {
+        tracing::error!("Failed to unbind threepid: {e}");
+        ApiError::database("A database error occurred".to_string())
+    })?;
 
     Ok(Json(json!({})))
 }

@@ -1,6 +1,7 @@
 use super::AppState;
 use super::OptionalAuthenticatedUser;
 use crate::common::ApiError;
+use crate::web::routes::context::MediaContext;
 use crate::web::AuthenticatedUser;
 use axum::{
     body::Bytes,
@@ -97,7 +98,7 @@ pub fn create_upload_provider_router() -> Router<AppState> {
 /// Generate a one-time upload token for OSS/MinIO direct upload.
 /// Falls back to standard Matrix upload if no external provider is configured.
 async fn create_upload_token(
-    State(_state): State<AppState>,
+    State(_ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -124,7 +125,7 @@ async fn create_upload_token(
 /// GET /_matrix/client/v3/upload/provider
 /// Return the current upload provider configuration.
 async fn get_upload_provider(
-    State(_state): State<AppState>,
+    State(_ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
     Ok((
@@ -233,7 +234,7 @@ pub fn media_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntr
 }
 
 async fn upload_media_common(
-    state: &AppState,
+    ctx: &MediaContext,
     user_id: &str,
     params: &Value,
     headers: &HeaderMap,
@@ -253,18 +254,11 @@ async fn upload_media_common(
         return Err(ApiError::bad_request("No file content provided".to_string()));
     }
 
-    Ok(Json(
-        state
-            .services
-            .extensions
-            .media_domain_service
-            .upload_media(user_id, &content_bytes, content_type, filename)
-            .await?,
-    ))
+    Ok(Json(ctx.media_domain_service.upload_media(user_id, &content_bytes, content_type, filename).await?))
 }
 
 async fn upload_media_with_id_common(
-    state: &AppState,
+    ctx: &MediaContext,
     user_id: &str,
     server_name: &str,
     media_id: &str,
@@ -272,11 +266,8 @@ async fn upload_media_with_id_common(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name != state.services.core.server_name {
-        return Err(ApiError::bad_request(format!(
-            "server_name must match local server: {}",
-            state.services.core.server_name
-        )));
+    if server_name != ctx.server_name {
+        return Err(ApiError::bad_request(format!("server_name must match local server: {}", ctx.server_name)));
     }
 
     let content_type = params
@@ -294,17 +285,14 @@ async fn upload_media_with_id_common(
     }
 
     Ok(Json(
-        state
-            .services
-            .extensions
-            .media_domain_service
+        ctx.media_domain_service
             .upload_media_with_id(user_id, media_id, &content_bytes, content_type, filename)
             .await?,
     ))
 }
 
-fn ensure_local_media_server_name(state: &AppState, server_name: &str) -> Result<(), ApiError> {
-    if server_name != state.services.core.server_name {
+fn ensure_local_media_server_name(ctx: &MediaContext, server_name: &str) -> Result<(), ApiError> {
+    if server_name != ctx.server_name {
         return Err(ApiError::not_found("Media not found".to_string()));
     }
 
@@ -396,13 +384,16 @@ fn build_proxy_media_headers(
 /// directly without caching for now (the federation HTTP client already
 /// pools connections and retries on transient failures).
 async fn fetch_remote_media_via_federation(
-    state: &AppState,
+    ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
-    let federation_client = state.services.federation.federation_client.clone();
-    let resp = federation_client.media_download(server_name, server_name, media_id).await.map_err(ApiError::from)?;
+    let federation_client = ctx.federation_client.clone();
+    let resp = federation_client
+        .media_download(server_name, server_name, media_id)
+        .await
+        .map_err(|e| ApiError::not_found(format!("Remote media not reachable: {e}")))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -425,18 +416,18 @@ async fn fetch_remote_media_via_federation(
 
 /// Fetch remote thumbnail via federation.
 async fn fetch_remote_thumbnail_via_federation(
-    state: &AppState,
+    ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
     width: u32,
     height: u32,
     method: &str,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
-    let federation_client = state.services.federation.federation_client.clone();
+    let federation_client = ctx.federation_client.clone();
     let resp = federation_client
         .media_thumbnail(server_name, server_name, media_id, width, height, method)
         .await
-        .map_err(ApiError::from)?;
+        .map_err(|e| ApiError::not_found(format!("Remote thumbnail not reachable: {e}")))?;
 
     let status = resp.status();
     if !status.is_success() {
@@ -461,24 +452,19 @@ async fn fetch_remote_thumbnail_via_federation(
 }
 
 async fn download_media_common(
-    state: &AppState,
+    ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
     response_filename: Option<&str>,
 ) -> Result<synapse_services::media::MediaResponsePayload, ApiError> {
     // Local media: serve directly from storage.
-    if server_name == state.services.core.server_name {
-        return state
-            .services
-            .extensions
-            .media_domain_service
-            .download_media(server_name, media_id, response_filename)
-            .await;
+    if server_name == ctx.server_name {
+        return ctx.media_domain_service.download_media(server_name, media_id, response_filename).await;
     }
 
     // Remote media: proxy via federation.
     // Reference: element-hq/synapse `synapse/handlers/media.py::MediaRepositoryServer._download_remote`
-    fetch_remote_media_via_federation(state, server_name, media_id, response_filename).await
+    fetch_remote_media_via_federation(ctx, server_name, media_id, response_filename).await
 }
 
 fn media_response_headers(headers: &synapse_services::media::MediaResponseHeaders) -> HeaderMap {
@@ -529,7 +515,7 @@ fn thumbnail_request_params(params: &Value) -> (u32, u32, &str) {
 }
 
 async fn thumbnail_response_common(
-    state: &AppState,
+    ctx: &MediaContext,
     server_name: &str,
     media_id: &str,
     params: &Value,
@@ -537,42 +523,39 @@ async fn thumbnail_response_common(
     let (width, height, method) = thumbnail_request_params(params);
 
     // Local media: serve thumbnail from storage.
-    if server_name == state.services.core.server_name {
-        return state
-            .services
-            .extensions
-            .media_domain_service
-            .get_thumbnail(server_name, media_id, width, height, method)
-            .await;
+    if server_name == ctx.server_name {
+        return ctx.media_domain_service.get_thumbnail(server_name, media_id, width, height, method).await;
     }
 
     // Remote media: proxy thumbnail via federation.
-    fetch_remote_thumbnail_via_federation(state, server_name, media_id, width, height, method).await
+    fetch_remote_thumbnail_via_federation(ctx, server_name, media_id, width, height, method).await
 }
 
 async fn upload_media_v3(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    upload_media_common(&state, &auth_user.user_id, &params, &headers, body).await
+    upload_media_common(&ctx, &auth_user.user_id, &params, &headers, body).await
 }
 
-pub async fn media_config(State(state): State<AppState>) -> impl IntoResponse {
-    let route_owner =
-        synapse_services::worker::topology_validator::current_instance_worker_type(&state.services.core.config.worker);
+pub async fn media_config(State(ctx): State<MediaContext>) -> impl IntoResponse {
+    let route_owner = synapse_services::worker::topology_validator::current_instance_worker_type(&ctx.config.worker);
     (
         [(header::HeaderName::from_static("x-synapse-route-owner"), HeaderValue::from_static(route_owner.as_str()))],
         Json(json!({
-            "m.upload.size": state.services.core.config.server.max_upload_size
+            "m.upload.size": ctx.config.server.max_upload_size
         })),
     )
 }
 
-pub async fn check_quota(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.extensions.media_domain_service.get_user_quota(&auth_user.user_id).await?;
+pub async fn check_quota(
+    State(ctx): State<MediaContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let quota_info = ctx.media_domain_service.get_user_quota(&auth_user.user_id).await?;
 
     let limit = quota_info.max_storage_bytes;
     let used = quota_info.current_storage_bytes;
@@ -586,9 +569,12 @@ pub async fn check_quota(State(state): State<AppState>, auth_user: Authenticated
     })))
 }
 
-pub async fn quota_stats(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let quota_info = state.services.extensions.media_domain_service.get_user_quota(&auth_user.user_id).await?;
-    let stats = state.services.extensions.media_domain_service.get_usage_stats(&auth_user.user_id).await?;
+pub async fn quota_stats(
+    State(ctx): State<MediaContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let quota_info = ctx.media_domain_service.get_user_quota(&auth_user.user_id).await?;
+    let stats = ctx.media_domain_service.get_usage_stats(&auth_user.user_id).await?;
 
     Ok(Json(json!({
         "user_id": auth_user.user_id,
@@ -600,10 +586,10 @@ pub async fn quota_stats(State(state): State<AppState>, auth_user: Authenticated
 }
 
 pub async fn quota_alerts(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let alerts = state.services.extensions.media_domain_service.get_user_alerts(&auth_user.user_id, false).await?;
+    let alerts = ctx.media_domain_service.get_user_alerts(&auth_user.user_id, false).await?;
 
     let alerts_list: Vec<Value> = alerts
         .into_iter()
@@ -627,30 +613,30 @@ pub async fn quota_alerts(
 }
 
 async fn upload_media_with_id(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    upload_media_with_id_common(&state, &auth_user.user_id, &server_name, &media_id, &params, &headers, body).await
+    upload_media_with_id_common(&ctx, &auth_user.user_id, &server_name, &media_id, &params, &headers, body).await
 }
 
 async fn download_media(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_with_filename(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
@@ -658,7 +644,7 @@ async fn download_media_with_filename(
 /// Signed media download — verifies HMAC signature before serving.
 /// URL: /_matrix/media/v3/download/{server_name}/{media_id}?signature={hex}&expires={timestamp}
 async fn download_media_signed(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -669,23 +655,18 @@ async fn download_media_signed(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(
-        &server_name,
-        &media_id,
-        signature,
-        expires,
-    ) {
+    if !ctx.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
-    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 /// Signed media download with filename.
 async fn download_media_signed_with_filename(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -696,53 +677,48 @@ async fn download_media_signed_with_filename(
 
     let expires: u64 = params.get("expires").and_then(|v| v.as_str()).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    if !state.services.extensions.media_domain_service.verify_media_download_url(
-        &server_name,
-        &media_id,
-        signature,
-        expires,
-    ) {
+    if !ctx.media_domain_service.verify_media_download_url(&server_name, &media_id, signature, expires) {
         return Err(ApiError::unauthorized("Invalid or expired media signature".to_string()));
     }
 
-    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_authenticated(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&state, &server_name, &media_id, None).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, None).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn download_media_authenticated_with_filename(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = download_media_common(&state, &server_name, &media_id, Some(&filename)).await?;
+    let response = download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn get_thumbnail_authenticated(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     _auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = thumbnail_response_common(&state, &server_name, &media_id, &params).await?;
+    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 #[allow(clippy::unused_async)]
-async fn _preview_url(State(_state): State<AppState>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
+async fn _preview_url(State(_ctx): State<MediaContext>, Query(params): Query<Value>) -> Result<Json<Value>, ApiError> {
     let url =
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
@@ -754,30 +730,30 @@ async fn _preview_url(State(_state): State<AppState>, Query(params): Query<Value
 }
 
 async fn get_thumbnail(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
     Query(params): Query<Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = thumbnail_response_common(&state, &server_name, &media_id, &params).await?;
+    let response = thumbnail_response_common(&ctx, &server_name, &media_id, &params).await?;
     let headers = media_response_headers(&response.headers);
     Ok((StatusCode::OK, headers, response.content))
 }
 
 async fn upload_media_v1(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, ApiError> {
-    upload_media_common(&state, &auth_user.user_id, &params, &headers, body).await
+    upload_media_common(&ctx, &auth_user.user_id, &params, &headers, body).await
 }
 
 async fn download_media_v1(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    match download_media_common(&state, &server_name, &media_id, None).await {
+    match download_media_common(&ctx, &server_name, &media_id, None).await {
         Ok(response) => {
             let headers = media_response_headers(&response.headers);
             (StatusCode::OK, headers, response.content)
@@ -787,10 +763,10 @@ async fn download_media_v1(
 }
 
 async fn download_media_v1_with_filename(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     Path((server_name, media_id, filename)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
-    match download_media_common(&state, &server_name, &media_id, Some(&filename)).await {
+    match download_media_common(&ctx, &server_name, &media_id, Some(&filename)).await {
         Ok(response) => {
             let headers = media_response_headers(&response.headers);
             (StatusCode::OK, headers, response.content)
@@ -800,7 +776,7 @@ async fn download_media_v1_with_filename(
 }
 
 async fn preview_url(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     _auth_user: OptionalAuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -814,14 +790,14 @@ async fn preview_url(
     let url =
         params.get("url").and_then(|v| v.as_str()).ok_or_else(|| ApiError::bad_request("URL required".to_string()))?;
 
-    let blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
+    let blacklist = &ctx.config.url_preview.ip_range_blacklist;
     if let Err(e) = crate::common::check_url_against_blacklist(url, blacklist) {
         return Err(ApiError::forbidden(format!("URL not allowed: {e}")));
     }
 
     let ts = params.get("ts").and_then(|v| v.as_i64()).unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    match state.services.extensions.media_domain_service.preview_url(url, ts) {
+    match ctx.media_domain_service.preview_url(url, ts) {
         Ok(preview) => Ok(Json(preview)),
         Err(e) => Ok(Json(json!({
             "url": url,
@@ -832,18 +808,13 @@ async fn preview_url(
 }
 
 async fn delete_media(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Path((server_name, media_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    ensure_local_media_server_name(&state, &server_name)?;
+    ensure_local_media_server_name(&ctx, &server_name)?;
 
-    state
-        .services
-        .extensions
-        .media_domain_service
-        .delete_media_for_user(&server_name, &media_id, &auth_user.user_id)
-        .await?;
+    ctx.media_domain_service.delete_media_for_user(&server_name, &media_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "deleted": true,
@@ -858,7 +829,7 @@ async fn delete_media(
 /// POST /_matrix/media/v1/upload/chunk/start
 /// Start a new chunked upload session.
 async fn chunked_upload_start(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -871,9 +842,7 @@ async fn chunked_upload_start(
         return Err(ApiError::bad_request("total_chunks must be at least 1".to_string()));
     }
 
-    let upload_id = state
-        .services
-        .extensions
+    let upload_id = ctx
         .media_domain_service
         .start_chunked_upload(&auth_user.user_id, filename, content_type, total_size, total_chunks)
         .await?;
@@ -888,7 +857,7 @@ async fn chunked_upload_start(
 /// POST /_matrix/media/v1/upload/chunk
 /// Upload a single chunk. If no upload_id is provided, a new session is auto-started.
 async fn chunked_upload_chunk(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     headers: HeaderMap,
     Query(params): Query<Value>,
@@ -911,7 +880,7 @@ async fn chunked_upload_chunk(
         total_size,
     };
 
-    let response = state.services.extensions.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
+    let response = ctx.media_domain_service.upload_chunk(request, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "upload_id": response.upload_id,
@@ -926,7 +895,7 @@ async fn chunked_upload_chunk(
 /// POST /_matrix/media/v1/upload/chunk/complete
 /// Finalize a chunked upload after all chunks have been uploaded.
 async fn chunked_upload_complete(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -935,8 +904,7 @@ async fn chunked_upload_complete(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let response =
-        state.services.extensions.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
+    let response = ctx.media_domain_service.complete_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "content_uri": response.content_uri,
@@ -948,7 +916,7 @@ async fn chunked_upload_complete(
 /// POST /_matrix/media/v1/upload/chunk/cancel
 /// Cancel an in-progress chunked upload.
 async fn chunked_upload_cancel(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -957,7 +925,7 @@ async fn chunked_upload_cancel(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    state.services.extensions.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
+    ctx.media_domain_service.cancel_chunked_upload(upload_id, &auth_user.user_id).await?;
 
     Ok(Json(json!({
         "cancelled": true,
@@ -968,7 +936,7 @@ async fn chunked_upload_cancel(
 /// GET /_matrix/media/v1/upload/chunk/progress?upload_id=...
 /// Query the progress of an in-progress chunked upload.
 async fn chunked_upload_progress(
-    State(state): State<AppState>,
+    State(ctx): State<MediaContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -977,7 +945,7 @@ async fn chunked_upload_progress(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("upload_id is required".to_string()))?;
 
-    let progress = state.services.extensions.media_domain_service.get_chunked_upload_progress(upload_id).await?;
+    let progress = ctx.media_domain_service.get_chunked_upload_progress(upload_id).await?;
 
     if progress.user_id != auth_user.user_id {
         return Err(ApiError::forbidden("Upload does not belong to user"));

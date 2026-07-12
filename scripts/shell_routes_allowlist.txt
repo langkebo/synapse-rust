@@ -7,23 +7,23 @@
 # New shell routes not in this list will cause CI to fail
 
 # AppService routes (spec-allowed / real ACK after successful namespace or transaction handling)
-app_service.rs:434
-app_service.rs:452
-app_service.rs:470
+app_service.rs:428
+app_service.rs:446
+app_service.rs:464
 
 # E2EE routes (real ACK after persisted send-to-device, cross-signing, or key-request cancellation)
 # Migrated from monolithic e2ee_routes.rs into e2ee/ sub-modules (commit b0ef29db)
-e2ee/backup.rs:198
-e2ee/devices.rs:384
+e2ee/backup.rs:186
+e2ee/devices.rs:360
 
 # Sticky event routes (storage mutation ACK)
-sticky_event.rs:140
-sticky_event.rs:161
+sticky_event.rs:131
+sticky_event.rs:149
 
 # Room tag routes (Matrix-style tag mutation ACK)
-tags.rs:120
-tags.rs:134
+tags.rs:119
+tags.rs:133
 
 # VoIP routes (call state mutation ACK)
-voip.rs:238
-voip.rs:303
+voip.rs:232
+voip.rs:290

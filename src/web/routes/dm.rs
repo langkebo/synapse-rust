@@ -1,6 +1,7 @@
 // Direct Message Routes - 直接消息路由
 // DM room creation and management
 
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -39,8 +40,8 @@ enum DirectMapUpdateAction {
 }
 
 #[cfg(not(feature = "friends"))]
-async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let content = state.services.account.account_data_service.get_account_data(user_id, "m.direct").await?;
+async fn load_direct_map(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
+    let content = ctx.account_data_service.get_account_data(user_id, "m.direct").await?;
 
     match content {
         Some(Value::Object(map)) => Ok(map),
@@ -50,13 +51,8 @@ async fn load_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, 
 }
 
 #[cfg(not(feature = "friends"))]
-async fn save_direct_map(state: &AppState, user_id: &str, direct_map: &Map<String, Value>) -> Result<(), ApiError> {
-    state
-        .services
-        .account
-        .account_data_service
-        .set_account_data(user_id, "m.direct", &Value::Object(direct_map.clone()))
-        .await?;
+async fn save_direct_map(ctx: &RoomContext, user_id: &str, direct_map: &Map<String, Value>) -> Result<(), ApiError> {
+    ctx.account_data_service.set_account_data(user_id, "m.direct", &Value::Object(direct_map.clone())).await?;
 
     Ok(())
 }
@@ -142,17 +138,15 @@ fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
 }
 
 #[cfg(not(feature = "friends"))]
-async fn build_direct_map_from_memberships(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let rooms = state.services.rooms.room_service.membership.get_joined_rooms(user_id).await?;
+async fn build_direct_map_from_memberships(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
+    let rooms = ctx.room_service.membership.get_joined_rooms(user_id).await?;
 
     let mut direct_map = Map::new();
 
     for room_id in rooms {
-        let join_members =
-            state.services.rooms.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+        let join_members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
 
-        let invited_members =
-            state.services.rooms.room_service.membership.get_room_members_by_membership(&room_id, "invite").await?;
+        let invited_members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "invite").await?;
 
         let total_members = join_members.len() + invited_members.len();
         if total_members != 2 {
@@ -173,14 +167,17 @@ async fn build_direct_map_from_memberships(state: &AppState, user_id: &str) -> R
 }
 
 #[cfg(not(feature = "friends"))]
-async fn build_direct_map_from_friend_links(_state: &AppState, _user_id: &str) -> Result<Map<String, Value>, ApiError> {
+async fn build_direct_map_from_friend_links(
+    _ctx: &RoomContext,
+    _user_id: &str,
+) -> Result<Map<String, Value>, ApiError> {
     Ok(Map::new())
 }
 
 #[cfg(not(feature = "friends"))]
-async fn load_effective_direct_map(state: &AppState, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let mut direct_map = load_direct_map(state, user_id).await?;
-    let friend_links = build_direct_map_from_friend_links(state, user_id).await?;
+async fn load_effective_direct_map(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
+    let mut direct_map = load_direct_map(ctx, user_id).await?;
+    let friend_links = build_direct_map_from_friend_links(ctx, user_id).await?;
     merge_direct_links(
         &mut direct_map,
         friend_links.into_iter().flat_map(|(user_id, value)| {
@@ -194,7 +191,7 @@ async fn load_effective_direct_map(state: &AppState, user_id: &str) -> Result<Ma
     );
 
     if direct_map.is_empty() {
-        direct_map = build_direct_map_from_memberships(state, user_id).await?;
+        direct_map = build_direct_map_from_memberships(ctx, user_id).await?;
     }
 
     Ok(direct_map)
@@ -202,16 +199,16 @@ async fn load_effective_direct_map(state: &AppState, user_id: &str) -> Result<Ma
 
 #[cfg(not(feature = "friends"))]
 async fn upsert_direct_room_links(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     target_user_ids: &[String],
     room_id: &str,
 ) -> Result<Map<String, Value>, ApiError> {
-    let mut direct_map = load_direct_map(state, user_id).await?;
+    let mut direct_map = load_direct_map(ctx, user_id).await?;
     for target_user_id in target_user_ids {
         ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
     }
-    save_direct_map(state, user_id, &direct_map).await?;
+    save_direct_map(ctx, user_id, &direct_map).await?;
     Ok(direct_map)
 }
 
@@ -239,7 +236,7 @@ fn parse_direct_map_update(body: UpdateDmRequest) -> Result<Option<DirectMapUpda
 
 #[cfg(not(feature = "friends"))]
 async fn apply_direct_map_update(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     room_id: &str,
     action: DirectMapUpdateAction,
@@ -248,16 +245,16 @@ async fn apply_direct_map_update(
     {
         return match action {
             DirectMapUpdateAction::ReplaceRoomTargets(target_user_ids) => {
-                let mut direct_map = load_direct_map(state, user_id).await?;
+                let mut direct_map = load_direct_map(ctx, user_id).await?;
                 remove_room_from_direct_map(&mut direct_map, room_id);
                 for target_user_id in &target_user_ids {
                     ensure_room_in_direct_map(&mut direct_map, target_user_id, room_id);
                 }
-                save_direct_map(state, user_id, &direct_map).await?;
+                save_direct_map(ctx, user_id, &direct_map).await?;
                 Ok(direct_map)
             }
             DirectMapUpdateAction::OverwriteMap(direct_map) => {
-                save_direct_map(state, user_id, &direct_map).await?;
+                save_direct_map(ctx, user_id, &direct_map).await?;
                 Ok(direct_map)
             }
         };
@@ -265,20 +262,20 @@ async fn apply_direct_map_update(
 }
 
 async fn load_direct_room_snapshot(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     room_id: &str,
 ) -> Result<(Map<String, Value>, Vec<String>, bool), ApiError> {
     #[cfg(feature = "friends")]
     {
         let snapshot: synapse_services::friend_room_service::DirectRoomSnapshot =
-            state.services.extensions.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
+            ctx.friend_room_service.get_direct_room_snapshot(user_id, room_id).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
     {
-        let direct_map: Map<String, Value> = load_effective_direct_map(state, user_id).await?;
+        let direct_map: Map<String, Value> = load_effective_direct_map(ctx, user_id).await?;
         let users: Vec<String> = get_room_direct_users(&direct_map, room_id);
         let is_direct: bool = !users.is_empty();
         Ok((direct_map, users, is_direct))
@@ -286,7 +283,7 @@ async fn load_direct_room_snapshot(
 }
 
 async fn update_direct_room_snapshot(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     room_id: &str,
     action: DirectMapUpdateAction,
@@ -306,13 +303,13 @@ async fn update_direct_room_snapshot(
         };
 
         let snapshot: synapse_services::friend_room_service::DirectRoomSnapshot =
-            state.services.extensions.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
+            ctx.friend_room_service.update_direct_room_snapshot(user_id, room_id, action).await?;
         Ok((snapshot.direct_map, snapshot.users, snapshot.is_direct))
     }
 
     #[cfg(not(feature = "friends"))]
     {
-        let direct_map: Map<String, Value> = apply_direct_map_update(state, user_id, room_id, action).await?;
+        let direct_map: Map<String, Value> = apply_direct_map_update(ctx, user_id, room_id, action).await?;
         let users: Vec<String> = get_room_direct_users(&direct_map, room_id);
         let is_direct: bool = !users.is_empty();
         Ok((direct_map, users, is_direct))
@@ -321,7 +318,7 @@ async fn update_direct_room_snapshot(
 
 #[cfg(not(feature = "friends"))]
 async fn persist_friend_dm_link_if_applicable(
-    _state: &AppState,
+    _ctx: &RoomContext,
     _owner_user_id: &str,
     _invitees: &[String],
     _room_id: &str,
@@ -331,7 +328,7 @@ async fn persist_friend_dm_link_if_applicable(
 
 #[cfg(not(feature = "friends"))]
 async fn find_existing_direct_room_id(
-    state: &AppState,
+    ctx: &RoomContext,
     owner_user_id: &str,
     invitees: &[String],
 ) -> Result<Option<String>, ApiError> {
@@ -339,13 +336,13 @@ async fn find_existing_direct_room_id(
         return Ok(None);
     }
 
-    let direct_map = load_effective_direct_map(state, owner_user_id).await?;
+    let direct_map = load_effective_direct_map(ctx, owner_user_id).await?;
     Ok(get_direct_room_for_user(&direct_map, &invitees[0]))
 }
 
 #[cfg(feature = "friends")]
 async fn create_dm_room_via_service(
-    state: &AppState,
+    ctx: &RoomContext,
     owner_user_id: &str,
     invitee_user_ids: &[String],
     body: &CreateDmRequest,
@@ -361,9 +358,7 @@ async fn create_dm_room_via_service(
         ..Default::default()
     };
 
-    let result = state
-        .services
-        .extensions
+    let result = ctx
         .friend_room_service
         .create_or_reuse_direct_message_room(owner_user_id, invitee_user_ids, config, Some(owner_user_id))
         .await?;
@@ -373,13 +368,13 @@ async fn create_dm_room_via_service(
 
 #[cfg(not(feature = "friends"))]
 async fn create_dm_room_via_service(
-    state: &AppState,
+    ctx: &RoomContext,
     owner_user_id: &str,
     invitee_user_ids: &[String],
     body: &CreateDmRequest,
 ) -> Result<String, ApiError> {
     let room_id = if invitee_user_ids.len() == 1 {
-        if let Some(existing_room_id) = find_existing_direct_room_id(state, owner_user_id, invitee_user_ids).await? {
+        if let Some(existing_room_id) = find_existing_direct_room_id(ctx, owner_user_id, invitee_user_ids).await? {
             existing_room_id
         } else {
             let config = CreateRoomConfig {
@@ -392,7 +387,7 @@ async fn create_dm_room_via_service(
                 ..Default::default()
             };
 
-            let created = state.services.rooms.room_service.lifecycle.create_room(owner_user_id, config).await?;
+            let created = ctx.room_service.lifecycle.create_room(owner_user_id, config).await?;
 
             created["room_id"]
                 .as_str()
@@ -411,7 +406,7 @@ async fn create_dm_room_via_service(
             ..Default::default()
         };
 
-        let response = state.services.rooms.room_service.lifecycle.create_room(owner_user_id, config).await?;
+        let response = ctx.room_service.lifecycle.create_room(owner_user_id, config).await?;
 
         response
             .get("room_id")
@@ -420,21 +415,19 @@ async fn create_dm_room_via_service(
             .to_string()
     };
 
-    persist_friend_dm_link_if_applicable(state, owner_user_id, invitee_user_ids, &room_id).await?;
-    upsert_direct_room_links(state, owner_user_id, invitee_user_ids, &room_id).await?;
+    persist_friend_dm_link_if_applicable(ctx, owner_user_id, invitee_user_ids, &room_id).await?;
+    upsert_direct_room_links(ctx, owner_user_id, invitee_user_ids, &room_id).await?;
 
     Ok(room_id)
 }
 
 #[cfg(feature = "friends")]
 async fn load_dm_partner_info(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     room_id: &str,
 ) -> Result<(String, String, String), ApiError> {
-    let partner = state
-        .services
-        .extensions
+    let partner = ctx
         .friend_room_service
         .get_dm_partner_for_room(user_id, room_id)
         .await?
@@ -445,11 +438,11 @@ async fn load_dm_partner_info(
 
 #[cfg(not(feature = "friends"))]
 async fn load_dm_partner_info(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     room_id: &str,
 ) -> Result<(String, String, String), ApiError> {
-    let direct_map = load_effective_direct_map(state, user_id).await?;
+    let direct_map = load_effective_direct_map(ctx, user_id).await?;
 
     let partner_id = direct_map
         .iter()
@@ -460,11 +453,9 @@ async fn load_dm_partner_info(
         })
         .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
 
-    let join_members =
-        state.services.rooms.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
+    let join_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
 
-    let invited_members =
-        state.services.rooms.room_service.membership.get_room_members_by_membership(room_id, "invite").await?;
+    let invited_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "invite").await?;
 
     let other_member = join_members
         .iter()
@@ -480,7 +471,7 @@ async fn load_dm_partner_info(
 }
 
 pub async fn create_dm_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<CreateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -501,26 +492,26 @@ pub async fn create_dm_room(
         return Err(ApiError::bad_request("At least one user must be invited to create a DM"));
     };
 
-    let room_id = create_dm_room_via_service(&state, &auth_user.user_id, &users_to_invite, &body).await?;
+    let room_id = create_dm_room_via_service(&ctx, &auth_user.user_id, &users_to_invite, &body).await?;
 
     Ok(Json(json!({ "room_id": room_id })))
 }
 
 pub async fn get_dm_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let user_id = &auth_user.user_id;
 
     #[cfg(feature = "friends")]
     {
-        let dm_rooms = state.services.extensions.friend_room_service.get_effective_direct_map(user_id).await?;
+        let dm_rooms = ctx.friend_room_service.get_effective_direct_map(user_id).await?;
         Ok(Json(json!({ "rooms": dm_rooms })))
     }
 
     #[cfg(not(feature = "friends"))]
     {
-        let dm_rooms = load_effective_direct_map(&state, user_id).await?;
+        let dm_rooms = load_effective_direct_map(&ctx, user_id).await?;
         Ok(Json(json!({
             "rooms": dm_rooms
         })))
@@ -528,17 +519,17 @@ pub async fn get_dm_rooms(
 }
 
 pub async fn update_dm_room(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Json(body): Json<UpdateDmRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let (mut direct_map, mut users, _) = load_direct_room_snapshot(&state, &auth_user.user_id, &room_id).await?;
+    let (mut direct_map, mut users, _) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
     let now = chrono::Utc::now().timestamp_millis();
 
     if let Some(action) = parse_direct_map_update(body)? {
-        (direct_map, users, _) = update_direct_room_snapshot(&state, &auth_user.user_id, &room_id, action).await?;
+        (direct_map, users, _) = update_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id, action).await?;
     }
 
     Ok(Json(json!({
@@ -550,11 +541,11 @@ pub async fn update_dm_room(
 }
 
 pub async fn check_room_dm(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let (_, _, is_dm) = load_direct_room_snapshot(&state, &auth_user.user_id, &room_id).await?;
+    let (_, _, is_dm) = load_direct_room_snapshot(&ctx, &auth_user.user_id, &room_id).await?;
 
     if is_dm {
         Ok(Json(json!({
@@ -567,12 +558,11 @@ pub async fn check_room_dm(
 }
 
 pub async fn get_dm_partner_route(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let (partner_user_id, display_name, avatar_url) =
-        load_dm_partner_info(&state, &auth_user.user_id, &room_id).await?;
+    let (partner_user_id, display_name, avatar_url) = load_dm_partner_info(&ctx, &auth_user.user_id, &room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,

@@ -32,7 +32,7 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
-    pub generation: i64,
+    pub generation: Option<i64>,
     pub consent_version: Option<String>,
     pub appservice_id: Option<String>,
     pub user_type: Option<String>,
@@ -1636,7 +1636,7 @@ mod tests {
             avatar_url: Some("mxc://example.com/avatar".to_string()),
             email: Some("alice@example.com".to_string()),
             phone: None,
-            generation: 1,
+            generation: Some(1),
             consent_version: Some("1.0".to_string()),
             appservice_id: None,
             user_type: None,
@@ -1655,7 +1655,7 @@ mod tests {
         assert!(user.is_admin);
         assert!(!user.is_guest);
         assert_eq!(user.displayname.as_deref(), Some("Alice"));
-        assert_eq!(user.generation, 1);
+        assert_eq!(user.generation, Some(1));
     }
 
     #[test]
@@ -1674,7 +1674,7 @@ mod tests {
             avatar_url: None,
             email: None,
             phone: None,
-            generation: 0,
+            generation: Some(0),
             consent_version: None,
             appservice_id: None,
             user_type: None,
@@ -1710,7 +1710,7 @@ mod tests {
             avatar_url: None,
             email: None,
             phone: None,
-            generation: 0,
+            generation: Some(0),
             consent_version: None,
             appservice_id: None,
             user_type: Some("support".to_string()),

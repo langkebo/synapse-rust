@@ -273,6 +273,7 @@ pub trait KeyRotationStorageApi: Send + Sync {
     async fn get_rotation_config(&self, key: &str) -> Result<Option<String>, ApiError>;
     async fn get_last_rotation_for_key(&self, user_id: &str, key_id: &str) -> Result<Option<i64>, ApiError>;
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError>;
+    async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError>;
 }
 
 #[derive(Clone)]
@@ -461,28 +462,6 @@ impl KeyRotationStorage {
         })?;
 
         Ok(rows.into_iter().map(|r| r.0).collect())
-    }
-
-    pub async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
-        let now = chrono::Utc::now().timestamp_millis();
-        sqlx::query(
-            r"
-            INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
-            VALUES ($1, 'member_left', $2, $3)
-            ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
-            ",
-        )
-        .bind(room_id)
-        .bind(leaving_user_id)
-        .bind(now)
-        .execute(&*self.pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Database error: {e}");
-            ApiError::database("A database error occurred".to_string())
-        })?;
-
-        Ok(())
     }
 
     pub async fn get_rooms_needing_key_rotation(&self, user_id: &str) -> Result<Vec<String>, ApiError> {
@@ -681,5 +660,27 @@ impl KeyRotationStorageApi for KeyRotationStorage {
 
     async fn get_max_rotation_ts(&self, user_id: &str) -> Result<i64, ApiError> {
         self.get_max_rotation_ts(user_id).await
+    }
+
+    async fn mark_key_rotation_needed(&self, room_id: &str, leaving_user_id: &str) -> Result<(), ApiError> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            r"
+            INSERT INTO key_rotation_pending (room_id, reason, triggered_by_user_id, created_ts)
+            VALUES ($1, 'member_left', $2, $3)
+            ON CONFLICT (room_id, triggered_by_user_id) DO UPDATE SET created_ts = $3
+            ",
+        )
+        .bind(room_id)
+        .bind(leaving_user_id)
+        .bind(now)
+        .execute(&*self.pool)
+        .await
+        .map_err(|e| {
+            tracing::error!("Database error: {e}");
+            ApiError::database("A database error occurred".to_string())
+        })?;
+
+        Ok(())
     }
 }

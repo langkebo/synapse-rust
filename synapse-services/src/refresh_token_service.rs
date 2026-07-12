@@ -167,11 +167,38 @@ impl RefreshTokenService {
             .map_err(|e| ApiError::internal_with_log("Failed to revoke old token", &e))?;
 
         if !revoked {
+            // CAS failed — token was already revoked. Distinguish between:
+            //   1. Concurrent retry (revoked_reason == "Rotated"): a legitimate
+            //      parallel refresh or network retry. Do NOT nuke the family.
+            //   2. Actual replay attack (revoked_reason is null or different):
+            //      revoke the entire family as before.
+            let current_token = self
+                .storage
+                .get_token(&old_token_hash)
+                .await
+                .map_err(|e| ApiError::internal_with_log("Failed to re-read token after CAS miss", &e))?;
+
+            if let Some(ref t) = current_token {
+                if t.revoked_reason.as_deref() == Some("Rotated") {
+                    // Benign race: another refresh already rotated this token.
+                    warn!(
+                        user_id = %old_token.user_id,
+                        family_id = %family_id,
+                        device_id = ?old_token.device_id,
+                        "Token already rotated by a concurrent refresh; returning benign error"
+                    );
+                    return Err(ApiError::unauthorized(
+                        "Refresh token has already been used. Please use the new token.",
+                    ));
+                }
+            }
+
+            // Genuine replay or unknown state — revoke the family.
             warn!(
                 user_id = %old_token.user_id,
                 family_id = %family_id,
                 device_id = ?old_token.device_id,
-                "Token rotation race condition detected: token already revoked"
+                "Token reuse detected (CAS miss with non-Rotated reason); revoking family"
             );
 
             self.storage

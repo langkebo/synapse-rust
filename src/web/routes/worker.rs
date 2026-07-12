@@ -1,3 +1,4 @@
+use crate::web::routes::context::AdminContext;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -295,204 +296,201 @@ fn build_topology_validation_response(config: &WorkerConfig) -> WorkerTopologyVa
 }
 
 pub async fn register_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
     Json(body): Json<RegisterWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: RegisterWorkerRequest = body.into_request()?;
 
-    let worker: WorkerInfo = state.services.admin.modules.worker_manager.register(request).await?;
+    let worker: WorkerInfo = ctx.worker_manager.register(request).await?;
 
     Ok(created_json_from::<_, WorkerResponse>(worker))
 }
 
 pub async fn get_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker: Option<WorkerInfo> = state.services.admin.modules.worker_manager.get(&worker_id).await?;
+    let worker: Option<WorkerInfo> = ctx.worker_manager.get(&worker_id).await?;
 
     Ok(json_from::<_, WorkerResponse>(require_found(worker, "Worker not found")?))
 }
 
 pub async fn list_workers(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let workers: Vec<WorkerInfo> = state.services.admin.modules.worker_manager.get_active().await?;
+    let workers: Vec<WorkerInfo> = ctx.worker_manager.get_active().await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
 pub async fn list_workers_by_type(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let wtype: WorkerType = WorkerType::from_str(&worker_type).map_err(ApiError::bad_request)?;
 
-    let workers: Vec<WorkerInfo> = state.services.admin.modules.worker_manager.get_by_type(wtype).await?;
+    let workers: Vec<WorkerInfo> = ctx.worker_manager.get_by_type(wtype).await?;
 
     Ok(json_vec_from::<_, WorkerResponse>(workers))
 }
 
 pub async fn heartbeat(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     Json(body): Json<HeartbeatBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let status: WorkerStatus = WorkerStatus::from_str(&body.status).map_err(ApiError::bad_request)?;
 
-    state.services.admin.modules.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
+    ctx.worker_manager.heartbeat(&worker_id, status, body.load_stats).await?;
 
     Ok(status_json("ok"))
 }
 
 pub async fn unregister_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.unregister(&worker_id).await?;
+    ctx.worker_manager.unregister(&worker_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn send_command(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
     Json(body): Json<SendCommandBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: SendCommandRequest = body.into_request(worker_id);
 
-    let command: WorkerCommand = state.services.admin.modules.worker_manager.send_command(request).await?;
+    let command: WorkerCommand = ctx.worker_manager.send_command(request).await?;
 
     Ok(created_json_from::<_, WorkerCommandResponse>(command))
 }
 
 pub async fn get_pending_commands(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
-    let commands: Vec<WorkerCommand> =
-        state.services.admin.modules.worker_manager.get_pending_commands(&worker_id, limit).await?;
+    let commands: Vec<WorkerCommand> = ctx.worker_manager.get_pending_commands(&worker_id, limit).await?;
 
     Ok(json_vec_from::<_, WorkerCommandResponse>(commands))
 }
 
 pub async fn complete_command(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(command_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.complete_command(&command_id).await?;
+    ctx.worker_manager.complete_command(&command_id).await?;
 
     Ok(status_json("completed"))
 }
 
 pub async fn fail_command(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(command_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.fail_command(&command_id, &body.error).await?;
+    ctx.worker_manager.fail_command(&command_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
 
 pub async fn assign_task(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
     Json(body): Json<AssignTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     let request: AssignTaskRequest = body.into_request();
 
-    let task: WorkerTaskAssignment = state.services.admin.modules.worker_manager.assign_task(request).await?;
+    let task: WorkerTaskAssignment = ctx.worker_manager.assign_task(request).await?;
 
     Ok(created_json_from::<_, WorkerTaskResponse>(task))
 }
 
 pub async fn get_pending_tasks(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100);
-    let tasks: Vec<WorkerTaskAssignment> = state.services.admin.modules.worker_manager.get_pending_tasks(limit).await?;
+    let tasks: Vec<WorkerTaskAssignment> = ctx.worker_manager.get_pending_tasks(limit).await?;
 
     Ok(json_vec_from::<_, WorkerTaskResponse>(tasks))
 }
 
 pub async fn claim_next_task(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let task: WorkerTaskAssignment =
-        state.services.admin.modules.worker_manager.claim_next_pending_task(&worker_id).await?;
+    let task: WorkerTaskAssignment = ctx.worker_manager.claim_next_pending_task(&worker_id).await?;
 
     Ok(Json(WorkerTaskResponse::from(task)))
 }
 
 pub async fn claim_task(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((task_id, worker_id)): Path<(String, String)>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.claim_task(&task_id, &worker_id).await?;
+    ctx.worker_manager.claim_task(&task_id, &worker_id).await?;
 
     Ok(status_json("claimed"))
 }
 
 pub async fn complete_task(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
     Json(body): Json<CompleteTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.complete_task(&task_id, body.result).await?;
+    ctx.worker_manager.complete_task(&task_id, body.result).await?;
 
     Ok(status_json("completed"))
 }
 
 pub async fn fail_task(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(task_id): Path<String>,
     Json(body): Json<FailTaskBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.fail_task(&task_id, &body.error).await?;
+    ctx.worker_manager.fail_task(&task_id, &body.error).await?;
 
     Ok(status_json("failed"))
 }
 
 pub async fn connect_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     Json(body): Json<ConnectWorkerBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
+    ctx.worker_manager.connect_to_worker(&worker_id, &body.address).await?;
 
     Ok(status_json("connected"))
 }
 
 pub async fn disconnect_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state.services.admin.modules.worker_manager.disconnect_from_worker(&worker_id).await?;
+    ctx.worker_manager.disconnect_from_worker(&worker_id).await?;
 
     Ok(status_json("disconnected"))
 }
 
 pub async fn get_replication_position(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(worker_id): Path<String>,
     Query(query): Query<QueryPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let position_opt: Option<i64> =
-        state.services.admin.modules.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
+    let position_opt: Option<i64> = ctx.worker_manager.get_replication_position(&worker_id, &query.stream_name).await?;
     let position = position_opt.unwrap_or(0);
 
     Ok(Json(serde_json::json!({
@@ -503,70 +501,63 @@ pub async fn get_replication_position(
 }
 
 pub async fn update_replication_position(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path((worker_id, stream_name)): Path<(String, String)>,
     Json(body): Json<StreamPosition>,
 ) -> Result<impl IntoResponse, ApiError> {
-    state
-        .services
-        .admin
-        .modules
-        .worker_manager
-        .update_replication_position(&worker_id, &stream_name, body.position)
-        .await?;
+    ctx.worker_manager.update_replication_position(&worker_id, &stream_name, body.position).await?;
 
     Ok(status_json("updated"))
 }
 
 pub async fn get_events(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Query(query): Query<QueryStream>,
 ) -> Result<impl IntoResponse, ApiError> {
     let stream_id: i64 = query.stream_id.unwrap_or(0);
     let limit: i64 = 100;
-    let events = state.services.admin.modules.worker_manager.get_events_since(stream_id, limit).await?;
+    let events = ctx.worker_manager.get_events_since(stream_id, limit).await?;
 
     Ok(Json(events))
 }
 
 pub async fn get_statistics(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
     Query(query): Query<QueryLimit>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit: i64 = query.limit.unwrap_or(100).clamp(1, 1000);
-    let stats = state.services.admin.modules.worker_manager.get_statistics(limit).await?;
+    let stats = ctx.worker_manager.get_statistics(limit).await?;
 
     Ok(Json(stats))
 }
 
-pub async fn get_topology(_state: State<AppState>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
+pub async fn get_topology(_state: State<AdminContext>, _admin_user: AdminUser) -> Result<impl IntoResponse, ApiError> {
     Ok(Json(WorkerTopologySummary::baseline()))
 }
 
 pub async fn get_topology_validation(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    Ok(Json(build_topology_validation_response(&state.services.core.config.worker)))
+    Ok(Json(build_topology_validation_response(&ctx.config.worker)))
 }
 
 pub async fn get_type_statistics(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let stats = state.services.admin.modules.worker_manager.get_type_statistics().await?;
+    let stats = ctx.worker_manager.get_type_statistics().await?;
 
     Ok(Json(stats))
 }
 
 pub async fn select_worker(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     Path(task_type): Path<String>,
     _admin_user: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    let worker_id_opt: Option<String> =
-        state.services.admin.modules.worker_manager.select_worker_for_task(&task_type).await?;
+    let worker_id_opt: Option<String> = ctx.worker_manager.select_worker_for_task(&task_type).await?;
     let worker_id = worker_id_opt.ok_or_else(|| ApiError::not_found("No worker found for task type"))?;
 
     Ok(Json(serde_json::json!({
@@ -576,9 +567,9 @@ pub async fn select_worker(
 }
 
 pub fn create_worker_router(state: AppState) -> Router<AppState> {
-    let admin = create_worker_admin_router(state.clone());
+    let admin = create_worker_admin_router(&state);
     if state.services.core.config.worker.enabled {
-        admin.merge(create_worker_body_router(state.clone())).with_state(state)
+        admin.merge(create_worker_body_router(&state)).with_state(state)
     } else {
         admin.with_state(state)
     }
@@ -586,7 +577,7 @@ pub fn create_worker_router(state: AppState) -> Router<AppState> {
 
 /// Always-on admin surface of the worker router. Wired unconditionally by
 /// `create_router`. `worker_route_manifest()` covers exactly these routes.
-pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
+pub fn create_worker_admin_router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/worker/v1/register", post(register_worker))
         .route("/_synapse/worker/v1/workers", get(list_workers))
@@ -603,14 +594,14 @@ pub fn create_worker_admin_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/statistics", get(get_statistics))
         .route("/_synapse/worker/v1/statistics/types", get(get_type_statistics))
         .route("/_synapse/worker/v1/select/{task_type}", get(select_worker))
-        .route_layer(middleware::from_fn_with_state(state, crate::web::middleware::admin_auth_middleware))
+        .route_layer(middleware::from_fn_with_state(<crate::web::routes::context::AdminContext as axum::extract::FromRef<crate::web::routes::AppState>>::from_ref(state), crate::web::middleware::admin_auth_middleware))
 }
 
 /// Conditional worker-body surface, only merged when
-/// `state.services.core.config.worker.enabled` is true. Backed by
+/// `ctx.config.worker.enabled` is true. Backed by
 /// `worker_body_route_manifest()` and aggregated via
 /// `route_module::WorkerBodyModule`.
-pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
+pub fn create_worker_body_router(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/_synapse/worker/v1/workers/{worker_id}/heartbeat", post(heartbeat))
         .route("/_synapse/worker/v1/workers/{worker_id}/connect", post(connect_worker))
@@ -623,7 +614,10 @@ pub fn create_worker_body_router(state: AppState) -> Router<AppState> {
         .route("/_synapse/worker/v1/replication/{worker_id}/position", get(get_replication_position))
         .route("/_synapse/worker/v1/replication/{worker_id}/{stream_name}", put(update_replication_position))
         .route("/_synapse/worker/v1/events", get(get_events))
-        .route_layer(middleware::from_fn_with_state(state, replication_http_auth_middleware))
+        .route_layer(middleware::from_fn_with_state(
+            <crate::web::routes::context::CoreContext as axum::extract::FromRef<AppState>>::from_ref(state),
+            replication_http_auth_middleware,
+        ))
 }
 
 /// Manifest of every `(method, absolute_path)` tuple `create_worker_router`

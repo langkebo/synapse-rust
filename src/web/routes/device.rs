@@ -1,3 +1,4 @@
+use crate::web::routes::context::DeviceContext;
 use crate::web::routes::response_helpers::filter_users_with_shared_rooms;
 use crate::web::routes::{ApiError, AppState, AuthenticatedUser};
 use axum::{
@@ -9,16 +10,18 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, body: &Value) -> Result<(), Response> {
+async fn require_password_uia(
+    ctx: &DeviceContext,
+    auth_user: &AuthenticatedUser,
+    body: &Value,
+) -> Result<(), Response> {
     let auth = body.get("auth");
-    let core = &state.services.core;
-    let extensions = &state.services.extensions;
+    // [FIXED] removed intermediate services.core binding
+    // [FIXED] removed intermediate services.extensions binding
 
     match auth {
         None => {
-            let session = state
-                .services
-                .extensions
+            let session = ctx
                 .uia_service
                 .create_session(
                     &auth_user.user_id,
@@ -27,7 +30,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 .await;
             return Err((
                 StatusCode::UNAUTHORIZED,
-                Json(extensions.uia_service.build_uia_response(
+                Json(ctx.uia_service.build_uia_response(
                     &session,
                     "M_UIA_REQUIRED",
                     "User-Interactive Authentication required",
@@ -36,9 +39,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                 .into_response());
         }
         Some(auth_val) => {
-            let result = state
-                .services
-                .extensions
+            let result = ctx
                 .uia_service
                 .validate_auth(
                     auth_val,
@@ -57,16 +58,10 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
             let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
             match auth_type {
                 "m.login.password" => {
-                    if let Err(e) = state
-                        .services
-                        .extensions
-                        .uia_service
-                        .verify_password_stage(auth_val, &auth_user.user_id, &core.auth_service)
-                        .await
+                    if let Err(e) =
+                        ctx.uia_service.verify_password_stage(auth_val, &auth_user.user_id, &ctx.auth_service).await
                     {
-                        let session = state
-                            .services
-                            .extensions
+                        let session = ctx
                             .uia_service
                             .create_session(
                                 &auth_user.user_id,
@@ -75,22 +70,16 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(extensions.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
+                            Json(ctx.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
                         )
                             .into_response());
                     }
                 }
                 "m.login.token" => {
-                    if let Err(e) = state
-                        .services
-                        .extensions
-                        .uia_service
-                        .verify_token_stage(auth_val, &auth_user.user_id, &core.auth_service)
-                        .await
+                    if let Err(e) =
+                        ctx.uia_service.verify_token_stage(auth_val, &auth_user.user_id, &ctx.auth_service).await
                     {
-                        let session = state
-                            .services
-                            .extensions
+                        let session = ctx
                             .uia_service
                             .create_session(
                                 &auth_user.user_id,
@@ -99,15 +88,13 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                             .await;
                         return Err((
                             StatusCode::UNAUTHORIZED,
-                            Json(extensions.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
+                            Json(ctx.uia_service.build_uia_response(&session, "M_FORBIDDEN", &e.to_string())),
                         )
                             .into_response());
                     }
                 }
                 _ => {
-                    let session = state
-                        .services
-                        .extensions
+                    let session = ctx
                         .uia_service
                         .create_session(
                             &auth_user.user_id,
@@ -116,7 +103,7 @@ async fn require_password_uia(state: &AppState, auth_user: &AuthenticatedUser, b
                         .await;
                     return Err((
                         StatusCode::UNAUTHORIZED,
-                        Json(extensions.uia_service.build_uia_response(
+                        Json(ctx.uia_service.build_uia_response(
                             &session,
                             "M_INVALID_PARAM",
                             &format!("Unsupported auth type: {auth_type}"),
@@ -154,8 +141,8 @@ fn parse_stream_id(value: &Value) -> Option<i64> {
     s.parse::<i64>().ok()
 }
 
-async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id: &str) {
-    let server_name = state.services.core.config.server.server_name.as_deref().unwrap_or("localhost");
+async fn broadcast_device_list_update(ctx: &DeviceContext, user_id: &str, device_id: &str) {
+    let server_name = ctx.config.server.server_name.as_deref().unwrap_or("localhost");
     let edu = serde_json::json!({
         "edu_type": "m.device_list_update",
         "content": {
@@ -169,23 +156,17 @@ async fn broadcast_device_list_update(state: &AppState, user_id: &str, device_id
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = state.services.rooms.room_service.membership.get_joined_rooms(user_id).await {
+            if let Ok(shared_rooms) = ctx.room_service.membership.get_joined_rooms(user_id).await {
                 let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for room_id in &shared_rooms {
-                    if let Ok(members) =
-                        state.services.rooms.room_service.membership.get_joined_members_with_profiles(room_id).await
-                    {
+                    if let Ok(members) = ctx.room_service.membership.get_joined_members_with_profiles(room_id).await {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {
                                 let member_server = &member.user_id[mpos + 1..];
                                 if member_server != server_name && !sent_servers.contains(member_server) {
                                     sent_servers.insert(member_server.to_string());
-                                    if let Err(e) = state
-                                        .services
-                                        .core
-                                        .event_broadcaster
-                                        .broadcast_edu(member_server, &edu, server_name)
-                                        .await
+                                    if let Err(e) =
+                                        ctx.event_broadcaster.broadcast_edu(member_server, &edu, server_name).await
                                     {
                                         ::tracing::warn!(
                                             target_server = %member_server,
@@ -211,8 +192,11 @@ fn create_device_compat_router() -> Router<AppState> {
         .route("/keys/device_list_updates", post(get_device_list_updates))
 }
 
-pub async fn get_devices(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
-    let devices = state.services.account.account_device_list_service.get_user_devices(&auth_user.user_id).await?;
+pub async fn get_devices(
+    State(ctx): State<DeviceContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
+    let devices = ctx.account_device_list_service.get_user_devices(&auth_user.user_id).await?;
 
     let device_list: Vec<Value> = devices
         .into_iter()
@@ -232,11 +216,11 @@ pub async fn get_devices(State(state): State<AppState>, auth_user: Authenticated
 }
 
 pub async fn get_device(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let device = state.services.account.account_device_list_service.get_device(&device_id).await?;
+    let device = ctx.account_device_list_service.get_device(&device_id).await?;
 
     match device {
         Some(d) if d.user_id == auth_user.user_id => Ok(Json(json!({
@@ -255,7 +239,7 @@ pub async fn get_device(
 }
 
 pub async fn update_device(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
     Json(body): Json<Value>,
@@ -264,9 +248,7 @@ pub async fn update_device(
         if display_name.len() > 100 {
             return Err(ApiError::bad_request("display_name must not exceed 100 characters".to_string()));
         }
-        let rows_affected: u64 = state
-            .services
-            .account
+        let rows_affected: u64 = ctx
             .account_device_list_service
             .update_user_device_display_name(&auth_user.user_id, &device_id, display_name)
             .await?;
@@ -276,15 +258,13 @@ pub async fn update_device(
         }
     }
 
-    let device = state
-        .services
-        .account
+    let device = ctx
         .account_device_list_service
         .get_device(&device_id)
         .await?
         .ok_or_else(|| ApiError::not_found("Device not found after update".to_string()))?;
 
-    broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, &device_id).await;
 
     Ok(Json(json!({
         "device_id": device.device_id,
@@ -294,48 +274,48 @@ pub async fn update_device(
 }
 
 pub async fn delete_device(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Path(device_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
-    if let Err(challenge) = require_password_uia(&state, &auth_user, &body).await {
+    if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
     }
 
-    let rows: u64 = state.services.core.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
+    let rows: u64 = ctx.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
     }
 
-    broadcast_device_list_update(&state, &auth_user.user_id, &device_id).await;
+    broadcast_device_list_update(&ctx, &auth_user.user_id, &device_id).await;
 
     Ok(Json(json!({})).into_response())
 }
 
 pub async fn delete_devices(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Response, ApiError> {
-    if let Err(challenge) = require_password_uia(&state, &auth_user, &body).await {
+    if let Err(challenge) = require_password_uia(&ctx, &auth_user, &body).await {
         return Ok(challenge);
     }
 
     let device_ids = parse_device_ids(&body)?;
 
-    state.services.core.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
+    ctx.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
 
     for device_id in &device_ids {
-        broadcast_device_list_update(&state, &auth_user.user_id, device_id).await;
+        broadcast_device_list_update(&ctx, &auth_user.user_id, device_id).await;
     }
 
     Ok(Json(json!({})).into_response())
 }
 
 pub async fn get_device_list_updates(
-    State(state): State<AppState>,
+    State(ctx): State<DeviceContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -347,13 +327,15 @@ pub async fn get_device_list_updates(
         .filter_map(|v| v.as_str().map(String::from))
         .collect::<Vec<String>>();
 
-    let users: Vec<String> =
-        filter_users_with_shared_rooms(&state, &auth_user.user_id, &requested_users).await.into_iter().collect();
+    let users: Vec<String> = filter_users_with_shared_rooms(&ctx.room_service, &auth_user.user_id, &requested_users)
+        .await
+        .into_iter()
+        .collect();
 
     let since = body.get("since").or_else(|| body.get("from")).and_then(parse_stream_id);
 
     if since.is_none() {
-        let snapshot = state.services.account.account_device_list_service.get_device_list_snapshot(&users).await?;
+        let snapshot = ctx.account_device_list_service.get_device_list_snapshot(&users).await?;
         let changed: Vec<Value> = snapshot
             .changed
             .into_iter()
@@ -377,9 +359,7 @@ pub async fn get_device_list_updates(
 
     let since = since.unwrap_or(0);
     let to = body.get("to").and_then(parse_stream_id).unwrap_or(0);
-    let delta = state
-        .services
-        .account
+    let delta = ctx
         .account_device_list_service
         .get_device_list_delta(since, if to > 0 { Some(to) } else { None }, &users)
         .await?;

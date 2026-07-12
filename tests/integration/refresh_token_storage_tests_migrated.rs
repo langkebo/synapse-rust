@@ -17,7 +17,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             password_hash TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             deactivated BOOLEAN DEFAULT FALSE,
             displayname TEXT,
             avatar_url TEXT
@@ -150,7 +150,7 @@ async fn test_create_and_get_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -189,7 +189,7 @@ async fn test_get_token_by_id() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -228,7 +228,7 @@ async fn test_get_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -267,7 +267,7 @@ async fn test_get_active_tokens_excludes_revoked_and_expired() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -333,7 +333,7 @@ async fn test_revoke_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -362,7 +362,7 @@ async fn test_revoke_token_by_id() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -390,7 +390,7 @@ async fn test_revoke_all_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -432,7 +432,7 @@ async fn test_revoke_all_user_tokens_skips_already_revoked() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -482,7 +482,7 @@ async fn test_update_token_usage() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -519,7 +519,7 @@ async fn test_delete_token() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -549,7 +549,7 @@ async fn test_delete_user_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -646,7 +646,7 @@ async fn test_cleanup_expired_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -727,7 +727,7 @@ async fn test_revoke_token_cas() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -759,7 +759,7 @@ async fn test_create_and_get_family() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -794,7 +794,7 @@ async fn test_mark_family_compromised() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -821,7 +821,7 @@ async fn test_record_rotation_and_get_rotations() {
     let user_id = format!("@rt_user_{suffix}:localhost");
     let family_id = format!("family_{suffix}");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -854,7 +854,7 @@ async fn test_record_usage() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())
@@ -889,7 +889,7 @@ async fn test_revoke_device_tokens() {
     let suffix = unique_id();
     let user_id = format!("@rt_user_{suffix}:localhost");
 
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(&user_id)
         .bind(format!("rtuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())

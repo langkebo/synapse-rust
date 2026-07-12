@@ -1,6 +1,7 @@
 use crate::common::ApiError;
+use crate::web::routes::context::RoomContext;
 use crate::web::routes::{
-    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict, validate_room_id, AppState,
+    account_compat::can_view_profile_for_requester_batch, ensure_room_member_strict_ctx, validate_room_id, AppState,
     AuthenticatedUser,
 };
 use axum::{
@@ -202,7 +203,7 @@ fn default_order_by() -> String {
 }
 
 async fn search(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Query(params): Query<HashMap<String, String>>,
     Json(body): Json<SearchRequest>,
@@ -216,7 +217,7 @@ async fn search(
     if let Some(room_events) = &body.search_categories.room_events {
         let room_events_next_batch =
             room_events.next_batch.as_deref().or_else(|| params.get("next_batch").map(String::as_str));
-        let search_future = search_room_events(&state, &auth_user.user_id, room_events, room_events_next_batch);
+        let search_future = search_room_events(&ctx, &auth_user.user_id, room_events, room_events_next_batch);
 
         let room_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
@@ -226,7 +227,7 @@ async fn search(
     }
 
     if let Some(users_search) = &body.search_categories.users {
-        let search_future = search_users(&state, &auth_user.user_id, users_search);
+        let search_future = search_users(&ctx, &auth_user.user_id, users_search);
 
         let user_results = timeout(Duration::from_secs(SEARCH_TIMEOUT_SECS), search_future)
             .await
@@ -239,7 +240,7 @@ async fn search(
 }
 
 async fn search_room_events(
-    state: &AppState,
+    ctx: &RoomContext,
     user_id: &str,
     search: &RoomEventsSearch,
     next_batch: Option<&str>,
@@ -252,7 +253,7 @@ async fn search_room_events(
         limit,
         next_batch.unwrap_or("")
     );
-    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+    if let Ok(Some(cached)) = ctx.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
 
@@ -263,12 +264,8 @@ async fn search_room_events(
         senders: filter.senders.clone(),
     });
 
-    let page = state
-        .services
-        .core
-        .search_service
-        .search_room_events(user_id, &search.search_term, filter.as_ref(), limit, next_batch)
-        .await?;
+    let page =
+        ctx.search_service.search_room_events(user_id, &search.search_term, filter.as_ref(), limit, next_batch).await?;
 
     let results: Vec<Value> = page
         .results
@@ -304,37 +301,33 @@ async fn search_room_events(
         "next_batch": page.next_batch
     });
 
-    if let Err(e) = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
+    if let Err(e) = ctx.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
         ::tracing::warn!("Failed to cache search room results: {e}");
     }
 
     Ok(result)
 }
 
-async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> Result<Value, ApiError> {
+async fn search_users(ctx: &RoomContext, user_id: &str, search: &UsersSearch) -> Result<Value, ApiError> {
     let limit = search.limit.unwrap_or(DEFAULT_SEARCH_LIMIT) as i64;
 
     let cache_key = format!("search:users:{}:{}:{}", user_id, search.search_term.to_lowercase(), limit);
-    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+    if let Ok(Some(cached)) = ctx.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
 
     let rate_limit_key = format!("ratelimit:search-users:{user_id}");
-    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
+    let decision = ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many user search requests"));
     }
 
-    let rows = state
-        .services
-        .account
-        .account_identity_service
-        .search_directory_users(&search.search_term, limit, false)
-        .await?;
+    let rows = ctx.account_identity_service.search_directory_users(&search.search_term, limit, false).await?;
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = rows.iter().map(|r| r.user_id.clone()).collect();
-    let visibility = can_view_profile_for_requester_batch(state, Some(user_id), &target_user_ids).await?;
+    let visibility =
+        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(user_id), &target_user_ids).await?;
 
     for row in rows {
         let target_user_id = row.user_id;
@@ -362,7 +355,7 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
         "limited": results.len() as i64 == limit
     });
 
-    if let Err(e) = state.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
+    if let Err(e) = ctx.cache.set(&cache_key, &result, SEARCH_CACHE_TTL_SECS).await {
         ::tracing::warn!("Failed to cache search user results: {e}");
     }
 
@@ -370,7 +363,7 @@ async fn search_users(state: &AppState, user_id: &str, search: &UsersSearch) -> 
 }
 
 async fn build_room_hierarchy_response(
-    state: &AppState,
+    ctx: &RoomContext,
     room_id: &str,
     user_id: &str,
     max_depth: i32,
@@ -378,18 +371,11 @@ async fn build_room_hierarchy_response(
     limit: i32,
     from: Option<&str>,
 ) -> Result<Value, ApiError> {
-    let room_opt = state
-        .services
-        .rooms
-        .room_storage
-        .get_room(room_id)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
+    let room_opt =
+        ctx.room_storage.get_room(room_id).await.map_err(|e| ApiError::internal_with_log("Failed to load room", &e))?;
 
-    if let Some(space) = state.services.rooms.space_service.get_space_by_room(room_id).await? {
-        let response = state
-            .services
-            .rooms
+    if let Some(space) = ctx.space_service.get_space_by_room(room_id).await? {
+        let response = ctx
             .space_service
             .get_space_hierarchy_v1(
                 &space.space_id,
@@ -412,7 +398,7 @@ async fn build_room_hierarchy_response(
                 .is_some_and(|a| a.iter().any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id)));
 
             if !has_space_self || rooms <= 1 {
-                let state_events = state.services.rooms.room_service.messaging.get_state_events(room_id).await?;
+                let state_events = ctx.room_service.messaging.get_state_events(room_id).await?;
 
                 let mut children_state = Vec::new();
                 let mut child_room_ids = Vec::new();
@@ -442,7 +428,7 @@ async fn build_room_hierarchy_response(
                     }
                 }
 
-                let child_rooms_map = state.services.rooms.room_service.collect_child_rooms(&child_room_ids).await?;
+                let child_rooms_map = ctx.room_service.collect_child_rooms(&child_room_ids).await?;
 
                 if !child_rooms_map.is_empty() || !has_space_self {
                     let space_room_type = state_events
@@ -496,7 +482,7 @@ async fn build_room_hierarchy_response(
 
     let world_readable = room.history_visibility == "world_readable";
 
-    let state_events = state.services.rooms.room_service.messaging.get_state_events(room_id).await?;
+    let state_events = ctx.room_service.messaging.get_state_events(room_id).await?;
 
     let room_type = state_events
         .iter()
@@ -534,7 +520,7 @@ async fn build_room_hierarchy_response(
         }
     }
 
-    let child_rooms = state.services.rooms.room_service.collect_child_rooms(&child_room_ids).await?;
+    let child_rooms = ctx.room_service.collect_child_rooms(&child_room_ids).await?;
 
     let mut rooms = vec![json!({
         "room_id": room.room_id,
@@ -560,7 +546,7 @@ async fn build_room_hierarchy_response(
 }
 
 async fn get_room_hierarchy(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -572,7 +558,7 @@ async fn get_room_hierarchy(
     let max_depth = params.get("max_depth").and_then(|v| v.parse().ok()).unwrap_or(3);
 
     let mut response =
-        build_room_hierarchy_response(&state, &room_id, &auth_user.user_id, max_depth, false, limit, None).await?;
+        build_room_hierarchy_response(&ctx, &room_id, &auth_user.user_id, max_depth, false, limit, None).await?;
 
     if let Some(object) = response.as_object_mut() {
         object.insert("max_depth".to_string(), json!(max_depth));
@@ -584,7 +570,7 @@ async fn get_room_hierarchy(
 /// GET /_matrix/client/v3/rooms/{room_id}/hierarchy
 /// Returns a list of child rooms and spaces of a given room
 async fn get_room_hierarchy_v3(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -596,7 +582,7 @@ async fn get_room_hierarchy_v3(
     let suggested_only = params.get("suggested_only").is_some_and(|v| v == "true");
 
     let mut response = build_room_hierarchy_response(
-        &state,
+        &ctx,
         &room_id,
         &auth_user.user_id,
         max_depth,
@@ -614,7 +600,7 @@ async fn get_room_hierarchy_v3(
 }
 
 async fn timestamp_to_event(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path(room_id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
@@ -626,11 +612,11 @@ async fn timestamp_to_event(
 
     let dir = params.get("dir").map_or("f", |v| v.as_str());
 
-    ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
+    ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
     let direction = if dir == "b" { TimestampDirection::Backward } else { TimestampDirection::Forward };
 
-    let event = state.services.core.search_service.find_event_by_timestamp(&room_id, ts, direction).await?;
+    let event = ctx.search_service.find_event_by_timestamp(&room_id, ts, direction).await?;
 
     match event {
         Some(event) => Ok(Json(json!({
@@ -642,7 +628,7 @@ async fn timestamp_to_event(
 }
 
 async fn get_event_context(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Path((room_id, event_id)): Path<(String, String)>,
     Query(params): Query<HashMap<String, String>>,
@@ -655,14 +641,13 @@ async fn get_event_context(
 
     let limit = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(10).clamp(1, 100);
 
-    ensure_room_member_strict(&state, &auth_user, &room_id, "Not a member of this room").await?;
+    ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let target_event = state.services.rooms.room_service.messaging.get_event(&room_id, &event_id).await?;
+    let target_event = ctx.room_service.messaging.get_event(&room_id, &event_id).await?;
 
     let target_ts = target_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let context_window =
-        state.services.core.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
+    let context_window = ctx.search_service.get_event_context_window(&room_id, target_ts, limit as i64).await?;
 
     let events_before_list: Vec<Value> = context_window
         .events_before
@@ -931,7 +916,7 @@ struct SearchRecipientsRequest {
 }
 
 async fn search_recipients(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<SearchRecipientsRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -943,14 +928,12 @@ async fn search_recipients(
     }
 
     let rate_limit_key = format!("ratelimit:search-recipients:{}", auth_user.user_id);
-    let decision = state.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
+    let decision = ctx.cache.rate_limit_token_bucket_take(&rate_limit_key, 2, 20).await?;
     if !decision.allowed {
         return Err(ApiError::rate_limited("Too many recipient search requests"));
     }
 
-    let users = state
-        .services
-        .account
+    let users = ctx
         .user_storage
         .search_directory_users(search_term, limit, false)
         .await
@@ -958,7 +941,9 @@ async fn search_recipients(
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = users.iter().map(|r| r.user_id.clone()).collect();
-    let visibility = can_view_profile_for_requester_batch(&state, Some(&auth_user.user_id), &target_user_ids).await?;
+    let visibility =
+        can_view_profile_for_requester_batch(&ctx.account_identity_service, Some(&auth_user.user_id), &target_user_ids)
+            .await?;
 
     for row in users {
         let target_user_id = row.user_id;
@@ -998,7 +983,7 @@ struct SearchRoomsRequest {
 }
 
 async fn search_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<SearchRoomsRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -1009,8 +994,7 @@ async fn search_rooms(
         return Err(ApiError::bad_request("Search term cannot be empty".to_string()));
     }
 
-    let rooms =
-        state.services.core.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
+    let rooms = ctx.search_service.search_rooms_for_user(&auth_user.user_id, search_term, limit).await?;
 
     let results: Vec<Value> = rooms
         .iter()

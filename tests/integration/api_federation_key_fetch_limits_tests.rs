@@ -5,11 +5,16 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use serde_json::json;
+use base64::engine::general_purpose::STANDARD_NO_PAD;
+use base64::Engine as _;
+use ed25519_dalek::{Signer, SigningKey};
+use rand::RngCore;
+use serde_json::{json, Value};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
+use synapse_common::canonical_json;
 use synapse_rust::cache::{CacheConfig, CacheManager};
 use synapse_rust::web::routes::state::AppState;
 use synapse_services::ServiceContainer;
@@ -21,16 +26,31 @@ struct KeyServerMetrics {
     total_requests: AtomicUsize,
     delay_ms: u64,
     fail_status: Option<StatusCode>,
+    /// The server name returned in key responses (matches the mock server's
+    /// bind address so that `validate_server_key_response` accepts it).
+    server_name: String,
+    /// Ed25519 signing key used to self-sign key responses.
+    signing_key: SigningKey,
+    /// Base64 (no-pad) public key corresponding to `signing_key`.
+    pub_key_b64: String,
 }
 
 impl KeyServerMetrics {
-    fn new(delay_ms: u64, fail_status: Option<StatusCode>) -> Self {
+    fn new(delay_ms: u64, fail_status: Option<StatusCode>, server_name: String) -> Self {
+        let mut rng = rand::rng();
+        let mut secret_bytes = [0u8; 32];
+        rng.fill_bytes(&mut secret_bytes);
+        let signing_key = SigningKey::from_bytes(&secret_bytes);
+        let pub_key_b64 = STANDARD_NO_PAD.encode(signing_key.verifying_key().as_bytes());
         Self {
             inflight: AtomicUsize::new(0),
             max_inflight: AtomicUsize::new(0),
             total_requests: AtomicUsize::new(0),
             delay_ms,
             fail_status,
+            server_name,
+            signing_key,
+            pub_key_b64,
         }
     }
 
@@ -51,11 +71,28 @@ impl KeyServerMetrics {
     fn on_end(&self) {
         self.inflight.fetch_sub(1, Ordering::SeqCst);
     }
+
+    /// Build a self-signed server key response for the given key_id.
+    fn signed_key_response(&self, key_id: &str) -> Value {
+        let mut body = json!({
+            "server_name": self.server_name,
+            "verify_keys": {
+                key_id: { "key": self.pub_key_b64 }
+            },
+            "old_verify_keys": {},
+            "valid_until_ts": 9999999999999i64
+        });
+        let canonical = canonical_json(&body).unwrap();
+        let sig = self.signing_key.sign(canonical.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("signatures".to_string(), json!({ self.server_name.clone(): { key_id: sig_b64 } }));
+        }
+        body
+    }
 }
 
-async fn handle_server_keys(
-    metrics: axum::extract::State<Arc<KeyServerMetrics>>,
-) -> (StatusCode, Json<serde_json::Value>) {
+async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyServerMetrics>>) -> (StatusCode, Json<Value>) {
     metrics.on_start();
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
@@ -64,23 +101,13 @@ async fn handle_server_keys(
         return (status, Json(json!({})));
     }
 
-    (
-        StatusCode::OK,
-        Json(json!({
-            "server_name": "mock.test",
-            "verify_keys": {
-                "ed25519:fixed": { "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
-            },
-            "old_verify_keys": {},
-            "valid_until_ts": 9999999999999i64
-        })),
-    )
+    (StatusCode::OK, Json(metrics.signed_key_response("ed25519:fixed")))
 }
 
 async fn handle_key_query(
     metrics: axum::extract::State<Arc<KeyServerMetrics>>,
     Path((_server_name, key_id)): Path<(String, String)>,
-) -> (StatusCode, Json<serde_json::Value>) {
+) -> (StatusCode, Json<Value>) {
     metrics.on_start();
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();
@@ -89,33 +116,24 @@ async fn handle_key_query(
         return (status, Json(json!({})));
     }
 
-    (
-        StatusCode::OK,
-        Json(json!({
-            "server_name": "mock.test",
-            "verify_keys": {
-                key_id: { "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
-            },
-            "old_verify_keys": {},
-            "valid_until_ts": 9999999999999i64
-        })),
-    )
+    (StatusCode::OK, Json(metrics.signed_key_response(&key_id)))
 }
 
 async fn start_key_server(delay_ms: u64, fail_status: Option<StatusCode>) -> (String, Arc<KeyServerMetrics>) {
-    let metrics = Arc::new(KeyServerMetrics::new(delay_ms, fail_status));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let origin = format!("127.0.0.1:{}", addr.port());
+    let metrics = Arc::new(KeyServerMetrics::new(delay_ms, fail_status, origin.clone()));
     let app = Router::new()
         .route("/_matrix/key/v2/server", get(handle_server_keys))
         .route("/_matrix/key/v2/query/{server_name}/{key_id}", get(handle_key_query))
         .with_state(metrics.clone());
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
 
-    (format!("127.0.0.1:{}", addr.port()), metrics)
+    (origin, metrics)
 }
 
 async fn setup_test_app_with_federation_key_fetch_config(

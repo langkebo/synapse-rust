@@ -178,3 +178,61 @@ Synapse v1.153.0 的近期方向:
 - 将 `src/common/room_versions.rs` 从单一 stable 列表升级为能力矩阵，当前 v1-v11 行为保持不变，但为 v12 或“仅解析不创建”的过渡状态预留明确模型。
 - 联邦 membership 路径已接入 room version federation 维度校验，包括 `make_join`、`make_leave`、`send_join`、`send_join_v2`、`send_leave`、`send_leave_v2`、`knock`、`invite`、`invite_v2`、third-party invite 和成员查询类入口，不再对缺失或未知版本房间默认为 v10 继续处理。
 - 数据库专项审查记录见 `docs/db/DB_AUDIT_AND_REMEDIATION_2026-05-29.md`: 已修复迁移/deploy 镜像漂移、Postgres search 误引用 `room_members`、schema coverage 误报和已删除冗余表 `room_children` 的过期 contract 期望。
+
+---
+
+## AUDIT-2026-07 后续审核与优化落地（2026-07-12）
+
+在 2026-05-29 分阶段计划基础上，2026-07 完成一轮 7 阶段全栈审核（`docs/audit/00–07`）+ 优化落地（OPT-001~028）+ 性能复测（`docs/audit/11`）+ 回顾（`docs/audit/13_retro.md`）。交付于 PR #3（分支 `optimization/audit-2026-07`，135 commits / 409 files，保留原子提交历史不 squash）。
+
+### 优化任务完成情况（OPT-xxx，全部 ✅）
+
+**P0 安全（audit 07）**
+- OPT-001 OIDC：JWKS 拉取失败/无匹配 kid 时 hard fail，取消 claim-only 签名回退（修复 CRITICAL 认证绕过）
+- OPT-002 联邦：签名密钥派生失败日志脱敏（HIGH，私钥不再明文入日志）
+- OPT-003 健康检查：仅信任 `/health`，去掉 `/versions` 回退（HIGH，不再掩盖 DB 故障）
+- OPT-005 限流：register/password/refresh/keys-upload/3pid 收紧规则
+- OPT-008 联邦：签名密钥持久化要求 master key，默认拒绝明文
+- OPT-016 限流：XFF 按可信代理校验，取最右可信跳，防止限流绕过
+- OPT-017 联邦：send_join/leave/invite/member-list/event-observe 统一 404，消除存在性泄露
+- OPT-019 E2EE：`Ed25519SecretKey` 加 `ZeroizeOnDrop`
+- OPT-021 OIDC：校验 id_token 的 nonce claim（重放保护）
+- OPT-022 SAML：要求 response 或 assertion 至少一个签名
+- OPT-024 审计：限制审计事件删除，防篡改
+
+**E2EE / 联邦（audit 06）**
+- OPT-004 server-key 缓存 TTL 收敛到 `valid_until_ts`
+- OPT-006 加密房成员 leave 触发 megolm 轮换
+- OPT-007 拒绝过期版本的 key-backup 恢复
+- OPT-010 to-device：`INSERT..ON CONFLICT RETURNING` 原子去重，消除 TOCTOU
+
+**存储 / 服务（audit 03/04）**
+- OPT-009 account-data 用毫秒时间戳
+- OPT-011 device：create/delete 包事务
+- OPT-012 device：`delete_devices_batch` 批处理，消除 N+1（2×N → 2/user，见 audit 11）
+- OPT-013(a~r) 18 个可空列 `i64` → `Option<i64>`
+- OPT-014(0~e) ServiceContainer CancellationToken，SIGTERM 优雅停机
+- OPT-015(0~d) SyncService 缓存 filter/account_data/device-list-max/room-state
+- OPT-018 auth：`generate_email_verification_token` 返回 `ApiError`
+- OPT-020 存储：`url_preview_cache.expires_ts → expires_at`（含迁移 + 回滚）
+- OPT-023 web：sync/members/directory 统一走 `AuthenticatedUser` extractor
+
+**架构强化（M1~M4）**
+- OPT-025 events 表查询从 `RoomStorage` 迁到 `EventStorage`（三层边界）
+- OPT-026 auth：区分并发 refresh 重试与重放攻击
+- OPT-027 worker：失败任务加死信队列
+- OPT-028 health：schema 校验失败启动即致命
+
+### 本轮新增硬约束（回顾产出，详见 `docs/audit/13_retro.md`）
+
+1. **安全失败必须 fail-closed。** auth/federation/health/rate-limit 路径中依赖或校验失败默认拒绝，不得降级放行；这些路径的 `fallback`/`unwrap_or`/`default-on-error` 需显式安全评审。（根因：本轮头号问题——OIDC/healthcheck/rate-limit/signing-key/SAML 均曾 fail-open）
+2. **声明"绿"前，fmt / clippy / `cargo test --no-run` 必须各在 `--all-features` 下跑一遍。** cfg(test) 与 feature-gated 代码是默认门禁盲区（clippy 跳过 cfg(test)；feature-gated 模块不在默认编译）。
+3. **改动进程级全局状态的测试必须模块级 Mutex 串行化**（shuffle+并行下会互相泄露）。
+4. **共享池 / destructive 测试需隔离 schema 或 SerialGuard；CI 假失败先按环境排查（head 迁移 + 隔离库）再判代码。**
+5. **联邦端点对"存在但无权"与"不存在"统一返 404。**
+
+### 与 2026-05-29 Phase 计划的衔接
+
+- Phase 1（协议边界收敛）：OPT-004/017 推进联邦密钥 TTL 与存在性语义。
+- Phase 4（长期运行与 worker 治理）：OPT-014 优雅停机 + OPT-027 死信队列落地。
+- Phase 5（互通与性能门禁）：`docs/audit/11` 完成 DB 层查询计划复测（7/7 命中索引，0 seq scan，N+1 消除）；但 p50/p95/p99、QPS、缓存命中率、内存仍 **NOT_CAPTURED**（缺运行中服务器 + 播种脚本），为 Phase 5 遗留前置条件，未编造。

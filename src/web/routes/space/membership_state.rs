@@ -1,18 +1,17 @@
 use super::*;
+use crate::web::routes::context::RoomContext;
 
 pub(super) async fn get_space_members(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     Query(query): Query<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
+    with_visible_space(ctx, space_id, auth_user, |ctx, space, _auth_user| async move {
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_member_cursor);
 
-        let members: Vec<synapse_storage::space::SpaceMember> = state
-            .services
-            .rooms
+        let members: Vec<synapse_storage::space::SpaceMember> = ctx
             .space_service
             .get_space_members_paginated(
                 &space.space_id,
@@ -39,18 +38,16 @@ pub(super) async fn get_space_members(
 }
 
 pub(super) async fn get_space_rooms(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     Query(query): Query<PaginationQuery>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, _auth_user| async move {
+    with_visible_space(ctx, space_id, auth_user, |ctx, space, _auth_user| async move {
         let limit = query.limit.unwrap_or(100).clamp(1, 1000);
         let cursor = query.from.as_deref().and_then(decode_space_child_cursor);
 
-        let children: Vec<synapse_storage::space::SpaceChild> = state
-            .services
-            .rooms
+        let children: Vec<synapse_storage::space::SpaceChild> = ctx
             .space_service
             .get_space_children_paginated(&space.space_id, limit, cursor.map(|c| c.0), cursor.map(|c| c.1))
             .await?;
@@ -73,13 +70,13 @@ pub(super) async fn get_space_rooms(
 }
 
 pub(super) async fn get_space_state(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: OptionalAuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_visible_space(state, space_id, auth_user, |state, space, auth_user| async move {
+    with_visible_space(ctx, space_id, auth_user, |ctx, space, auth_user| async move {
         let space_state_res: Result<Vec<serde_json::Value>, ApiError> =
-            state.services.rooms.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await;
+            ctx.space_service.get_space_state(&space.space_id, auth_user.user_id.as_deref()).await;
         let space_state = space_state_res?;
 
         Ok(Json(space_state))
@@ -88,16 +85,16 @@ pub(super) async fn get_space_state(
 }
 
 pub(super) async fn invite_user(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
     Json(body): Json<InviteUserBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     validate_request(&body)?;
 
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_resolved_space(ctx, space_id, |ctx, space| async move {
         let member: synapse_storage::space::SpaceMember =
-            state.services.rooms.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
+            ctx.space_service.invite_user(&space.space_id, &body.user_id, &auth_user.user_id).await?;
 
         Ok(created_json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
     })
@@ -105,13 +102,13 @@ pub(super) async fn invite_user(
 }
 
 pub(super) async fn join_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
+    with_resolved_space(ctx, space_id, |ctx, space| async move {
         let member: synapse_storage::space::SpaceMember =
-            state.services.rooms.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
+            ctx.space_service.join_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(json_from::<_, SpaceMemberResponse>(SpaceMemberResponse::from(member)))
     })
@@ -119,12 +116,12 @@ pub(super) async fn join_space(
 }
 
 pub(super) async fn leave_space(
-    State(state): State<AppState>,
+    State(ctx): State<RoomContext>,
     Path(space_id): Path<String>,
     auth_user: AuthenticatedUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    with_resolved_space(state, space_id, |state, space| async move {
-        state.services.rooms.space_service.leave_space(&space.space_id, &auth_user.user_id).await?;
+    with_resolved_space(ctx, space_id, |ctx, space| async move {
+        ctx.space_service.leave_space(&space.space_id, &auth_user.user_id).await?;
 
         Ok(StatusCode::NO_CONTENT)
     })

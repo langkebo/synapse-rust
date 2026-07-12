@@ -134,7 +134,7 @@ pub struct ModuleExecutionLog {
     pub module_type: String,
     pub event_id: Option<String>,
     pub room_id: Option<String>,
-    pub execution_time_ms: i64,
+    pub execution_time_ms: Option<i64>,
     pub is_success: bool,
     pub error_message: Option<String>,
     pub metadata: Option<serde_json::Value>,
@@ -156,7 +156,7 @@ pub struct CreateExecutionLogRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct AccountValidity {
     pub user_id: String,
-    pub expiration_at: i64,
+    pub expiration_at: Option<i64>,
     pub last_check_at: Option<i64>,
     pub renewal_token: Option<String>,
     /// 内存中的临时状态，不持久化到数据库。记录 renewal_token 的生成时间，
@@ -1084,7 +1084,7 @@ mod tests {
     fn test_account_validity() {
         let validity = AccountValidity {
             user_id: "@alice:example.com".to_string(),
-            expiration_at: 1234567890,
+            expiration_at: Some(1234567890),
             last_check_at: Some(1234567890),
             renewal_token: Some("token123".to_string()),
             renewal_token_ts: Some(1234567890),

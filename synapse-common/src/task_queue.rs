@@ -283,20 +283,42 @@ impl RedisTaskQueue {
                             if let Some(payload_val) = stream_id.map.get("payload") {
                                 if let Ok(payload_str) = redis::from_redis_value::<String>(payload_val) {
                                     if let Ok(job) = serde_json::from_str::<BackgroundJob>(&payload_str) {
-                                        tracing::info!("Processing job {}: {:?}", stream_id.id, job);
+                                        let stream_id_val = stream_id.id;
+                                        tracing::info!("Processing job {}: {:?}", stream_id_val, job);
                                         match handler(job).await {
                                             Ok(_) => {
                                                 // XACK
                                                 let _: Result<(), _> =
-                                                    conn.xack("mq:tasks:default", group_name, &[&stream_id.id]).await;
+                                                    conn.xack("mq:tasks:default", group_name, &[&stream_id_val]).await;
                                             }
                                             Err(e) => {
                                                 tracing::error!("Job processing failed: {}", e);
-                                                // Logic for retry or dead letter queue could go here
+                                                // Move to dead letter queue with error context.
+                                                // Retry logic is intentionally simple: the job is
+                                                // ACKed after one failure to avoid infinite
+                                                // reprocessing, and forwarded to a dead letter
+                                                // stream for manual inspection or a future retry
+                                                // worker.
+                                                let dead_letter_payload: Vec<(&str, String)> = vec![
+                                                    ("original_stream_id", stream_id_val.to_string()),
+                                                    ("payload", payload_str.clone()),
+                                                    ("error", e.to_string()),
+                                                    ("failed_at", chrono::Utc::now().timestamp_millis().to_string()),
+                                                ];
+                                                let _: Result<(), _> =
+                                                    conn.xadd("mq:tasks:dead_letter", "*", &dead_letter_payload).await;
+                                                // XACK the original message so it won't be
+                                                // re-delivered to another consumer.
+                                                let _: Result<(), _> =
+                                                    conn.xack("mq:tasks:default", group_name, &[&stream_id_val]).await;
+                                                tracing::warn!("Job {} moved to dead letter queue", stream_id_val);
                                             }
                                         }
                                     } else {
                                         tracing::error!("Failed to deserialize job payload: {}", payload_str);
+                                        // ACK malformed messages to avoid blocking the queue.
+                                        let _: Result<(), _> =
+                                            conn.xack("mq:tasks:default", group_name, &[&stream_id.id]).await;
                                     }
                                 }
                             }

@@ -201,8 +201,8 @@ async fn test_space_schema_smoke_roundtrip() {
         .expect("Failed to load space summary")
         .expect("Space summary should exist");
     assert_eq!(summary.space_id, space_id);
-    assert_eq!(summary.children_count, 1);
-    assert_eq!(summary.member_count, 2);
+    assert_eq!(summary.children_count, Some(1));
+    assert_eq!(summary.member_count, Some(2));
 
     sqlx::query(
         "INSERT INTO space_statistics (space_id, name, is_public, child_room_count, member_count, created_ts, updated_ts) VALUES ($1, $2, $3, $4, $5, $6, $7)

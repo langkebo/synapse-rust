@@ -1,37 +1,32 @@
 use crate::common::check_url_against_blacklist;
 use crate::common::*;
 use crate::web::middleware::FederationRequestAuth;
-use crate::web::routes::AppState;
+use crate::web::routes::context::FederationContext;
 use crate::web::utils::encoding::decode_base64_32;
 use axum::extract::{Extension, Json, Path, State};
 use base64::Engine;
 use serde_json::{json, Value};
 
-pub(super) async fn server_key(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    if state.services.core.config.federation.signing_key.is_none() {
-        state
-            .services
-            .federation
-            .key_rotation_manager
+pub(super) async fn server_key(State(ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
+    if ctx.config.federation.signing_key.is_none() {
+        ctx.key_rotation_manager
             .load_or_create_key()
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to initialize federation signing key", &e))?;
     }
 
-    Ok(Json(resolve_server_keys(&state).await?))
+    Ok(Json(resolve_server_keys(&ctx).await?))
 }
 
 pub(super) async fn key_query(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Path((server_name, key_id)): Path<(String, String)>,
 ) -> Result<Json<Value>, ApiError> {
-    if server_name == state.services.core.server_name
-        || server_name == state.services.core.config.federation.server_name
-    {
-        return server_key(State(state)).await;
+    if server_name == ctx.server_name || server_name == ctx.config.federation.server_name {
+        return server_key(State(ctx)).await;
     }
 
-    let response = fetch_remote_server_keys_response(&state, &server_name, &key_id).await?;
+    let response = fetch_remote_server_keys_response(&ctx, &server_name, &key_id).await?;
 
     // P2-15: Defensive validation of the response before returning it to the
     // client. Invalid responses are never cached (see
@@ -50,14 +45,14 @@ pub(super) async fn key_query(
 }
 
 pub(super) async fn key_clone(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    server_key(State(state)).await
+    server_key(State(ctx)).await
 }
 
 pub(super) async fn keys_claim(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -71,17 +66,12 @@ pub(super) async fn keys_claim(
         // M × (1 + N) nested N+1 pattern. See NEW-P1-03.
         let local_users: Vec<String> = one_time_keys
             .keys()
-            .filter(|user_id| super::user_matches_origin(user_id, &state.services.core.server_name))
+            .filter(|user_id| super::user_matches_origin(user_id, &ctx.server_name))
             .cloned()
             .collect();
 
-        let allowed_local_users = state
-            .services
-            .rooms
-            .room_service
-            .membership
-            .filter_users_sharing_room_with_server(&local_users, &auth.origin)
-            .await?;
+        let allowed_local_users =
+            ctx.room_service.membership.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -93,12 +83,7 @@ pub(super) async fn keys_claim(
         "Federation keys claim request"
     );
 
-    let response = state
-        .services
-        .e2ee
-        .device_keys_service
-        .claim_keys_for_federation(request, &state.services.core.server_name)
-        .await?;
+    let response = ctx.device_keys_service.claim_keys_for_federation(request, &ctx.server_name).await?;
 
     Ok(Json(json!({
         "one_time_keys": response.one_time_keys,
@@ -107,7 +92,7 @@ pub(super) async fn keys_claim(
 }
 
 pub(super) async fn keys_query(
-    State(state): State<AppState>,
+    State(ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -121,17 +106,12 @@ pub(super) async fn keys_query(
         // M × (1 + N) nested N+1 pattern. See NEW-P1-03.
         let local_users: Vec<String> = device_keys
             .keys()
-            .filter(|user_id| super::user_matches_origin(user_id, &state.services.core.server_name))
+            .filter(|user_id| super::user_matches_origin(user_id, &ctx.server_name))
             .cloned()
             .collect();
 
-        let allowed_local_users = state
-            .services
-            .rooms
-            .room_service
-            .membership
-            .filter_users_sharing_room_with_server(&local_users, &auth.origin)
-            .await?;
+        let allowed_local_users =
+            ctx.room_service.membership.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -143,12 +123,7 @@ pub(super) async fn keys_query(
         "Federation keys query request"
     );
 
-    let response = state
-        .services
-        .e2ee
-        .device_keys_service
-        .query_keys_for_federation(request, &state.services.core.server_name)
-        .await?;
+    let response = ctx.device_keys_service.query_keys_for_federation(request, &ctx.server_name).await?;
 
     Ok(Json(json!({
         "device_keys": response.device_keys,
@@ -157,7 +132,7 @@ pub(super) async fn keys_query(
 }
 
 pub(super) async fn keys_upload(
-    State(_state): State<AppState>,
+    State(_ctx): State<FederationContext>,
     Extension(auth): Extension<FederationRequestAuth>,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -172,7 +147,7 @@ pub(super) async fn keys_upload(
 }
 
 pub(super) async fn legacy_keys_claim(
-    State(_state): State<AppState>,
+    State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -182,7 +157,7 @@ pub(super) async fn legacy_keys_claim(
 }
 
 pub(super) async fn legacy_keys_query(
-    State(_state): State<AppState>,
+    State(_ctx): State<FederationContext>,
     Extension(_auth): Extension<FederationRequestAuth>,
     Json(_body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -191,7 +166,7 @@ pub(super) async fn legacy_keys_query(
     ))
 }
 
-pub(super) async fn query_auth(State(_state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub(super) async fn query_auth(State(_ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     // Previously this returned `{"auth_chain": []}` as a stub, which could
     // mislead federation peers into thinking the room has no auth events.
     // The standard endpoint `/_matrix/federation/v1/get_event_auth/{room_id}/{event_id}`
@@ -202,27 +177,23 @@ pub(super) async fn query_auth(State(_state): State<AppState>) -> Result<Json<Va
     ))
 }
 
-pub(super) async fn event_auth(State(_state): State<AppState>) -> Result<Json<Value>, ApiError> {
+pub(super) async fn event_auth(State(_ctx): State<FederationContext>) -> Result<Json<Value>, ApiError> {
     Err(ApiError::not_found("Federation event_auth is not implemented; use supported auth-chain endpoints".to_string()))
 }
 
-async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
-    let config = &state.services.core.config.federation;
+async fn resolve_server_keys(ctx: &FederationContext) -> Result<Value, ApiError> {
+    let config = &ctx.config.federation;
     if !config.enabled {
         return Err(ApiError::not_found("Federation disabled".to_string()));
     }
 
-    if let Some(current_key) = state
-        .services
-        .federation
+    if let Some(current_key) = ctx
         .key_rotation_manager
         .get_current_key()
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to load federation signing key", &e))?
     {
-        return state
-            .services
-            .federation
+        return ctx
             .key_rotation_manager
             .get_server_keys_response()
             .await
@@ -255,7 +226,10 @@ async fn resolve_server_keys(state: &AppState) -> Result<Value, ApiError> {
     let verify_key = match config.signing_key.as_deref().and_then(|k| {
         let res = derive_ed25519_verify_key_base64(k);
         if res.is_none() {
-            ::tracing::error!("Failed to derive verify key from signing_key: {}", k);
+            ::tracing::error!(
+                "Failed to derive verify key from configured signing_key ([REDACTED], {} chars)",
+                k.len()
+            );
         }
         res
     }) {
@@ -297,28 +271,28 @@ fn derive_ed25519_verify_key_base64(signing_key: &str) -> Option<String> {
 }
 
 async fn fetch_remote_server_keys_response(
-    state: &AppState,
+    ctx: &FederationContext,
     server_name: &str,
     key_id: &str,
 ) -> Result<Value, ApiError> {
     let backoff_key = format!("federation:key_fetch_backoff:{server_name}:{key_id}");
-    if let Ok(Some(true)) = state.cache.get::<bool>(&backoff_key).await {
+    if let Ok(Some(true)) = ctx.cache.get::<bool>(&backoff_key).await {
         return Err(ApiError::not_found(format!("Remote server key '{key_id}' for '{server_name}' not found")));
     }
 
     let cache_key = format!("federation:server_keys:{server_name}:{key_id}");
-    if let Ok(Some(cached)) = state.cache.get::<Value>(&cache_key).await {
+    if let Ok(Some(cached)) = ctx.cache.get::<Value>(&cache_key).await {
         return Ok(cached);
     }
 
-    let _permit = state
+    let _permit = ctx
         .federation_key_fetch_general_semaphore
         .clone()
         .acquire_owned()
         .await
         .map_err(|e| ApiError::internal_with_log("Federation key fetch semaphore closed", &e))?;
 
-    let timeout_ms = state.services.core.config.federation.key_fetch_timeout_ms.max(1);
+    let timeout_ms = ctx.config.federation.key_fetch_timeout_ms.max(1);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(timeout_ms))
         .redirect(reqwest::redirect::Policy::none())
@@ -326,13 +300,14 @@ async fn fetch_remote_server_keys_response(
         .map_err(|e| ApiError::internal_with_log("Failed to build federation HTTP client", &e))?;
 
     // SSRF protection: reuse the URL preview IP blacklist to block private/loopback addresses.
-    let ip_blacklist = &state.services.core.config.url_preview.ip_range_blacklist;
+    // When `allow_http_key_fetch` is set (test/dev only), HTTP is used and SSRF checks are skipped.
+    let allow_http = ctx.config.federation.allow_http_key_fetch;
+    let ip_blacklist = if allow_http { &[][..] } else { &ctx.config.url_preview.ip_range_blacklist };
 
-    // HTTPS only — Matrix federation requires TLS. HTTP fallback is removed to prevent
-    // MITM attacks on server key retrieval.
+    let scheme = if allow_http { "http" } else { "https" };
     let urls = [
-        format!("https://{server_name}/_matrix/key/v2/server"),
-        format!("https://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
+        format!("{scheme}://{server_name}/_matrix/key/v2/server"),
+        format!("{scheme}://{server_name}/_matrix/key/v2/query/{server_name}/{key_id}"),
     ];
 
     for url in &urls {
@@ -389,16 +364,16 @@ async fn fetch_remote_server_keys_response(
 
         // Cache TTL = min(configured_ttl, remaining lifetime of the key).
         // `valid_until_ts` is in ms; cache TTL is in seconds.
-        let configured_ttl = state.services.core.config.federation.key_cache_ttl.max(60);
+        let configured_ttl = ctx.config.federation.key_cache_ttl.max(60);
         let remaining_secs = ((valid_until_ts - now_ms) / 1000).max(1) as u64;
         let ttl = configured_ttl.min(remaining_secs);
-        if let Err(e) = state.cache.set(&cache_key, &canonical_response, ttl).await {
+        if let Err(e) = ctx.cache.set(&cache_key, &canonical_response, ttl).await {
             ::tracing::debug!("Failed to cache federation key response: {}", e);
         }
         return Ok(canonical_response);
     }
 
-    if let Err(e) = state.cache.set(&backoff_key, true, 30).await {
+    if let Err(e) = ctx.cache.set(&backoff_key, true, 30).await {
         ::tracing::debug!("Failed to set federation backoff cache: {}", e);
     }
     Err(ApiError::not_found(format!("Remote server key '{key_id}' for '{server_name}' not found")))
@@ -666,6 +641,14 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use rand::RngCore;
     use serde_json::json;
+
+    /// OPT-002 source gate: the raw federation signing key must never be
+    /// interpolated verbatim into a log statement.
+    #[test]
+    fn signing_key_never_logged_verbatim() {
+        let src = include_str!("keys.rs");
+        assert!(!src.contains("from signing_key: {}\", k"), "raw signing key must not be interpolated into logs");
+    }
 
     /// Generate an Ed25519 keypair and return (key_id, public_key_b64, signing_key).
     fn gen_keypair() -> (String, String, SigningKey) {

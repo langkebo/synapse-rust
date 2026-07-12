@@ -17,7 +17,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             password_hash TEXT,
             is_admin BOOLEAN DEFAULT FALSE,
             is_guest BOOLEAN DEFAULT FALSE,
-            creation_ts BIGINT NOT NULL,
+            created_ts BIGINT NOT NULL,
             deactivated BOOLEAN DEFAULT FALSE,
             displayname TEXT,
             avatar_url TEXT
@@ -69,7 +69,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
 }
 
 async fn insert_test_user(pool: &Arc<sqlx::PgPool>, user_id: &str, suffix: u64) {
-    sqlx::query("INSERT INTO users (user_id, username, creation_ts) VALUES ($1, $2, $3)")
+    sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3)")
         .bind(user_id)
         .bind(format!("atuser{suffix}"))
         .bind(chrono::Utc::now().timestamp_millis())

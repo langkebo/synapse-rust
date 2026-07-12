@@ -1,4 +1,5 @@
 use crate::common::ApiError;
+use crate::web::routes::context::AdminContext;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Json, Path, State},
@@ -124,10 +125,10 @@ pub struct PushAction {
     pub value: Option<Value>,
 }
 
-async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+async fn get_pushers(State(ctx): State<AdminContext>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
     // P2 #32: 只返回当前设备的 pusher，防止跨设备查看
     let pushers_list: Vec<serde_json::Value> =
-        state.services.core.client_push_service.get_pushers(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
+        ctx.client_push_service.get_pushers(&auth_user.user_id, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({
         "pushers": pushers_list
@@ -135,7 +136,7 @@ async fn get_pushers(State(state): State<AppState>, auth_user: AuthenticatedUser
 }
 
 async fn set_pusher(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<SetPusherRequest>,
 ) -> Result<Json<Value>, ApiError> {
@@ -149,9 +150,7 @@ async fn set_pusher(
         body.kind.unwrap_or_else(|| if body.data.is_some() { "http".to_string() } else { "null".to_string() });
 
     if kind != "null" {
-        let created_ts: i64 = state
-            .services
-            .core
+        let created_ts: i64 = ctx
             .client_push_service
             .upsert_pusher(synapse_services::client_push_service::UpsertPusherRequest {
                 user_id: auth_user.user_id,
@@ -175,7 +174,7 @@ async fn set_pusher(
         })))
     } else {
         // P2 #32: 删除 pusher 时也限制为当前设备，防止跨设备删除
-        state.services.core.client_push_service.delete_pusher(&auth_user.user_id, &device_id, &body.pushkey).await?;
+        ctx.client_push_service.delete_pusher(&auth_user.user_id, &device_id, &body.pushkey).await?;
 
         Ok(Json(json!({
             "deleted": true,
@@ -184,11 +183,13 @@ async fn set_pusher(
     }
 }
 
-async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedUser) -> Result<Json<Value>, ApiError> {
+async fn get_push_rules(
+    State(ctx): State<AdminContext>,
+    auth_user: AuthenticatedUser,
+) -> Result<Json<Value>, ApiError> {
     use crate::web::routes::push_rules::{default_push_rules_for_user, merge_default_push_rules};
 
-    let row: Option<serde_json::Value> =
-        state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+    let row: Option<serde_json::Value> = ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
     let username: &str = auth_user.user_id.trim_start_matches('@').split(':').next().unwrap_or("");
 
@@ -203,14 +204,14 @@ async fn get_push_rules(State(state): State<AppState>, auth_user: AuthenticatedU
 
 async fn get_push_rules_scope(
     Path(scope): Path<String>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     if scope == "global" {
         let username: &str = auth_user.user_id.strip_prefix('@').and_then(|s| s.split(':').next()).unwrap_or("");
 
         let result: Option<serde_json::Value> =
-            state.services.core.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
+            ctx.client_push_service.get_push_rules_content(&auth_user.user_id).await?;
 
         if let Some(content) = result {
             if let Some(global) = content.get("global") {
@@ -238,11 +239,11 @@ async fn get_push_rules_scope(
 
 async fn get_push_rules_kind(
     Path((scope, kind)): Path<(String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let rules: Vec<serde_json::Value> =
-        state.services.core.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+        ctx.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
     Ok(Json(json!({
         kind: rules
     })))
@@ -250,11 +251,11 @@ async fn get_push_rules_kind(
 
 async fn get_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
     let rules: Vec<serde_json::Value> =
-        state.services.core.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
+        ctx.client_push_service.get_user_push_rules(&auth_user.user_id, &scope, &kind).await?;
 
     let rule: Option<&serde_json::Value> =
         rules.iter().find(|r| r.get("rule_id").and_then(|v| v.as_str()) == Some(&rule_id));
@@ -267,7 +268,7 @@ async fn get_push_rule(
 
 async fn set_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -275,9 +276,7 @@ async fn set_push_rule(
     let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
     let pattern: Option<String> = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let created_ts: i64 = state
-        .services
-        .core
+    let created_ts: i64 = ctx
         .client_push_service
         .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
@@ -300,7 +299,7 @@ async fn set_push_rule(
 
 async fn create_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
@@ -308,9 +307,7 @@ async fn create_push_rule(
     let conditions: Option<serde_json::Value> = body.get("conditions").cloned();
     let pattern: Option<String> = body.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let created_ts: i64 = state
-        .services
-        .core
+    let created_ts: i64 = ctx
         .client_push_service
         .upsert_push_rule(synapse_services::client_push_service::UpsertPushRuleRequest {
             user_id: auth_user.user_id,
@@ -333,11 +330,10 @@ async fn create_push_rule(
 
 async fn delete_push_rule(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let deleted: bool =
-        state.services.core.client_push_service.delete_push_rule(&auth_user.user_id, &scope, &kind, &rule_id).await?;
+    let deleted: bool = ctx.client_push_service.delete_push_rule(&auth_user.user_id, &scope, &kind, &rule_id).await?;
 
     if !deleted {
         return Err(ApiError::not_found("Push rule not found".to_string()));
@@ -348,19 +344,14 @@ async fn delete_push_rule(
 
 async fn set_push_rule_actions(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let actions: serde_json::Value =
         if body.is_array() { body } else { body.get("actions").cloned().unwrap_or(json!([])) };
 
-    state
-        .services
-        .core
-        .client_push_service
-        .set_push_rule_actions(&auth_user.user_id, &scope, &kind, &rule_id, &actions)
-        .await?;
+    ctx.client_push_service.set_push_rule_actions(&auth_user.user_id, &scope, &kind, &rule_id, &actions).await?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -371,15 +362,11 @@ async fn set_push_rule_actions(
 
 async fn get_push_rule_enabled(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let result: Option<bool> = state
-        .services
-        .core
-        .client_push_service
-        .get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id)
-        .await?;
+    let result: Option<bool> =
+        ctx.client_push_service.get_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id).await?;
 
     match result {
         Some(enabled) => Ok(Json(json!({
@@ -391,18 +378,13 @@ async fn get_push_rule_enabled(
 
 async fn set_push_rule_enabled(
     Path((scope, kind, rule_id)): Path<(String, String, String)>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let enabled: bool = body.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
 
-    state
-        .services
-        .core
-        .client_push_service
-        .set_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id, enabled)
-        .await?;
+    ctx.client_push_service.set_push_rule_enabled(&auth_user.user_id, &scope, &kind, &rule_id, enabled).await?;
 
     Ok(Json(json!({
         "rule_id": rule_id,
@@ -412,14 +394,14 @@ async fn set_push_rule_enabled(
 }
 
 async fn get_notifications(
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
     let limit: i64 = params.get("limit").and_then(|v| v.parse().ok()).unwrap_or(100);
 
     let notifications_list: Vec<serde_json::Value> =
-        state.services.core.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
+        ctx.client_push_service.get_notifications(&auth_user.user_id, limit).await?;
 
     Ok(Json(json!({
         "notifications": notifications_list,
@@ -429,11 +411,10 @@ async fn get_notifications(
 
 async fn ack_notification(
     Path(notification_id): Path<i64>,
-    State(state): State<AppState>,
+    State(ctx): State<AdminContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    let success: bool =
-        state.services.core.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
+    let success: bool = ctx.client_push_service.ack_notification(notification_id, &auth_user.user_id).await?;
 
     if success {
         Ok(Json(json!({

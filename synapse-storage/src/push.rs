@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 /// Trait abstraction over [`PushStorage`] for testability and service wiring.
 #[async_trait]
-pub trait PushStoreApi {
+pub trait PushStoreApi: Send + Sync {
     async fn get_pushers(
         &self,
         user_id: &str,

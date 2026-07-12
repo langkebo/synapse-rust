@@ -104,7 +104,7 @@ fn map_admin_register_service_error(error: ApiError) -> Response<Body> {
 
 fn extract_registration_client_ip(headers: &HeaderMap) -> Option<String> {
     let priority = vec!["x-forwarded-for".to_string(), "x-real-ip".to_string(), "forwarded".to_string()];
-    extract_client_ip(headers, &priority)
+    extract_client_ip(headers, &priority, None, &[])
 }
 
 fn runtime_environment() -> String {
