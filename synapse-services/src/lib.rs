@@ -112,6 +112,7 @@ pub use media_service::{MediaService, ThumbnailConfig, ThumbnailMethod, Thumbnai
 pub use oidc_service::OidcService;
 pub use push::service::{NotificationPayload, PushNotificationService, PushRuleResult, SendNotificationRequest}; // push notification service types
 pub use registration_service::RegistrationService; // registration service types
+pub use room::api_trait::RoomServiceApi;
 pub use room::service::{CreateRoomConfig, RoomService, RoomServiceConfig}; // RoomService and room config types
 pub use room::space::SpaceService; // SpaceService
 pub use room::summary::{
@@ -128,7 +129,7 @@ pub use sync_service::{
     BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
     LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
     StateEventsBatchParams, SyncEventFormat, SyncFilter, SyncPerformanceSnapshot, SyncRequest, SyncResponseFilter,
-    SyncRoomSection, SyncService, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
+    SyncRoomSection, SyncService, SyncServiceApi, SyncServiceDeps, SyncServiceRequest, SyncState, SyncToken,
 }; // sync service types
 pub use typing_service::{TypingService, TypingUser}; // typing service types
 

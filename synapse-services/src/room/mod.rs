@@ -10,6 +10,7 @@
 //   pub use room::summary as room_summary_service;
 //   pub use room::space as space_service;
 
+pub mod api_trait;
 pub mod backfill;
 pub mod infrastructure;
 pub mod lifecycle;
@@ -24,3 +25,5 @@ pub mod state;
 pub use state::service::RoomStateService;
 pub mod summary;
 pub mod utils;
+
+pub use api_trait::RoomServiceApi;

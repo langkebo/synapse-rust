@@ -17,8 +17,8 @@ pub struct RoomSyncServices {
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
     #[cfg(feature = "beacons")]
     pub beacon_service: Arc<crate::beacon_service::BeaconService>,
-    pub room_service: Arc<crate::room_service::RoomService>,
-    pub sync_service: Arc<crate::sync_service::SyncService>,
+    pub room_service: Arc<dyn crate::room::RoomServiceApi>,
+    pub sync_service: Arc<dyn crate::sync_service::SyncServiceApi>,
     pub sliding_sync_service: Arc<crate::sliding_sync_service::SlidingSyncService>,
     pub typing_service: Arc<crate::typing_service::TypingService>,
     pub space_storage: Arc<dyn synapse_storage::space::SpaceStoreApi>,

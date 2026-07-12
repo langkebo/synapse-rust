@@ -9,7 +9,6 @@ pub use models::{
     FriendRoomCreateRoomConfig, FriendRoomService,
 };
 
-use crate::RoomService;
 use serde_json::{json, Map, Value};
 
 use std::cmp::Ordering;
@@ -29,7 +28,7 @@ impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
-        room_service: Arc<RoomService>,
+        room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
@@ -53,7 +52,7 @@ impl FriendRoomService {
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_dependencies(
         friend_storage: Arc<dyn synapse_storage::friend_room::FriendRoomStoreApi>,
-        room_service: Arc<RoomService>,
+        room_service: Arc<dyn crate::room::RoomServiceApi>,
         user_storage: Arc<dyn UserStore>,
         presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
@@ -103,7 +102,7 @@ impl FriendRoomService {
             ..Default::default()
         };
 
-        let response = self.room_service.lifecycle.create_room(user_id, config.into()).await?;
+        let response = self.room_service.lifecycle().create_room(user_id, config.into()).await?;
         let room_id = response
             .get("room_id")
             .and_then(|v| v.as_str())
@@ -732,7 +731,7 @@ impl FriendRoomService {
 
         let result = self
             .room_service
-            .lifecycle
+            .lifecycle()
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -769,7 +768,7 @@ impl FriendRoomService {
 
         let response = self
             .room_service
-            .lifecycle
+            .lifecycle()
             .create_room(owner_user_id, config.into())
             .await
             .map_err(|e| ApiError::internal(e.to_string()))?;
@@ -984,7 +983,7 @@ impl FriendRoomService {
     ) -> ApiResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
         self.room_service
-            .messaging
+            .messaging()
             .create_event(
                 CreateEventParams {
                     event_id: generate_event_id(&self.server_name),

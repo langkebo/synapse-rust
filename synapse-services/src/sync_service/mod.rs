@@ -1,4 +1,5 @@
 mod api;
+mod api_trait;
 mod data_fetch;
 mod event_fetch;
 mod filter;
@@ -9,6 +10,7 @@ mod response;
 #[cfg(test)]
 mod tests;
 mod types;
+pub use api_trait::SyncServiceApi;
 pub use types::{
     BuildRoomSyncRequest, BuildRoomSyncValueRequest, BuildSyncResponseRequest, FetchEventsRequest, IncrementalUpdate,
     LazyLoadMembersRequest, LazyLoadedMembersCacheKey, RoomFilter, RoomSyncCounts, RoomSyncState,
