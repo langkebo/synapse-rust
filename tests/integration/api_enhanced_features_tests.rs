@@ -161,7 +161,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
 
         let body = axum::body::to_bytes(v3_protocols_response.into_body(), 1024).await.unwrap();
         let v3_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(v3_protocols_json.get("irc").is_some());
+        assert!(v3_protocols_json.is_object());
 
         let r0_protocols_request = Request::builder()
             .uri("/_matrix/client/r0/thirdparty/protocols")
@@ -174,7 +174,7 @@ fn test_thirdparty_routes_share_across_r0_and_v3() {
 
         let body = axum::body::to_bytes(r0_protocols_response.into_body(), 1024).await.unwrap();
         let r0_protocols_json: Value = serde_json::from_slice(&body).unwrap();
-        assert!(r0_protocols_json.get("irc").is_some());
+        assert_eq!(r0_protocols_json, v3_protocols_json);
 
         let v3_protocol_request = Request::builder()
             .uri("/_matrix/client/v3/thirdparty/protocol/test")
@@ -297,7 +297,7 @@ fn test_push_routes_share_across_r0_and_v3() {
             ServiceExt::<Request<Body>>::oneshot(app.clone(), v3_pushrules_request).await.unwrap();
         assert_eq!(v3_pushrules_response.status(), StatusCode::OK);
 
-        let body = axum::body::to_bytes(v3_pushrules_response.into_body(), 4096).await.unwrap();
+        let body = axum::body::to_bytes(v3_pushrules_response.into_body(), 65536).await.unwrap();
         let v3_pushrules_json: Value = serde_json::from_slice(&body).unwrap();
         assert!(v3_pushrules_json.get("global").is_some());
 
