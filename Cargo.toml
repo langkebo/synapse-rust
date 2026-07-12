@@ -187,6 +187,10 @@ incremental = false
 inherits = "release"
 debug = true
 
+[[bin]]
+name = "bench_harness"
+path = "scripts/bench_harness.rs"
+
 [[bench]]
 name = "performance_api_benchmarks"
 path = "benches/performance_api_benchmarks.rs"

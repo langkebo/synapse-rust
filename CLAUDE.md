@@ -120,6 +120,27 @@ Key routing rules:
 - Author a backlog-ready spec/issue → invoke /spec
 - TDD/test-first development → invoke /tdd-rust
 
+## gstack
+Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
+Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review,
+/design-consultation, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse,
+/qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro,
+/investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard,
+/unfreeze, /gstack-upgrade
+
+## superpowers
+Available commands: /superpowers:brainstorm, /superpowers:write-plan, /superpowers:execute-plan.
+Skills auto-activate on context: brainstorming, writing-plans, executing-plans,
+test-driven-development, systematic-debugging, subagent-driven-development,
+verification-before-completion, using-git-worktrees, finishing-a-development-branch,
+requesting-code-review, receiving-code-review, dispatching-parallel-agents.
+
+## audit workspace convention
+All review reports go to docs/audit/NN_<name>.md (NN = 01..13).
+Audit branch naming: optimization/audit-YYYY-MM.
+Baseline files: docs/audit/00_test_baseline.log, docs/audit/00_clippy_baseline.log,
+docs/audit/05_performance_baseline.log, docs/audit/11_performance_after.log.
+
 ## TDD Workflow
 
 This project follows Red-Green-Refactor TDD. Before implementing any new behavior or fixing a bug, consult:
