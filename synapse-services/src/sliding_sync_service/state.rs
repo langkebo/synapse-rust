@@ -1,9 +1,10 @@
-use serde_json::{json, Value};
+use serde_json::Value;
 use synapse_common::error::ApiError;
 use synapse_storage::sliding_sync::{AdminRoomTokenSyncEntry, RoomTokenSyncCursor};
 use synapse_storage::StateEvent;
 
 use super::SlidingSyncService;
+use crate::sync_helpers;
 
 impl SlidingSyncService {
     pub(super) async fn build_required_state_events(
@@ -19,7 +20,7 @@ impl SlidingSyncService {
         Ok(state_events
             .into_iter()
             .filter(|event| Self::required_state_matches(required_state, event))
-            .map(|event| Self::state_event_to_json(&event))
+            .map(|event| sync_helpers::state_event_to_json(&event))
             .collect())
     }
 
@@ -31,28 +32,6 @@ impl SlidingSyncService {
             let state_key_match = entry.get(1).is_some_and(|value| value == "*" || value == state_key);
             event_type_match && state_key_match
         })
-    }
-
-    pub(crate) fn state_event_to_json(event: &StateEvent) -> Value {
-        let now = chrono::Utc::now().timestamp_millis();
-        let age = now.saturating_sub(event.origin_server_ts);
-        let sender = event.user_id.as_deref().unwrap_or(&event.sender);
-        let event_type = event.event_type.as_deref().unwrap_or("m.room.message");
-        let mut obj = json!({
-            "type": event_type,
-            "content": event.content,
-            "sender": sender,
-            "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "unsigned": {
-                "age": age
-            }
-        });
-        if let Some(state_key) = &event.state_key {
-            obj["state_key"] = json!(state_key);
-        }
-        obj
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -364,52 +364,16 @@ impl SyncService {
     }
 
     pub(crate) fn event_to_json(event: &RoomEvent, event_format: SyncEventFormat) -> Value {
-        let now = chrono::Utc::now().timestamp_millis();
-        let age = now.saturating_sub(event.origin_server_ts);
-
-        let mut obj = json!({
-            "type": event.event_type,
-            "content": event.content,
-            "sender": event.user_id,
-            "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "unsigned": {
-                "age": age
-            }
-        });
-
-        if let Some(ref state_key) = event.state_key {
-            obj["state_key"] = json!(state_key);
-        }
-
+        let mut obj = crate::sync_helpers::room_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
             obj["depth"] = json!(event.depth);
             obj["origin"] = json!(event.origin);
         }
-
         obj
     }
 
     pub(crate) fn state_event_to_json(event: &StateEvent, event_format: SyncEventFormat) -> Value {
-        let now = chrono::Utc::now().timestamp_millis();
-        let sender = event.user_id.as_deref().unwrap_or(&event.sender);
-        let age = now.saturating_sub(event.origin_server_ts);
-        let event_type = event.event_type.as_deref().unwrap_or("m.room.message");
-        let mut obj = json!({
-            "type": event_type,
-            "content": event.content,
-            "sender": sender,
-            "origin_server_ts": event.origin_server_ts,
-            "event_id": event.event_id,
-            "room_id": event.room_id,
-            "unsigned": {
-                "age": age
-            }
-        });
-        if let Some(ref state_key) = event.state_key {
-            obj["state_key"] = json!(state_key);
-        }
+        let mut obj = crate::sync_helpers::state_event_to_json(event);
         if event_format == SyncEventFormat::Federation {
             obj["depth"] = json!(event.depth);
             obj["origin"] = json!(event.origin);

@@ -63,6 +63,7 @@ pub mod room;
 pub mod search_service;
 pub mod sliding_sync_service;
 pub mod sms_provider;
+pub mod sync_helpers;
 pub mod sync_service;
 pub mod telemetry_service;
 pub mod thread_service;

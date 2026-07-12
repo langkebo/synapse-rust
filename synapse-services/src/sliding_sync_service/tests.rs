@@ -332,7 +332,7 @@ fn build_incremental_ops_same_rooms_no_ops() {
 #[test]
 fn state_event_to_json_includes_all_fields() {
     let event = make_state_event(Some("m.room.name"), Some(""));
-    let json = SlidingSyncService::state_event_to_json(&event);
+    let json = crate::sync_helpers::state_event_to_json(&event);
     assert_eq!(json["type"], "m.room.name");
     assert_eq!(json["event_id"], "ev1");
     assert_eq!(json["room_id"], "!r:ex.com");
@@ -342,7 +342,7 @@ fn state_event_to_json_includes_all_fields() {
 #[test]
 fn state_event_to_json_includes_state_key() {
     let event = make_state_event(Some("m.room.member"), Some("@alice:ex.com"));
-    let json = SlidingSyncService::state_event_to_json(&event);
+    let json = crate::sync_helpers::state_event_to_json(&event);
     assert_eq!(json["state_key"], "@alice:ex.com");
 }
 
@@ -491,14 +491,14 @@ fn room_to_json_none_name_and_avatar() {
 #[test]
 fn state_event_to_json_none_event_type_defaults_to_message() {
     let event = make_state_event(None, Some(""));
-    let json = SlidingSyncService::state_event_to_json(&event);
+    let json = crate::sync_helpers::state_event_to_json(&event);
     assert_eq!(json["type"], "m.room.message");
 }
 
 #[test]
 fn state_event_to_json_none_state_key_no_field() {
     let event = make_state_event(Some("m.room.name"), None);
-    let json = SlidingSyncService::state_event_to_json(&event);
+    let json = crate::sync_helpers::state_event_to_json(&event);
     assert!(json.get("state_key").is_none());
 }
 
