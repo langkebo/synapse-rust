@@ -1,6 +1,6 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::AdminContext;
-use crate::web::routes::room_access::{ensure_room_member_strict_admin, is_joined_room_member_admin};
+use crate::web::routes::room_access::ensure_room_member_strict_admin;
 use crate::web::routes::{AppState, AuthenticatedUser};
 use axum::{
     extract::{Path, State},
@@ -401,7 +401,8 @@ async fn get_widget_with_access(
     }
 
     if let Some(room_id) = widget.room_id.as_deref() {
-        let is_member = is_joined_room_member_admin(ctx, &auth_user.user_id, room_id).await?;
+        ensure_room_member_strict_admin(ctx, auth_user, room_id, "You must be a room member to access this widget").await?;
+        let is_member = true;
         if is_member && required_permission == "read" {
             return Ok(widget);
         }
