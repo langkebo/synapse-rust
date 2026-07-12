@@ -8,7 +8,7 @@ use serde_json::json;
 use std::str::FromStr;
 use std::sync::Arc;
 use synapse_cache::CacheManager;
-use synapse_common::{JoinRule, Membership};
+use synapse_common::{is_legal, JoinRule, Membership, TransitionCtx};
 use synapse_federation::client_api::FederationClientApi;
 use synapse_federation::key_rotation::SigningKey;
 use synapse_federation::signing::sign_and_hash_event;
@@ -273,6 +273,42 @@ impl MembershipService {
         Ok(JoinRule::from_str(&raw).unwrap_or(JoinRule::Invite))
     }
 
+    /// Authorize an inbound federation `m.room.member` transition against our
+    /// current room state — closes AUDIT-2026-07 S5 gap 2, where inbound member
+    /// events skipped the transition table the client path enforces.
+    ///
+    /// Deliberately narrow to avoid rejecting legitimate backfilled state:
+    /// - `leave` (leave / kick / unban) is accepted idempotently.
+    /// - Power-level authorization is validated via the event's auth-event
+    ///   chain elsewhere, not here, so power is delegated (state-only ctx).
+    /// - For joins, join-rule authorization is deferred to the resident server
+    ///   that signed the join, so a permissive rule is used; only the ban
+    ///   dimension is enforced locally (a banned user cannot re-join).
+    /// - For knocks, the room's real join rule is enforced (the room must
+    ///   actually allow knocking).
+    ///
+    /// Fails closed on illegal transitions (banned re-join, invite of a banned
+    /// user, self-ban, already-joined re-invite, knock into a non-knock room).
+    pub async fn authorize_inbound_member_transition(
+        &self,
+        room_id: &str,
+        sender: &str,
+        target: &str,
+        to: Membership,
+    ) -> ApiResult<()> {
+        if to == Membership::Leave {
+            return Ok(());
+        }
+        let (from, target_is_banned) = self.resolve_membership_from(room_id, target).await?;
+        let join_rule = if to == Membership::Knock {
+            self.resolve_join_rule(room_id).await?
+        } else {
+            JoinRule::Public
+        };
+        let ctx = TransitionCtx::state_only(join_rule, sender == target, target_is_banned, /* restricted */ true);
+        is_legal(from, to, &ctx).map_err(ApiError::from)
+    }
+
     /// Sign a locally-produced event and broadcast it to all remote servers
     /// that have joined members in the room.
     ///
@@ -413,5 +449,94 @@ mod tests {
     #[test]
     fn is_remote_id_false_for_empty_id() {
         assert!(!MembershipService::is_remote_id("", "myserver.com"));
+    }
+
+    // ── authorize_inbound_member_transition (federation S5 gap 2) ──────
+
+    use std::sync::Arc as StdArc;
+    use synapse_cache::{CacheConfig, CacheManager};
+    use synapse_storage::test_mocks::room_summary::InMemoryRoomSummaryStore;
+    use synapse_storage::test_mocks::{FakeUserStore, InMemoryEventStore, InMemoryMemberStore, InMemoryRoomStore};
+    use synapse_storage::{EventStoreApi, MemberStoreApi, RoomStoreApi, UserStore};
+
+    use crate::room::summary::RoomSummaryService;
+    use crate::test_mocks::FakeAuth;
+
+    const ROOM: &str = "!fed:localhost";
+
+    /// Build a [`MembershipService`] over in-memory stores, seeding a public
+    /// room and any given `(user, membership)` members.
+    async fn inbound_service(members: &[(&str, &str)]) -> MembershipService {
+        let member_store = InMemoryMemberStore::new();
+        for (user, membership) in members {
+            member_store.add_member(ROOM, user, membership, None).await.unwrap();
+        }
+
+        let room_store = InMemoryRoomStore::new();
+        room_store.create_room(ROOM, "@creator:localhost", "public", "10", true).await.unwrap();
+
+        let event_storage: StdArc<dyn EventStoreApi> = StdArc::new(InMemoryEventStore::new());
+        let member_storage: StdArc<dyn MemberStoreApi> = StdArc::new(member_store);
+        let room_storage: StdArc<dyn RoomStoreApi> = StdArc::new(room_store);
+        let user_storage: StdArc<dyn UserStore> = StdArc::new(FakeUserStore::new());
+
+        let room_summary_service = StdArc::new(RoomSummaryService::new(
+            StdArc::new(InMemoryRoomSummaryStore::new()),
+            event_storage.clone(),
+            Some(member_storage.clone()),
+        ));
+
+        MembershipService::new(MembershipServiceConfig {
+            member_storage,
+            room_storage,
+            event_storage,
+            user_storage,
+            auth_service: StdArc::new(FakeAuth::new()),
+            server_name: "localhost".to_string(),
+            federation_client: None,
+            key_rotation_manager: None,
+            event_broadcaster: None,
+            room_summary_service,
+            cache: StdArc::new(CacheManager::new(&CacheConfig::default())),
+            key_rotation_storage: None,
+            app_service_manager: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn inbound_clean_join_is_allowed() {
+        let svc = inbound_service(&[]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_ok(), "clean join should be allowed: {r:?}");
+    }
+
+    #[tokio::test]
+    async fn inbound_banned_user_rejoin_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "ban")]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Join).await;
+        assert!(r.is_err(), "banned user re-join must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_invite_of_banned_user_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "ban")]).await;
+        let r =
+            svc.authorize_inbound_member_transition(ROOM, "@admin:remote", "@bob:remote", Membership::Invite).await;
+        assert!(r.is_err(), "inviting a banned user must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_self_ban_is_rejected() {
+        let svc = inbound_service(&[("@bob:remote", "join")]).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@bob:remote", "@bob:remote", Membership::Ban).await;
+        assert!(r.is_err(), "self-ban must be rejected");
+    }
+
+    #[tokio::test]
+    async fn inbound_leave_is_always_accepted() {
+        let svc = inbound_service(&[]).await;
+        // Even for a user with no local membership record, leave is idempotent.
+        let r = svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
+        assert!(r.is_ok(), "leave should be accepted idempotently: {r:?}");
     }
 }
