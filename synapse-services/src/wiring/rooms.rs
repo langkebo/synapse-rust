@@ -41,6 +41,7 @@ impl RoomSyncServices {
         app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
         key_rotation_manager: Arc<synapse_federation::KeyRotationManager>,
         federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
+        sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
@@ -85,6 +86,7 @@ impl RoomSyncServices {
             beacon_service: Some(beacon_service.clone()),
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
+            sticky_event_storage,
         }));
 
         let sync_room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);

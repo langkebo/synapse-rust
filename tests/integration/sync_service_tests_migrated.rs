@@ -21,6 +21,7 @@ use synapse_storage::membership::RoomMemberStorage;
 use synapse_storage::relations::RelationsStorage;
 use synapse_storage::room::RoomStorage;
 use synapse_storage::room_summary::RoomSummaryStorage;
+use synapse_storage::sticky_event::StickyEventStorage;
 use synapse_storage::user::UserStorage;
 use synapse_storage::user::UserStore;
 use synapse_storage::PresenceStorage;
@@ -357,6 +358,7 @@ fn create_room_service(
         key_rotation_manager: None,
         federation_client: None,
         beacon_service: None,
+        sticky_event_storage: Arc::new(StickyEventStorage::new(pool.clone())),
     })
 }
 

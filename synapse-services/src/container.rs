@@ -261,6 +261,7 @@ impl ServiceContainer {
             admin.modules.app_service_manager.clone(),
             Arc::new(federation.key_rotation_manager.clone()),
             federation.federation_client.clone(),
+            storage.sticky_event_storage.clone(),
         )
         .await;
 

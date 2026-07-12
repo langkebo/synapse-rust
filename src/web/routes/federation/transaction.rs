@@ -336,7 +336,7 @@ pub(super) async fn send_transaction(
                         .unwrap_or(None);
                     let from_state = current
                         .as_deref()
-                        .and_then(|m| synapse_services::room::membership::transition::MembershipState::parse_opt(m));
+                        .and_then(synapse_services::room::membership::transition::MembershipState::parse_opt);
                     let transition_ctx = synapse_services::room::membership::transition::TransitionContext::default();
                     if let Err(msg) =
                         synapse_services::room::membership::transition::is_legal(from_state, to_state, &transition_ctx)

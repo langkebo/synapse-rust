@@ -933,11 +933,7 @@ async fn search_recipients(
         return Err(ApiError::rate_limited("Too many recipient search requests"));
     }
 
-    let users = ctx
-        .user_storage
-        .search_directory_users(search_term, limit, false)
-        .await
-        .map_err(|e| ApiError::internal_with_log("Search failed", &e))?;
+    let users = ctx.account_identity_service.search_directory_users(search_term, limit, false).await?;
 
     let mut results = Vec::new();
     let target_user_ids: Vec<String> = users.iter().map(|r| r.user_id.clone()).collect();

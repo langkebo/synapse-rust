@@ -57,7 +57,6 @@ pub struct RoomContext {
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub config: synapse_common::config::Config,
     pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
-    pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
     pub push_notification_service: Arc<synapse_services::push_notification_service::PushNotificationService>,
@@ -76,7 +75,6 @@ pub struct RoomContext {
     pub voice_service: Arc<synapse_services::voice_service::VoiceService>,
     pub ssss_service: synapse_e2ee::ssss::SecretStorageService,
     pub dehydrated_device_service: Arc<synapse_services::dehydrated_device_service::DehydratedDeviceService>,
-    pub sticky_event_storage: Arc<dyn synapse_storage::sticky_event::StickyEventStoreApi>,
     #[cfg(feature = "burn-after-read")]
     pub burn_after_read: Arc<synapse_services::burn_after_read_service::BurnAfterReadService>,
 }
@@ -101,7 +99,6 @@ impl FromRef<AppState> for RoomContext {
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             config: state.services.core.config.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
-            user_storage: state.services.account.user_storage.clone(),
             account_identity_service: state.services.account.account_identity_service.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
             push_notification_service: state.services.admin.modules.push_notification_service.clone(),
@@ -120,7 +117,6 @@ impl FromRef<AppState> for RoomContext {
             voice_service: Arc::new(state.services.extensions.voice_service.clone()),
             ssss_service: state.services.e2ee.ssss_service.clone(),
             dehydrated_device_service: Arc::new(state.services.e2ee.dehydrated_device_service.clone()),
-            sticky_event_storage: state.services.account.sticky_event_storage.clone(),
             #[cfg(feature = "burn-after-read")]
             burn_after_read: state.services.extensions.burn_after_read.clone(),
         }

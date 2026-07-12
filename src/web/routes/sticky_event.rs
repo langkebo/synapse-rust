@@ -46,7 +46,7 @@ pub async fn get_sticky_events(
     // If specific event_type is requested
     if let Some(event_type) = query.event_type {
         let sticky_event: Option<synapse_storage::sticky_event::StickyEvent> = ctx
-            .sticky_event_storage
+            .room_service
             .get_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky event", &e))?;
@@ -67,7 +67,7 @@ pub async fn get_sticky_events(
     } else {
         // Get all sticky events
         let sticky_events: Vec<synapse_storage::sticky_event::StickyEvent> = ctx
-            .sticky_event_storage
+            .room_service
             .get_all_is_sticky_events(&room_id, &auth_user.user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to get sticky events", &e))?;
@@ -122,7 +122,7 @@ pub async fn set_sticky_events(
         let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
 
         // Set the sticky event
-        ctx.sticky_event_storage
+        ctx.room_service
             .set_is_sticky_event(&room_id, &auth_user.user_id, stored_event_id, event_type, true)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to set sticky event", &e))?;
@@ -141,7 +141,7 @@ pub async fn clear_sticky_event(
     validate_room_id(&room_id)?;
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
-    ctx.sticky_event_storage
+    ctx.room_service
         .clear_is_sticky_event(&room_id, &auth_user.user_id, &event_type)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to clear sticky event", &e))?;
