@@ -372,7 +372,7 @@ fn test_is_transaction_ready_to_retry_respects_backoff_window() {
         txn_id: "txn".to_string(),
         transaction_id: Some("txn".to_string()),
         events: serde_json::json!([]),
-        sent_ts: 1_000,
+        sent_ts: Some(1_000),
         completed_ts: None,
         retry_count: 2,
         last_error: Some("boom".to_string()),
