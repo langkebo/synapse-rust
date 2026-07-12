@@ -182,7 +182,7 @@ fn check_join(from: Option<Membership>, ctx: &TransitionCtx) -> Result<(), Trans
     }
     match from {
         Some(Membership::Ban) => Err(TransitionError::Banned),
-        Some(Membership::Join) => Ok(()), // idempotent / profile update
+        Some(Membership::Join) => Ok(()),   // idempotent / profile update
         Some(Membership::Invite) => Ok(()), // accept invite (valid under any join rule)
         from => match ctx.join_rule {
             JoinRule::Public => Ok(()),
@@ -207,7 +207,7 @@ fn check_invite(from: Option<Membership>, ctx: &TransitionCtx) -> Result<(), Tra
     match from {
         Some(Membership::Ban) => Err(TransitionError::TargetBanned),
         Some(Membership::Join) => Err(TransitionError::InvalidTransition), // already joined
-        Some(Membership::Invite) => Ok(()),                               // idempotent re-invite
+        Some(Membership::Invite) => Ok(()),                                // idempotent re-invite
         // None / Leave / Knock: invite is valid (knock -> invite == accept knock)
         _ => Ok(()),
     }
@@ -273,8 +273,8 @@ fn check_knock(from: Option<Membership>, ctx: &TransitionCtx) -> Result<(), Tran
     }
     match from {
         Some(Membership::Ban) => Err(TransitionError::Banned),
-        Some(Membership::Knock) => Ok(()),          // idempotent
-        None | Some(Membership::Leave) => Ok(()),   // may knock
+        Some(Membership::Knock) => Ok(()),        // idempotent
+        None | Some(Membership::Leave) => Ok(()), // may knock
         // Already invited or joined: knocking is meaningless.
         Some(Membership::Invite) | Some(Membership::Join) => Err(TransitionError::InvalidTransition),
     }
@@ -373,10 +373,7 @@ mod tests {
     #[test]
     fn invite_already_joined_is_illegal() {
         let c = TransitionCtx { actor_is_target: false, ..ctx() };
-        assert_eq!(
-            is_legal(Some(Membership::Join), Membership::Invite, &c),
-            Err(TransitionError::InvalidTransition)
-        );
+        assert_eq!(is_legal(Some(Membership::Join), Membership::Invite, &c), Err(TransitionError::InvalidTransition));
     }
 
     #[test]
@@ -403,10 +400,7 @@ mod tests {
 
     #[test]
     fn self_unban_via_leave_is_illegal() {
-        assert_eq!(
-            is_legal(Some(Membership::Ban), Membership::Leave, &ctx()),
-            Err(TransitionError::InvalidTransition)
-        );
+        assert_eq!(is_legal(Some(Membership::Ban), Membership::Leave, &ctx()), Err(TransitionError::InvalidTransition));
     }
 
     #[test]
@@ -436,10 +430,7 @@ mod tests {
     #[test]
     fn kick_creator_is_rejected() {
         let c = TransitionCtx { actor_is_target: false, target_is_creator: true, ..ctx() };
-        assert_eq!(
-            is_legal(Some(Membership::Join), Membership::Leave, &c),
-            Err(TransitionError::TargetIsCreator)
-        );
+        assert_eq!(is_legal(Some(Membership::Join), Membership::Leave, &c), Err(TransitionError::TargetIsCreator));
     }
 
     #[test]
@@ -461,17 +452,16 @@ mod tests {
     fn kick_absent_user_is_illegal() {
         let c = TransitionCtx { actor_is_target: false, ..ctx() };
         assert_eq!(is_legal(None, Membership::Leave, &c), Err(TransitionError::InvalidTransition));
-        assert_eq!(
-            is_legal(Some(Membership::Leave), Membership::Leave, &c),
-            Err(TransitionError::InvalidTransition)
-        );
+        assert_eq!(is_legal(Some(Membership::Leave), Membership::Leave, &c), Err(TransitionError::InvalidTransition));
     }
 
     // ---- ban ----
     #[test]
     fn ban_with_power_is_legal_from_any_state() {
         let c = TransitionCtx { actor_is_target: false, ..ctx() };
-        for from in [None, Some(Membership::Join), Some(Membership::Invite), Some(Membership::Knock), Some(Membership::Leave)] {
+        for from in
+            [None, Some(Membership::Join), Some(Membership::Invite), Some(Membership::Knock), Some(Membership::Leave)]
+        {
             assert_eq!(is_legal(from, Membership::Ban, &c), Ok(()), "ban from {from:?}");
         }
     }
@@ -543,10 +533,7 @@ mod tests {
         assert_eq!(is_legal(Some(Membership::Join), Membership::Ban, &c), Ok(()));
         // ...but the state machine still rejects a self-ban.
         let self_c = TransitionCtx::state_only(JoinRule::Invite, true, false, false);
-        assert_eq!(
-            is_legal(Some(Membership::Join), Membership::Ban, &self_c),
-            Err(TransitionError::InvalidTransition)
-        );
+        assert_eq!(is_legal(Some(Membership::Join), Membership::Ban, &self_c), Err(TransitionError::InvalidTransition));
     }
 
     #[test]

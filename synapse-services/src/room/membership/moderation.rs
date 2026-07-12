@@ -38,7 +38,8 @@ impl MembershipService {
         // State-machine gate: reject inviting a banned/already-joined user.
         // Power was enforced by `can_invite_user` above.
         let (from, target_is_banned) = self.resolve_membership_from(room_id, invitee_id).await?;
-        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
+        let ctx =
+            TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ false, target_is_banned, false);
         is_legal(from, Membership::Invite, &ctx)?;
 
         let member = self
@@ -165,7 +166,8 @@ impl MembershipService {
         // State-machine gate: reject self-ban. Power level and creator
         // protection were enforced by `can_ban_user` above.
         let (from, _) = self.resolve_membership_from(room_id, user_id).await?;
-        let ctx = TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ banned_by == user_id, false, false);
+        let ctx =
+            TransitionCtx::state_only(JoinRule::Invite, /* actor_is_target */ banned_by == user_id, false, false);
         is_legal(from, Membership::Ban, &ctx)?;
 
         self.member_storage
