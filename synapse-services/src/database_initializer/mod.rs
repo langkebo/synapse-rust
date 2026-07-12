@@ -342,7 +342,7 @@ impl DatabaseInitService {
                 checksum TEXT,
                 applied_ts BIGINT,
                 execution_time_ms BIGINT,
-                success BOOLEAN NOT NULL DEFAULT TRUE,
+                is_success BOOLEAN NOT NULL DEFAULT TRUE,
                 description TEXT,
                 executed_at TIMESTAMPTZ DEFAULT NOW(),
                 CONSTRAINT uq_schema_migrations_version UNIQUE (version)
@@ -689,5 +689,40 @@ impl DatabaseInitService {
     #[cfg(feature = "runtime-ddl")]
     async fn step_create_indexes(&self) -> Result<Vec<String>, sqlx::Error> {
         self.schema_validator.create_missing_indexes().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils;
+
+    #[tokio::test]
+    async fn test_schema_migrations_table_has_is_success_column() {
+        // Acquire serialized access to test environment
+        let _guard = test_utils::env_lock_async().await;
+
+        // Create pool to isolated empty schema
+        let pool = test_utils::prepare_empty_isolated_test_pool().await.expect("failed to create isolated test pool");
+
+        // Create the table via the actual function under test
+        let init = DatabaseInitService::new(pool.clone());
+        init.ensure_schema_migrations_table().await.expect("failed to create schema_migrations table");
+
+        // Verify: INSERT and SELECT using is_success (the name Rust queries use)
+        sqlx::query("INSERT INTO schema_migrations (version, is_success) VALUES ($1, $2)")
+            .bind("test_version")
+            .bind(true)
+            .execute(&*pool)
+            .await
+            .expect("INSERT with is_success should work");
+
+        let (success,): (bool,) = sqlx::query_as("SELECT is_success FROM schema_migrations WHERE version = $1")
+            .bind("test_version")
+            .fetch_one(&*pool)
+            .await
+            .expect("SELECT with is_success should work");
+
+        assert!(success, "is_success should be true");
     }
 }
