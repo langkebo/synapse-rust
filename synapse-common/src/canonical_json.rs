@@ -122,6 +122,40 @@ pub fn remove_signatures_and_unsigned(value: &mut Value) {
     }
 }
 
+/// A pre-computed canonical JSON form of a Matrix event.
+///
+/// Caches the result of stripping `signatures` and `unsigned` and computing
+/// `canonical_json` so that repeated signing operations (multi-key, key
+/// rotation) do not re-sort and re-serialize the event.
+#[derive(Debug, Clone)]
+pub struct CanonicalEvent {
+    /// The event with `signatures` and `unsigned` removed.
+    stripped: Value,
+    /// Pre-computed canonical JSON string.
+    canonical: String,
+}
+
+impl CanonicalEvent {
+    /// Build from an event value. Strips `signatures` and `unsigned`, then
+    /// computes the canonical JSON form.
+    pub fn from_event(event: &Value) -> Result<Self, CanonicalJsonError> {
+        let mut stripped = event.clone();
+        remove_signatures_and_unsigned(&mut stripped);
+        let canonical = canonical_json(&stripped)?;
+        Ok(Self { stripped, canonical })
+    }
+
+    /// The canonical JSON bytes (for Ed25519 signing).
+    pub fn canonical_bytes(&self) -> &[u8] {
+        self.canonical.as_bytes()
+    }
+
+    /// The event without `signatures` / `unsigned`.
+    pub fn stripped(&self) -> &Value {
+        &self.stripped
+    }
+}
+
 /// Errors that can occur during canonical JSON serialization.
 #[derive(Debug, thiserror::Error)]
 pub enum CanonicalJsonError {
@@ -490,5 +524,56 @@ mod tests {
         let canonical_a = canonical_json(&json_a).unwrap();
         let canonical_b = canonical_json(&json_b).unwrap();
         assert_eq!(canonical_a, canonical_b, "canonical form must be deterministic");
+    }
+
+    // ── CanonicalEvent ──────────────────────────────────────────────
+
+    #[test]
+    fn canonical_event_strips_signatures_and_unsigned() {
+        let event = serde_json::json!({
+            "event_id": "$ev1",
+            "type": "m.room.message",
+            "content": {"body": "hello"},
+            "signatures": {"server": {"ed25519:1": "sig"}},
+            "unsigned": {"age": 100}
+        });
+        let ce = CanonicalEvent::from_event(&event).unwrap();
+        assert!(ce.stripped().get("signatures").is_none());
+        assert!(ce.stripped().get("unsigned").is_none());
+        assert!(ce.stripped().get("event_id").is_some());
+    }
+
+    #[test]
+    fn canonical_event_caches_canonical_form() {
+        let event = serde_json::json!({
+            "z": 1, "a": 2
+        });
+        let ce = CanonicalEvent::from_event(&event).unwrap();
+        assert_eq!(ce.canonical_bytes(), br#"{"a":2,"z":1}"#);
+    }
+
+    #[test]
+    fn canonical_event_rejects_floats() {
+        let event: Value = serde_json::from_str(r#"{"val": 1.5}"#).unwrap();
+        assert!(CanonicalEvent::from_event(&event).is_err());
+    }
+
+    #[test]
+    fn canonical_event_signing_form_deterministic() {
+        let a = serde_json::json!({
+            "type": "m.room.message",
+            "content": {"body": "test"},
+            "origin": "srv",
+            "signatures": {"old": "x"},
+        });
+        let b = serde_json::json!({
+            "origin": "srv",
+            "type": "m.room.message",
+            "content": {"body": "test"},
+            "signatures": {"old": "x"},
+        });
+        let ce_a = CanonicalEvent::from_event(&a).unwrap();
+        let ce_b = CanonicalEvent::from_event(&b).unwrap();
+        assert_eq!(ce_a.canonical_bytes(), ce_b.canonical_bytes());
     }
 }

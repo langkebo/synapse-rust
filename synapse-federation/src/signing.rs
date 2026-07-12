@@ -3,6 +3,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::Value;
 use synapse_common::canonical_json;
 use synapse_common::secure_compare;
+use synapse_common::CanonicalEvent;
 
 const MAX_PDU_SIZE_BYTES: usize = 65536;
 const MAX_EVENT_KEYS: usize = 100;
@@ -28,14 +29,21 @@ pub fn canonical_federation_request_bytes(
 }
 
 pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value: &mut Value) -> Result<(), String> {
-    let unsigned = {
-        let mut copy = value.clone();
-        if let Some(obj) = copy.as_object_mut() {
-            obj.remove("signatures");
-            obj.remove("unsigned");
-        }
-        canonical_json(&copy).map_err(|e| format!("Canonical JSON error: {e}"))?
-    };
+    let canonical = CanonicalEvent::from_event(value).map_err(|e| format!("Canonical JSON error: {e}"))?;
+    sign_json_with_canonical(server_name, key_id, secret_key_base64, value, &canonical)
+}
+
+/// Sign using a pre-computed [`CanonicalEvent`]. Avoids re-sorting and
+/// re-serializing the event when the canonical form is already known
+/// (e.g. in `sign_and_hash_event` where the content hash was just computed).
+pub fn sign_json_with_canonical(
+    server_name: &str,
+    key_id: &str,
+    secret_key_base64: &str,
+    value: &mut Value,
+    canonical: &synapse_common::CanonicalEvent,
+) -> Result<(), String> {
+    let unsigned = canonical.canonical_bytes();
 
     let secret_bytes: [u8; 32] = base64::engine::general_purpose::STANDARD_NO_PAD
         .decode(secret_key_base64)
@@ -44,7 +52,7 @@ pub fn sign_json(server_name: &str, key_id: &str, secret_key_base64: &str, value
         .map_err(|_| "Secret key must be 32 bytes".to_string())?;
 
     let signing_key = SigningKey::from_bytes(&secret_bytes);
-    let signature = signing_key.sign(unsigned.as_bytes());
+    let signature = signing_key.sign(unsigned);
     let sig_b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(signature.to_bytes());
 
     let signatures = value
@@ -201,8 +209,10 @@ pub fn sign_and_hash_event(
         }
     }
 
-    // 3. Sign the event.
-    sign_json(server_name, key_id, secret_key_base64, event)?;
+    // 3. Compute canonical form once, then sign using the cached form.
+    let canonical =
+        synapse_common::CanonicalEvent::from_event(event).map_err(|e| format!("Canonical JSON error: {e}"))?;
+    sign_json_with_canonical(server_name, key_id, secret_key_base64, event, &canonical)?;
 
     Ok(())
 }

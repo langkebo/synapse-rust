@@ -51,7 +51,9 @@ pub use sanitizer::{create_sanitizer, create_strict_sanitizer, ContentSanitizer,
 
 pub use argon2_config::{Argon2Config, Argon2ConfigError};
 pub use background_job::BackgroundJob;
-pub use canonical_json::{canonical_json, canonical_json_bytes, remove_signatures_and_unsigned, CanonicalJsonError};
+pub use canonical_json::{
+    canonical_json, canonical_json_bytes, remove_signatures_and_unsigned, CanonicalEvent, CanonicalJsonError,
+};
 pub use claims::{Claims, ClaimsBuilder};
 pub use collections::{
     hashmap_with_capacity, hashset_with_capacity, vec_with_capacity, HashMapBuilder, HashSetBuilder, VecBuilder,
