@@ -231,8 +231,7 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
         let from = existing.as_ref().and_then(|m| Membership::from_str(&m.membership).ok());
-        let is_banned =
-            from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
+        let is_banned = from == Some(Membership::Ban) || existing.as_ref().and_then(|m| m.is_banned).unwrap_or(false);
         Ok((from, is_banned))
     }
 
@@ -300,11 +299,7 @@ impl MembershipService {
             return Ok(());
         }
         let (from, target_is_banned) = self.resolve_membership_from(room_id, target).await?;
-        let join_rule = if to == Membership::Knock {
-            self.resolve_join_rule(room_id).await?
-        } else {
-            JoinRule::Public
-        };
+        let join_rule = if to == Membership::Knock { self.resolve_join_rule(room_id).await? } else { JoinRule::Public };
         let ctx = TransitionCtx::state_only(join_rule, sender == target, target_is_banned, /* restricted */ true);
         is_legal(from, to, &ctx).map_err(ApiError::from)
     }
@@ -520,8 +515,7 @@ mod tests {
     #[tokio::test]
     async fn inbound_invite_of_banned_user_is_rejected() {
         let svc = inbound_service(&[("@bob:remote", "ban")]).await;
-        let r =
-            svc.authorize_inbound_member_transition(ROOM, "@admin:remote", "@bob:remote", Membership::Invite).await;
+        let r = svc.authorize_inbound_member_transition(ROOM, "@admin:remote", "@bob:remote", Membership::Invite).await;
         assert!(r.is_err(), "inviting a banned user must be rejected");
     }
 
@@ -536,7 +530,8 @@ mod tests {
     async fn inbound_leave_is_always_accepted() {
         let svc = inbound_service(&[]).await;
         // Even for a user with no local membership record, leave is idempotent.
-        let r = svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
+        let r =
+            svc.authorize_inbound_member_transition(ROOM, "@ghost:remote", "@ghost:remote", Membership::Leave).await;
         assert!(r.is_ok(), "leave should be accepted idempotently: {r:?}");
     }
 }
