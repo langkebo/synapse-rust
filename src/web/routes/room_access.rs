@@ -92,14 +92,6 @@ pub(crate) async fn ensure_room_member_strict_ctx(
 // AdminContext-based helpers — used by handlers migrated to State<AdminContext>.
 // =============================================================================
 
-pub(crate) async fn is_joined_room_member_admin(
-    ctx: &AdminContext,
-    user_id: &str,
-    room_id: &str,
-) -> Result<bool, ApiError> {
-    is_member_via(&ctx.room_service, user_id, room_id).await
-}
-
 pub(crate) async fn ensure_room_member_admin(
     ctx: &AdminContext,
     auth_user: &AuthenticatedUser,
