@@ -305,21 +305,13 @@ impl RedisTaskQueue {
                                                     ("error", e.to_string()),
                                                     ("failed_at", chrono::Utc::now().timestamp_millis().to_string()),
                                                 ];
-                                                let _: Result<(), _> = conn
-                                                    .xadd(
-                                                        "mq:tasks:dead_letter",
-                                                        "*",
-                                                        &dead_letter_payload,
-                                                    )
-                                                    .await;
+                                                let _: Result<(), _> =
+                                                    conn.xadd("mq:tasks:dead_letter", "*", &dead_letter_payload).await;
                                                 // XACK the original message so it won't be
                                                 // re-delivered to another consumer.
                                                 let _: Result<(), _> =
                                                     conn.xack("mq:tasks:default", group_name, &[&stream_id_val]).await;
-                                                tracing::warn!(
-                                                    "Job {} moved to dead letter queue",
-                                                    stream_id_val
-                                                );
+                                                tracing::warn!("Job {} moved to dead letter queue", stream_id_val);
                                             }
                                         }
                                     } else {

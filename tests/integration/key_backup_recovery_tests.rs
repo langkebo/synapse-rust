@@ -29,10 +29,7 @@ async fn recover_rejects_stale_backup_version() {
     let service = KeyBackupService::new(&storage);
 
     // Requesting the stale version (1) while current is 2 must be rejected.
-    let err = service
-        .recover_keys(user_id, "1", None)
-        .await
-        .expect_err("stale version must be rejected");
+    let err = service.recover_keys(user_id, "1", None).await.expect_err("stale version must be rejected");
     assert_eq!(err.code(), &MatrixErrorCode::InvalidParam);
 
     // Requesting the current version (2) recovers fine.

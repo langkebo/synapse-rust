@@ -217,10 +217,8 @@ async fn test_delete_devices_alias_is_shared() {
     let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
     assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
     let body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
-    let session = serde_json::from_slice::<Value>(&body).unwrap()["session"]
-        .as_str()
-        .expect("missing UIA session")
-        .to_string();
+    let session =
+        serde_json::from_slice::<Value>(&body).unwrap()["session"].as_str().expect("missing UIA session").to_string();
 
     // Step 2: resend with auth + session
     let delete_request = Request::builder()
@@ -281,10 +279,8 @@ async fn test_delete_devices_only_removes_current_users_devices() {
     let challenge_response = ServiceExt::<Request<Body>>::oneshot(app.clone(), challenge_request).await.unwrap();
     assert_eq!(challenge_response.status(), StatusCode::UNAUTHORIZED);
     let body = axum::body::to_bytes(challenge_response.into_body(), 4096).await.unwrap();
-    let session = serde_json::from_slice::<Value>(&body).unwrap()["session"]
-        .as_str()
-        .expect("missing UIA session")
-        .to_string();
+    let session =
+        serde_json::from_slice::<Value>(&body).unwrap()["session"].as_str().expect("missing UIA session").to_string();
 
     // Step 2: resend with auth + session
     let delete_request = Request::builder()

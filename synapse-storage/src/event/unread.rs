@@ -11,11 +11,7 @@ use crate::room::RoomUnreadCounts;
 impl EventStorage {
     /// Copy the latest state events from one room into another's
     /// `room_state_events` table.
-    pub async fn copy_room_state(
-        &self,
-        source_room_id: &str,
-        target_room_id: &str,
-    ) -> Result<(), sqlx::Error> {
+    pub async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             r"
             INSERT INTO room_state_events (room_id, type, state_key, content, sender, origin_server_ts)
@@ -41,11 +37,7 @@ impl EventStorage {
     }
 
     /// Get unread notification and highlight counts for a user in a room.
-    pub async fn get_unread_counts(
-        &self,
-        room_id: &str,
-        user_id: &str,
-    ) -> Result<RoomUnreadCounts, sqlx::Error> {
+    pub async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error> {
         let mention_pattern = format!("%{user_id}%");
 
         sqlx::query_as::<_, RoomUnreadCounts>(

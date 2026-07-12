@@ -30,7 +30,14 @@ impl AccountDataService {
         filter_storage: Arc<dyn FilterStoreApi>,
         openid_token_storage: Arc<dyn OpenIdTokenStoreApi>,
     ) -> Self {
-        Self { cache, account_data_storage, user_storage, room_account_data_storage, filter_storage, openid_token_storage }
+        Self {
+            cache,
+            account_data_storage,
+            user_storage,
+            room_account_data_storage,
+            filter_storage,
+            openid_token_storage,
+        }
     }
 
     #[instrument(skip(self))]
@@ -490,10 +497,7 @@ mod tests {
         let service = make_service();
 
         let before = chrono::Utc::now().timestamp_millis();
-        service
-            .set_room_account_data("@a:localhost", "!r:localhost", "m.tag", &json!({}))
-            .await
-            .unwrap();
+        service.set_room_account_data("@a:localhost", "!r:localhost", "m.tag", &json!({})).await.unwrap();
 
         let stored = service
             .get_room_account_data_with_ts("@a:localhost", "!r:localhost", "m.tag")
@@ -502,10 +506,7 @@ mod tests {
             .expect("expected Some after set_room_account_data");
         let ts = stored.1.expect("expected a stored timestamp");
 
-        assert!(
-            ts >= before,
-            "expected a millis timestamp (>= {before}), got {ts} (seconds would be ~1000x smaller)"
-        );
+        assert!(ts >= before, "expected a millis timestamp (>= {before}), got {ts} (seconds would be ~1000x smaller)");
     }
 
     // ── Cache invalidation tests (OPT-015-b, audit 04 §5) ──
@@ -535,16 +536,10 @@ mod tests {
         assert!(before.is_some(), "cache should be pre-seeded");
 
         // Write account data — MUST invalidate the cache
-        service
-            .set_account_data("@u:hs", "m.direct", &json!({"@bob:hs": ["!r:hs"]}))
-            .await
-            .expect("set_account_data");
+        service.set_account_data("@u:hs", "m.direct", &json!({"@bob:hs": ["!r:hs"]})).await.expect("set_account_data");
 
         let after = cache.get::<Vec<serde_json::Value>>(cache_key).await.expect("cache get after set");
-        assert!(
-            after.is_none(),
-            "cache must be invalidated after set_account_data, but still has a value"
-        );
+        assert!(after.is_none(), "cache must be invalidated after set_account_data, but still has a value");
     }
 
     #[tokio::test]
@@ -553,10 +548,7 @@ mod tests {
         let service = make_service_with_cache(cache.clone());
 
         // Pre-seed some account data so the delete succeeds
-        service
-            .set_account_data("@u:hs", "m.direct", &json!({"@bob:hs": ["!r:hs"]}))
-            .await
-            .expect("seed account data");
+        service.set_account_data("@u:hs", "m.direct", &json!({"@bob:hs": ["!r:hs"]})).await.expect("seed account data");
 
         let cache_key = "account_data:@u:hs";
         let seeded = Vec::<serde_json::Value>::new();
@@ -567,15 +559,9 @@ mod tests {
         assert!(before.is_some(), "cache should be pre-seeded");
 
         // Delete account data — MUST invalidate the cache
-        service
-            .delete_account_data("@u:hs", "m.direct")
-            .await
-            .expect("delete_account_data");
+        service.delete_account_data("@u:hs", "m.direct").await.expect("delete_account_data");
 
         let after = cache.get::<Vec<serde_json::Value>>(cache_key).await.expect("cache get after delete");
-        assert!(
-            after.is_none(),
-            "cache must be invalidated after delete_account_data, but still has a value"
-        );
+        assert!(after.is_none(), "cache must be invalidated after delete_account_data, but still has a value");
     }
 }

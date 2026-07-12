@@ -16,13 +16,15 @@ mod sticky_event_integration_suite {
             .execute(pool)
             .await
             .expect("Failed to ensure room row");
-        sqlx::query("INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING")
-            .bind(user_id)
-            .bind(user_id.trim_start_matches('@'))
-            .bind(now)
-            .execute(pool)
-            .await
-            .expect("Failed to ensure user row");
+        sqlx::query(
+            "INSERT INTO users (user_id, username, created_ts) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO NOTHING",
+        )
+        .bind(user_id)
+        .bind(user_id.trim_start_matches('@'))
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("Failed to ensure user row");
     }
 
     #[tokio::test]

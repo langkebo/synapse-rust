@@ -55,8 +55,7 @@ async fn test_key_rotation_initialization() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name)
-        .with_allow_plaintext_signing_keys(true);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     let valid_key = generate_valid_test_key();
     let key_id = format!("ed25519:test_{id}");
@@ -80,8 +79,7 @@ async fn test_should_rotate_keys() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name)
-        .with_allow_plaintext_signing_keys(true);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     let should_rotate_before = manager.should_rotate_keys().await;
     assert!(should_rotate_before, "Should rotate when no keys exist");
@@ -107,8 +105,7 @@ async fn test_load_or_create_key_recovers_missing_signing_key_table() {
 
     let id = unique_id();
     let server_name = format!("test{id}.example.com");
-    let manager = KeyRotationManager::new(&pool, &server_name)
-        .with_allow_plaintext_signing_keys(true);
+    let manager = KeyRotationManager::new(&pool, &server_name).with_allow_plaintext_signing_keys(true);
 
     manager.load_or_create_key().await.expect("Failed to load or create key");
 

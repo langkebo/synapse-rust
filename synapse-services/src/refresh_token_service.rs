@@ -172,7 +172,10 @@ impl RefreshTokenService {
             //      parallel refresh or network retry. Do NOT nuke the family.
             //   2. Actual replay attack (revoked_reason is null or different):
             //      revoke the entire family as before.
-            let current_token = self.storage.get_token(&old_token_hash).await
+            let current_token = self
+                .storage
+                .get_token(&old_token_hash)
+                .await
                 .map_err(|e| ApiError::internal_with_log("Failed to re-read token after CAS miss", &e))?;
 
             if let Some(ref t) = current_token {
@@ -185,7 +188,7 @@ impl RefreshTokenService {
                         "Token already rotated by a concurrent refresh; returning benign error"
                     );
                     return Err(ApiError::unauthorized(
-                        "Refresh token has already been used. Please use the new token."
+                        "Refresh token has already been used. Please use the new token.",
                     ));
                 }
             }

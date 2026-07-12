@@ -2039,25 +2039,22 @@ mod db_tests {
         assert_eq!(device.user_id, user_id);
 
         // Verify device exists in devices table
-        let dev_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&device_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("query devices table");
+        let dev_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2")
+            .bind(&user_id)
+            .bind(&device_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("query devices table");
         assert_eq!(dev_count, 1, "device must exist in devices table (atomic commit)");
 
         // Verify side effects: device_lists_stream row must exist
-        let stream_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM device_lists_stream WHERE user_id = $1 AND device_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&device_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("query device_lists_stream table");
+        let stream_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM device_lists_stream WHERE user_id = $1 AND device_id = $2")
+                .bind(&user_id)
+                .bind(&device_id)
+                .fetch_one(&*pool)
+                .await
+                .expect("query device_lists_stream table");
         assert_eq!(stream_count, 1, "device_lists_stream must have a row (atomic commit)");
     }
 
@@ -2072,27 +2069,19 @@ mod db_tests {
         ensure_test_user(&pool, &user_id).await;
 
         // Create first
-        storage
-            .create_device(&device_id, &user_id, None)
-            .await
-            .expect("create_device should succeed");
+        storage.create_device(&device_id, &user_id, None).await.expect("create_device should succeed");
 
         // Delete
-        let rows = storage
-            .delete_user_device(&user_id, &device_id)
-            .await
-            .expect("delete_user_device should succeed");
+        let rows = storage.delete_user_device(&user_id, &device_id).await.expect("delete_user_device should succeed");
         assert_eq!(rows, 1);
 
         // Verify device is gone
-        let dev_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2",
-        )
-        .bind(&user_id)
-        .bind(&device_id)
-        .fetch_one(&*pool)
-        .await
-        .expect("query devices table");
+        let dev_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM devices WHERE user_id = $1 AND device_id = $2")
+            .bind(&user_id)
+            .bind(&device_id)
+            .fetch_one(&*pool)
+            .await
+            .expect("query devices table");
         assert_eq!(dev_count, 0, "device must be deleted");
 
         // Verify side effects: device_lists_changes must have a "deleted" row

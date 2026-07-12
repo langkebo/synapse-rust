@@ -86,18 +86,13 @@ impl KeyServerMetrics {
         let sig = self.signing_key.sign(canonical.as_bytes());
         let sig_b64 = base64::engine::general_purpose::STANDARD.encode(sig.to_bytes());
         if let Some(obj) = body.as_object_mut() {
-            obj.insert(
-                "signatures".to_string(),
-                json!({ self.server_name.clone(): { key_id: sig_b64 } }),
-            );
+            obj.insert("signatures".to_string(), json!({ self.server_name.clone(): { key_id: sig_b64 } }));
         }
         body
     }
 }
 
-async fn handle_server_keys(
-    metrics: axum::extract::State<Arc<KeyServerMetrics>>,
-) -> (StatusCode, Json<Value>) {
+async fn handle_server_keys(metrics: axum::extract::State<Arc<KeyServerMetrics>>) -> (StatusCode, Json<Value>) {
     metrics.on_start();
     tokio::time::sleep(std::time::Duration::from_millis(metrics.delay_ms)).await;
     metrics.on_end();

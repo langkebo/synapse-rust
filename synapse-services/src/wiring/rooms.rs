@@ -86,10 +86,10 @@ impl RoomSyncServices {
             #[cfg(not(feature = "beacons"))]
             beacon_service: None,
             cache: infra.cache.clone(),
-            key_rotation_storage: Some(Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(
-                infra.pool.clone(),
-            ))
-                as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>),
+            key_rotation_storage: Some(
+                Arc::new(synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()))
+                    as Arc<dyn synapse_e2ee::key_rotation::KeyRotationStorageApi>,
+            ),
         }));
 
         let sync_room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);

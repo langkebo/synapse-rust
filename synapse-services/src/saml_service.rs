@@ -563,10 +563,7 @@ impl SamlService {
         // Only skip if metadata/certificate is unavailable (cannot verify without it).
         match self.verify_saml_signature(response) {
             Ok(()) => {}
-            Err(e)
-                if e.contains("No IdP metadata")
-                    || e.contains("No IdP certificate") =>
-            {
+            Err(e) if e.contains("No IdP metadata") || e.contains("No IdP certificate") => {
                 tracing::debug!(
                     error = %e,
                     issuer = %issuer,
@@ -582,10 +579,7 @@ impl SamlService {
                     has_expected_in_response_to = expected_in_response_to.is_some(),
                     "SAML signature verification failed"
                 );
-                return Err(ApiError::unauthorized(format!(
-                    "SAML signature verification failed: {}",
-                    e
-                )));
+                return Err(ApiError::unauthorized(format!("SAML signature verification failed: {}", e)));
             }
         }
 
@@ -614,8 +608,7 @@ impl SamlService {
         // want_response_signed / want_assertions_signed flags.
         if !has_response_sig && !has_assertion_sig {
             return Err(
-                "Neither SAML response nor assertion is signed — at least one signature level is required"
-                    .to_string(),
+                "Neither SAML response nor assertion is signed — at least one signature level is required".to_string()
             );
         }
 
@@ -1539,10 +1532,6 @@ mod tests {
         );
 
         let error = service.validate_response("https://idp.example.com", &xml, Some("id_123")).unwrap_err();
-        assert!(
-            error.to_string().contains("signature"),
-            "Should reject unsigned SAML response; got: {}",
-            error
-        );
+        assert!(error.to_string().contains("signature"), "Should reject unsigned SAML response; got: {}", error);
     }
 }

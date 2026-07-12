@@ -305,7 +305,13 @@ impl ApplicationServiceManager {
                 }
             };
 
-        self.record_delivery_failure(&service.as_id, failure_reason, failure_kind, failed_transaction.sent_ts.unwrap_or(0)).await;
+        self.record_delivery_failure(
+            &service.as_id,
+            failure_reason,
+            failure_kind,
+            failed_transaction.sent_ts.unwrap_or(0),
+        )
+        .await;
 
         if Self::should_disable_service(failure_kind, failed_transaction.retry_count) {
             self.disable_service_for_delivery_failure(service, &failed_transaction, failure_reason, failure_kind).await;

@@ -929,11 +929,7 @@ impl crate::event::api::EventStoreApi for InMemoryEventStore {
         room_id: &str,
         _user_id: &str,
     ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
-        Ok(crate::room::RoomUnreadCounts {
-            room_id: room_id.to_string(),
-            highlight_count: 0,
-            notification_count: 0,
-        })
+        Ok(crate::room::RoomUnreadCounts { room_id: room_id.to_string(), highlight_count: 0, notification_count: 0 })
     }
 
     async fn get_unread_counts_batch(

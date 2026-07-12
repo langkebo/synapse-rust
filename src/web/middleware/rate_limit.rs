@@ -141,11 +141,11 @@ mod tests {
     use crate::common::config::{RateLimitConfig, RateLimitEndpointRule, RateLimitMatchType, RateLimitRule};
     #[cfg(feature = "test-utils")]
     use crate::web::routes::AppState;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     #[cfg(feature = "test-utils")]
     use axum::http::StatusCode;
     #[cfg(feature = "test-utils")]
     use axum::{middleware, routing::get, Router};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     #[cfg(feature = "test-utils")]
     use std::sync::Arc;
     #[cfg(feature = "test-utils")]
