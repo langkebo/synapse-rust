@@ -201,7 +201,7 @@ impl Auth for AuthService {
         self.hash_password_for_storage(password).await
     }
 
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn generate_email_verification_token(&self) -> ApiResult<String> {
         self.generate_email_verification_token()
     }
 

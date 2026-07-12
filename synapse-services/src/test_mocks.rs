@@ -154,7 +154,7 @@ impl crate::auth::Auth for FakeAuth {
         Ok("$2b$12$mockhash".to_string())
     }
 
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    fn generate_email_verification_token(&self) -> ApiResult<String> {
         Ok("mock-email-token".to_string())
     }
 

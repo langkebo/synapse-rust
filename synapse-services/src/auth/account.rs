@@ -261,7 +261,7 @@ impl AuthService {
         Ok(())
     }
 
-    pub fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn generate_email_verification_token(&self) -> ApiResult<String> {
         let token = super::auth_generate_token(32);
         Ok(token)
     }

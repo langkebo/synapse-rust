@@ -70,9 +70,7 @@ pub trait Auth: Send + Sync {
 
     async fn hash_password_for_storage(&self, password: &str) -> Result<String, ApiError>;
 
-    /// Generate a cryptographically-random email-verification token.
-    /// This is a **synchronous** method because it only calls a local RNG.
-    fn generate_email_verification_token(&self) -> Result<String, Box<dyn std::error::Error>>;
+    fn generate_email_verification_token(&self) -> ApiResult<String>;
 
     // ── Power levels ─────────────────────────────────────────────────────
 
