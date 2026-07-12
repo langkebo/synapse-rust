@@ -593,7 +593,7 @@ mod tests {
             transaction_id: None,
             events: json!([]),
             retry_count,
-            sent_ts,
+            sent_ts: Some(sent_ts),
             completed_ts: None,
             last_error: None,
         }
