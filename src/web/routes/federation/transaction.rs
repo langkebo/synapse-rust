@@ -319,6 +319,42 @@ pub(super) async fn send_transaction(
             }
         }
 
+        // S5 gap 2: authorize inbound `m.room.member` transitions against the
+        // membership state machine (banned re-join, invite-of-banned, self-ban,
+        // knock into a non-knock room). Power is validated via the auth-event
+        // chain; this fails closed only on illegal state transitions.
+        if event_type == "m.room.member" {
+            let to_membership =
+                content.get("membership").and_then(|v| v.as_str()).and_then(|s| s.parse::<synapse_common::Membership>().ok());
+            if let Some(to) = to_membership {
+                let target = state_key.unwrap_or(user_id);
+                if let Err(error) = ctx
+                    .room_service
+                    .membership
+                    .authorize_inbound_member_transition(room_id, user_id, target, to)
+                    .await
+                {
+                    super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                    ::tracing::warn!(
+                        target: "security_audit",
+                        event = "federation_illegal_member_transition",
+                        room_id = room_id,
+                        sender = user_id,
+                        target = target,
+                        membership = ?to,
+                        event_id = event_id,
+                        error = %error,
+                        "Rejected inbound m.room.member with illegal state transition"
+                    );
+                    results.push(json!({
+                        "event_id": event_id,
+                        "error": error.to_string()
+                    }));
+                    continue;
+                }
+            }
+        }
+
         let content_for_as = content.clone();
 
         // P0-05/P0-08: extract `redacts` target from redaction PDUs.  For
