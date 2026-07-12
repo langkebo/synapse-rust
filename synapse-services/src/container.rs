@@ -55,6 +55,9 @@ struct InfraPhase {
 /// Phase 2 output: auth service + core storages needed by domain assemblies.
 struct StoragePhase {
     auth_service: Arc<dyn Auth>,
+    token_auth: Arc<dyn TokenAuth>,
+    credential_auth: Arc<dyn CredentialAuth>,
+    room_auth: Arc<dyn RoomAuth>,
     user_storage: Arc<dyn UserStore>,
     device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     threepid_storage: ThreepidStorage,
@@ -165,8 +168,10 @@ impl ServiceContainer {
         metrics: &Arc<MetricsCollector>,
         config: &Config,
     ) -> StoragePhase {
-        // Auth — must be initialized first; downstream services depend on it
-        let auth_service: Arc<dyn Auth> = Arc::new(AuthService::new_with_lifetime(
+        // Auth — must be initialized first; downstream services depend on it.
+        // Produce all four trait-object lenses from the same concrete AuthService
+        // so consumers can depend on the narrowest trait they need.
+        let auth_concrete: std::sync::Arc<AuthService> = std::sync::Arc::new(AuthService::new_with_lifetime(
             pool,
             cache.clone(),
             metrics.clone(),
@@ -174,6 +179,10 @@ impl ServiceContainer {
             &config.server.name,
             config.access_token_lifetime_seconds(),
         ));
+        let auth_service: Arc<dyn Auth> = auth_concrete.clone();
+        let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
+        let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
+        let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();
 
         // Core storage
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
@@ -189,6 +198,9 @@ impl ServiceContainer {
 
         StoragePhase {
             auth_service,
+            token_auth,
+            credential_auth,
+            room_auth,
             user_storage,
             device_storage,
             threepid_storage,
@@ -272,6 +284,9 @@ impl ServiceContainer {
         let core = wiring::CoreServices::new(
             &infra.infra,
             &storage.auth_service,
+            &storage.token_auth,
+            &storage.credential_auth,
+            &storage.room_auth,
             &storage.user_storage,
             &infra.server_metrics,
             event_broadcaster,

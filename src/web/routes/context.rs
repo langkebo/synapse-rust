@@ -13,6 +13,9 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 #[derive(Clone)]
 pub struct CoreContext {
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub config: synapse_common::config::Config,
     pub cache: Arc<CacheManager>,
     pub rate_limit_config_manager: Option<Arc<RateLimitConfigManager>>,
@@ -29,6 +32,9 @@ impl FromRef<AppState> for CoreContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             config: state.services.core.config.clone(),
             cache: state.cache.clone(),
             rate_limit_config_manager: state.rate_limit_config_manager().cloned(),
@@ -42,6 +48,9 @@ impl FromRef<AppState> for CoreContext {
 pub struct RoomContext {
     pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub sync_service: Arc<dyn synapse_services::sync_service::SyncServiceApi>,
@@ -84,6 +93,9 @@ impl FromRef<AppState> for RoomContext {
         Self {
             room_service: state.services.rooms.room_service.clone(),
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             server_name: state.services.core.server_name.clone(),
             cache: state.cache.clone(),
             sync_service: state.services.rooms.sync_service.clone(),
@@ -131,6 +143,9 @@ pub struct E2eeRoomContext {
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub secure_backup_service: synapse_e2ee::secure_backup::SecureBackupService,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
     pub pool: Arc<sqlx::PgPool>,
 }
@@ -142,6 +157,9 @@ impl FromRef<AppState> for E2eeRoomContext {
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             secure_backup_service: state.services.e2ee.secure_backup_service.clone(),
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             admin_audit_service: state.services.admin.security.admin_audit_service.clone().into(),
             pool: state.services.database_pool(),
         }
@@ -154,6 +172,9 @@ impl FromRef<AppState> for E2eeRoomContext {
 pub struct SyncContext {
     pub sync_service: Arc<dyn synapse_services::sync_service::SyncServiceApi>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
@@ -169,6 +190,9 @@ impl FromRef<AppState> for SyncContext {
         Self {
             sync_service: state.services.rooms.sync_service.clone(),
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             user_storage: state.services.account.user_storage.clone(),
             cache: state.cache.clone(),
             config: state.services.core.config.clone(),
@@ -199,6 +223,9 @@ impl SyncContext {
 pub struct DeviceContext {
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
@@ -226,6 +253,9 @@ impl FromRef<AppState> for DeviceContext {
         Self {
             device_storage: state.services.account.device_storage.clone(),
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             user_storage: state.services.account.user_storage.clone(),
             server_name: state.services.core.server_name.clone(),
             account_device_list_service: state.services.account.account_device_list_service.clone(),
@@ -255,6 +285,9 @@ impl FromRef<AppState> for DeviceContext {
 #[derive(Clone)]
 pub struct AuthContext {
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,
@@ -282,6 +315,9 @@ impl FromRef<AppState> for AuthContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             registration_service: state.services.core.registration_service.clone(),
             user_storage: state.services.account.user_storage.clone(),
             server_name: state.services.core.server_name.clone(),
@@ -313,6 +349,9 @@ impl FromRef<AppState> for AuthContext {
 pub struct AdminContext {
     // Core
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     pub config: synapse_common::config::Config,
     pub server_name: String,
@@ -392,6 +431,9 @@ impl FromRef<AppState> for AdminContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             registration_service: state.services.core.registration_service.clone(),
             config: state.services.core.config.clone(),
             server_name: state.services.core.server_name.clone(),
@@ -466,6 +508,9 @@ impl FromRef<AppState> for AdminContext {
 #[derive(Clone)]
 pub struct FederationContext {
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub config: synapse_common::config::Config,
     pub server_name: String,
@@ -504,6 +549,9 @@ impl FromRef<AppState> for FederationContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             user_storage: state.services.account.user_storage.clone(),
             config: state.services.core.config.clone(),
             server_name: state.services.core.server_name.clone(),
@@ -545,6 +593,9 @@ impl FromRef<AppState> for FederationContext {
 #[derive(Clone)]
 pub struct MediaContext {
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub config: synapse_common::config::Config,
     pub server_name: String,
@@ -562,6 +613,9 @@ impl FromRef<AppState> for MediaContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             user_storage: state.services.account.user_storage.clone(),
             config: state.services.core.config.clone(),
             server_name: state.services.core.server_name.clone(),
@@ -582,6 +636,9 @@ impl FromRef<AppState> for MediaContext {
 #[derive(Clone)]
 pub struct SsoContext {
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub config: synapse_common::config::Config,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
@@ -607,6 +664,9 @@ impl FromRef<AppState> for SsoContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             config: state.services.core.config.clone(),
             server_name: state.services.core.server_name.clone(),
             cache: state.cache.clone(),
@@ -636,6 +696,9 @@ impl FromRef<AppState> for SsoContext {
 pub struct FriendContext {
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
+    pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
+    pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
@@ -651,6 +714,9 @@ impl FromRef<AppState> for FriendContext {
         Self {
             friend_room_service: state.services.extensions.friend_room_service.clone(),
             auth_service: state.services.core.auth_service.clone(),
+            token_auth: state.services.core.token_auth.clone(),
+            credential_auth: state.services.core.credential_auth.clone(),
+            room_auth: state.services.core.room_auth.clone(),
             server_name: state.services.core.server_name.clone(),
             cache: state.cache.clone(),
             config: state.services.core.config.clone(),

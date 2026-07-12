@@ -10,12 +10,15 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::*;
 
-use crate::auth::Auth;
+use crate::auth::{Auth, CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
 
 #[derive(Clone)]
 pub struct CoreServices {
     pub auth_service: Arc<dyn Auth>,
+    pub token_auth: Arc<dyn TokenAuth>,
+    pub credential_auth: Arc<dyn CredentialAuth>,
+    pub room_auth: Arc<dyn RoomAuth>,
     pub registration_service: Arc<crate::registration_service::RegistrationService>,
     pub search_service: Arc<crate::search_service::SearchService>,
     pub media_service: crate::media_service::MediaService,
@@ -36,6 +39,9 @@ impl CoreServices {
     pub async fn new(
         infra: &SharedInfra,
         auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
+        room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
         server_metrics: &Arc<ServerMetrics>,
         event_broadcaster: Arc<EventBroadcaster>,
@@ -96,6 +102,9 @@ impl CoreServices {
 
         Self {
             auth_service: auth_service.clone(),
+            token_auth: token_auth.clone(),
+            credential_auth: credential_auth.clone(),
+            room_auth: room_auth.clone(),
             registration_service,
             search_service,
             media_service,
