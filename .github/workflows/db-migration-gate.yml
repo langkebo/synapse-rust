@@ -324,7 +324,7 @@ jobs:
           sudo apt-get install -y postgresql-client
 
       - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked --no-default-features --features postgres
+        run: cargo install sqlx-cli --version '^0.8' --locked --no-default-features --features postgres
 
       - name: Build forward-only sqlx migration source
         run: python3 scripts/build_sqlx_migration_source.py artifacts/sqlx-migrations
