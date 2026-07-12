@@ -193,7 +193,7 @@ impl SlidingSyncStorage {
         is_dm: bool,
         is_encrypted: bool,
         is_tombstoned: bool,
-        invited: bool,
+        is_invited: bool,
         name: Option<&str>,
         avatar: Option<&str>,
         timestamp: i64,
@@ -234,7 +234,7 @@ impl SlidingSyncStorage {
         .bind(is_dm)
         .bind(is_encrypted)
         .bind(is_tombstoned)
-        .bind(invited)
+        .bind(is_invited)
         .bind(name)
         .bind(avatar)
         .bind(timestamp)

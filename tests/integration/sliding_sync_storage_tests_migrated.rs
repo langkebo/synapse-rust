@@ -89,7 +89,7 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
             is_dm BOOLEAN DEFAULT FALSE,
             is_encrypted BOOLEAN DEFAULT FALSE,
             is_tombstoned BOOLEAN DEFAULT FALSE,
-            invited BOOLEAN DEFAULT FALSE,
+            is_invited BOOLEAN DEFAULT FALSE,
             name TEXT,
             avatar TEXT,
             timestamp BIGINT DEFAULT 0,
