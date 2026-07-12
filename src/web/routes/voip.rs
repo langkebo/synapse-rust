@@ -1,8 +1,8 @@
 use crate::common::error::ApiError;
 use crate::web::routes::context::RoomContext;
-use crate::web::routes::AuthenticatedUser;
 #[cfg(feature = "voip-tracking")]
 use crate::web::routes::response_helpers::empty_json;
+use crate::web::routes::AuthenticatedUser;
 #[cfg(feature = "voip-tracking")]
 use crate::web::routes::{ensure_room_member_ctx, validate_room_id};
 #[cfg(feature = "voip-tracking")]

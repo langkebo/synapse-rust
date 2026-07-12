@@ -95,18 +95,11 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
 
-        if let Some(member) = existing_member.as_ref() {
-            if member.membership == "join" {
-                return Ok(());
-            }
-
-            if member.membership == "ban" || member.is_banned.unwrap_or(false) {
-                return Err(ApiError::forbidden("You are banned from this room".to_string()));
-            }
-        }
-
-        if join_rule != "public" && existing_member.as_ref().is_none_or(|member| member.membership != "invite") {
-            return Err(ApiError::forbidden("Room is invite-only".to_string()));
+        let current_state =
+            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        let ctx = super::transition::TransitionContext::new(Some(join_rule.clone()));
+        if let Err(msg) = super::transition::is_legal(current_state, super::transition::MembershipState::Join, &ctx) {
+            return Err(ApiError::forbidden(msg.to_string()));
         }
 
         self.member_storage
@@ -170,6 +163,16 @@ impl MembershipService {
             .get_room_member(room_id, user_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership before leave", &e))?;
+
+        let current_state =
+            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            current_state,
+            super::transition::MembershipState::Leave,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::forbidden(msg.to_string()));
+        }
 
         self.member_storage
             .remove_member(room_id, user_id)

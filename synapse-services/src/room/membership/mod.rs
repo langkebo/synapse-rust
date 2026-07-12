@@ -8,6 +8,7 @@ pub mod actions;
 pub mod federation;
 pub mod moderation;
 pub mod service;
+pub mod transition;
 
 use crate::common::error::{ApiError, ApiResult};
 use crate::*;

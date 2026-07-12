@@ -35,6 +35,22 @@ impl MembershipService {
 
         self.auth_service.can_invite_user(room_id, inviter_id).await?;
 
+        // Validate membership transition: cannot invite banned or already-joined users.
+        let target_state = self
+            .member_storage
+            .get_room_member(room_id, invitee_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .as_ref()
+            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            target_state,
+            super::transition::MembershipState::Invite,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::forbidden(msg.to_string()));
+        }
+
         self.member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
             .await
@@ -119,20 +135,17 @@ impl MembershipService {
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to check membership", &e))?;
 
-        if let Some(member) = existing_member.as_ref() {
-            match member.membership.as_str() {
-                "join" => {
-                    return Err(ApiError::bad_request("You are already joined to this room".to_string()));
-                }
-                "invite" => {
-                    return Err(ApiError::forbidden("You have already been invited to this room".to_string()));
-                }
-                "ban" => {
-                    return Err(ApiError::forbidden("You are banned from this room".to_string()));
-                }
-                "knock" => return Ok(()),
-                _ => {}
+        let current_state =
+            existing_member.as_ref().and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            current_state,
+            super::transition::MembershipState::Knock,
+            &super::transition::TransitionContext::default(),
+        ) {
+            if current_state == Some(super::transition::MembershipState::Knock) {
+                return Ok(());
             }
+            return Err(ApiError::forbidden(msg.to_string()));
         }
 
         if join_rule != "knock" && join_rule != "knock_restricted" {
@@ -166,6 +179,22 @@ impl MembershipService {
         }
 
         self.auth_service.can_ban_user(room_id, banned_by, user_id).await?;
+
+        // Validate membership transition: only join/invite/knock can be banned.
+        let target_state = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .as_ref()
+            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            target_state,
+            super::transition::MembershipState::Ban,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::forbidden(msg.to_string()));
+        }
 
         self.member_storage
             .ban_member(room_id, user_id, banned_by)
@@ -211,6 +240,22 @@ impl MembershipService {
 
     pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
         self.auth_service.can_unban_user(room_id, unbanned_by, user_id).await?;
+
+        // Validate membership transition: unban is ban→leave.
+        let target_state = self
+            .member_storage
+            .get_room_member(room_id, user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .as_ref()
+            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            target_state,
+            super::transition::MembershipState::Leave,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::bad_request(msg.to_string()));
+        }
 
         self.member_storage
             .unban_member(room_id, user_id)
@@ -279,6 +324,22 @@ impl MembershipService {
         }
 
         self.auth_service.can_kick_user(room_id, kicked_by, target_user_id).await?;
+
+        // Validate membership transition: only joined members can be kicked.
+        let target_state = self
+            .member_storage
+            .get_room_member(room_id, target_user_id)
+            .await
+            .map_err(|e| ApiError::internal_with_log("Failed to check target membership", &e))?
+            .as_ref()
+            .and_then(|m| super::transition::MembershipState::parse_opt(&m.membership));
+        if let Err(msg) = super::transition::is_legal(
+            target_state,
+            super::transition::MembershipState::Leave,
+            &super::transition::TransitionContext::default(),
+        ) {
+            return Err(ApiError::forbidden(msg.to_string()));
+        }
 
         self.member_storage
             .remove_member(room_id, target_user_id)

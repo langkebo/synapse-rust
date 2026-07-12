@@ -319,6 +319,50 @@ pub(super) async fn send_transaction(
             }
         }
 
+        // P0-06: Validate m.room.member state transitions for inbound
+        // federation PDUs. The client path has these checks in the membership
+        // service; previously the federation path skipped them entirely.
+        if event_type == "m.room.member" {
+            if let Some(ref target_user_id) = state_key {
+                let target_membership = content.get("membership").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(to_state) =
+                    synapse_services::room::membership::transition::MembershipState::parse_opt(target_membership)
+                {
+                    let current = ctx
+                        .room_service
+                        .membership()
+                        .get_room_membership(room_id, target_user_id)
+                        .await
+                        .unwrap_or(None);
+                    let from_state = current
+                        .as_deref()
+                        .and_then(|m| synapse_services::room::membership::transition::MembershipState::parse_opt(m));
+                    let transition_ctx = synapse_services::room::membership::transition::TransitionContext::default();
+                    if let Err(msg) =
+                        synapse_services::room::membership::transition::is_legal(from_state, to_state, &transition_ctx)
+                    {
+                        super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
+                        ::tracing::warn!(
+                            target: "security_audit",
+                            event = "federation_membership_transition_rejected",
+                            room_id = room_id,
+                            user_id = target_user_id,
+                            origin = origin,
+                            from = current.as_deref().unwrap_or("[*]"),
+                            to = target_membership,
+                            reason = msg,
+                            "Rejected illegal membership transition via federation"
+                        );
+                        results.push(json!({
+                            "event_id": event_id,
+                            "error": msg
+                        }));
+                        continue;
+                    }
+                }
+            }
+        }
+
         let content_for_as = content.clone();
 
         // P0-05/P0-08: extract `redacts` target from redaction PDUs.  For
