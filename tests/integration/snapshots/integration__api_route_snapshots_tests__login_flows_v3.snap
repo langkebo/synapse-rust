@@ -1,5 +1,6 @@
 ---
 source: tests/integration/api_route_snapshots_tests.rs
+assertion_line: 70
 expression: body
 ---
 {
@@ -9,6 +10,13 @@ expression: body
     },
     {
       "type": "m.login.token"
+    },
+    {
+      "type": "m.login.cas"
+    },
+    {
+      "identity_providers": "[redacted_sso_providers]",
+      "type": "m.login.sso"
     }
   ]
 }
