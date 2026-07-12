@@ -170,9 +170,9 @@ impl MegolmVodozemacService {
         let session_key_b64 = outbound.session_key().to_base64();
 
         // 解码 session_key 为 32 字节原始对称密钥
-        // vodozemac 使用 URL-safe base64 (无 padding)
+        // vodozemac 使用 STANDARD base64 (无 padding)，与 base64ct::Base64Unpadded 一致
         let raw_session_key =
-            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &session_key_b64)
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD_NO_PAD, &session_key_b64)
                 .map_err(|_| ApiError::encryption_error("Invalid vodozemac session_key base64".to_string()))?;
 
         // Phase 2: 双写 legacy 加密格式（仅当 E2EE_DUAL_WRITE=true 且 encryption_key 已设置）

@@ -35,10 +35,30 @@ impl MembershipService {
 
         self.auth_service.can_invite_user(room_id, inviter_id).await?;
 
-        self.member_storage
+        let member = self
+            .member_storage
             .add_member(room_id, invitee_id, "invite", None, None, Some(inviter_id), None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
+
+        // Update room summary to reflect the new invite
+        let request = synapse_storage::room_summary::CreateSummaryMemberRequest {
+            room_id: room_id.to_string(),
+            user_id: invitee_id.to_string(),
+            display_name: None,
+            avatar_url: None,
+            membership: "invite".to_string(),
+            is_hero: None,
+            last_active_ts: member.joined_ts.or(member.updated_ts),
+        };
+        if let Err(error) = self.room_summary_service.add_member(request).await {
+            ::tracing::warn!(
+                error = %error,
+                room_id = %room_id,
+                user_id = %invitee_id,
+                "Failed to update room summary member for invite"
+            );
+        }
 
         let invite_event = self
             .event_storage
