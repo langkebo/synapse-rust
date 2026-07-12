@@ -219,22 +219,6 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         Ok(())
     }
 
-    async fn get_unread_counts(
-        &self,
-        room_id: &str,
-        _user_id: &str,
-    ) -> Result<crate::room::RoomUnreadCounts, sqlx::Error> {
-        Ok(crate::room::RoomUnreadCounts { room_id: room_id.to_string(), highlight_count: 0, notification_count: 0 })
-    }
-
-    async fn get_unread_counts_batch(
-        &self,
-        _room_ids: &[String],
-        _user_id: &str,
-    ) -> Result<Vec<crate::room::RoomUnreadCounts>, sqlx::Error> {
-        Ok(Vec::new())
-    }
-
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
         if let Some(room) = self.rooms.write().await.get_mut(room_id) {
             room.name = Some(name.to_string());
@@ -268,10 +252,6 @@ impl crate::room::api::RoomStoreApi for InMemoryRoomStore {
         topic: &str,
     ) -> Result<(), sqlx::Error> {
         self.update_room_topic(room_id, topic).await
-    }
-
-    async fn copy_room_state(&self, _source_room_id: &str, _target_room_id: &str) -> Result<(), sqlx::Error> {
-        Ok(())
     }
 
     async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {

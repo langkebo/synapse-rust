@@ -55,14 +55,6 @@ pub trait RoomStoreApi: Send + Sync {
 
     async fn decrement_member_count(&self, room_id: &str) -> Result<(), sqlx::Error>;
 
-    async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error>;
-
-    async fn get_unread_counts_batch(
-        &self,
-        room_ids: &[String],
-        user_id: &str,
-    ) -> Result<Vec<RoomUnreadCounts>, sqlx::Error>;
-
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error>;
 
     async fn update_room_name_in_tx(
@@ -80,8 +72,6 @@ pub trait RoomStoreApi: Send + Sync {
         room_id: &str,
         topic: &str,
     ) -> Result<(), sqlx::Error>;
-
-    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error>;
 
     async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error>;
 
@@ -269,18 +259,6 @@ impl RoomStoreApi for super::RoomStorage {
         self.decrement_member_count(room_id).await
     }
 
-    async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> Result<RoomUnreadCounts, sqlx::Error> {
-        self.get_unread_counts(room_id, user_id).await
-    }
-
-    async fn get_unread_counts_batch(
-        &self,
-        room_ids: &[String],
-        user_id: &str,
-    ) -> Result<Vec<RoomUnreadCounts>, sqlx::Error> {
-        self.get_unread_counts_batch(room_ids, user_id).await
-    }
-
     async fn update_room_name(&self, room_id: &str, name: &str) -> Result<(), sqlx::Error> {
         self.update_room_name(room_id, name).await
     }
@@ -305,10 +283,6 @@ impl RoomStoreApi for super::RoomStorage {
         topic: &str,
     ) -> Result<(), sqlx::Error> {
         self.update_room_topic_in_tx(tx, room_id, topic).await
-    }
-
-    async fn copy_room_state(&self, source_room_id: &str, target_room_id: &str) -> Result<(), sqlx::Error> {
-        self.copy_room_state(source_room_id, target_room_id).await
     }
 
     async fn get_room_aliases(&self, room_id: &str) -> Result<Vec<String>, sqlx::Error> {

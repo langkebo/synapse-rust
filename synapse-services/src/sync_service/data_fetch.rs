@@ -601,7 +601,7 @@ impl SyncService {
 
     pub(crate) async fn get_unread_counts(&self, room_id: &str, user_id: &str) -> ApiResult<(i64, i64)> {
         let counts = self
-            .room_storage
+            .event_storage
             .get_unread_counts(room_id, user_id)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
@@ -620,7 +620,7 @@ impl SyncService {
         }
 
         let rows = self
-            .room_storage
+            .event_storage
             .get_unread_counts_batch(room_ids, user_id)
             .await
             .map_err(map_internal!("Failed to get unread counts"))?;
