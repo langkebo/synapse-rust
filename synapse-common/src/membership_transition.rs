@@ -86,6 +86,39 @@ pub struct TransitionCtx {
     pub restricted_join_authorized: bool,
 }
 
+impl TransitionCtx {
+    /// Build a ctx that validates ONLY the state-machine dimension of a
+    /// transition (from→to legality, ban state, join rule, self-vs-other),
+    /// delegating power-level and creator-protection authorization to the
+    /// caller. Power thresholds are set to always-satisfied sentinels and
+    /// `target_is_creator` is `false`.
+    ///
+    /// Use this from the client membership handlers, where a separate authority
+    /// (`AuthService::can_ban_user` / `can_kick_user` / `can_invite_user`) has
+    /// already enforced power levels and creator protection with room-specific
+    /// audit logging. The federation inbound path, which has no such prior
+    /// gate, builds a full [`TransitionCtx`] with real power facts instead.
+    pub fn state_only(
+        join_rule: JoinRule,
+        actor_is_target: bool,
+        target_is_banned: bool,
+        restricted_join_authorized: bool,
+    ) -> Self {
+        Self {
+            actor_pl: i64::MAX,
+            target_pl: i64::MIN,
+            ban_level: i64::MIN,
+            kick_level: i64::MIN,
+            invite_level: i64::MIN,
+            join_rule,
+            actor_is_target,
+            target_is_banned,
+            target_is_creator: false,
+            restricted_join_authorized,
+        }
+    }
+}
+
 /// Why a membership transition is rejected. Domain semantics, not HTTP —
 /// callers map this to their own error surface (`ApiError` for clients,
 /// event rejection for federation).
@@ -500,5 +533,33 @@ mod tests {
     fn transition_error_maps_to_forbidden_api_error() {
         let api: ApiError = TransitionError::Banned.into();
         assert_eq!(api.http_status(), axum::http::StatusCode::FORBIDDEN);
+    }
+
+    // ---- state_only ctx ----
+    #[test]
+    fn state_only_lets_power_pass_but_enforces_state_machine() {
+        // Ban with sentinel power succeeds regardless of thresholds...
+        let c = TransitionCtx::state_only(JoinRule::Invite, false, false, false);
+        assert_eq!(is_legal(Some(Membership::Join), Membership::Ban, &c), Ok(()));
+        // ...but the state machine still rejects a self-ban.
+        let self_c = TransitionCtx::state_only(JoinRule::Invite, true, false, false);
+        assert_eq!(
+            is_legal(Some(Membership::Join), Membership::Ban, &self_c),
+            Err(TransitionError::InvalidTransition)
+        );
+    }
+
+    #[test]
+    fn state_only_invite_rejects_banned_target() {
+        let c = TransitionCtx::state_only(JoinRule::Invite, false, true, false);
+        assert_eq!(is_legal(None, Membership::Invite, &c), Err(TransitionError::TargetBanned));
+    }
+
+    #[test]
+    fn state_only_join_honors_join_rule() {
+        let public = TransitionCtx::state_only(JoinRule::Public, true, false, false);
+        assert_eq!(is_legal(None, Membership::Join, &public), Ok(()));
+        let invite_only = TransitionCtx::state_only(JoinRule::Invite, true, false, false);
+        assert_eq!(is_legal(None, Membership::Join, &invite_only), Err(TransitionError::NotInvited));
     }
 }
