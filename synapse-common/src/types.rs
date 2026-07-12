@@ -79,7 +79,7 @@ impl RoomVersion {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Membership {
     Join,
     Leave,
@@ -96,6 +96,21 @@ impl fmt::Display for Membership {
             Self::Invite => write!(f, "invite"),
             Self::Ban => write!(f, "ban"),
             Self::Knock => write!(f, "knock"),
+        }
+    }
+}
+
+impl FromStr for Membership {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "join" => Ok(Self::Join),
+            "leave" => Ok(Self::Leave),
+            "invite" => Ok(Self::Invite),
+            "ban" => Ok(Self::Ban),
+            "knock" => Ok(Self::Knock),
+            _ => Err(()),
         }
     }
 }
