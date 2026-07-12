@@ -127,6 +127,15 @@ mod tests {
     #[cfg(feature = "test-utils")]
     use tower::ServiceExt;
 
+    // Serializes the tests that mutate the process-global TRUST_FORWARDED_HEADERS
+    // flag so they never overlap under parallel/shuffled test execution. Lock is
+    // poison-tolerant because these tests assert (and may panic) while holding it.
+    static FORWARDED_TRUST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn lock_forwarded_trust() -> std::sync::MutexGuard<'static, ()> {
+        FORWARDED_TRUST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn test_csrf_token_round_trip() {
         let manager = CsrfTokenManager::new("secret".to_string());
@@ -291,6 +300,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_ignores_forwarded_headers_by_default() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-proto", "https".parse().expect("valid proto header"));
@@ -300,6 +312,9 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_host_header_when_forwarded_not_trusted() {
+        let _guard = lock_forwarded_trust();
+        super::super::set_trust_forwarded_headers(false);
+
         let mut headers = HeaderMap::new();
         headers.insert("host", "matrix.example.com".parse().expect("valid host header"));
         headers.insert("x-forwarded-host", "evil.example.com".parse().expect("valid host header"));
@@ -310,6 +325,7 @@ mod tests {
 
     #[test]
     fn test_same_origin_uses_forwarded_host_and_proto_when_trusted() {
+        let _guard = lock_forwarded_trust();
         super::super::set_trust_forwarded_headers(true);
 
         let mut headers = HeaderMap::new();
