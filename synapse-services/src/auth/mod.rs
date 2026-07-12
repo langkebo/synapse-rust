@@ -8,6 +8,7 @@ mod session;
 mod tests;
 mod token;
 pub mod r#trait;
+pub mod token_auth;
 
 use rand::RngCore;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use synapse_common::{ApiError, ApiResult};
 use synapse_storage::*;
 
 pub use r#trait::Auth;
+pub use token_auth::TokenAuth;
 
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use synapse_common::claims::{Claims, ClaimsBuilder};
@@ -357,5 +359,46 @@ impl Auth for AuthService {
 
     fn validator(&self) -> &Arc<Validator> {
         &self.validator
+    }
+}
+
+// ── TokenAuth trait delegation ────────────────────────────────────────
+
+#[async_trait::async_trait]
+impl crate::auth::TokenAuth for AuthService {
+    async fn validate_token(&self, token: &str) -> ApiResult<(String, Option<String>, bool, bool, bool)> {
+        self.validate_token(token).await
+    }
+
+    async fn generate_access_token(&self, user_id: &str, device_id: &str, admin: bool) -> ApiResult<String> {
+        self.generate_access_token(user_id, device_id, admin).await
+    }
+
+    async fn generate_refresh_token(&self, user_id: &str, device_id: &str) -> ApiResult<String> {
+        self.generate_refresh_token(user_id, device_id).await
+    }
+
+    async fn refresh_token(&self, refresh_token: &str) -> ApiResult<(String, String, String)> {
+        self.refresh_token(refresh_token).await
+    }
+
+    async fn logout(&self, access_token: &str, device_id: Option<&str>) -> ApiResult<()> {
+        self.logout(access_token, device_id).await
+    }
+
+    async fn logout_all(&self, user_id: &str) -> ApiResult<()> {
+        self.logout_all(user_id).await
+    }
+
+    async fn revoke_device(&self, user_id: &str, device_id: &str) -> ApiResult<u64> {
+        self.revoke_device(user_id, device_id).await
+    }
+
+    async fn revoke_devices(&self, user_id: &str, device_ids: &[String]) -> ApiResult<u64> {
+        self.revoke_devices(user_id, device_ids).await
+    }
+
+    fn token_expiry(&self) -> i64 {
+        self.token_expiry
     }
 }
