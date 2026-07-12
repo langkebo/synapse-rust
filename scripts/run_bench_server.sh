@@ -79,12 +79,14 @@ with open('$BENCH_SIGNING_KEY', 'w') as f:
         REDIS_YAML=$(cat << REDISYAML
 redis:
   enabled: true
-  url: "$BENCH_REDIS_URL"
+  host: "localhost"
+  port: 6379
+  password: ~
   key_prefix: "bench_"
-  cache_ttl_seconds: 300
-  task_queue_enabled: false
-  connection_timeout_seconds: 5
-  max_pool_size: 16
+  pool_size: 16
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+  circuit_breaker: {}
 REDISYAML
 )
         REDIS_MODE="redis-enabled"
@@ -93,10 +95,13 @@ REDISYAML
 redis:
   enabled: false
   host: "localhost"
-  port: 16379
-  password: null
+  port: 6379
+  password: ~
   key_prefix: "bench_"
   pool_size: 8
+  connection_timeout_ms: 5000
+  command_timeout_ms: 3000
+  circuit_breaker: {}
 REDISYAML
 )
         REDIS_MODE="redis-disabled"

@@ -92,6 +92,7 @@ pub(crate) async fn ensure_room_member_strict_ctx(
 // AdminContext-based helpers — used by handlers migrated to State<AdminContext>.
 // =============================================================================
 
+#[allow(dead_code)]
 pub(crate) async fn is_joined_room_member_admin(
     ctx: &AdminContext,
     user_id: &str,

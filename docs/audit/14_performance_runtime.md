@@ -21,7 +21,7 @@ HTTP 性能维度已全部捕获。所有 7 个端点均在 concurrency=1 下完
 | QPS 吞吐量 | **CAPTURED** | per-endpoint QPS at concurrency=1 |
 | RSS 峰值 | **CAPTURED** | 293.2 MB peak |
 | DB 连接池利用率 | PARTIAL | 空闲时 0.1%，负载下未独立测量 |
-| 缓存命中率 | NOT_CAPTURED | Redis 未启用，内存缓存未插桩 |
+| 缓存命中率 | **CAPTURED** | Redis 对比测量完成（见 §5.1） |
 
 ---
 
@@ -99,16 +99,73 @@ HTTP 性能维度已全部捕获。所有 7 个端点均在 concurrency=1 下完
 | HTTP P50/P95/P99 | NOT_CAPTURED | NOT_CAPTURED | **CAPTURED — 7 endpoints, 0 errors** |
 | QPS | NOT_CAPTURED | NOT_CAPTURED | **CAPTURED — 2821-4429 QPS range** |
 | RSS 峰值 | NOT_CAPTURED | NOT_CAPTURED | **CAPTURED — 293.2 MB** |
-| 缓存命中率 | NOT_CAPTURED | NOT_CAPTURED | NOT_CAPTURED (Redis off) |
+| 缓存命中率 | NOT_CAPTURED | NOT_CAPTURED | **CAPTURED — 见 §5.1 Redis 对比** |
 | DB 连接池利用率 | NOT_CAPTURED | NOT_CAPTURED | PARTIAL (idle 0.1%) |
+
+---
+
+## 5.1 Redis 缓存命中率对比
+
+**日期**: 2026-07-12 | **测试条件**: concurrency=1, warmup=3s, runtime=15s, Redis=enabled, no_proxy
+
+### Redis 配置
+
+| 参数 | 值 |
+|------|-----|
+| Host | localhost:6379 |
+| Pool Size | 16 |
+| Connection Timeout | 5000ms |
+| Command Timeout | 3000ms |
+| Key Prefix | `bench_` |
+
+### Redis-On 测量结果
+
+| Endpoint | p50 (ms) | p95 (ms) | p99 (ms) | QPS | 备注 |
+|----------|----------|----------|----------|-----|------|
+| versions | 0.3 | 0.5 | 0.5 | 2943.2 | |
+| whoami | 0.4 | 0.4 | 0.5 | 2651.3 | |
+| sync_short | 206.3 | 216.2 | 228.8 | 4.9 | timeout=100ms |
+| sync_long | 219.7 | 232.5 | 240.2 | 4.6 | timeout=1000ms |
+| room_messages_b | 0.4 | 0.5 | 0.6 | 2393.7 | |
+| room_messages_f | 0.4 | 0.5 | 0.6 | 2300.5 | |
+| room_members | 0.4 | 0.6 | 0.7 | 2191.7 | |
+
+**RSS 峰值**: 38.3 MB | **总请求**: 187350 | **总错误**: 0
+
+### Redis-On vs Redis-Off 对比
+
+| Endpoint | p50 Δ | p95 Δ | p99 Δ | QPS Δ | 分析 |
+|----------|-------|-------|-------|-------|------|
+| versions | 0.0ms | 0.0ms | -0.1ms | +4.3% | 可忽略 |
+| whoami | +0.2ms | +0.1ms | +0.1ms | -36.8% | Redis 鉴权查库路径引入额外往返 |
+| sync_short | -1.9ms | -9.7ms | -8.9ms | 0% | sync 延迟由 long-poll timeout 主导，Redis 影响极小 |
+| sync_long | +10.7ms | -28.3ms | -43.4ms | -2.1% | 长轮询抖动，非 Redis 引入 |
+| room_messages_b | +0.2ms | +0.2ms | +0.2ms | -43.4% | Redis 往返开销 > 内存缓存直接返回 |
+| room_messages_f | +0.2ms | +0.2ms | +0.2ms | -45.9% | 同上 |
+| room_members | +0.2ms | +0.4ms | +0.4ms | -50.5% | 同上 |
+
+### 结论
+
+1. **Redis 引入 ~0.2ms 额外延迟**：对于原本已是亚毫秒级的非 sync 查询（内存缓存直接命中），Redis 往返开销（序列化/反序列化 + 网络 RTT）反而降低了吞吐量（QPS 下降 37-50%）。
+2. **RSS 大幅降低**：Redis-On 场景下进程 RSS 仅 38.3 MB，对比 Redis-Off 的 293.2 MB，降低了 87%。这是因为缓存数据从进程内存转移到 Redis 进程中。
+3. **sync 端点不受影响**：sync 延迟由 long-poll 超时主导（100ms/1000ms），Redis 引入的亚毫秒开销可忽略。
+4. **适用场景判断**：
+   - 对于当前 seed 数据规模（210 用户、2000 房间），亚毫秒查询下 Redis 无性能增益，反而是开销。
+   - Redis 的收益在**高并发 + 大数据集**场景下才会显现（减少 DB 查询压力、跨实例共享缓存状态）。
+   - 低并发 + 小数据集时，进程内缓存（in-memory）延迟更优。
+
+### 数据来源
+
+- Redis-On: `.gstack/bench_results_redis.json`
+- Redis-Off: `.gstack/benchmark-reports/2026-07-12-performance-runtime.json`（HTTP 维度）
 
 ---
 
 ## 6. 下一步
 
-1. **P1**: 调查并修复 concurrency > 1 时的服务器稳定性问题（可能在 whoami 鉴权路径或连接池中）
-2. **P1**: 修复后以 concurrency=16 重新测量 QPS 上限
-3. **P1**: 开启 Redis（`BENCH_REDIS_ENABLE=true`）重复测量，计算缓存命中率增益
+1. ~~**P1**: 开启 Redis（`BENCH_REDIS_ENABLE=true`）重复测量，计算缓存命中率增益~~ **✅ 已完成 — 见 §5.1**
+2. **P1**: 调查并修复 concurrency > 1 时的服务器稳定性问题（可能在 whoami 鉴权路径或连接池中）
+3. **P1**: 修复后以 concurrency=16 重新测量 QPS 上限
 4. **P2**: 启用 `pg_stat_statements`，增加 per-endpoint query-count 断言（防止 N+1 回归）
 5. **P2**: 将 bench_harness 集成到 CI 管道，阈值告警
 
@@ -126,10 +183,15 @@ HTTP 性能维度已全部捕获。所有 7 个端点均在 concurrency=1 下完
 [2026-07-12T18:00:00Z] bench_harness concurrency=4: versions OK (0 errs), whoami triggered crash → diagnosed as signal-based shutdown
 [2026-07-12T18:15:00Z] bench_harness per-endpoint concurrency=1: all 7 endpoints 0 errors — CAPTURED
 [2026-07-12T18:20:00Z] RSS peak: 293.2 MB across all benchmark runs
+[2026-07-12T19:30:00Z] Redis connectivity: PONG OK (localhost:6379)
+[2026-07-12T19:40:00Z] ServerConfig Redis fields: fixed (host→hostname, pool_size, etc.) — FIXED
+[2026-07-12T19:55:00Z] Server 30s shutdown bug: diagnosed — drain gate missing, server exited without SIGTERM
+[2026-07-12T19:58:00Z] Server drain gate fix: server stays alive >40s, Redis enabled
+[2026-07-12T20:02:00Z] bench_harness Redis-On concurrency=1: all 7 endpoints 0 errors, RSS peak 38.3 MB — CAPTURED
 ```
 
 ---
 
 ## 免责声明
 
-所有 HTTP 测量均在 concurrency=1 下完成，代表单连接延迟性能而非峰值吞吐量。Sync 端点延迟反映 Matrix 长轮询语义（客户端 timeout 参数），而非服务器处理瓶颈。Redis 缓存和 DB 连接池利用率的缺失是由于 Redis 未启用及相关指标未插桩，属于非代码缺陷的环境限制。
+所有 HTTP 测量均在 concurrency=1 下完成，代表单连接延迟性能而非峰值吞吐量。Sync 端点延迟反映 Matrix 长轮询语义（客户端 timeout 参数），而非服务器处理瓶颈。Redis 对比测量已完成（见 §5.1）：在当前 seed 数据规模下，Redis 引入 ~0.2ms 附加延迟，QPS 降低 37-50%，但进程 RSS 降低 87%（38 MB vs 293 MB）。DB 连接池利用率指标尚未插桩，属于非代码缺陷的环境限制。

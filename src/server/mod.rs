@@ -403,6 +403,7 @@ impl SynapseServer {
         let mut shutdown_rx5 = shutdown_tx.subscribe();
         let mut shutdown_rx6 = shutdown_tx.subscribe();
         let mut shutdown_rx7 = shutdown_tx.subscribe();
+        let mut shutdown_rx_drain_gate = shutdown_tx.subscribe();
 
         if run_global_maintenance {
             let bg_service = self.app_state.services.admin.modules.background_update_service.clone();
@@ -667,6 +668,11 @@ impl SynapseServer {
             );
             let _ = shutdown_tx_signal.send(());
         });
+
+        // Wait for a shutdown signal before entering the drain phase.
+        // Without this gate, the drain timeout fires immediately and kills
+        // the server even when no SIGTERM/SIGINT has been received.
+        shutdown_rx_drain_gate.recv().await.ok();
 
         // Wait for all listeners to drain, with a hard 30s cap to prevent
         // long-polling endpoints (e.g. /sync with 90s+ timeout) from blocking

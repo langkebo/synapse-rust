@@ -6,6 +6,7 @@ use super::SyncService;
 
 #[async_trait]
 pub trait SyncServiceApi: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn sync(
         &self,
         user_id: &str,

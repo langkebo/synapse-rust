@@ -1,6 +1,7 @@
 //! synapse-rust Runtime Performance Benchmark Harness
 //!
 //! Measures end-to-end HTTP latency (p50/p95/p99), QPS, RSS, and DB pool metrics
+#![allow(clippy::unwrap_used, clippy::map_unwrap_or, clippy::redundant_closure)]
 //! against a running homeserver.
 //!
 //! Compile:  cargo build --release --bin bench_harness
