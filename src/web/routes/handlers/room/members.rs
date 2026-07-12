@@ -20,7 +20,7 @@ pub(crate) async fn join_room(
     validate_room_id(&room_id)?;
 
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     ctx.room_service.membership().join_room(&room_id, &user_id).await?;
     Ok(Json(json!({
@@ -37,7 +37,7 @@ pub(crate) async fn join_room_by_id_or_alias(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -139,7 +139,7 @@ pub(crate) async fn knock_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let room_id = if room_id_or_alias.starts_with('!') {
         validate_room_id(&room_id_or_alias)?;
@@ -211,7 +211,7 @@ pub(crate) async fn invite_user_by_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     validate_room_id(&room_id)?;
 
@@ -251,7 +251,7 @@ pub(crate) async fn get_room_members(
     let request_id = resolve_request_id(&headers);
 
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let room = ctx.room_service.get_room(&room_id).await?;
 
@@ -332,7 +332,7 @@ pub(crate) async fn get_room_members_recent(
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
     let members = ctx.room_service.membership().get_room_members(&room_id, &user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);

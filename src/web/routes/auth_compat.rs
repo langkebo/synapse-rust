@@ -22,14 +22,14 @@ pub(crate) async fn register(
         if !ctx.config.server.enable_registration {
             return Err(ApiError::forbidden("Registration is disabled".to_string()));
         }
-        let (user, device_id, access_token) = ctx.auth_service.register_guest_account().await?;
+        let (user, device_id, access_token) = ctx.credential_auth.register_guest_account().await?;
 
         return Ok(Json(json!({
             "access_token": access_token,
             "device_id": device_id,
             "user_id": user.user_id,
             "is_guest": true,
-            "expires_in": ctx.auth_service.token_expiry(),
+            "expires_in": ctx.token_auth.token_expiry(),
             "well_known": {
                 "m.homeserver": {
                     "base_url": ctx.config.server.get_public_baseurl()
@@ -146,7 +146,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
 
     let _send_attempt = body.get("send_attempt").and_then(|v| v.as_u64()).unwrap_or(1);
 
-    let token = ctx.auth_service.generate_email_verification_token().map_err(|e| {
+    let token = ctx.credential_auth.generate_email_verification_token().map_err(|e| {
         ::tracing::error!(
             request_id = %request_id,
             purpose = %purpose,
@@ -330,12 +330,12 @@ pub(crate) async fn login(
     enforce_admin_login_mfa_svc(&ctx.config.security, &ctx.user_storage, username, mfa_code).await?;
 
     let (user, access_token, refresh_token, device_id) =
-        ctx.auth_service.login(username, password, device_id, initial_display_name).await?;
+        ctx.credential_auth.login(username, password, device_id, initial_display_name).await?;
 
     Ok(Json(json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": ctx.auth_service.token_expiry(),
+        "expires_in": ctx.token_auth.token_expiry(),
         "device_id": device_id,
         "user_id": user.user_id(),
         "well_known": {
@@ -350,7 +350,7 @@ pub(crate) async fn logout(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.auth_service.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
+    ctx.token_auth.logout(&auth_user.access_token, auth_user.device_id.as_deref()).await?;
 
     Ok(Json(json!({})))
 }
@@ -359,7 +359,7 @@ pub(crate) async fn logout_all(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.auth_service.logout_all(&auth_user.user_id).await?;
+    ctx.token_auth.logout_all(&auth_user.user_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -373,12 +373,12 @@ pub(crate) async fn refresh_token(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Refresh token required".to_string()))?;
 
-    let (new_access, new_refresh, device_id) = ctx.auth_service.refresh_token(refresh_token).await?;
+    let (new_access, new_refresh, device_id) = ctx.token_auth.refresh_token(refresh_token).await?;
 
     Ok(Json(json!({
         "access_token": new_access,
         "refresh_token": new_refresh,
-        "expires_in": ctx.auth_service.token_expiry(),
+        "expires_in": ctx.token_auth.token_expiry(),
         "device_id": device_id
     })))
 }

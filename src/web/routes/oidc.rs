@@ -588,7 +588,7 @@ async fn oidc_token(
             let is_admin: bool = user_info.is_some_and(|u| u.is_admin);
 
             let matrix_token: String =
-                ctx.auth_service.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
+                ctx.token_auth.generate_access_token(&matrix_user_id, &device_id, is_admin).await?;
 
             tracing::info!(
                 "OIDC token exchange successful for sub: {}, mapped to Matrix user: {}, device_id: {}",
@@ -888,12 +888,12 @@ async fn oidc_callback(
         // Use the existing user's admin status
         let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let access_token: String = ctx
-            .auth_service
+            .token_auth
             .generate_access_token(&user_id, &device_id, existing.is_admin)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
         let refresh_token: String = ctx
-            .auth_service
+            .token_auth
             .generate_refresh_token(&user_id, &device_id)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;
@@ -905,7 +905,7 @@ async fn oidc_callback(
         // Get displayname from OIDC user info
         let displayname: Option<&str> = oidc_user.displayname.as_deref();
 
-        match ctx.auth_service.register(&oidc_user.localpart, &random_password, false, displayname).await {
+        match ctx.credential_auth.register(&oidc_user.localpart, &random_password, false, displayname).await {
             Ok(result) => result,
             Err(e) => {
                 // Check if user was created by another request (race condition)
@@ -944,7 +944,7 @@ async fn oidc_callback(
     Ok(Json(serde_json::json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_in": ctx.auth_service.token_expiry(),
+        "expires_in": ctx.token_auth.token_expiry(),
         "device_id": device_id,
         "user_id": user_id_for_log,
     })))

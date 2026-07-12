@@ -13,13 +13,13 @@ pub async fn register_guest(State(ctx): State<AuthContext>) -> Result<Json<Value
     if !ctx.config.server.enable_registration {
         return Err(ApiError::forbidden("Registration is disabled".to_string()));
     }
-    let (user, device_id, access_token) = ctx.auth_service.register_guest_account().await?;
+    let (user, device_id, access_token) = ctx.credential_auth.register_guest_account().await?;
 
     Ok(Json(json!({
         "access_token": access_token,
         "device_id": device_id,
         "user_id": user.user_id,
-        "expires_in": ctx.auth_service.token_expiry(),
+        "expires_in": ctx.token_auth.token_expiry(),
     })))
 }
 
@@ -27,7 +27,7 @@ pub async fn get_guest_info(
     State(ctx): State<AuthContext>,
     auth_user: AuthenticatedUser,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.auth_service.require_guest_user(&auth_user.user_id).await?;
+    ctx.credential_auth.require_guest_user(&auth_user.user_id).await?;
     Ok(Json(json!({
         "user_id": auth_user.user_id,
         "is_guest": true,

@@ -113,11 +113,11 @@ async fn handle_saml_callback(
 
     let device_id = format!("SAML_{}", uuid::Uuid::new_v4().as_simple());
 
-    let access_token = ctx.auth_service.generate_access_token(&auth_result.user_id, &device_id, user.is_admin).await?;
+    let access_token = ctx.token_auth.generate_access_token(&auth_result.user_id, &device_id, user.is_admin).await?;
 
     let expires_in = 3600_i64;
 
-    let refresh_token = match ctx.auth_service.generate_refresh_token(&auth_result.user_id, &device_id).await {
+    let refresh_token = match ctx.token_auth.generate_refresh_token(&auth_result.user_id, &device_id).await {
         Ok(token) => Some(token),
         Err(e) => {
             ::tracing::warn!(

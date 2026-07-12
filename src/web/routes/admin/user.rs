@@ -413,7 +413,7 @@ pub async fn deactivate_user(
         "Admin deactivating user"
     );
 
-    ctx.auth_service.deactivate_user(&user.user_id).await.map_err(|e| {
+    ctx.credential_auth.deactivate_user(&user.user_id).await.map_err(|e| {
         tracing::error!(
             admin_user = %admin.user_id,
             target_user = %user.user_id,
@@ -534,7 +534,7 @@ pub async fn delete_user_device_admin(
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
     let user = resolve_user(&ctx, &user_id).await?;
-    let rows = ctx.auth_service.revoke_device(&user.user_id, &device_id).await?;
+    let rows = ctx.token_auth.revoke_device(&user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -613,7 +613,7 @@ pub async fn logout_user_devices(
     // 通过 auth_service 走完整的会话撤销链：access token 黑名单、
     // refresh token 全量吊销、设备清理、logout_all 标记 —
     // 直接 DELETE FROM devices 会留下可继续换发新 access token 的 refresh token。
-    ctx.auth_service.logout_all(&user.user_id).await?;
+    ctx.token_auth.logout_all(&user.user_id).await?;
 
     Ok(Json(json!({
         "devices_deleted": device_count
@@ -885,7 +885,7 @@ pub async fn invalidate_user_sessions(
     let canonical_user_id = user.user_id;
     let sessions_removed = ctx.admin_user_service.get_user_device_count(&canonical_user_id).await?;
 
-    ctx.auth_service.logout_all(&canonical_user_id).await?;
+    ctx.token_auth.logout_all(&canonical_user_id).await?;
 
     Ok(Json(json!({
         "invalidated": true,

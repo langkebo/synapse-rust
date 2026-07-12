@@ -53,7 +53,7 @@ pub(crate) async fn sync(
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer_token(&headers)?;
-    let (user_id, device_id, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, device_id, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);
     let is_full_state = parse_bool_query_param(&params, "full_state").unwrap_or(false);
@@ -150,7 +150,7 @@ pub(crate) async fn get_events(
     Query(params): Query<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let from = params.get("from").and_then(|v| v.as_str()).unwrap_or("0");
     let timeout = parse_u64_query_param(&params, "timeout").unwrap_or(30000);

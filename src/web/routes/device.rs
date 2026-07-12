@@ -283,7 +283,7 @@ pub async fn delete_device(
         return Ok(challenge);
     }
 
-    let rows: u64 = ctx.auth_service.revoke_device(&auth_user.user_id, &device_id).await?;
+    let rows: u64 = ctx.token_auth.revoke_device(&auth_user.user_id, &device_id).await?;
 
     if rows == 0 {
         return Err(ApiError::not_found("Device not found".to_string()));
@@ -305,7 +305,7 @@ pub async fn delete_devices(
 
     let device_ids = parse_device_ids(&body)?;
 
-    ctx.auth_service.revoke_devices(&auth_user.user_id, &device_ids).await?;
+    ctx.token_auth.revoke_devices(&auth_user.user_id, &device_ids).await?;
 
     for device_id in &device_ids {
         broadcast_device_list_update(&ctx, &auth_user.user_id, device_id).await;

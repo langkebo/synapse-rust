@@ -183,7 +183,7 @@ pub(crate) async fn create_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     let token = bearer_token(&headers)?;
-    let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (user_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let visibility = body.get("visibility").and_then(|v| v.as_str());
     if let Some(v) = visibility {

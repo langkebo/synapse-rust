@@ -54,7 +54,7 @@ pub(crate) async fn get_user_directory_profile(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer_token(&headers)?;
-    let _ = ctx.auth_service.validate_token(&token).await?;
+    let _ = ctx.token_auth.validate_token(&token).await?;
 
     validate_user_id(&user_id)?;
     enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
@@ -78,7 +78,7 @@ pub(crate) async fn search_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer_token(&headers)?;
-    let (requester_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let search_query = body.get("search_term").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
@@ -130,7 +130,7 @@ pub(crate) async fn list_user_directory(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
     let token = bearer_token(&headers)?;
-    let (requester_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
+    let (requester_id, _, _, _, _) = ctx.token_auth.validate_token(&token).await?;
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).clamp(1, 200) as i64;
     let cursor = decode_user_cursor(body.get("since").and_then(|v| v.as_str()));
