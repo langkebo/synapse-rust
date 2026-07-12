@@ -65,7 +65,7 @@ pub(crate) async fn get_room_event(
     room_id: &str,
     event_id: &str,
 ) -> Result<serde_json::Value, ApiError> {
-    ctx.room_service.messaging.get_event(room_id, event_id).await
+    ctx.room_service.messaging().get_event(room_id, event_id).await
 }
 
 #[derive(Debug, Deserialize)]

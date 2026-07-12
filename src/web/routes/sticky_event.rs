@@ -118,7 +118,7 @@ pub async fn set_sticky_events(
             .ok_or_else(|| ApiError::bad_request("Missing event_id".to_string()))?;
         validate_event_id(event_id_str)?;
 
-        let stored_event: serde_json::Value = ctx.room_service.messaging.get_event(&room_id, event_id_str).await?;
+        let stored_event: serde_json::Value = ctx.room_service.messaging().get_event(&room_id, event_id_str).await?;
         let stored_event_id = stored_event.get("event_id").and_then(|v| v.as_str()).unwrap_or(event_id_str);
 
         // Set the sticky event

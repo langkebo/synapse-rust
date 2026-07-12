@@ -40,11 +40,11 @@ impl FromRef<AppState> for CoreContext {
 
 #[derive(Clone)]
 pub struct RoomContext {
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub server_name: String,
     pub cache: Arc<CacheManager>,
-    pub sync_service: Arc<synapse_services::sync_service::SyncService>,
+    pub sync_service: Arc<dyn synapse_services::sync_service::SyncServiceApi>,
     pub thread_service: Arc<synapse_services::thread_service::ThreadService>,
     pub space_service: Arc<synapse_services::space_service::SpaceService>,
     pub room_summary_service: Arc<synapse_services::room_summary_service::RoomSummaryService>,
@@ -131,7 +131,7 @@ impl FromRef<AppState> for RoomContext {
 
 #[derive(Clone)]
 pub struct E2eeRoomContext {
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub secure_backup_service: synapse_e2ee::secure_backup::SecureBackupService,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
@@ -156,7 +156,7 @@ impl FromRef<AppState> for E2eeRoomContext {
 
 #[derive(Clone)]
 pub struct SyncContext {
-    pub sync_service: Arc<synapse_services::sync_service::SyncService>,
+    pub sync_service: Arc<dyn synapse_services::sync_service::SyncServiceApi>,
     pub auth_service: Arc<dyn synapse_services::auth::Auth>,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub cache: Arc<CacheManager>,
@@ -206,7 +206,7 @@ pub struct DeviceContext {
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
     pub server_name: String,
     pub account_device_list_service: Arc<synapse_services::account_device_list_service::AccountDeviceListService>,
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub uia_service: Arc<synapse_services::uia_service::UiaService>,
     pub event_broadcaster: Arc<synapse_federation::EventBroadcaster>,
     pub config: synapse_common::config::Config,
@@ -324,7 +324,7 @@ pub struct AdminContext {
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
     pub media_service: synapse_services::media_service::MediaService,
     // Room & sync
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub sliding_sync_service: Arc<synapse_services::sliding_sync_service::SlidingSyncService>,
     pub space_service: Arc<synapse_services::space_service::SpaceService>,
     // Account
@@ -475,7 +475,7 @@ pub struct FederationContext {
     pub server_name: String,
     pub cache: Arc<CacheManager>,
     pub metrics: Arc<synapse_common::metrics::MetricsCollector>,
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub space_service: Arc<synapse_services::space_service::SpaceService>,
     pub registration_service: Arc<synapse_services::registration_service::RegistrationService>,
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
@@ -556,7 +556,7 @@ pub struct MediaContext {
     pub media_service: synapse_services::media_service::MediaService,
     pub media_domain_service: Arc<synapse_services::media::MediaDomainService>,
     pub media_quota_service: Arc<synapse_services::media_quota_service::MediaQuotaService>,
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
@@ -644,7 +644,7 @@ pub struct FriendContext {
     pub cache: Arc<CacheManager>,
     pub config: synapse_common::config::Config,
     pub user_storage: Arc<dyn synapse_storage::UserStore>,
-    pub room_service: Arc<synapse_services::room_service::RoomService>,
+    pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub admin_audit_service: Option<Arc<synapse_services::AdminAuditService>>,
     pub account_identity_service: Arc<synapse_services::account_identity_service::AccountIdentityService>,
     pub federation_client: Arc<dyn synapse_federation::client_api::FederationClientApi>,

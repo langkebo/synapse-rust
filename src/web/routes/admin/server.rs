@@ -161,7 +161,7 @@ pub async fn restart_server(
 #[axum::debug_handler]
 pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
     let total_users = ctx.account_identity_service.get_user_count().await?;
-    let total_rooms = ctx.room_service.state.get_room_count().await?;
+    let total_rooms = ctx.room_service.state().get_room_count().await?;
 
     // Real active-user metrics based on device last_seen_ts.
     let daily_active_users = ctx.account_identity_service.get_daily_active_users().await.unwrap_or(0);
@@ -169,7 +169,7 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     let r30_users = ctx.account_identity_service.get_r30_users().await.unwrap_or(0);
 
     // Room activity and message-volume metrics.
-    let room_stats = ctx.room_service.state.get_room_stats_overview().await.unwrap_or_else(|e| {
+    let room_stats = ctx.room_service.state().get_room_stats_overview().await.unwrap_or_else(|e| {
         ::tracing::warn!(error = %e, "Failed to fetch room stats overview for /statistics");
         json!({})
     });
@@ -178,7 +178,7 @@ pub async fn get_statistics(_admin: AdminUser, State(ctx): State<AdminContext>) 
     let total_members = room_stats.get("total_members").and_then(|v| v.as_i64()).unwrap_or(0);
     let encrypted_rooms = room_stats.get("encrypted_rooms").and_then(|v| v.as_i64()).unwrap_or(0);
 
-    let daily_messages = ctx.room_service.messaging.get_daily_message_count().await.unwrap_or(0);
+    let daily_messages = ctx.room_service.messaging().get_daily_message_count().await.unwrap_or(0);
 
     // Update Prometheus metrics directly using the collector
     if let Some(gauge) = ctx.metrics.get_gauge("synapse_total_users") {

@@ -18,7 +18,7 @@ pub async fn cleanup_abnormal_rooms(
 ) -> Result<Json<Value>, ApiError> {
     let min_age_ms = body.get("min_age_ms").and_then(|v| v.as_i64());
 
-    let results = ctx.room_service.state.cleanup_abnormal_data(min_age_ms).await?;
+    let results = ctx.room_service.state().cleanup_abnormal_data(min_age_ms).await?;
 
     Ok(Json(results))
 }
@@ -31,11 +31,11 @@ pub async fn block_room(
     headers: HeaderMap,
     Json(body): Json<BlockRoomRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ctx.room_service.state.block_room(&room_id, &admin.user_id, body.reason.as_deref()).await?;
+    ctx.room_service.state().block_room(&room_id, &admin.user_id, body.reason.as_deref()).await?;
 
     record_audit_event(
         &ctx,
@@ -60,11 +60,11 @@ pub async fn get_room_block_status(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let blocked_at = ctx.room_service.state.get_room_block_status(&room_id).await?;
+    let blocked_at = ctx.room_service.state().get_room_block_status(&room_id).await?;
 
     match blocked_at {
         Some(blocked_at) => Ok(Json(json!({
@@ -82,11 +82,11 @@ pub async fn unblock_room(
     Path(room_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ctx.room_service.state.unblock_room(&room_id).await?;
+    ctx.room_service.state().unblock_room(&room_id).await?;
 
     record_audit_event(
         &ctx,
@@ -110,7 +110,7 @@ pub async fn make_room_admin(
     Json(body): Json<MakeRoomAdminRequest>,
 ) -> Result<Json<Value>, ApiError> {
     crate::web::routes::admin::ensure_super_admin_for_privilege_change(&admin)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -118,7 +118,7 @@ pub async fn make_room_admin(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    ctx.room_service.state.grant_room_admin(&room_id, &body.user_id).await?;
+    ctx.room_service.state().grant_room_admin(&room_id, &body.user_id).await?;
 
     Ok(Json(json!({})))
 }
@@ -140,7 +140,7 @@ pub async fn purge_history(
         .and_then(|v| v.as_i64())
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() - (30 * 24 * 60 * 60 * 1000));
 
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -155,7 +155,7 @@ pub async fn purge_history(
         "Admin purge history operation"
     );
 
-    let deleted_count = ctx.room_service.state.purge_history_before(room_id, timestamp).await?;
+    let deleted_count = ctx.room_service.state().purge_history_before(room_id, timestamp).await?;
 
     Ok(Json(json!({
         "success": true,
@@ -209,7 +209,7 @@ pub async fn backfill_room(
     Path(room_id): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -238,7 +238,7 @@ pub async fn purge_room(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -252,7 +252,7 @@ pub async fn purge_room(
         "Admin delete room operation"
     );
 
-    ctx.room_service.state.delete_room(room_id, &admin.user_id).await?;
+    ctx.room_service.state().delete_room(room_id, &admin.user_id).await?;
 
     Ok(Json(json!({
         "purge_id": uuid::Uuid::new_v4().to_string(),
@@ -357,7 +357,7 @@ async fn join_room_member_internal(
     user_id: &str,
     _request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -365,10 +365,10 @@ async fn join_room_member_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = ctx.room_service.membership.get_room_membership(room_id, user_id).await?;
+    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
     if existing_membership.as_deref() != Some("join") {
-        ctx.room_service.membership.join_room(room_id, user_id).await?;
+        ctx.room_service.membership().join_room(room_id, user_id).await?;
     }
 
     Ok(json!({
@@ -384,7 +384,7 @@ async fn remove_room_member_internal(
     user_id: &str,
     _request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -392,10 +392,10 @@ async fn remove_room_member_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = ctx.room_service.membership.get_room_membership(room_id, user_id).await?;
+    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
     if existing_membership.as_deref() == Some("join") {
-        ctx.room_service.membership.leave_room(room_id, user_id).await?;
+        ctx.room_service.membership().leave_room(room_id, user_id).await?;
     }
 
     Ok(json!({
@@ -413,7 +413,7 @@ async fn ban_user_internal(
     reason: Option<&str>,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -421,23 +421,23 @@ async fn ban_user_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    let existing_membership = ctx.room_service.membership.get_room_membership(room_id, user_id).await?;
+    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
     let actor_is_admin =
         ctx.account_identity_service.get_user_by_id(actor_user_id).await?.is_some_and(|user| user.is_admin);
 
     if actor_is_admin {
-        ctx.room_service.membership.admin_ban_user_membership(room_id, user_id, actor_user_id).await?;
+        ctx.room_service.membership().admin_ban_user_membership(room_id, user_id, actor_user_id).await?;
     } else {
-        ctx.room_service.membership.ban_user(room_id, user_id, actor_user_id, reason).await?;
+        ctx.room_service.membership().ban_user(room_id, user_id, actor_user_id, reason).await?;
     }
 
     if existing_membership.as_deref() == Some("join") {
-        ctx.room_service.membership.decrement_member_count(room_id).await?;
+        ctx.room_service.membership().decrement_member_count(room_id).await?;
     }
 
     if let Some(reason) = reason {
-        ctx.room_service.membership.set_ban_reason(room_id, user_id, reason).await?;
+        ctx.room_service.membership().set_ban_reason(room_id, user_id, reason).await?;
     }
 
     #[cfg(feature = "friends")]
@@ -469,7 +469,7 @@ async fn unban_user_internal(
     user_id: &str,
     _request_id: &str,
 ) -> Result<Value, ApiError> {
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -477,7 +477,7 @@ async fn unban_user_internal(
         return Err(ApiError::not_found("User not found".to_string()));
     }
 
-    ctx.room_service.membership.admin_unban_user_membership(room_id, user_id).await?;
+    ctx.room_service.membership().admin_unban_user_membership(room_id, user_id).await?;
 
     Ok(json!({
         "user_id": user_id,
@@ -494,9 +494,9 @@ async fn kick_user_internal(
     reason: Option<&str>,
     request_id: &str,
 ) -> Result<Value, ApiError> {
-    let existing_membership = ctx.room_service.membership.get_room_membership(room_id, user_id).await?;
+    let existing_membership = ctx.room_service.membership().get_room_membership(room_id, user_id).await?;
 
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -506,11 +506,11 @@ async fn kick_user_internal(
 
     match existing_membership.as_deref() {
         Some("join") => {
-            ctx.room_service.membership.leave_room(room_id, user_id).await?;
+            ctx.room_service.membership().leave_room(room_id, user_id).await?;
         }
         Some(_) => {
             let now = chrono::Utc::now().timestamp_millis();
-            ctx.room_service.membership.force_leave_membership(room_id, user_id, now).await?;
+            ctx.room_service.membership().force_leave_membership(room_id, user_id, now).await?;
         }
         None => {}
     }

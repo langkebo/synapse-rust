@@ -118,7 +118,7 @@ pub async fn get_space_stats(
 /// Get overall room statistics
 #[axum::debug_handler]
 pub async fn get_room_stats(_admin: AdminUser, State(ctx): State<AdminContext>) -> Result<Json<Value>, ApiError> {
-    let stats = ctx.room_service.state.get_room_stats_overview().await?;
+    let stats = ctx.room_service.state().get_room_stats_overview().await?;
 
     Ok(Json(stats))
 }
@@ -130,7 +130,7 @@ pub async fn get_single_room_stats(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let stats = ctx.room_service.state.get_single_room_stats(&room_id).await?;
+    let stats = ctx.room_service.state().get_single_room_stats(&room_id).await?;
 
     match stats {
         Some(stats) => Ok(Json(stats)),
@@ -145,7 +145,7 @@ pub async fn get_room_listings(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let listing = ctx.room_service.state.get_room_listings_status(&room_id).await?;
+    let listing = ctx.room_service.state().get_room_listings_status(&room_id).await?;
 
     let Some((is_public, in_directory)) = listing else {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -165,7 +165,7 @@ pub async fn set_room_public(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let found = ctx.room_service.state.set_room_public_with_directory(&room_id).await?;
+    let found = ctx.room_service.state().set_room_public_with_directory(&room_id).await?;
 
     if !found {
         return Err(ApiError::not_found("Room not found".to_string()));
@@ -184,7 +184,7 @@ pub async fn set_room_private(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let found = ctx.room_service.state.set_room_private_with_directory(&room_id).await?;
+    let found = ctx.room_service.state().set_room_private_with_directory(&room_id).await?;
 
     if !found {
         return Err(ApiError::not_found("Room not found".to_string()));

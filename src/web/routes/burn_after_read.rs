@@ -88,7 +88,7 @@ pub async fn enable_burn(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists: bool = ctx
         .room_service
-        .state
+        .state()
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -121,7 +121,7 @@ pub async fn get_burn_settings(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists: bool = ctx
         .room_service
-        .state
+        .state()
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -157,7 +157,7 @@ pub async fn mark_burn_read(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists: bool = ctx
         .room_service
-        .state
+        .state()
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -203,7 +203,7 @@ pub async fn get_pending_burns(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists: bool = ctx
         .room_service
-        .state
+        .state()
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;
@@ -243,7 +243,7 @@ pub async fn cancel_burn(
 ) -> Result<Json<Value>, ApiError> {
     let room_exists: bool = ctx
         .room_service
-        .state
+        .state()
         .room_exists(&room_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room existence", &e))?;

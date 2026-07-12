@@ -45,7 +45,7 @@ pub(crate) fn status_json(status: &'static str) -> Json<Value> {
 }
 
 pub(crate) async fn filter_users_with_shared_rooms(
-    room_service: &Arc<synapse_services::room_service::RoomService>,
+    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
     current_user_id: &str,
     requested_users: &[String],
 ) -> HashSet<String> {
@@ -58,7 +58,7 @@ pub(crate) async fn filter_users_with_shared_rooms(
         return allowed;
     }
 
-    let shared = room_service.membership.share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
+    let shared = room_service.membership().share_common_rooms_batch(current_user_id, &others).await.unwrap_or_default();
 
     for uid in shared {
         allowed.insert(uid);

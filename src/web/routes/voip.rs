@@ -194,7 +194,7 @@ pub async fn call_invite(
     // so we don't need a separate dispatch_appservice_event call here.
     let _ = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),
@@ -252,7 +252,7 @@ pub async fn call_answer(
     // so we don't need a separate dispatch_appservice_event call here.
     let _ = ctx
         .room_service
-        .messaging
+        .messaging()
         .create_event(
             synapse_storage::event::CreateEventParams {
                 event_id: event_id.clone(),

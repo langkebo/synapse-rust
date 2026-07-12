@@ -139,14 +139,14 @@ fn parse_dm_users(value: &Value) -> Result<Vec<String>, ApiError> {
 
 #[cfg(not(feature = "friends"))]
 async fn build_direct_map_from_memberships(ctx: &RoomContext, user_id: &str) -> Result<Map<String, Value>, ApiError> {
-    let rooms = ctx.room_service.membership.get_joined_rooms(user_id).await?;
+    let rooms = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
     let mut direct_map = Map::new();
 
     for room_id in rooms {
-        let join_members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+        let join_members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
 
-        let invited_members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "invite").await?;
+        let invited_members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "invite").await?;
 
         let total_members = join_members.len() + invited_members.len();
         if total_members != 2 {
@@ -387,7 +387,7 @@ async fn create_dm_room_via_service(
                 ..Default::default()
             };
 
-            let created = ctx.room_service.lifecycle.create_room(owner_user_id, config).await?;
+            let created = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
             created["room_id"]
                 .as_str()
@@ -406,7 +406,7 @@ async fn create_dm_room_via_service(
             ..Default::default()
         };
 
-        let response = ctx.room_service.lifecycle.create_room(owner_user_id, config).await?;
+        let response = ctx.room_service.lifecycle().create_room(owner_user_id, config).await?;
 
         response
             .get("room_id")
@@ -453,9 +453,9 @@ async fn load_dm_partner_info(
         })
         .ok_or_else(|| ApiError::not_found("DM partner not found".to_string()))?;
 
-    let join_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
+    let join_members = ctx.room_service.membership().get_room_members_by_membership(room_id, "join").await?;
 
-    let invited_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "invite").await?;
+    let invited_members = ctx.room_service.membership().get_room_members_by_membership(room_id, "invite").await?;
 
     let other_member = join_members
         .iter()

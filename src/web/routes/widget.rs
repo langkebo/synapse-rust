@@ -153,7 +153,7 @@ async fn create_widget(
     validate_widget_url(&body.url)?;
 
     if let Some(room_id) = body.room_id.as_deref() {
-        let room_exists = ctx.room_service.state.room_exists(room_id).await?;
+        let room_exists = ctx.room_service.state().room_exists(room_id).await?;
         if !room_exists {
             return Err(ApiError::not_found("Room not found"));
         }
@@ -379,7 +379,7 @@ async fn ensure_room_widget_manage_access(
         return Ok(());
     }
 
-    let is_creator = ctx.room_service.state.is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
+    let is_creator = ctx.room_service.state().is_room_creator(room_id, &auth_user.user_id).await.unwrap_or(false);
 
     if is_creator {
         return Ok(());

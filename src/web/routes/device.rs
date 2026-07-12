@@ -156,10 +156,10 @@ async fn broadcast_device_list_update(ctx: &DeviceContext, user_id: &str, device
     if let Some(pos) = user_id.find(':') {
         let user_server = &user_id[pos + 1..];
         if user_server == server_name {
-            if let Ok(shared_rooms) = ctx.room_service.membership.get_joined_rooms(user_id).await {
+            if let Ok(shared_rooms) = ctx.room_service.membership().get_joined_rooms(user_id).await {
                 let mut sent_servers: std::collections::HashSet<String> = std::collections::HashSet::new();
                 for room_id in &shared_rooms {
-                    if let Ok(members) = ctx.room_service.membership.get_joined_members_with_profiles(room_id).await {
+                    if let Ok(members) = ctx.room_service.membership().get_joined_members_with_profiles(room_id).await {
                         for member in &members {
                             if let Some(mpos) = member.user_id.find(':') {
                                 let member_server = &member.user_id[mpos + 1..];

@@ -221,7 +221,7 @@ async fn query_keys(
     let device_keys = if requested_users.is_empty() {
         let mut shared = ctx
             .room_service
-            .membership
+            .membership()
             .get_shared_room_users(&auth_user.user_id)
             .await
             .map_err(|e| crate::error::ApiError::internal_with_log("Failed to load shared room users", &e))?;

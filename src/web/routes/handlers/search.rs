@@ -398,7 +398,7 @@ async fn build_room_hierarchy_response(
                 .is_some_and(|a| a.iter().any(|r| r.get("room_id").and_then(|v| v.as_str()) == Some(room_id)));
 
             if !has_space_self || rooms <= 1 {
-                let state_events = ctx.room_service.messaging.get_state_events(room_id).await?;
+                let state_events = ctx.room_service.messaging().get_state_events(room_id).await?;
 
                 let mut children_state = Vec::new();
                 let mut child_room_ids = Vec::new();
@@ -482,7 +482,7 @@ async fn build_room_hierarchy_response(
 
     let world_readable = room.history_visibility == "world_readable";
 
-    let state_events = ctx.room_service.messaging.get_state_events(room_id).await?;
+    let state_events = ctx.room_service.messaging().get_state_events(room_id).await?;
 
     let room_type = state_events
         .iter()
@@ -643,7 +643,7 @@ async fn get_event_context(
 
     ensure_room_member_strict_ctx(&ctx, &auth_user, &room_id, "Not a member of this room").await?;
 
-    let target_event = ctx.room_service.messaging.get_event(&room_id, &event_id).await?;
+    let target_event = ctx.room_service.messaging().get_event(&room_id, &event_id).await?;
 
     let target_ts = target_event.get("origin_server_ts").and_then(|v| v.as_i64()).unwrap_or(0);
 

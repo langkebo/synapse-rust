@@ -8,11 +8,11 @@ use std::sync::Arc;
 // =============================================================================
 
 async fn is_member_via(
-    room_service: &Arc<synapse_services::room_service::RoomService>,
+    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
     user_id: &str,
     room_id: &str,
 ) -> Result<bool, ApiError> {
-    let membership = room_service.membership.get_room_membership(room_id, user_id).await?;
+    let membership = room_service.membership().get_room_membership(room_id, user_id).await?;
     Ok(membership.is_some_and(|m| m == "join"))
 }
 
@@ -135,7 +135,7 @@ pub(crate) async fn ensure_room_member_strict_admin(
 
 #[allow(dead_code)]
 pub(crate) async fn is_joined_room_member_svc(
-    room_service: &Arc<synapse_services::room_service::RoomService>,
+    room_service: &Arc<dyn synapse_services::RoomServiceApi>,
     user_id: &str,
     room_id: &str,
 ) -> Result<bool, ApiError> {

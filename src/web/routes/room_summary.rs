@@ -181,7 +181,7 @@ async fn ensure_room_summary_manage_access(
     ensure_room_member_strict_ctx(ctx, auth_user, room_id, "You must be a member of this room to manage room summary")
         .await?;
 
-    let is_creator = ctx.room_service.state.is_room_creator(room_id, &auth_user.user_id).await?;
+    let is_creator = ctx.room_service.state().is_room_creator(room_id, &auth_user.user_id).await?;
 
     if !is_creator {
         return Err(ApiError::forbidden("Only room admins can manage room summary".to_string()));

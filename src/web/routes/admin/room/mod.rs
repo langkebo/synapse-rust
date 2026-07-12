@@ -303,7 +303,7 @@ pub async fn get_room_aliases_admin(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -345,9 +345,9 @@ pub async fn get_rooms(
     }
 
     let (rooms_with_members, next_batch) =
-        ctx.room_service.state.get_all_rooms_with_members(limit, cursor, order).await?;
+        ctx.room_service.state().get_all_rooms_with_members(limit, cursor, order).await?;
 
-    let total = ctx.room_service.state.get_room_count().await?;
+    let total = ctx.room_service.state().get_room_count().await?;
 
     let room_list: Vec<Value> = rooms_with_members
         .iter()
@@ -377,13 +377,13 @@ pub async fn get_room(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let room = ctx.room_service.state.get_room_record(&room_id).await?;
+    let room = ctx.room_service.state().get_room_record(&room_id).await?;
 
     match room {
         Some(r) => {
             // Derive tombstone state from the m.room.tombstone state event.
             let tombstone_events =
-                ctx.room_service.messaging.get_state_events_by_type(&room_id, "m.room.tombstone").await?;
+                ctx.room_service.messaging().get_state_events_by_type(&room_id, "m.room.tombstone").await?;
             let tombstone_content = tombstone_events.first().and_then(|e| e.get("content"));
             let tombstoned = tombstone_content.is_some();
             let replacement_room = tombstone_content
@@ -415,7 +415,7 @@ pub async fn delete_room(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.room_service.state.delete_room(&room_id, &admin.user_id).await?;
+    ctx.room_service.state().delete_room(&room_id, &admin.user_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -430,7 +430,7 @@ pub async fn get_room_members_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -441,9 +441,9 @@ pub async fn get_room_members_admin(
         .clamp(MIN_PAGINATION_LIMIT, MAX_PAGINATION_LIMIT);
     let from = params.get("from").map(|s| s.as_str());
 
-    let members = ctx.room_service.membership.get_room_members_paginated_admin(&room_id, "join", limit, from).await?;
+    let members = ctx.room_service.membership().get_room_members_paginated_admin(&room_id, "join", limit, from).await?;
 
-    let total = ctx.room_service.membership.get_room_member_count_admin(&room_id).await?;
+    let total = ctx.room_service.membership().get_room_member_count_admin(&room_id).await?;
 
     let member_list: Vec<Value> = members
         .iter()
@@ -472,11 +472,11 @@ pub async fn get_room_state_admin(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let events = ctx.room_service.messaging.get_state_events(&room_id).await?;
+    let events = ctx.room_service.messaging().get_state_events(&room_id).await?;
 
     let state_events: Vec<Value> = events
         .iter()
@@ -501,7 +501,7 @@ pub async fn get_room_messages_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -513,7 +513,7 @@ pub async fn get_room_messages_admin(
     let from = params.get("from").and_then(|v| v.parse::<i64>().ok());
     let dir = params.get("dir").map_or("b", |s| s.as_str());
 
-    let events = ctx.room_service.messaging.get_room_events_paginated_admin(&room_id, from, limit, dir).await?;
+    let events = ctx.room_service.messaging().get_room_events_paginated_admin(&room_id, from, limit, dir).await?;
 
     let messages: Vec<Value> = events
         .iter()
@@ -550,11 +550,11 @@ pub async fn shutdown_room(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Missing 'room_id' field".to_string()))?;
 
-    if !ctx.room_service.state.room_exists(room_id).await? {
+    if !ctx.room_service.state().room_exists(room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    ctx.room_service.state.shutdown_room_and_remove_members(room_id).await?;
+    ctx.room_service.state().shutdown_room_and_remove_members(room_id).await?;
 
     Ok(Json(json!({
         "kicked_users": [],
@@ -573,11 +573,11 @@ pub async fn get_event_context_admin(
     let room_id = room_id.replace("%21", "!").replace("%3A", ":");
     let event_id = event_id.replace("%24", "$").replace("%3A", ":");
 
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    Ok(Json(ctx.room_service.messaging.get_event_context_admin(&room_id, &event_id, 5).await?))
+    Ok(Json(ctx.room_service.messaging().get_event_context_admin(&room_id, &event_id, 5).await?))
 }
 
 #[axum::debug_handler]
@@ -587,7 +587,7 @@ pub async fn get_room_token_sync_admin(
     Path(room_id): Path<String>,
     axum::extract::Query(params): axum::extract::Query<RoomTokenSyncQueryParams>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -677,14 +677,14 @@ pub async fn search_room_messages_admin(
     Path(room_id): Path<String>,
     Json(body): Json<SearchRoomMessagesRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     let limit = body.limit.unwrap_or(50).min(200) as i64;
     let search_pattern = format!("%{}%", body.search_term.to_lowercase());
 
-    let events = ctx.room_service.messaging.search_room_messages_admin(&room_id, &search_pattern, limit).await?;
+    let events = ctx.room_service.messaging().search_room_messages_admin(&room_id, &search_pattern, limit).await?;
 
     let results: Vec<Value> = events
         .iter()
@@ -711,7 +711,7 @@ pub async fn get_room_version(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    let version = ctx.room_service.state.get_room_version(&room_id).await?;
+    let version = ctx.room_service.state().get_room_version(&room_id).await?;
 
     match version {
         Some(version) => Ok(Json(json!({
@@ -729,11 +729,11 @@ pub async fn get_room_forward_extremities(
     State(ctx): State<AdminContext>,
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
-    let count = ctx.room_service.messaging.get_forward_extremities_count(&room_id).await?;
+    let count = ctx.room_service.messaging().get_forward_extremities_count(&room_id).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -783,7 +783,7 @@ async fn search_all_rooms_impl(ctx: &AdminContext, body: SearchAllRoomsRequest) 
 
     let (results, total, next_batch) = ctx
         .room_service
-        .state
+        .state()
         .search_all_rooms_admin(body.search_term.as_deref(), limit, order, cursor, body.is_public, body.is_encrypted)
         .await?;
 

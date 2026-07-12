@@ -22,7 +22,7 @@ pub(crate) async fn join_room(
     let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
 
-    ctx.room_service.membership.join_room(&room_id, &user_id).await?;
+    ctx.room_service.membership().join_room(&room_id, &user_id).await?;
     Ok(Json(json!({
         "room_id": room_id,
         "joined_ts": chrono::Utc::now().timestamp_millis()
@@ -44,7 +44,7 @@ pub(crate) async fn join_room_by_id_or_alias(
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         // Try local alias lookup first.
-        match ctx.room_service.state.get_room_by_alias(&room_id_or_alias).await {
+        match ctx.room_service.state().get_room_by_alias(&room_id_or_alias).await {
             Ok(Some(rid)) => rid,
             Ok(None) => {
                 // Local lookup failed — try federation directory query for
@@ -76,7 +76,7 @@ pub(crate) async fn join_room_by_id_or_alias(
     } else {
         let alias = format!("#{}:{}", room_id_or_alias, ctx.server_name);
         ctx.room_service
-            .state
+            .state()
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -98,7 +98,7 @@ pub(crate) async fn join_room_by_id_or_alias(
         "User joining room by id or alias"
     );
 
-    ctx.room_service.membership.join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
+    ctx.room_service.membership().join_room_with_via_servers(&room_id, &user_id, &via_servers).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -113,7 +113,7 @@ pub(crate) async fn leave_room(
 ) -> Result<Json<Value>, ApiError> {
     let request_id = resolve_request_id(&headers);
     validate_room_id(&room_id)?;
-    ctx.room_service.membership.leave_room(&room_id, &auth_user.user_id).await?;
+    ctx.room_service.membership().leave_room(&room_id, &auth_user.user_id).await?;
     #[cfg(feature = "friends")]
     if let Err(error) = ctx
         .friend_room_service
@@ -146,7 +146,7 @@ pub(crate) async fn knock_room(
         room_id_or_alias.clone()
     } else if room_id_or_alias.starts_with('#') {
         ctx.room_service
-            .state
+            .state()
             .get_room_by_alias(&room_id_or_alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -154,7 +154,7 @@ pub(crate) async fn knock_room(
     } else {
         let alias = format!("#{}:{}", room_id_or_alias, ctx.server_name);
         ctx.room_service
-            .state
+            .state()
             .get_room_by_alias(&alias)
             .await
             .map_err(|e| ApiError::not_found(format!("Room alias not found: {e}")))?
@@ -170,7 +170,7 @@ pub(crate) async fn knock_room(
         "User knocking on room"
     );
 
-    ctx.room_service.membership.knock_room(&room_id, &user_id, reason.as_deref()).await?;
+    ctx.room_service.membership().knock_room(&room_id, &user_id, reason.as_deref()).await?;
 
     Ok(Json(json!({
         "room_id": room_id
@@ -194,7 +194,7 @@ pub(crate) async fn invite_user(
 
     ctx.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
 
-    ctx.room_service.membership.invite_user(&room_id, &auth_user.user_id, invitee).await?;
+    ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -232,7 +232,7 @@ pub(crate) async fn invite_user_by_room(
         "User inviting another user to room"
     );
 
-    ctx.room_service.membership.invite_user(&room_id, &user_id, invitee).await?;
+    ctx.room_service.membership().invite_user(&room_id, &user_id, invitee).await?;
 
     Ok(Json(json!({
         "room_id": room_id,
@@ -282,7 +282,7 @@ pub(crate) async fn get_room_members(
         validate_membership(nmf)?;
     }
 
-    let members = ctx.room_service.membership.get_room_members(&room_id, &user_id).await?;
+    let members = ctx.room_service.membership().get_room_members(&room_id, &user_id).await?;
 
     let filtered = if membership_filter.is_some() || not_membership_filter.is_some() {
         if let Some(chunk) = members.get("chunk").and_then(|c| c.as_array()) {
@@ -333,7 +333,7 @@ pub(crate) async fn get_room_members_recent(
     validate_room_id(&room_id)?;
     let token = bearer_token(&headers)?;
     let (user_id, _, _, _, _) = ctx.auth_service.validate_token(&token).await?;
-    let members = ctx.room_service.membership.get_room_members(&room_id, &user_id).await?;
+    let members = ctx.room_service.membership().get_room_members(&room_id, &user_id).await?;
 
     let from = params.get("from").and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
     let limit = params.get("limit").and_then(|value| value.parse::<usize>().ok()).unwrap_or(100).min(1000);
@@ -367,7 +367,7 @@ pub(crate) async fn get_joined_members(
         ));
     }
 
-    let members = ctx.room_service.membership.get_joined_members_with_profiles(&room_id).await?;
+    let members = ctx.room_service.membership().get_joined_members_with_profiles(&room_id).await?;
 
     let joined: std::collections::HashMap<String, Value> = members
         .into_iter()
@@ -400,7 +400,7 @@ pub(crate) async fn get_room_membership(
     validate_room_id(&room_id)?;
     validate_user_id(&target_user_id)?;
 
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
@@ -408,7 +408,7 @@ pub(crate) async fn get_room_membership(
 
     let membership = ctx
         .room_service
-        .membership
+        .membership()
         .get_room_member_record(&room_id, &target_user_id)
         .await?
         .map_or_else(|| "leave".to_string(), |m| m.membership);
@@ -430,7 +430,7 @@ pub(crate) async fn get_membership_events(
 
     let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(100).min(1000) as i64;
 
-    let memberships = ctx.room_service.membership.get_membership_history(&room_id, limit).await?;
+    let memberships = ctx.room_service.membership().get_membership_history(&room_id, limit).await?;
 
     let events: Vec<Value> = memberships
         .into_iter()
@@ -459,17 +459,17 @@ pub(crate) async fn get_room_invites(
     Path(room_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_room_id(&room_id)?;
-    if !ctx.room_service.state.room_exists(&room_id).await? {
+    if !ctx.room_service.state().room_exists(&room_id).await? {
         return Err(ApiError::not_found("Room not found".to_string()));
     }
 
     ensure_room_view_access(&ctx, &auth_user, &room_id).await?;
 
-    let _invites = ctx.room_service.membership.get_joined_members_with_profiles(&room_id).await?;
+    let _invites = ctx.room_service.membership().get_joined_members_with_profiles(&room_id).await?;
 
     let invited_members: Vec<serde_json::Value> = ctx
         .room_service
-        .membership
+        .membership()
         .get_room_members_by_membership(&room_id, "invite")
         .await?
         .into_iter()
@@ -517,7 +517,7 @@ pub(crate) async fn kick_user(
         }
     }
 
-    ctx.room_service.membership.kick_user(&room_id, target, &auth_user.user_id, reason).await?;
+    ctx.room_service.membership().kick_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
     if let Err(error) = ctx
@@ -562,7 +562,7 @@ pub(crate) async fn ban_user(
         }
     }
 
-    ctx.room_service.membership.ban_user(&room_id, target, &auth_user.user_id, reason).await?;
+    ctx.room_service.membership().ban_user(&room_id, target, &auth_user.user_id, reason).await?;
 
     #[cfg(feature = "friends")]
     if let Err(error) = ctx
@@ -602,7 +602,7 @@ pub(crate) async fn unban_user(
 
     validate_user_id(target)?;
 
-    ctx.room_service.membership.unban_user(&room_id, target, &auth_user.user_id).await?;
+    ctx.room_service.membership().unban_user(&room_id, target, &auth_user.user_id).await?;
 
     Ok(Json(json!({})))
 }

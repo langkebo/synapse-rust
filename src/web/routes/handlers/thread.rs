@@ -285,7 +285,7 @@ async fn ensure_thread_management_access(
 
     let is_creator = ctx
         .room_service
-        .state
+        .state()
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -311,7 +311,7 @@ async fn list_visible_threads(
     limit: Option<i32>,
     from: Option<&str>,
 ) -> Result<ThreadListResponse, ApiError> {
-    let room_ids = ctx.room_service.membership.get_joined_rooms(user_id).await?;
+    let room_ids = ctx.room_service.membership().get_joined_rooms(user_id).await?;
 
     let mut threads = Vec::new();
     for room_id in room_ids {

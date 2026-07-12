@@ -9,8 +9,12 @@ use axum::{
 use serde_json::{json, Value};
 
 async fn federatable_room_version(ctx: &FederationContext, room_id: &str) -> Result<String, ApiError> {
-    let room =
-        ctx.room_service.state.get_room_record(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room = ctx
+        .room_service
+        .state()
+        .get_room_record(room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     if !can_federate_room_version(&room.room_version) {
         return Err(ApiError::incompatible_room_version(format!(
@@ -41,7 +45,7 @@ pub(super) async fn get_room_members(
     super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+    let members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -90,7 +94,7 @@ pub(super) async fn knock_room(
     };
 
     ctx.room_service
-        .messaging
+        .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create knock event", &e))?;
@@ -160,7 +164,7 @@ pub(super) async fn thirdparty_invite(
     };
 
     ctx.room_service
-        .messaging
+        .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
@@ -207,7 +211,7 @@ pub(super) async fn get_joined_room_members(
     super::validate_federation_origin_in_room(&ctx, &room_id, &auth.origin).await?;
     let _room_version = federatable_room_version(&ctx, &room_id).await?;
 
-    let members = ctx.room_service.membership.get_room_members_by_membership(&room_id, "join").await?;
+    let members = ctx.room_service.membership().get_room_members_by_membership(&room_id, "join").await?;
 
     let members_json: Vec<Value> = members
         .into_iter()
@@ -311,7 +315,7 @@ pub(super) async fn invite_v2(
     };
 
     ctx.room_service
-        .messaging
+        .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to create invite event", &e))?;
@@ -355,7 +359,7 @@ pub(super) async fn make_join(
     let result: Result<Json<Value>, ApiError> = async {
         validate_federation_user_origin(&auth.origin, &user_id)?;
 
-        let auth_events = ctx.room_service.messaging.get_state_event_records(&room_id).await?;
+        let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await?;
 
         let auth_events_json: Vec<Value> = auth_events
             .iter()
@@ -403,7 +407,7 @@ pub(super) async fn make_leave(
 ) -> Result<Json<Value>, ApiError> {
     validate_federation_user_origin(&auth.origin, &user_id)?;
 
-    let auth_events = ctx.room_service.messaging.get_state_event_records(&room_id).await?;
+    let auth_events = ctx.room_service.messaging().get_state_event_records(&room_id).await?;
 
     let auth_events_json: Vec<Value> = auth_events
         .iter()
@@ -477,7 +481,7 @@ pub(super) async fn send_join(
             redacts: None,
         };
         ctx.room_service
-            .messaging
+            .messaging()
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
@@ -485,7 +489,7 @@ pub(super) async fn send_join(
             .await;
 
         ctx.room_service
-            .membership
+            .membership()
             .add_member(&room_id, user_id, "join", display_name, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -540,7 +544,7 @@ pub(super) async fn send_leave(
         redacts: None,
     };
     ctx.room_service
-        .messaging
+        .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
@@ -548,7 +552,7 @@ pub(super) async fn send_leave(
     dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, user_id, &content, Some(user_id)).await;
 
     ctx.room_service
-        .membership
+        .membership()
         .add_member(&room_id, user_id, "leave", None, None, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -645,14 +649,14 @@ pub(super) async fn send_join_v2(
             redacts: None,
         };
         ctx.room_service
-            .messaging
+            .messaging()
             .create_event(params, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to persist join event", &e))?;
         dispatch_federation_member_event_to_appservice(&ctx, &event_id, &room_id, sender, &content, Some(sender)).await;
 
         ctx.room_service
-            .membership
+            .membership()
             .add_member(&room_id, sender, "join", display_name, None, None)
             .await
             .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -720,7 +724,7 @@ pub(super) async fn send_leave_v2(
     };
 
     ctx.room_service
-        .messaging
+        .messaging()
         .create_event(params, None)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to persist leave event", &e))?;
@@ -735,7 +739,7 @@ pub(super) async fn send_leave_v2(
     .await;
 
     ctx.room_service
-        .membership
+        .membership()
         .remove_member_record(&room_id, sender)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to update membership", &e))?;
@@ -1094,8 +1098,12 @@ async fn get_effective_room_join_rule(ctx: &FederationContext, room_id: &str) ->
         None
     };
 
-    let room =
-        ctx.room_service.state.get_room_record(room_id).await?.ok_or_else(|| ApiError::not_found("Room not found"))?;
+    let room = ctx
+        .room_service
+        .state()
+        .get_room_record(room_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Room not found"))?;
 
     Ok(effective_join_rule.or_else(|| (!room.join_rule.is_empty()).then(|| room.join_rule.clone())).unwrap_or_else(
         || {
@@ -1111,7 +1119,7 @@ async fn get_effective_room_join_rule(ctx: &FederationContext, room_id: &str) ->
 async fn get_effective_room_join_rule_content(ctx: &FederationContext, room_id: &str) -> ApiResult<Option<Value>> {
     Ok(ctx
         .room_service
-        .messaging
+        .messaging()
         .get_state_events_by_type(room_id, "m.room.join_rules")
         .await?
         .into_iter()
@@ -1121,7 +1129,7 @@ async fn get_effective_room_join_rule_content(ctx: &FederationContext, room_id: 
 
 async fn validate_federation_join_access(ctx: &FederationContext, room_id: &str, user_id: &str) -> ApiResult<()> {
     let join_rule = get_effective_room_join_rule(ctx, room_id).await?;
-    let existing_member = ctx.room_service.membership.get_room_member_record(room_id, user_id).await?;
+    let existing_member = ctx.room_service.membership().get_room_member_record(room_id, user_id).await?;
 
     if let Some(member) = existing_member.as_ref() {
         if member.membership == "join" {

@@ -45,7 +45,7 @@ async fn ensure_room_alias_write_allowed(
 
     let is_creator = ctx
         .room_service
-        .state
+        .state()
         .is_room_creator(room_id, &auth_user.user_id)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to check room creator", &e))?;
@@ -217,11 +217,11 @@ pub async fn get_public_rooms_handler(
     let (rooms, total) = tokio::try_join!(
         async {
             ctx.room_service
-                .state
+                .state()
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { ctx.room_service.state.count_public_rooms().await }
+        async { ctx.room_service.state().count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {
@@ -273,11 +273,11 @@ pub async fn search_public_rooms(
     let (rooms, total) = tokio::try_join!(
         async {
             ctx.room_service
-                .state
+                .state()
                 .get_public_rooms_paginated(limit, cursor.map(|(ts, _)| ts), cursor.map(|(_, room_id)| room_id))
                 .await
         },
-        async { ctx.room_service.state.count_public_rooms().await }
+        async { ctx.room_service.state().count_public_rooms().await }
     )?;
 
     let next_batch = if rooms.len() as i64 == limit {

@@ -71,7 +71,7 @@ pub(super) async fn keys_claim(
             .collect();
 
         let allowed_local_users =
-            ctx.room_service.membership.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
+            ctx.room_service.membership().filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         one_time_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }
@@ -111,7 +111,7 @@ pub(super) async fn keys_query(
             .collect();
 
         let allowed_local_users =
-            ctx.room_service.membership.filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
+            ctx.room_service.membership().filter_users_sharing_room_with_server(&local_users, &auth.origin).await?;
 
         device_keys.retain(|user_id, _| allowed_local_users.contains(user_id));
     }

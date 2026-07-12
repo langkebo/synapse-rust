@@ -43,7 +43,7 @@ fn user_matches_origin(user_id: &str, origin: &str) -> bool {
 }
 
 async fn validate_federation_origin_in_room(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
-    let joined_members = ctx.room_service.membership.get_room_members_by_membership(room_id, "join").await?;
+    let joined_members = ctx.room_service.membership().get_room_members_by_membership(room_id, "join").await?;
 
     if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
         // Server is in the room — now check room-level server ACL
@@ -64,7 +64,7 @@ async fn validate_federation_origin_can_observe_room(
     // Previously only checked "join" membership, which was overly
     // restrictive and could cause federation issues for servers that
     // have invited or previously-left members.
-    let has_member = ctx.room_service.membership.has_any_non_banned_member_from_server(room_id, origin).await?;
+    let has_member = ctx.room_service.membership().has_any_non_banned_member_from_server(room_id, origin).await?;
 
     if has_member {
         // Server has a member in the room — now check room-level server ACL
@@ -84,7 +84,7 @@ async fn validate_federation_origin_shares_user_room(
     // need to confirm the user has joined at least one room. The cross-server
     // membership check below is irrelevant for same-origin requests.
     if origin == ctx.server_name.as_str() {
-        let joined_room_ids = ctx.room_service.membership.get_joined_rooms(user_id).await?;
+        let joined_room_ids = ctx.room_service.membership().get_joined_rooms(user_id).await?;
         if joined_room_ids.is_empty() {
             return Err(ApiError::forbidden("User does not share any rooms with the requesting server".to_string()));
         }
@@ -93,7 +93,7 @@ async fn validate_federation_origin_shares_user_room(
 
     // Single EXISTS query replacing the previous get_joined_rooms + per-room
     // get_room_members N+1 pattern. See NEW-P1-03 in the comprehensive review.
-    let shares = ctx.room_service.membership.user_shares_room_with_server(user_id, origin).await?;
+    let shares = ctx.room_service.membership().user_shares_room_with_server(user_id, origin).await?;
 
     if shares {
         Ok(())
@@ -108,7 +108,7 @@ async fn validate_federation_origin_shares_user_room(
 /// This should be called for inbound federation requests that are scoped to a
 /// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
 async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
-    let acl_events = ctx.room_service.messaging.get_state_events_by_type(room_id, "m.room.server_acl").await?;
+    let acl_events = ctx.room_service.messaging().get_state_events_by_type(room_id, "m.room.server_acl").await?;
 
     let Some(acl_event) = acl_events.first() else {
         // No ACL event exists — all servers are allowed

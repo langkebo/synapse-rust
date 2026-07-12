@@ -39,7 +39,7 @@ pub async fn get_ephemeral_events(
 ) -> Result<Json<EphemeralResponse>, ApiError> {
     ensure_room_member_ctx(&ctx, &auth_user, &room_id, "User is not in the room").await?;
 
-    let events = ctx.room_service.messaging.get_ephemeral_events_for_client(&room_id, params.limit).await?;
+    let events = ctx.room_service.messaging().get_ephemeral_events_for_client(&room_id, params.limit).await?;
 
     Ok(Json(EphemeralResponse { events, start: None, end: None }))
 }
