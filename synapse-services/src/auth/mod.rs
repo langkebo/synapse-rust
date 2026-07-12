@@ -4,6 +4,7 @@ mod login;
 pub mod password_policy;
 mod power_levels;
 mod register;
+pub mod room_auth;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use synapse_storage::*;
 
 pub use credential_auth::CredentialAuth;
 pub use r#trait::Auth;
+pub use room_auth::RoomAuth;
 pub use token_auth::TokenAuth;
 
 pub use password_policy::{PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
@@ -502,5 +504,55 @@ impl crate::auth::CredentialAuth for AuthService {
 
     fn generate_email_verification_token(&self) -> ApiResult<String> {
         self.generate_email_verification_token()
+    }
+}
+
+// ── RoomAuth trait delegation ─────────────────────────────────────────
+
+#[async_trait::async_trait]
+impl crate::auth::RoomAuth for AuthService {
+    async fn verify_message_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
+        self.verify_message_event_write(room_id, user_id, event_type).await
+    }
+
+    async fn verify_state_event_write(&self, room_id: &str, user_id: &str, event_type: &str) -> ApiResult<()> {
+        self.verify_state_event_write(room_id, user_id, event_type).await
+    }
+
+    async fn verify_power_levels_change(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        new_content: &serde_json::Value,
+    ) -> ApiResult<()> {
+        self.verify_power_levels_change(room_id, user_id, new_content).await
+    }
+
+    async fn verify_room_moderator(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.verify_room_moderator(room_id, user_id).await
+    }
+
+    async fn verify_room_admin(&self, room_id: &str, user_id: &str) -> ApiResult<()> {
+        self.verify_room_admin(room_id, user_id).await
+    }
+
+    async fn can_kick_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        self.can_kick_user(room_id, actor_user_id, target_user_id).await
+    }
+
+    async fn can_ban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        self.can_ban_user(room_id, actor_user_id, target_user_id).await
+    }
+
+    async fn can_unban_user(&self, room_id: &str, actor_user_id: &str, target_user_id: &str) -> ApiResult<()> {
+        self.can_unban_user(room_id, actor_user_id, target_user_id).await
+    }
+
+    async fn can_invite_user(&self, room_id: &str, actor_user_id: &str) -> ApiResult<()> {
+        self.can_invite_user(room_id, actor_user_id).await
+    }
+
+    async fn can_redact_event(&self, room_id: &str, actor_user_id: &str, event_sender_id: &str) -> ApiResult<()> {
+        self.can_redact_event(room_id, actor_user_id, event_sender_id).await
     }
 }
