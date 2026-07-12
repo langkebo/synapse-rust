@@ -39,6 +39,6 @@ ALTER TABLE room_ephemeral ADD COLUMN IF NOT EXISTS expires_at BIGINT;
 -- ============================================================================
 -- Migration record
 -- ============================================================================
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES ('20260515000004', 'consolidated_schema_fixes_v7', TRUE, 'Consolidated schema fixes: room_ephemeral unique constraint, backup_keys fields, room_ephemeral expires_at fix', (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT)
 ON CONFLICT (version) DO NOTHING;

@@ -132,6 +132,6 @@ CREATE INDEX IF NOT EXISTS idx_thread_replies_content_trgm ON thread_replies USI
 -- ============================================================================
 -- Migration records
 -- ============================================================================
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES ('20260515000005', 'consolidated_table_indexes_v7', TRUE, 'Consolidated table indexes for events, users, room_memberships, access_tokens, federation_queue, background_updates, trigram, spaces, threads', (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT)
 ON CONFLICT (version) DO NOTHING;

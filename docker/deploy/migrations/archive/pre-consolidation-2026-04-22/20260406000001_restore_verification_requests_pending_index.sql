@@ -10,7 +10,7 @@ SET TIME ZONE 'UTC';
 CREATE INDEX IF NOT EXISTS idx_verification_requests_to_user_state
 ON verification_requests(to_user, state, updated_ts DESC);
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260406000001',
     'restore_verification_requests_pending_index',

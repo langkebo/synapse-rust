@@ -91,6 +91,6 @@ LIMIT 30;
 -- 记录迁移
 -- ============================================================================
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES ('20260328_p1_indexes', 'p1_indexes', TRUE, 'P1 performance indexes: search_index, sliding_sync_rooms, room_memberships, events, notifications, event_receipts', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
 ON CONFLICT (version) DO NOTHING;

@@ -30,7 +30,7 @@ ALTER TABLE IF EXISTS presence
 CREATE INDEX IF NOT EXISTS idx_presence_user_status
 ON presence(user_id, presence);
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260406000005',
     'align_presence_schema_contract',

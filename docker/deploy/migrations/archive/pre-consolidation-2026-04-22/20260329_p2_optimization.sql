@@ -117,6 +117,6 @@ ORDER BY indexrelname;
 -- 记录迁移
 -- ============================================================================
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES ('20260329_p2_optimization', 'p2_optimization', TRUE, 'P2 performance indexes: user_threepids, event_relations, pusher_threepids, device_keys', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000)
 ON CONFLICT (version) DO NOTHING;

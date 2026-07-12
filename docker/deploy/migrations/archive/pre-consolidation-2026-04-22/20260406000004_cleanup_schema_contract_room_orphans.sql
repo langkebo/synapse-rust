@@ -50,7 +50,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM rooms r WHERE r.room_id = dei.room_id
 );
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260406000004',
     'cleanup_schema_contract_room_orphans',

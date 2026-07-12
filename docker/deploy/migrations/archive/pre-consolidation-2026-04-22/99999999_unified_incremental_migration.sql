@@ -127,7 +127,7 @@ BEGIN
     RAISE NOTICE '==========================================';
 
     -- 记录迁移执行
-    INSERT INTO schema_migrations (version, name, success, applied_ts, execution_time_ms, description)
+    INSERT INTO schema_migrations (version, name, is_success, applied_ts, execution_time_ms, description)
     VALUES ('99999999', 'unified_incremental_migration', true, FLOOR(EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT, 0, '历史综合增量兼容资产 v1.0.1，不代表全部离散迁移已收敛')
     ON CONFLICT (version) DO NOTHING;
 END $$;

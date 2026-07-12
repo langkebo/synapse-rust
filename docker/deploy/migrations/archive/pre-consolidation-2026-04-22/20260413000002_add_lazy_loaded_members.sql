@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS lazy_loaded_members (
 CREATE INDEX IF NOT EXISTS idx_lazy_loaded_members_lookup
 ON lazy_loaded_members(user_id, device_id, room_id);
 
-INSERT INTO schema_migrations (version, name, success, description, applied_ts)
+INSERT INTO schema_migrations (version, name, is_success, description, applied_ts)
 VALUES (
     '20260413000002',
     'add_lazy_loaded_members',
