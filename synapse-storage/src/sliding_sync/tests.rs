@@ -247,7 +247,7 @@ fn test_push_room_filters_is_encrypted() {
 fn test_push_room_filters_is_invite() {
     let filters = SlidingSyncFilters { is_invite: Some(true), ..Default::default() };
     let sql = build_filtered_sql(Some(&filters));
-    assert!(sql.contains("AND invited = $1"), "expected invited filter in SQL: {sql}");
+    assert!(sql.contains("AND is_invited = $1"), "expected is_invited filter in SQL: {sql}");
 }
 
 #[test]
@@ -278,7 +278,7 @@ fn test_push_room_filters_all_combined() {
     assert!(sql.starts_with("SELECT * FROM t WHERE 1=1"), "expected base query preserved: {sql}");
     assert!(sql.contains("AND is_dm = $1"), "missing is_dm: {sql}");
     assert!(sql.contains("AND is_encrypted = $2"), "missing is_encrypted: {sql}");
-    assert!(sql.contains("AND invited = $3"), "missing invited: {sql}");
+    assert!(sql.contains("AND is_invited = $3"), "missing is_invited: {sql}");
     assert!(sql.contains("AND is_tombstoned = $4"), "missing is_tombstoned: {sql}");
     assert!(sql.contains("AND COALESCE(name, '') ILIKE $5"), "missing room_name_like: {sql}");
 }
@@ -292,6 +292,6 @@ fn test_push_room_filters_partial() {
     assert!(sql.contains("AND is_dm = $1"), "missing is_dm: {sql}");
     assert!(sql.contains("AND COALESCE(name, '') ILIKE $2"), "missing room_name_like: {sql}");
     assert!(!sql.contains("is_encrypted"), "unexpected is_encrypted: {sql}");
-    assert!(!sql.contains("invited"), "unexpected invited: {sql}");
+    assert!(!sql.contains("is_invited"), "unexpected is_invited: {sql}");
     assert!(!sql.contains("is_tombstoned"), "unexpected is_tombstoned: {sql}");
 }

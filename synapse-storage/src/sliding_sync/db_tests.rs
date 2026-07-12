@@ -955,3 +955,45 @@ async fn test_get_rooms_for_list_with_room_name_like_filter() {
 
     storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
 }
+
+#[tokio::test]
+async fn test_sliding_sync_room_is_invited_column() {
+    let pool = test_pool().await;
+    let storage = SlidingSyncStorage::new(pool.clone());
+    let user_id = unique_id("@user");
+    let device_id = unique_id("DEV");
+    let room_id = unique_id("!room");
+    let now = chrono::Utc::now().timestamp_millis();
+
+    // Insert a room with is_invited = true via upsert (uses the renamed column)
+    storage
+        .upsert_room(
+            &user_id,
+            &device_id,
+            &room_id,
+            None,
+            Some("main"),
+            now,
+            0,
+            0,
+            false,
+            false,
+            false,
+            true, // invited = true
+            Some("Invited Room"),
+            None,
+            now,
+        )
+        .await
+        .expect("upsert_room with is_invited=true");
+
+    let row = storage
+        .get_room(&user_id, &device_id, &room_id, None)
+        .await
+        .expect("get_room should succeed")
+        .expect("room should exist");
+
+    assert!(row.is_invited, "is_invited should be true");
+
+    storage.delete_connection_data(&user_id, &device_id, None).await.expect("cleanup");
+}

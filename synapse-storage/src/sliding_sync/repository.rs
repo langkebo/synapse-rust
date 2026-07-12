@@ -205,7 +205,7 @@ impl SlidingSyncStorage {
             r"
             INSERT INTO sliding_sync_rooms
                 (user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count,
-                 is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts)
+                 is_dm, is_encrypted, is_tombstoned, is_invited, name, avatar, timestamp, created_ts, updated_ts)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
             ON CONFLICT (user_id, device_id, room_id, COALESCE(conn_id, '')) DO UPDATE SET
                 list_key = COALESCE(EXCLUDED.list_key, sliding_sync_rooms.list_key),
@@ -215,7 +215,7 @@ impl SlidingSyncStorage {
                 is_dm = EXCLUDED.is_dm,
                 is_encrypted = EXCLUDED.is_encrypted,
                 is_tombstoned = EXCLUDED.is_tombstoned,
-                invited = EXCLUDED.invited,
+                is_invited = EXCLUDED.is_invited,
                 name = COALESCE(EXCLUDED.name, sliding_sync_rooms.name),
                 avatar = COALESCE(EXCLUDED.avatar, sliding_sync_rooms.avatar),
                 timestamp = EXCLUDED.timestamp,
@@ -251,7 +251,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         let mut query = QueryBuilder::<Postgres>::new(
             r"
-            SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
+            SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, is_invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
             WHERE user_id = ",
         );
         query.push_bind(user_id);
@@ -313,7 +313,7 @@ impl SlidingSyncStorage {
         self.ensure_schema()?;
         sqlx::query_as::<_, SlidingSyncRoom>(
             r"
-            SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
+            SELECT id, user_id, device_id, room_id, conn_id, list_key, bump_stamp, highlight_count, notification_count, is_dm, is_encrypted, is_tombstoned, is_invited, name, avatar, timestamp, created_ts, updated_ts FROM sliding_sync_rooms
             WHERE user_id = $1 AND device_id = $2 AND room_id = $3 AND (conn_id = $4 OR ($4 IS NULL AND conn_id IS NULL))
             ",
         )
@@ -425,7 +425,7 @@ impl SlidingSyncStorage {
         }
 
         if let Some(is_invite) = filters.is_invite {
-            query.push(" AND invited = ");
+            query.push(" AND is_invited = ");
             query.push_bind(is_invite);
         }
 
@@ -575,7 +575,7 @@ impl SlidingSyncStorage {
                     rooms.is_dm,
                     rooms.is_encrypted,
                     rooms.is_tombstoned,
-                    rooms.invited,
+                    rooms.is_invited,
                     rooms.name,
                     rooms.avatar,
                     COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired
@@ -628,7 +628,7 @@ impl SlidingSyncStorage {
                     rooms.is_dm,
                     rooms.is_encrypted,
                     rooms.is_tombstoned,
-                    rooms.invited,
+                    rooms.is_invited,
                     rooms.name,
                     rooms.avatar,
                     COALESCE(tokens.expires_at IS NOT NULL AND tokens.expires_at < $2, FALSE) AS is_expired

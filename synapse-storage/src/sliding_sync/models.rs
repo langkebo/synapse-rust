@@ -44,8 +44,6 @@ pub struct SlidingSyncRoom {
     pub is_dm: bool,
     pub is_encrypted: bool,
     pub is_tombstoned: bool,
-    #[serde(rename = "invited")]
-    #[sqlx(rename = "invited")]
     pub is_invited: bool,
     pub name: Option<String>,
     pub avatar: Option<String>,
@@ -81,8 +79,6 @@ pub struct AdminRoomTokenSyncEntry {
     pub is_dm: bool,
     pub is_encrypted: bool,
     pub is_tombstoned: bool,
-    #[serde(rename = "invited")]
-    #[sqlx(rename = "invited")]
     pub is_invited: bool,
     pub name: Option<String>,
     pub avatar: Option<String>,
