@@ -171,11 +171,13 @@ async fn assert_matrix_error(
     expected_errcode: &str,
 ) {
     let response = ServiceExt::<Request<Body>>::oneshot(app.clone(), request).await.unwrap();
-    assert_eq!(response.status(), expected_status);
-
+    let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert_eq!(status, expected_status, "expected {expected_status} but got {status}; body: {body_str}");
+
     let json: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["errcode"], expected_errcode);
+    assert_eq!(json["errcode"], expected_errcode, "body: {body_str}");
 }
 
 async fn assert_matrix_error_with_body(
