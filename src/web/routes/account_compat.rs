@@ -44,7 +44,7 @@ pub(crate) async fn can_view_profile_for_requester_batch(
 }
 
 pub(crate) async fn enforce_profile_visibility(
-    auth_service: &(dyn synapse_services::auth::Auth + Send + Sync),
+    auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
     account_identity_service: &synapse_services::account_identity_service::AccountIdentityService,
     headers: &HeaderMap,
     user_id: &str,
@@ -66,7 +66,7 @@ pub(crate) async fn get_profile(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
     // Reference: element-hq/synapse `synapse/handlers/profile.py::ProfileHandler.get_profile`
@@ -83,7 +83,7 @@ pub(crate) async fn get_displayname(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
     if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {
@@ -106,7 +106,7 @@ pub(crate) async fn get_avatar_url(
     Path(user_id): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     // Remote user: proxy profile query via federation.
     if let Some(remote_profile) = try_fetch_remote_profile(&ctx, &user_id).await? {

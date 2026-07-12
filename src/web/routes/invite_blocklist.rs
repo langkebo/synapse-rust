@@ -36,7 +36,7 @@ async fn ensure_invite_list_manage_access(
     )
     .await?;
 
-    let is_admin = ctx.auth_service.verify_room_admin(room_id, &auth_user.user_id).await.is_ok();
+    let is_admin = ctx.room_auth.verify_room_admin(room_id, &auth_user.user_id).await.is_ok();
 
     if !is_admin {
         return Err(ApiError::forbidden("Only room admins can set invite blocklist".to_string()));

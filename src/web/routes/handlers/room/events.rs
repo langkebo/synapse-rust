@@ -258,7 +258,7 @@ pub(crate) async fn send_message(
         }
     }
 
-    ctx.auth_service.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
+    ctx.room_auth.verify_message_event_write(&room_id, &auth_user.user_id, &event_type).await?;
 
     if event_type == "m.room.encrypted" {
         let is_encrypted = ctx.room_service.state().check_room_has_encryption(&room_id).await?;
@@ -271,7 +271,7 @@ pub(crate) async fn send_message(
     }
 
     if event_type == "m.room.power_levels" {
-        ctx.auth_service.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
+        ctx.room_auth.verify_power_levels_change(&room_id, &auth_user.user_id, &body).await?;
     }
 
     let mut body = body;
@@ -849,7 +849,7 @@ pub(crate) async fn redact_event(
         return Err(ApiError::bad_request("Event does not belong to this room".to_string()));
     }
 
-    ctx.auth_service.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
+    ctx.room_auth.can_redact_event(&room_id, &auth_user.user_id, &original_event.user_id).await?;
 
     let reason = body.get("reason").and_then(|v| v.as_str());
 

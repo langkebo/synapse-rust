@@ -27,7 +27,7 @@ pub(crate) struct AuthorizedAdmin {
 /// references instead of `&AppState`. Used by typed-context `FromRequestParts`
 /// implementations.
 pub(crate) async fn authorize_admin_from_services(
-    auth_service: &(dyn synapse_services::auth::Auth + Send + Sync),
+    auth_service: &(dyn synapse_services::auth::TokenAuth + Send + Sync),
     user_storage: &(dyn synapse_storage::UserStore + Send + Sync),
     security: &synapse_common::config::SecurityConfig,
     admin_audit_service: Option<&synapse_services::AdminAuditService>,
@@ -118,7 +118,7 @@ pub(crate) async fn authorize_admin_request(
 ) -> Result<AuthorizedAdmin, ApiError> {
     let access_token = super::auth::bearer_token(headers)?;
     let (user_id, device_id, is_admin, _, _): (String, Option<String>, bool, bool, bool) =
-        state.services.core.auth_service.validate_token(&access_token).await?;
+        state.services.core.token_auth.validate_token(&access_token).await?;
 
     if !is_admin {
         return Err(ApiError::forbidden("Admin access required".to_string()));

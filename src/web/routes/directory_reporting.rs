@@ -57,7 +57,7 @@ pub(crate) async fn get_user_directory_profile(
     let _ = ctx.auth_service.validate_token(&token).await?;
 
     validate_user_id(&user_id)?;
-    enforce_profile_visibility(ctx.auth_service.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
+    enforce_profile_visibility(ctx.token_auth.as_ref(), &ctx.account_identity_service, &headers, &user_id).await?;
 
     let user = ctx
         .account_identity_service

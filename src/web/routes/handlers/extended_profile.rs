@@ -66,7 +66,7 @@ pub async fn get_extended_profile(
     let user_id = _user_id;
     validators::validate_user_id(&user_id)?;
     account_compat::enforce_profile_visibility(
-        ctx.auth_service.as_ref(),
+        ctx.token_auth.as_ref(),
         &ctx.account_identity_service,
         &headers,
         &user_id,
@@ -83,7 +83,7 @@ pub async fn get_extended_profile_field(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     validators::validate_user_id(&user_id)?;
     account_compat::enforce_profile_visibility(
-        ctx.auth_service.as_ref(),
+        ctx.token_auth.as_ref(),
         &ctx.account_identity_service,
         &headers,
         &user_id,

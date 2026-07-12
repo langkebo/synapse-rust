@@ -192,7 +192,7 @@ pub(crate) async fn invite_user(
 
     validate_user_id(invitee)?;
 
-    ctx.auth_service.can_invite_user(&room_id, &auth_user.user_id).await?;
+    ctx.room_auth.can_invite_user(&room_id, &auth_user.user_id).await?;
 
     ctx.room_service.membership().invite_user(&room_id, &auth_user.user_id, invitee).await?;
 
@@ -222,7 +222,7 @@ pub(crate) async fn invite_user_by_room(
 
     validate_user_id(invitee)?;
 
-    ctx.auth_service.can_invite_user(&room_id, &user_id).await?;
+    ctx.room_auth.can_invite_user(&room_id, &user_id).await?;
 
     ::tracing::info!(
         request_id = %request_id,

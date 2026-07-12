@@ -373,7 +373,7 @@ async fn ensure_room_widget_manage_access(
     )
     .await?;
 
-    let is_moderator = ctx.auth_service.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
+    let is_moderator = ctx.room_auth.verify_room_moderator(room_id, &auth_user.user_id).await.is_ok();
 
     if is_moderator {
         return Ok(());

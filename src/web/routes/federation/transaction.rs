@@ -309,7 +309,7 @@ pub(super) async fn send_transaction(
         }
 
         if state_key.is_some() && event_type != "m.room.member" {
-            if let Err(error) = ctx.auth_service.verify_state_event_write(room_id, user_id, event_type).await {
+            if let Err(error) = ctx.room_auth.verify_state_event_write(room_id, user_id, event_type).await {
                 super::increment_counter(&ctx, "federation_inbound_txn_pdu_error_total");
                 results.push(json!({
                     "event_id": event_id,
