@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::signing::sign_and_hash_event;
-use synapse_storage::event::{EventStoreApi, RoomEvent};
+use synapse_storage::event::{EventReader, EventStoreApi, EventWriter, RoomEvent};
 use synapse_storage::membership::MemberStoreApi;
 use synapse_storage::relations::RelationsStoreApi;
 use synapse_storage::room::RoomStoreApi;
@@ -22,6 +22,8 @@ use crate::room::summary::RoomSummaryService;
 #[derive(Clone)]
 pub struct MessagingService {
     pub(crate) event_storage: Arc<dyn EventStoreApi>,
+    pub(crate) event_reader: Arc<dyn EventReader>,
+    pub(crate) event_writer: Arc<dyn EventWriter>,
     pub(crate) room_storage: Arc<dyn RoomStoreApi>,
     pub(crate) member_storage: Arc<dyn MemberStoreApi>,
     pub(crate) server_name: String,
@@ -45,6 +47,8 @@ pub struct MessagingService {
 /// Configuration for constructing a [`MessagingService`].
 pub struct MessagingServiceConfig {
     pub event_storage: Arc<dyn EventStoreApi>,
+    pub event_reader: Arc<dyn EventReader>,
+    pub event_writer: Arc<dyn EventWriter>,
     pub room_storage: Arc<dyn RoomStoreApi>,
     pub member_storage: Arc<dyn MemberStoreApi>,
     pub server_name: String,
@@ -64,6 +68,8 @@ impl MessagingService {
     pub fn new(config: MessagingServiceConfig) -> Self {
         Self {
             event_storage: config.event_storage,
+            event_reader: config.event_reader,
+            event_writer: config.event_writer,
             room_storage: config.room_storage,
             member_storage: config.member_storage,
             server_name: config.server_name,

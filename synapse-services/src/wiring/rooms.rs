@@ -77,6 +77,7 @@ impl RoomSyncServices {
             member_storage: member_storage.clone(),
             event_storage: event_storage.clone(),
             event_reader: Some(event_reader.clone()),
+            event_writer: Some(event_writer.clone()),
             room_tag_storage: room_tag_storage.clone(),
             user_storage: Arc::new(UserStorage::new(&infra.pool, infra.cache.clone())),
             room_auth: room_auth.clone(),

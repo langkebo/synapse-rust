@@ -922,3 +922,426 @@ impl crate::event::api::EventStoreApi for InMemoryEventStore {
         Ok(())
     }
 }
+
+#[async_trait::async_trait]
+impl crate::event::reader::EventReader for InMemoryEventStore {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        <Self as crate::event::api::EventStoreApi>::pool(self)
+    }
+
+    async fn get_event(&self, event_id: &str) -> Result<Option<crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_event(self, event_id).await
+    }
+
+    async fn get_room_events(&self, room_id: &str, limit: i64) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events(self, room_id, limit).await
+    }
+
+    async fn get_room_events_paginated(
+        &self,
+        room_id: &str,
+        from: Option<i64>,
+        limit: i64,
+        direction: &str,
+    ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_paginated(self, room_id, from, limit, direction)
+            .await
+    }
+
+    async fn get_room_events_batch(
+        &self,
+        room_ids: &[String],
+        limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_batch(self, room_ids, limit_per_room).await
+    }
+
+    async fn get_room_events_batch_since(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+        limit_per_room: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_batch_since(self, room_ids, since, limit_per_room)
+            .await
+    }
+
+    async fn get_room_events_batch_since_filtered(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+        limit_per_room: i64,
+        filter: &crate::event::EventQueryFilter,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_batch_since_filtered(
+            self,
+            room_ids,
+            since,
+            limit_per_room,
+            filter,
+        )
+        .await
+    }
+
+    async fn get_state_event(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<Option<crate::event::StateEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_event(self, room_id, event_type, state_key).await
+    }
+
+    async fn get_state_events(&self, room_id: &str) -> Result<Vec<crate::event::StateEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events(self, room_id).await
+    }
+
+    async fn get_state_events_by_type(
+        &self,
+        room_id: &str,
+        event_type: &str,
+    ) -> Result<Vec<crate::event::StateEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events_by_type(self, room_id, event_type).await
+    }
+
+    async fn get_state_events_at_or_before(
+        &self,
+        room_id: &str,
+        origin_server_ts: i64,
+    ) -> Result<Vec<crate::event::StateEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events_at_or_before(self, room_id, origin_server_ts).await
+    }
+
+    async fn get_events_map(
+        &self,
+        event_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_events_map(self, event_ids).await
+    }
+
+    async fn get_max_origin_server_ts_for_room(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_max_origin_server_ts_for_room(self, room_id).await
+    }
+
+    async fn get_latest_event_ids_in_room(&self, room_id: &str, limit: i64) -> Result<Vec<String>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_latest_event_ids_in_room(self, room_id, limit).await
+    }
+
+    async fn count_room_events_by_status(&self, room_id: &str, status: &str) -> Result<i64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::count_room_events_by_status(self, room_id, status).await
+    }
+
+    async fn get_ephemeral_events(
+        &self,
+        room_id: &str,
+        now: i64,
+        limit: i64,
+    ) -> Result<Vec<crate::event::RoomEphemeralEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_ephemeral_events(self, room_id, now, limit).await
+    }
+
+    async fn get_ephemeral_events_batch(
+        &self,
+        room_ids: &[String],
+        now: i64,
+        limit: i64,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::RoomEphemeralEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_ephemeral_events_batch(self, room_ids, now, limit).await
+    }
+
+    async fn get_state_events_batch(
+        &self,
+        room_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::StateEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events_batch(self, room_ids).await
+    }
+
+    async fn get_state_events_by_type_batch(
+        &self,
+        room_ids: &[String],
+        event_type: &str,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::StateEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events_by_type_batch(self, room_ids, event_type).await
+    }
+
+    async fn get_state_events_since_batch(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::StateEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_events_since_batch(self, room_ids, since).await
+    }
+
+    async fn get_membership_state_keys_since_batch(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+    ) -> Result<std::collections::HashMap<String, std::collections::HashSet<String>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_membership_state_keys_since_batch(self, room_ids, since).await
+    }
+
+    async fn get_state_change_timestamps_batch(
+        &self,
+        room_ids: &[String],
+        since: crate::event::SinceFilter,
+    ) -> Result<std::collections::HashMap<String, i64>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_state_change_timestamps_batch(self, room_ids, since).await
+    }
+
+    async fn get_room_events_batch_filtered(
+        &self,
+        room_ids: &[String],
+        limit_per_room: i64,
+        filter: &crate::event::EventQueryFilter,
+    ) -> Result<std::collections::HashMap<String, Vec<crate::event::RoomEvent>>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_batch_filtered(
+            self,
+            room_ids,
+            limit_per_room,
+            filter,
+        )
+        .await
+    }
+
+    async fn has_room_events_since(&self, room_ids: &[String], since: i64) -> Result<bool, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::has_room_events_since(self, room_ids, since).await
+    }
+
+    async fn find_missing_event_ids(&self, event_ids: &[String]) -> Result<Vec<String>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::find_missing_event_ids(self, event_ids).await
+    }
+
+    async fn get_missing_events_between(
+        &self,
+        room_id: &str,
+        earliest_events: &[String],
+        latest_events: &[String],
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_missing_events_between(
+            self,
+            room_id,
+            earliest_events,
+            latest_events,
+            limit,
+        )
+        .await
+    }
+
+    async fn get_forward_extremities_count(&self, room_id: &str) -> Result<i64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_forward_extremities_count(self, room_id).await
+    }
+
+    async fn find_event_id_by_timestamp(
+        &self,
+        room_id: &str,
+        ts: i64,
+        forward: bool,
+    ) -> Result<Option<(String, i64)>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::find_event_id_by_timestamp(self, room_id, ts, forward).await
+    }
+
+    async fn get_events_before_context(
+        &self,
+        room_id: &str,
+        before_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_events_before_context(self, room_id, before_ts, limit).await
+    }
+
+    async fn get_events_after_context(
+        &self,
+        room_id: &str,
+        after_ts: i64,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_events_after_context(self, room_id, after_ts, limit).await
+    }
+
+    async fn get_room_events_by_type(
+        &self,
+        room_id: &str,
+        event_type: &str,
+        limit: i64,
+    ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_room_events_by_type(self, room_id, event_type, limit).await
+    }
+
+    async fn get_pending_room_events(
+        &self,
+        room_id: &str,
+        limit: i64,
+    ) -> Result<Vec<crate::event::RoomEvent>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_pending_room_events(self, room_id, limit).await
+    }
+
+    async fn get_daily_message_count(&self) -> Result<i64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_daily_message_count(self).await
+    }
+
+    async fn get_event_signatures(&self, event_id: &str) -> Result<Vec<crate::event::EventSignature>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::get_event_signatures(self, event_id).await
+    }
+
+    async fn search_room_messages_admin(
+        &self,
+        room_id: &str,
+        search_pattern: &str,
+        limit: i64,
+    ) -> Result<Vec<serde_json::Value>, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::search_room_messages_admin(self, room_id, search_pattern, limit)
+            .await
+    }
+
+    async fn check_room_has_encryption(&self, room_id: &str) -> Result<bool, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::check_room_has_encryption(self, room_id).await
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::event::writer::EventWriter for InMemoryEventStore {
+    fn pool(&self) -> &Arc<sqlx::PgPool> {
+        <Self as crate::event::api::EventStoreApi>::pool(self)
+    }
+
+    async fn create_event(
+        &self,
+        params: crate::event::CreateEventParams,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<crate::event::RoomEvent, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::create_event(self, params, tx).await
+    }
+
+    async fn update_event_signatures_and_hashes(
+        &self,
+        event_id: &str,
+        signatures: &serde_json::Value,
+        hashes: &serde_json::Value,
+    ) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::update_event_signatures_and_hashes(
+            self, event_id, signatures, hashes,
+        )
+        .await
+    }
+
+    async fn redact_event_content(&self, event_id: &str, redacted_by: Option<&str>) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::redact_event_content(self, event_id, redacted_by).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_event_with_graph(
+        &self,
+        params: crate::event::CreateEventParams,
+        prev_events: &[String],
+        auth_events: &[String],
+        depth: i64,
+        tx: Option<&mut sqlx::Transaction<'_, sqlx::Postgres>>,
+    ) -> Result<crate::event::RoomEvent, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::create_event_with_graph(
+            self,
+            params,
+            prev_events,
+            auth_events,
+            depth,
+            tx,
+        )
+        .await
+    }
+
+    async fn save_event_signature(
+        &self,
+        event_id: &str,
+        user_id: &str,
+        device_id: &str,
+        signature: &str,
+        key_id: &str,
+        algorithm: &str,
+        created_ts: i64,
+    ) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::save_event_signature(
+            self, event_id, user_id, device_id, signature, key_id, algorithm, created_ts,
+        )
+        .await
+    }
+
+    async fn report_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        reported_user_id: &str,
+        reporter_user_id: &str,
+        reason: Option<&str>,
+        score: i32,
+    ) -> Result<i64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::report_event(
+            self,
+            event_id,
+            room_id,
+            reported_user_id,
+            reporter_user_id,
+            reason,
+            score,
+        )
+        .await
+    }
+
+    async fn add_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::add_ephemeral_event(
+            self, room_id, user_id, event_type, content, stream_id,
+        )
+        .await
+    }
+
+    async fn upsert_ephemeral_event(
+        &self,
+        room_id: &str,
+        user_id: &str,
+        event_type: &str,
+        content: &serde_json::Value,
+        stream_id: i64,
+        created_ts: i64,
+        expires_at: Option<i64>,
+    ) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::upsert_ephemeral_event(
+            self, room_id, user_id, event_type, content, stream_id, created_ts, expires_at,
+        )
+        .await
+    }
+
+    async fn delete_ephemeral_event(&self, room_id: &str, event_type: &str, user_id: &str) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::delete_ephemeral_event(self, room_id, event_type, user_id).await
+    }
+
+    async fn delete_events_before(&self, room_id: &str, timestamp: i64) -> Result<u64, sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::delete_events_before(self, room_id, timestamp).await
+    }
+
+    async fn upsert_power_levels_event(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        user_id: &str,
+        content: serde_json::Value,
+        origin_server_ts: i64,
+        sender: &str,
+    ) -> Result<(), sqlx::Error> {
+        <Self as crate::event::api::EventStoreApi>::upsert_power_levels_event(
+            self,
+            event_id,
+            room_id,
+            user_id,
+            content,
+            origin_server_ts,
+            sender,
+        )
+        .await
+    }
+}

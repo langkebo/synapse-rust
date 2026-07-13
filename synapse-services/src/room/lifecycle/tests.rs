@@ -16,10 +16,14 @@ mod tests {
         event_store: InMemoryEventStore,
         user_store: Arc<dyn UserStore>,
     ) -> LifecycleService {
+        let event_reader: Arc<dyn synapse_storage::event::EventReader> = Arc::new(event_store.clone());
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = Arc::new(event_store.clone());
         LifecycleService::new(LifecycleServiceConfig {
             room_storage: Arc::new(room_store),
             member_storage: Arc::new(member_store),
             event_storage: Arc::new(event_store),
+            event_reader,
+            event_writer,
             user_storage: user_store,
             validator: test_validator(),
             server_name: "example.com".to_string(),
