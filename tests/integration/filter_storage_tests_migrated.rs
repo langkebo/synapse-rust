@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sqlx::PgPool;
-use synapse_storage::{CreateFilterRequest, Filter, FilterStorage};
+use synapse_storage::{CreateFilterRequest, Filter, FilterStorage, FilterStoreApi};
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -30,8 +30,8 @@ async fn setup_test_database(pool: &Arc<sqlx::PgPool>) {
     .expect("Failed to create filters table");
 }
 
-fn create_storage(pool: &Arc<PgPool>) -> FilterStorage {
-    FilterStorage::new(pool)
+fn create_storage(pool: &Arc<PgPool>) -> Arc<dyn FilterStoreApi> {
+    Arc::new(FilterStorage::new(pool))
 }
 
 #[tokio::test]
