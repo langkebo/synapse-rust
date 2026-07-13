@@ -61,7 +61,7 @@ struct StoragePhase {
     room_auth: Arc<dyn RoomAuth>,
     user_storage: Arc<dyn UserStore>,
     device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    threepid_storage: ThreepidStorage,
+    threepid_storage: Arc<dyn ThreepidStoreApi>,
     presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     presence_service: Arc<crate::presence_service::PresenceService>,
     qr_login_storage: Arc<dyn QrLoginStoreApi>,
@@ -188,7 +188,7 @@ impl ServiceContainer {
         // Core storage
         let user_storage: Arc<dyn UserStore> = Arc::new(UserStorage::new(pool, cache.clone()));
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> = Arc::new(DeviceStorage::new(pool));
-        let threepid_storage = ThreepidStorage::new(pool);
+        let threepid_storage: Arc<dyn ThreepidStoreApi> = Arc::new(ThreepidStorage::new(pool));
         let presence_storage: Arc<dyn synapse_storage::presence::PresenceStoreApi> =
             Arc::new(PresenceStorage::new(pool.clone(), cache.clone()));
         let presence_service = Arc::new(crate::presence_service::PresenceService::new(presence_storage.clone()));
@@ -329,7 +329,7 @@ impl ServiceContainer {
             infra: &infra.infra,
             rooms: &rooms,
             user_storage: &storage.user_storage,
-            threepid_storage: &storage.threepid_storage,
+            threepid_storage: storage.threepid_storage.clone(),
             presence_storage: &storage.presence_storage,
             federation: &federation,
             media_service: &core.media_service,
@@ -343,13 +343,13 @@ impl ServiceContainer {
         #[cfg(feature = "privacy-ext")]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             storage.user_service.clone(),
-            Arc::new(storage.threepid_storage.clone()),
+            storage.threepid_storage.clone(),
             extensions.privacy_storage.clone(),
         ));
         #[cfg(not(feature = "privacy-ext"))]
         let account_identity_service = Arc::new(crate::account_identity_service::AccountIdentityService::new(
             storage.user_service.clone(),
-            Arc::new(storage.threepid_storage.clone()),
+            storage.threepid_storage.clone(),
         ));
 
         let account_device_list_service =

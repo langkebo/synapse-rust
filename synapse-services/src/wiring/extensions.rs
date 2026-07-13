@@ -48,7 +48,7 @@ pub struct ExtensionServicesDeps<'a> {
     pub infra: &'a SharedInfra,
     pub rooms: &'a super::RoomSyncServices,
     pub user_storage: &'a Arc<dyn UserStore>,
-    pub threepid_storage: &'a synapse_storage::ThreepidStorage,
+    pub threepid_storage: Arc<dyn synapse_storage::ThreepidStoreApi>,
     pub presence_storage: &'a Arc<dyn synapse_storage::presence::PresenceStoreApi>,
     pub federation: &'a super::FederationServices,
     pub media_service: &'a crate::media_service::MediaService,

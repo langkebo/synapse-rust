@@ -68,6 +68,33 @@ pub trait ThreepidStoreApi: Send + Sync {
     ) -> Result<u64, ApiError>;
 
     async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError>;
+
+    async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError>;
+
+    async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError>;
+
+    // Validation session methods (used by route handlers)
+    #[allow(clippy::too_many_arguments)]
+    async fn create_validation_session(
+        &self,
+        session_id: &str,
+        medium: &str,
+        address: &str,
+        client_secret: &str,
+        token: &str,
+        next_link: Option<&str>,
+        created_ts: i64,
+        expires_at: i64,
+    ) -> Result<i64, ApiError>;
+
+    async fn get_validation_session(
+        &self,
+        session_id: &str,
+        client_secret: &str,
+        token: &str,
+    ) -> Result<Option<ThreepidValidationSession>, ApiError>;
+
+    async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError>;
 }
 
 impl ThreepidStorage {
@@ -518,6 +545,52 @@ impl ThreepidStoreApi for ThreepidStorage {
 
     async fn remove_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
         self.remove_threepid(user_id, medium, address).await
+    }
+
+    async fn add_threepid(&self, request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
+        self.add_threepid(request).await
+    }
+
+    async fn verify_threepid(&self, user_id: &str, medium: &str, address: &str) -> Result<bool, ApiError> {
+        self.verify_threepid(user_id, medium, address).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn create_validation_session(
+        &self,
+        session_id: &str,
+        medium: &str,
+        address: &str,
+        client_secret: &str,
+        token: &str,
+        next_link: Option<&str>,
+        created_ts: i64,
+        expires_at: i64,
+    ) -> Result<i64, ApiError> {
+        self.create_validation_session(
+            session_id,
+            medium,
+            address,
+            client_secret,
+            token,
+            next_link,
+            created_ts,
+            expires_at,
+        )
+        .await
+    }
+
+    async fn get_validation_session(
+        &self,
+        session_id: &str,
+        client_secret: &str,
+        token: &str,
+    ) -> Result<Option<ThreepidValidationSession>, ApiError> {
+        self.get_validation_session(session_id, client_secret, token).await
+    }
+
+    async fn mark_validation_validated(&self, id: i64) -> Result<(), ApiError> {
+        self.mark_validation_validated(id).await
     }
 }
 

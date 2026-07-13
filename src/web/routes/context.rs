@@ -311,7 +311,7 @@ pub struct AuthContext {
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
     pub qr_login_storage: Arc<dyn synapse_storage::qr_login::QrLoginStoreApi>,
-    pub threepid_storage: synapse_storage::threepid::ThreepidStorage,
+    pub threepid_storage: Arc<dyn synapse_storage::threepid::ThreepidStoreApi>,
     pub rendezvous_storage: Arc<dyn synapse_storage::rendezvous::RendezvousStoreApi>,
     pub rendezvous_message_storage: Arc<dyn synapse_storage::rendezvous::RendezvousMessageStoreApi>,
 }

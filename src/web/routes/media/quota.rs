@@ -1,9 +1,7 @@
 use crate::common::ApiError;
 use crate::web::routes::context::MediaContext;
 use crate::web::AuthenticatedUser;
-use axum::{
-    extract::{Json, Path, State},
-};
+use axum::extract::{Json, Path, State};
 use serde_json::{json, Value};
 
 use super::upload::ensure_local_media_server_name;

@@ -66,6 +66,41 @@ impl ThreepidStoreApi for InMemoryThreepidStore {
         threepids.retain(|t| !(t.user_id == user_id && t.medium == medium && t.address == address));
         Ok(threepids.len() < before)
     }
+
+    async fn add_threepid(&self, _request: CreateThreepidRequest) -> Result<UserThreepid, ApiError> {
+        Err(ApiError::internal("InMemoryThreepidStore does not support add_threepid"))
+    }
+
+    async fn verify_threepid(&self, _user_id: &str, _medium: &str, _address: &str) -> Result<bool, ApiError> {
+        Err(ApiError::internal("InMemoryThreepidStore does not support verify_threepid"))
+    }
+
+    async fn create_validation_session(
+        &self,
+        _session_id: &str,
+        _medium: &str,
+        _address: &str,
+        _client_secret: &str,
+        _token: &str,
+        _next_link: Option<&str>,
+        _created_ts: i64,
+        _expires_at: i64,
+    ) -> Result<i64, ApiError> {
+        Err(ApiError::internal("InMemoryThreepidStore does not support create_validation_session"))
+    }
+
+    async fn get_validation_session(
+        &self,
+        _session_id: &str,
+        _client_secret: &str,
+        _token: &str,
+    ) -> Result<Option<ThreepidValidationSession>, ApiError> {
+        Err(ApiError::internal("InMemoryThreepidStore does not support get_validation_session"))
+    }
+
+    async fn mark_validation_validated(&self, _id: i64) -> Result<(), ApiError> {
+        Err(ApiError::internal("InMemoryThreepidStore does not support mark_validation_validated"))
+    }
 }
 
 impl InMemoryThreepidStore {

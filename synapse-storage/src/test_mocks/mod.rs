@@ -87,7 +87,7 @@ use crate::cas::{
 };
 use crate::rate_limit::RateLimitStoreApi;
 use crate::room_tag::RoomTagStoreApi;
-use crate::threepid::{ThreepidStoreApi, UserThreepid};
+use crate::threepid::{CreateThreepidRequest, ThreepidStoreApi, ThreepidValidationSession, UserThreepid};
 use chrono::Utc;
 use synapse_common::ApiError;
 
