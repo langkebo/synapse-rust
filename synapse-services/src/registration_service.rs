@@ -8,8 +8,6 @@ use std::sync::Arc;
 use crate::UserService;
 
 pub struct RegistrationService {
-    #[allow(dead_code)]
-    user_storage: Arc<dyn synapse_storage::UserStore>,
     user_service: Arc<UserService>,
     token_auth: Arc<dyn crate::auth::TokenAuth>,
     credential_auth: Arc<dyn crate::auth::CredentialAuth>,
@@ -23,7 +21,6 @@ pub struct RegistrationService {
 impl RegistrationService {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        user_storage: Arc<dyn synapse_storage::UserStore>,
         user_service: Arc<UserService>,
         token_auth: Arc<dyn crate::auth::TokenAuth>,
         credential_auth: Arc<dyn crate::auth::CredentialAuth>,
@@ -36,16 +33,7 @@ impl RegistrationService {
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL").unwrap_or_else(|_| format!("https://{server_name}"));
 
-        Self {
-            user_storage,
-            user_service,
-            token_auth,
-            credential_auth,
-            metrics,
-            base_url,
-            enable_registration,
-            task_queue,
-        }
+        Self { user_service, token_auth, credential_auth, metrics, base_url, enable_registration, task_queue }
     }
 
     #[::tracing::instrument(
@@ -252,7 +240,6 @@ mod tests {
     async fn test_registration_service_creation() {
         let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
-            services.account.user_storage.clone(),
             services.core.user_service.clone(),
             services.core.token_auth.clone(),
             services.core.credential_auth.clone(),
@@ -288,7 +275,6 @@ mod tests {
     async fn test_registration_service_disabled() {
         let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
-            services.account.user_storage.clone(),
             services.core.user_service.clone(),
             services.core.token_auth.clone(),
             services.core.credential_auth.clone(),

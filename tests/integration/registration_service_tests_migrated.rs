@@ -130,16 +130,8 @@ async fn test_register_user_success() {
     let auth_arc = Arc::new(auth_service);
     let token_auth: Arc<dyn TokenAuth> = auth_arc.clone();
     let credential_auth: Arc<dyn CredentialAuth> = auth_arc;
-    let registration_service = RegistrationService::new(
-        user_store,
-        user_service,
-        token_auth,
-        credential_auth,
-        metrics,
-        "localhost",
-        true,
-        None,
-    );
+    let registration_service =
+        RegistrationService::new(user_service, token_auth, credential_auth, metrics, "localhost", true, None);
 
     let id = unique_id();
     let username = format!("alice_{}", id);
@@ -181,16 +173,8 @@ async fn test_login_success() {
     let auth_arc = Arc::new(auth_service);
     let token_auth: Arc<dyn TokenAuth> = auth_arc.clone();
     let credential_auth: Arc<dyn CredentialAuth> = auth_arc;
-    let registration_service = RegistrationService::new(
-        user_store,
-        user_service,
-        token_auth,
-        credential_auth,
-        metrics,
-        "localhost",
-        true,
-        None,
-    );
+    let registration_service =
+        RegistrationService::new(user_service, token_auth, credential_auth, metrics, "localhost", true, None);
 
     let id = unique_id();
     let username = format!("alice_{}", id);
@@ -240,16 +224,8 @@ async fn test_get_profile_success() {
     let auth_arc = Arc::new(auth_service);
     let token_auth: Arc<dyn TokenAuth> = auth_arc.clone();
     let credential_auth: Arc<dyn CredentialAuth> = auth_arc;
-    let registration_service = RegistrationService::new(
-        user_storage,
-        user_service,
-        token_auth,
-        credential_auth,
-        metrics,
-        "localhost",
-        true,
-        None,
-    );
+    let registration_service =
+        RegistrationService::new(user_service, token_auth, credential_auth, metrics, "localhost", true, None);
 
     let result = registration_service.get_profile(&user_id).await;
     assert!(result.is_ok());

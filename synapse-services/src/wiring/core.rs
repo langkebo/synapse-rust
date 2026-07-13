@@ -81,7 +81,6 @@ impl CoreServices {
         let user_service = Arc::new(UserService::new(user_storage.clone()));
 
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
-            user_storage.clone(),
             user_service.clone(),
             token_auth.clone(),
             credential_auth.clone(),
