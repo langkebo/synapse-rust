@@ -67,6 +67,7 @@ pub struct AdminModuleServices {
     pub push_notification_storage: Arc<dyn synapse_storage::push_notification::PushNotificationStoreApi>,
     pub push_notification_service: Arc<crate::push_notification_service::PushNotificationService>,
     pub app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi>,
+    pub app_service_event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub app_service_manager: Arc<crate::application_service::ApplicationServiceManager>,
     pub app_service_scheduler: Arc<crate::application_service::ApplicationServiceScheduler>,
     #[cfg(feature = "external-services")]
@@ -209,8 +210,10 @@ impl AdminServices {
 
         let app_service_storage: Arc<dyn synapse_storage::application_service::ApplicationServiceStoreApi> =
             Arc::new(ApplicationServiceStorage::new(pool));
+        let app_service_event_concrete = Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
         let app_service_event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
-            Arc::new(EventStorage::new(pool, config.server.get_server_name().to_owned()));
+            app_service_event_concrete.clone();
+        let app_service_event_reader: Arc<dyn synapse_storage::event::EventReader> = app_service_event_concrete.clone();
         let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
             app_service_storage.clone(),
             app_service_event_storage,
@@ -308,6 +311,7 @@ impl AdminServices {
                 push_notification_storage,
                 push_notification_service,
                 app_service_storage,
+                app_service_event_reader,
                 app_service_manager,
                 app_service_scheduler,
                 #[cfg(feature = "external-services")]

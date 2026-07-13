@@ -12,6 +12,8 @@ pub struct RoomSyncServices {
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     pub event_storage: Arc<dyn synapse_storage::event::EventStoreApi>,
+    pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
+    pub event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi>,
     pub relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi>,
     pub room_summary_service: Arc<crate::room_summary_service::RoomSummaryService>,
@@ -46,8 +48,10 @@ impl RoomSyncServices {
     ) -> Self {
         let server_name_for_storage = infra.config.server.get_server_name().to_string();
         let room_storage: Arc<dyn synapse_storage::room::RoomStoreApi> = Arc::new(RoomStorage::new(&infra.pool));
-        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> =
-            Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
+        let event_storage_concrete = Arc::new(EventStorage::new(&infra.pool, server_name_for_storage));
+        let event_storage: Arc<dyn synapse_storage::event::EventStoreApi> = event_storage_concrete.clone();
+        let event_reader: Arc<dyn synapse_storage::event::EventReader> = event_storage_concrete.clone();
+        let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_storage_concrete.clone();
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
         let relations_storage = Arc::new(synapse_storage::relations::RelationsStorage::new(&infra.pool));
@@ -149,6 +153,8 @@ impl RoomSyncServices {
             room_storage,
             member_storage,
             event_storage,
+            event_reader,
+            event_writer,
             room_summary_storage,
             relations_storage,
             room_summary_service,
