@@ -25,6 +25,7 @@ pub struct MembershipService {
     pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) event_writer: Arc<dyn synapse_storage::event::EventWriter>,
     pub(crate) user_storage: Arc<dyn UserStore>,
+    // TODO(D4): wire into user_service for membership convenience calls
     #[allow(dead_code)]
     pub(crate) user_service: Arc<UserService>,
     pub(crate) room_auth: Arc<dyn crate::auth::RoomAuth>,

@@ -88,7 +88,7 @@ impl AuthService {
             })?;
 
         if let Some(name) = displayname {
-            if let Err(e) = self.user_storage.update_displayname(&user.user_id, Some(name)).await {
+            if let Err(e) = self.user_service.update_displayname(&user.user_id, Some(name)).await {
                 ::tracing::warn!(
                     error = %e,
                     user_id = %user.user_id,
