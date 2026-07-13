@@ -6,6 +6,7 @@ pub(crate) mod dag;
 pub(crate) mod ephemeral;
 pub(crate) mod models;
 pub(crate) mod pagination;
+pub mod reader;
 pub(crate) mod redaction;
 pub(crate) mod search;
 pub(crate) mod signature;
@@ -13,6 +14,7 @@ pub mod state;
 
 pub use api::EventStoreApi;
 pub use models::*;
+pub use reader::EventReader;
 
 /// Canonical 15-column SELECT list for `RoomEvent` deserialization.
 ///
