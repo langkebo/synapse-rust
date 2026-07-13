@@ -8,7 +8,6 @@ use synapse_common::*;
 use synapse_e2ee::device_keys::DeviceKeyStorage;
 use synapse_e2ee::key_rotation::KeyRotationStorage;
 use synapse_e2ee::to_device::ToDeviceStorage;
-use synapse_storage::room_account_data::RoomAccountDataStorage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncToken {
@@ -112,9 +111,9 @@ pub struct SyncServiceDeps {
     pub member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
     pub event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub room_storage: Arc<dyn synapse_storage::room::RoomStoreApi>,
-    pub room_account_data_storage: RoomAccountDataStorage,
+    pub room_account_data_storage: Arc<dyn synapse_storage::room_account_data::RoomAccountDataStoreApi>,
     pub account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi>,
-    pub filter_storage: FilterStorage,
+    pub filter_storage: Arc<dyn synapse_storage::filter::FilterStoreApi>,
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
     pub device_key_storage: DeviceKeyStorage,
     pub key_rotation_storage: KeyRotationStorage,

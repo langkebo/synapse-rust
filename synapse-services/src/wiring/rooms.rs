@@ -96,7 +96,8 @@ impl RoomSyncServices {
             sticky_event_storage,
         }));
 
-        let sync_room_account_data_storage = RoomAccountDataStorage::new(&infra.pool);
+        let sync_room_account_data_storage: Arc<dyn RoomAccountDataStoreApi> =
+            Arc::new(RoomAccountDataStorage::new(&infra.pool));
         let sync_account_data_storage: Arc<dyn synapse_storage::account_data::AccountDataStoreApi> =
             Arc::new(synapse_storage::account_data::AccountDataStorage::new(&infra.pool));
         let sync_device_key_storage = synapse_e2ee::device_keys::DeviceKeyStorage::new(&infra.pool);
@@ -109,7 +110,7 @@ impl RoomSyncServices {
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
-                filter_storage: FilterStorage::new(&infra.pool),
+                filter_storage: Arc::new(FilterStorage::new(&infra.pool)) as Arc<dyn FilterStoreApi>,
                 device_storage: device_storage.clone(),
                 device_key_storage: sync_device_key_storage.clone(),
                 key_rotation_storage: sync_key_rotation_storage,
