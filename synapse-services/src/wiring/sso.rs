@@ -11,7 +11,7 @@ pub struct SsoServices {
     #[cfg(feature = "saml-sso")]
     pub saml_service: Arc<crate::saml_service::SamlService>,
     #[cfg(feature = "cas-sso")]
-    pub cas_storage: synapse_storage::cas::CasStorage,
+    pub cas_storage: Arc<dyn synapse_storage::cas::CasStoreApi>,
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::cas_service::CasService>,
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
@@ -35,10 +35,11 @@ impl SsoServices {
         ));
 
         #[cfg(feature = "cas-sso")]
-        let cas_storage = synapse_storage::cas::CasStorage::new(pool);
+        let cas_storage: Arc<dyn synapse_storage::cas::CasStoreApi> =
+            Arc::new(synapse_storage::cas::CasStorage::new(pool));
         #[cfg(feature = "cas-sso")]
         let cas_service =
-            Arc::new(crate::cas_service::CasService::new(Arc::new(cas_storage.clone()), config.server.name.clone()));
+            Arc::new(crate::cas_service::CasService::new(cas_storage.clone(), config.server.name.clone()));
 
         let oidc_service = if config.oidc.is_enabled() {
             Some(Arc::new(crate::oidc_service::OidcService::new(Arc::new(config.oidc.clone()))))

@@ -46,7 +46,7 @@ pub struct AdminSecurityServices {
     pub admin_security_service: Arc<crate::admin_security_service::AdminSecurityService>,
     pub captcha_storage: Arc<dyn synapse_storage::captcha::CaptchaStoreApi>,
     pub captcha_service: Arc<crate::captcha_service::CaptchaService>,
-    pub audit_storage: synapse_storage::audit::AuditEventStorage,
+    pub audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi>,
     pub admin_audit_service: Arc<crate::admin_audit_service::AdminAuditService>,
     pub admin_server_service: Arc<crate::admin_server_service::AdminServerService>,
     pub telemetry_alert_service: Arc<crate::telemetry_service::TelemetryAlertService>,
@@ -58,7 +58,7 @@ pub struct AdminModuleServices {
     pub feature_flag_service: Arc<crate::feature_flag_service::FeatureFlagService>,
     pub event_report_storage: Arc<dyn synapse_storage::event_report::EventReportStoreApi>,
     pub event_report_service: Arc<crate::event_report_service::EventReportService>,
-    pub background_update_storage: synapse_storage::background_update::BackgroundUpdateStorage,
+    pub background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi>,
     pub background_update_service: Arc<crate::background_update_service::BackgroundUpdateService>,
     pub module_storage: Arc<dyn synapse_storage::module::ModuleStoreApi>,
     pub module_service: Arc<crate::module_service::ModuleService>,
@@ -118,9 +118,9 @@ impl AdminServices {
 
         let email_verification_storage: Arc<dyn synapse_storage::email_verification::EmailVerificationStoreApi> =
             Arc::new(EmailVerificationStorage::new(pool));
-        let audit_storage = synapse_storage::audit::AuditEventStorage::new(pool);
-        let admin_audit_service =
-            Arc::new(crate::admin_audit_service::AdminAuditService::new(Arc::new(audit_storage.clone())));
+        let audit_storage: Arc<dyn synapse_storage::audit::AuditEventStoreApi> =
+            Arc::new(synapse_storage::audit::AuditEventStorage::new(pool));
+        let admin_audit_service = Arc::new(crate::admin_audit_service::AdminAuditService::new(audit_storage.clone()));
 
         let feature_flag_storage: Arc<dyn synapse_storage::feature_flags::FeatureFlagStoreApi> =
             Arc::new(synapse_storage::feature_flags::FeatureFlagStorage::new(pool, cache.clone()));
@@ -134,9 +134,10 @@ impl AdminServices {
         let event_report_service =
             Arc::new(crate::event_report_service::EventReportService::new(event_report_storage.clone()));
 
-        let background_update_storage = synapse_storage::background_update::BackgroundUpdateStorage::new(pool);
+        let background_update_storage: Arc<dyn synapse_storage::background_update::BackgroundUpdateStoreApi> =
+            Arc::new(synapse_storage::background_update::BackgroundUpdateStorage::new(pool));
         let background_update_service = Arc::new(
-            crate::background_update_service::BackgroundUpdateService::new(Arc::new(background_update_storage.clone()))
+            crate::background_update_service::BackgroundUpdateService::new(background_update_storage.clone())
                 .with_lock_retry_config(config.worker.lock_max_retries, config.worker.lock_max_retry_interval_ms),
         );
 
@@ -154,7 +155,7 @@ impl AdminServices {
             retention_storage.clone(),
             chunked_upload_storage.clone(),
             metrics,
-            Arc::new(audit_storage.clone()),
+            audit_storage.clone(),
         ));
 
         let refresh_token_storage: Arc<dyn synapse_storage::refresh_token::RefreshTokenStoreApi> =

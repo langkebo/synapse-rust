@@ -54,10 +54,12 @@ impl RoomSyncServices {
         let event_writer: Arc<dyn synapse_storage::event::EventWriter> = event_storage_concrete.clone();
         let device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi> =
             Arc::new(DeviceStorage::new(&infra.pool));
-        let relations_storage = Arc::new(synapse_storage::relations::RelationsStorage::new(&infra.pool));
+        let relations_storage: Arc<dyn synapse_storage::relations::RelationsStoreApi> =
+            Arc::new(synapse_storage::relations::RelationsStorage::new(&infra.pool));
         let room_summary_storage: Arc<dyn synapse_storage::room_summary::RoomSummaryStoreApi> =
             Arc::new(synapse_storage::room_summary::RoomSummaryStorage::new(&infra.pool));
-        let room_tag_storage = Arc::new(synapse_storage::room_tag::RoomTagStorage::new(infra.pool.clone()));
+        let room_tag_storage: Arc<dyn synapse_storage::room_tag::RoomTagStoreApi> =
+            Arc::new(synapse_storage::room_tag::RoomTagStorage::new(infra.pool.clone()));
 
         let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
             room_summary_storage.clone(),
