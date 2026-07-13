@@ -21,7 +21,10 @@ pub mod media;
 pub mod membership;
 pub mod transaction;
 
-fn validate_federation_origin(authenticated_origin: &str, declared_origin: Option<&str>) -> Result<(), ApiError> {
+pub(super) fn validate_federation_origin(
+    authenticated_origin: &str,
+    declared_origin: Option<&str>,
+) -> Result<(), ApiError> {
     let declared_origin = declared_origin.ok_or_else(|| ApiError::bad_request("Origin required".to_string()))?;
 
     if declared_origin != authenticated_origin {
@@ -31,18 +34,22 @@ fn validate_federation_origin(authenticated_origin: &str, declared_origin: Optio
     Ok(())
 }
 
-fn sender_server_name(sender: &str) -> Option<&str> {
+pub(super) fn sender_server_name(sender: &str) -> Option<&str> {
     sender
         .strip_prefix('@')
         .and_then(|user| user.rsplit_once(':').map(|(_, server)| server))
         .filter(|server| !server.is_empty())
 }
 
-fn user_matches_origin(user_id: &str, origin: &str) -> bool {
+pub(super) fn user_matches_origin(user_id: &str, origin: &str) -> bool {
     user_id.rsplit_once(':').is_some_and(|(_, server_name)| server_name == origin)
 }
 
-async fn validate_federation_origin_in_room(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
+pub(super) async fn validate_federation_origin_in_room(
+    ctx: &FederationContext,
+    room_id: &str,
+    origin: &str,
+) -> ApiResult<()> {
     let joined_members = ctx.room_service.membership().get_room_members_by_membership(room_id, "join").await?;
 
     if joined_members.iter().any(|member| user_matches_origin(&member.user_id, origin)) {
@@ -54,7 +61,7 @@ async fn validate_federation_origin_in_room(ctx: &FederationContext, room_id: &s
     Err(ApiError::forbidden("Authenticated server has no joined members in this room".to_string()))
 }
 
-async fn validate_federation_origin_can_observe_room(
+pub(super) async fn validate_federation_origin_can_observe_room(
     ctx: &FederationContext,
     room_id: &str,
     origin: &str,
@@ -75,7 +82,7 @@ async fn validate_federation_origin_can_observe_room(
     Err(ApiError::not_found("Room not found".to_string()))
 }
 
-async fn validate_federation_origin_shares_user_room(
+pub(super) async fn validate_federation_origin_shares_user_room(
     ctx: &FederationContext,
     user_id: &str,
     origin: &str,
@@ -107,7 +114,7 @@ async fn validate_federation_origin_shares_user_room(
 ///
 /// This should be called for inbound federation requests that are scoped to a
 /// specific room (e.g., get_state, backfill, send_join, send_transaction PDUs).
-async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
+pub(super) async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) -> ApiResult<()> {
     let acl_events = ctx.room_service.messaging().get_state_events_by_type(room_id, "m.room.server_acl").await?;
 
     let Some(acl_event) = acl_events.first() else {
@@ -132,7 +139,7 @@ async fn check_server_acl(ctx: &FederationContext, room_id: &str, origin: &str) 
     Ok(())
 }
 
-fn increment_counter(ctx: &FederationContext, name: &str) {
+pub(super) fn increment_counter(ctx: &FederationContext, name: &str) {
     if let Some(counter) = ctx.metrics.get_counter(name) {
         counter.inc();
     } else {
@@ -140,7 +147,7 @@ fn increment_counter(ctx: &FederationContext, name: &str) {
     }
 }
 
-fn observe_histogram(ctx: &FederationContext, name: &str, value: f64) {
+pub(super) fn observe_histogram(ctx: &FederationContext, name: &str, value: f64) {
     if let Some(histogram) = ctx.metrics.get_histogram(name) {
         histogram.observe(value);
     } else {
@@ -148,7 +155,7 @@ fn observe_histogram(ctx: &FederationContext, name: &str, value: f64) {
     }
 }
 
-fn increment_gauge(ctx: &FederationContext, name: &str) {
+pub(super) fn increment_gauge(ctx: &FederationContext, name: &str) {
     if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.inc();
     } else {
@@ -156,7 +163,7 @@ fn increment_gauge(ctx: &FederationContext, name: &str) {
     }
 }
 
-fn decrement_gauge(ctx: &FederationContext, name: &str) {
+pub(super) fn decrement_gauge(ctx: &FederationContext, name: &str) {
     if let Some(gauge) = ctx.metrics.get_gauge(name) {
         gauge.dec();
     } else {
@@ -164,7 +171,7 @@ fn decrement_gauge(ctx: &FederationContext, name: &str) {
     }
 }
 
-async fn acquire_with_timeout(
+pub(super) async fn acquire_with_timeout(
     semaphore: Arc<Semaphore>,
     acquire_timeout_ms: u64,
 ) -> Result<(OwnedSemaphorePermit, u64), ApiError> {
@@ -250,18 +257,8 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/openid/userinfo", get(openid_userinfo));
 
     let protected = Router::new()
-        .route("/_matrix/federation/v1/members/{room_id}", get(membership::get_room_members))
-        .route("/_matrix/federation/v1/members/{room_id}/joined", get(membership::get_joined_room_members))
-        .route("/_matrix/federation/v1/user/devices/{user_id}", get(membership::get_user_devices))
-        .route("/_matrix/federation/v1/knock/{room_id}/{user_id}", post(membership::knock_room))
-        .route("/_matrix/federation/v1/thirdparty/invite", post(membership::thirdparty_invite))
-        .route("/_matrix/federation/v2/invite/{room_id}/{event_id}", put(membership::invite_v2))
+        .merge(membership::create_router())
         .route("/_matrix/federation/v1/send/{txn_id}", put(transaction::send_transaction))
-        .route("/_matrix/federation/v1/make_join/{room_id}/{user_id}", get(membership::make_join))
-        .route("/_matrix/federation/v1/make_leave/{room_id}/{user_id}", get(membership::make_leave))
-        .route("/_matrix/federation/v1/send_join/{room_id}/{event_id}", put(membership::send_join))
-        .route("/_matrix/federation/v1/send_leave/{room_id}/{event_id}", put(membership::send_leave))
-        .route("/_matrix/federation/v1/invite/{room_id}/{event_id}", put(membership::invite))
         .route("/_matrix/federation/v1/get_missing_events/{room_id}", post(events::get_missing_events))
         .route("/_matrix/federation/v1/room/{room_id}/{event_id}", get(events::get_room_event))
         .route("/_matrix/federation/v1/timestamp_to_event/{room_id}", get(events::timestamp_to_event))
@@ -278,16 +275,10 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_matrix/federation/v1/user/keys/claim", post(keys::keys_claim))
         .route("/_matrix/federation/v1/user/keys/query", post(keys::keys_query))
         .route("/_matrix/federation/v2/user/keys/query", post(keys::keys_query))
-        .route("/_matrix/federation/v2/send_join/{room_id}/{event_id}", put(membership::send_join_v2))
-        .route("/_matrix/federation/v2/send_leave/{room_id}/{event_id}", put(membership::send_leave_v2))
         .route("/_matrix/federation/v1/publicRooms", post(events::post_public_rooms))
         .route("/_matrix/federation/v1/query/directory", get(events::query_directory))
         .route("/_matrix/federation/v1/media/download/{server_name}/{media_id}", get(media::media_download))
         .route("/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}", get(media::media_thumbnail))
-        .route(
-            "/_matrix/federation/v1/exchange_third_party_invite/{room_id}",
-            put(membership::exchange_third_party_invite),
-        )
         // P3-09: Non-standard trusted-federation extensions live under the
         // `/_synapse/federation/v1/` namespace to keep the `/_matrix/federation/`
         // surface spec-compliant. These endpoints are still federated-auth
@@ -297,7 +288,6 @@ pub fn create_federation_router(state: &AppState) -> Router<AppState> {
         .route("/_synapse/federation/v1/keys/query", post(keys::legacy_keys_query))
         .route("/_synapse/federation/v1/keys/upload", post(keys::keys_upload))
         .route("/_synapse/federation/v1/room_auth/{room_id}", get(events::get_room_auth))
-        .route("/_synapse/federation/v1/get_joining_rules/{room_id}", get(membership::get_joining_rules))
         .route("/_synapse/federation/v1/query/auth", get(keys::query_auth))
         .route("/_synapse/federation/v1/event_auth", get(keys::event_auth));
 
@@ -331,18 +321,7 @@ fn federation_public_relative_routes() -> Vec<(axum::http::Method, &'static str)
 fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static str)> {
     use axum::http::Method;
     vec![
-        (Method::GET, "/_matrix/federation/v1/members/{room_id}"),
-        (Method::GET, "/_matrix/federation/v1/members/{room_id}/joined"),
-        (Method::GET, "/_matrix/federation/v1/user/devices/{user_id}"),
-        (Method::POST, "/_matrix/federation/v1/knock/{room_id}/{user_id}"),
-        (Method::POST, "/_matrix/federation/v1/thirdparty/invite"),
-        (Method::PUT, "/_matrix/federation/v2/invite/{room_id}/{event_id}"),
         (Method::PUT, "/_matrix/federation/v1/send/{txn_id}"),
-        (Method::GET, "/_matrix/federation/v1/make_join/{room_id}/{user_id}"),
-        (Method::GET, "/_matrix/federation/v1/make_leave/{room_id}/{user_id}"),
-        (Method::PUT, "/_matrix/federation/v1/send_join/{room_id}/{event_id}"),
-        (Method::PUT, "/_matrix/federation/v1/send_leave/{room_id}/{event_id}"),
-        (Method::PUT, "/_matrix/federation/v1/invite/{room_id}/{event_id}"),
         (Method::POST, "/_matrix/federation/v1/get_missing_events/{room_id}"),
         (Method::GET, "/_matrix/federation/v1/room/{room_id}/{event_id}"),
         (Method::GET, "/_matrix/federation/v1/timestamp_to_event/{room_id}"),
@@ -359,13 +338,10 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::POST, "/_matrix/federation/v1/user/keys/claim"),
         (Method::POST, "/_matrix/federation/v1/user/keys/query"),
         (Method::POST, "/_matrix/federation/v2/user/keys/query"),
-        (Method::PUT, "/_matrix/federation/v2/send_join/{room_id}/{event_id}"),
-        (Method::PUT, "/_matrix/federation/v2/send_leave/{room_id}/{event_id}"),
         (Method::POST, "/_matrix/federation/v1/publicRooms"),
         (Method::GET, "/_matrix/federation/v1/query/directory"),
         (Method::GET, "/_matrix/federation/v1/media/download/{server_name}/{media_id}"),
         (Method::GET, "/_matrix/federation/v1/media/thumbnail/{server_name}/{media_id}"),
-        (Method::PUT, "/_matrix/federation/v1/exchange_third_party_invite/{room_id}"),
         // P3-09: Non-standard trusted-federation extensions live under
         // `/_synapse/federation/v1/` to keep the `/_matrix/federation/`
         // surface spec-compliant.
@@ -374,7 +350,6 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
         (Method::POST, "/_synapse/federation/v1/keys/query"),
         (Method::POST, "/_synapse/federation/v1/keys/upload"),
         (Method::GET, "/_synapse/federation/v1/room_auth/{room_id}"),
-        (Method::GET, "/_synapse/federation/v1/get_joining_rules/{room_id}"),
         (Method::GET, "/_synapse/federation/v1/query/auth"),
         (Method::GET, "/_synapse/federation/v1/event_auth"),
     ]
@@ -383,11 +358,13 @@ fn federation_protected_relative_routes() -> Vec<(axum::http::Method, &'static s
 pub fn federation_route_manifest() -> Vec<crate::web::routes::route_ledger::RouteEntry> {
     use crate::web::routes::route_ledger::RouteEntry;
 
-    federation_public_relative_routes()
+    let mut entries: Vec<RouteEntry> = federation_public_relative_routes()
         .into_iter()
         .chain(federation_protected_relative_routes())
         .map(|(m, p)| RouteEntry::new(m, p, "federation"))
-        .collect()
+        .collect();
+    entries.extend(membership::membership_route_manifest());
+    entries
 }
 
 #[cfg(test)]
