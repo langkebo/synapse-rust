@@ -315,6 +315,7 @@ fn build_room_service(
     let room_summary_storage = Arc::new(RoomSummaryStorage::new(pool));
     let room_summary_service =
         Arc::new(RoomSummaryService::new(room_summary_storage, event_storage.clone(), Some(member_storage.clone())));
+    let user_storage = Arc::new(UserStorage::new(pool, canonical_cache.clone()));
 
     RoomService::new(synapse_services::room_service::RoomServiceConfig {
         room_storage: Arc::new(RoomStorage::new(pool)),
@@ -322,8 +323,8 @@ fn build_room_service(
         event_reader: Some(event_storage.clone()),
         event_writer: Some(event_storage.clone()),
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
-        user_storage: Arc::new(UserStorage::new(pool, canonical_cache.clone())),
-        user_service: Arc::new(UserService::new(Arc::new(UserStorage::new(pool, canonical_cache.clone())))),
+        user_storage: user_storage.clone(),
+        user_service: Arc::new(UserService::new(user_storage.clone())),
         room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             canonical_cache,
