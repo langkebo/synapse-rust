@@ -20,6 +20,7 @@ pub struct AccessToken {
 pub trait AccessTokenStoreApi: Send + Sync {
     async fn get_user_tokens(&self, user_id: &str) -> Result<Vec<AccessToken>, sqlx::Error>;
     async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error>;
+    async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error>;
 }
 
 #[derive(Clone)]
@@ -315,6 +316,10 @@ impl AccessTokenStoreApi for AccessTokenStorage {
 
     async fn delete_user_token_by_id(&self, user_id: &str, token_id: i64) -> Result<bool, sqlx::Error> {
         self.delete_user_token_by_id(user_id, token_id).await
+    }
+
+    async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
+        self.cleanup_expired_tokens().await
     }
 }
 

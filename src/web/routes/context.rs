@@ -425,7 +425,7 @@ pub struct AdminContext {
     #[cfg(feature = "friends")]
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
     pub ssss_service: synapse_e2ee::ssss::SecretStorageService,
-    pub token_storage: synapse_storage::token::AccessTokenStorage,
+    pub token_storage: Arc<dyn synapse_storage::token::AccessTokenStoreApi>,
     pub qr_login_storage: Arc<dyn synapse_storage::qr_login::QrLoginStoreApi>,
     pub client_push_service: Arc<synapse_services::client_push_service::ClientPushService>,
     #[cfg(feature = "widgets")]
@@ -664,7 +664,7 @@ pub struct SsoContext {
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<synapse_services::cas_service::CasService>,
     pub oidc_service: Option<Arc<synapse_services::oidc_service::OidcService>>,
-    pub oidc_mapping_storage: synapse_storage::oidc_user_mapping::OidcUserMappingStorage,
+    pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<synapse_services::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]

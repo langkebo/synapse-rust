@@ -15,7 +15,7 @@ pub struct SsoServices {
     #[cfg(feature = "cas-sso")]
     pub cas_service: Arc<crate::cas_service::CasService>,
     pub oidc_service: Option<Arc<crate::oidc_service::OidcService>>,
-    pub oidc_mapping_storage: synapse_storage::oidc_user_mapping::OidcUserMappingStorage,
+    pub oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi>,
     #[cfg(feature = "builtin-oidc")]
     pub builtin_oidc_provider: Option<Arc<crate::builtin_oidc_provider::BuiltinOidcProvider>>,
     #[cfg(not(feature = "builtin-oidc"))]
@@ -89,7 +89,8 @@ impl SsoServices {
             }
         }
 
-        let oidc_mapping_storage = synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone());
+        let oidc_mapping_storage: Arc<dyn synapse_storage::oidc_user_mapping::OidcUserMappingStoreApi> =
+            Arc::new(synapse_storage::oidc_user_mapping::OidcUserMappingStorage::new(pool.clone()));
 
         Self {
             #[cfg(feature = "saml-sso")]

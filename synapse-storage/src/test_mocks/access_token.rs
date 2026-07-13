@@ -49,4 +49,9 @@ impl AccessTokenStoreApi for InMemoryAccessTokenStore {
         }
         Ok(false)
     }
+
+    async fn cleanup_expired_tokens(&self) -> Result<u64, sqlx::Error> {
+        // In-memory store has no expiration concept
+        Ok(0)
+    }
 }
