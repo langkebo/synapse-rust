@@ -32,7 +32,7 @@ pub(crate) async fn can_view_profile_for_requester(
 ) -> Result<bool, ApiError> {
     let results =
         can_view_profile_for_requester_batch(account_identity_service, requester_id, &[user_id.to_string()]).await?;
-    Ok(results.get(user_id).copied().unwrap_or(true))
+    Ok(results.get(user_id).copied().unwrap_or(false))
 }
 
 pub(crate) async fn can_view_profile_for_requester_batch(
@@ -50,8 +50,21 @@ pub(crate) async fn enforce_profile_visibility(
     user_id: &str,
 ) -> Result<(), ApiError> {
     let token = bearer_token(headers).ok();
-    let requester_id =
-        if let Some(t) = token { auth_service.validate_token(&t).await.ok().map(|(id, _, _, _, _)| id) } else { None };
+    let requester_id = if let Some(t) = token {
+        match auth_service.validate_token(&t).await {
+            Ok((id, _, _, _, _)) => Some(id),
+            Err(e) => {
+                // DB/internal errors must propagate (fail-closed); auth failures
+                // (expired / invalid / revoked) correctly degrade to anonymous.
+                if e.kind == crate::common::ApiErrorKind::Internal {
+                    return Err(ApiError::internal_with_log("Token validation error", &e));
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     if !can_view_profile_for_requester(account_identity_service, requester_id.as_deref(), user_id).await? {
         return Err(ApiError::forbidden("Profile is private or not visible to you".to_string()));
