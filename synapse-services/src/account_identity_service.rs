@@ -1,4 +1,4 @@
-use crate::auth::Auth;
+use crate::auth::{CredentialAuth, TokenAuth};
 use crate::uia_service::UiaService;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -184,14 +184,16 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
     ) -> Result<(), Value> {
         uia_service
             .require_uia(
                 auth,
                 user_id,
                 UiaService::get_deactivate_account_flows(),
-                auth_service,
+                token_auth,
+                credential_auth,
                 &*self.threepid_storage,
             )
             .await
@@ -202,10 +204,18 @@ impl AccountIdentityService {
         uia_service: &UiaService,
         auth: Option<&Value>,
         user_id: &str,
-        auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
     ) -> Result<(), Value> {
         uia_service
-            .require_uia(auth, user_id, UiaService::get_cross_signing_flows(), auth_service, &*self.threepid_storage)
+            .require_uia(
+                auth,
+                user_id,
+                UiaService::get_cross_signing_flows(),
+                token_auth,
+                credential_auth,
+                &*self.threepid_storage,
+            )
             .await
     }
 

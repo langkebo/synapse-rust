@@ -252,9 +252,7 @@ pub mod test_mocks;
 // `common` and `storage` still expose broad internal namespaces so existing
 // `crate::...` references inside `synapse-services` remain stable while the
 // public root API stays explicit.
-pub use auth::{
-    Auth, AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService, PasswordValidationResult,
-};
+pub use auth::{AuthService, Claims, ClaimsBuilder, PasswordPolicy, PasswordPolicyService, PasswordValidationResult};
 pub use cache::{
     circuit_breaker, compression, federation_signature_cache, invalidation, query_cache, strategy, CacheConfig,
     CacheEntry, CacheEntryKey, CacheError, CacheInvalidationBroadcaster, CacheInvalidationConfig,

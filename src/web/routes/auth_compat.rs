@@ -71,8 +71,8 @@ pub(crate) async fn register(
     let username = username.ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
     let password = password.ok_or_else(|| ApiError::bad_request("Password required".to_string()))?;
 
-    ctx.auth_service.validator().validate_username(username)?;
-    ctx.auth_service.validator().validate_password(password)?;
+    ctx.validator.validate_username(username)?;
+    ctx.validator.validate_password(password)?;
 
     let displayname = body.get("displayname").and_then(|v| v.as_str());
     let initial_device_display_name = body.get("initial_device_display_name").and_then(|v| v.as_str());
@@ -92,7 +92,7 @@ pub(crate) async fn check_username_availability(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Username required".to_string()))?;
 
-    if let Err(e) = ctx.auth_service.validator().validate_username(username) {
+    if let Err(e) = ctx.validator.validate_username(username) {
         return Err(e.into());
     }
 
@@ -135,7 +135,7 @@ pub(crate) async fn request_email_verification_with_submit_path(
         .and_then(|v| v.as_str())
         .ok_or_else(|| ApiError::bad_request("Email is required".to_string()))?;
 
-    if ctx.auth_service.validator().validate_email(email).is_err() {
+    if ctx.validator.validate_email(email).is_err() {
         return Err(ApiError::bad_request("Invalid email address format".to_string()));
     }
 

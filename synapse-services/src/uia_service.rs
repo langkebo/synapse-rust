@@ -245,7 +245,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        auth_service: &Arc<dyn crate::auth::Auth>,
+        credential_auth: &Arc<dyn crate::auth::CredentialAuth>,
     ) -> Result<(), ApiError> {
         let password = auth
             .get("password")
@@ -276,7 +276,7 @@ impl UiaService {
         }
 
         // Only verify password hash without creating a new session/device
-        auth_service
+        credential_auth
             .verify_user_credentials(user_id, password)
             .await
             .map_err(|_| ApiError::forbidden("Invalid password".to_string()))?;
@@ -293,7 +293,7 @@ impl UiaService {
         &self,
         auth: &Value,
         user_id: &str,
-        auth_service: &Arc<dyn crate::auth::Auth>,
+        token_auth: &Arc<dyn crate::auth::TokenAuth>,
     ) -> Result<(), ApiError> {
         let token = auth
             .get("token")
@@ -309,7 +309,7 @@ impl UiaService {
         // Verify the token is valid and belongs to the user.
         // In the UIA context, the token is typically a login token issued
         // during the m.login.token registration/login flow.
-        match auth_service.validate_token(token).await {
+        match token_auth.validate_token(token).await {
             Ok((token_user_id, _, _, _, _)) => {
                 if token_user_id != user_id {
                     return Err(ApiError::forbidden("Token belongs to a different user".to_string()));
@@ -473,7 +473,8 @@ impl UiaService {
         auth: Option<&Value>,
         user_id: &str,
         flows: Vec<UiaFlow>,
-        auth_service: &Arc<dyn crate::auth::Auth>,
+        token_auth: &Arc<dyn crate::auth::TokenAuth>,
+        credential_auth: &Arc<dyn crate::auth::CredentialAuth>,
         threepid_storage: &dyn ThreepidStoreApi,
     ) -> Result<(), Value> {
         let auth_val = match auth {
@@ -495,13 +496,13 @@ impl UiaService {
         let auth_type = auth_val.get("type").and_then(|v| v.as_str()).unwrap_or("");
         match auth_type {
             "m.login.password" => {
-                if let Err(e) = self.verify_password_stage(auth_val, user_id, auth_service).await {
+                if let Err(e) = self.verify_password_stage(auth_val, user_id, credential_auth).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }
             }
             "m.login.token" => {
-                if let Err(e) = self.verify_token_stage(auth_val, user_id, auth_service).await {
+                if let Err(e) = self.verify_token_stage(auth_val, user_id, token_auth).await {
                     let session = self.create_session(user_id, flows).await;
                     return Err(self.build_uia_response(&session, "M_FORBIDDEN", &e.to_string()));
                 }

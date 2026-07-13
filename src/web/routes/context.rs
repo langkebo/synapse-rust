@@ -12,7 +12,7 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 /// csrf, rate-limit). Carries only the shared services those middlewares read.
 #[derive(Clone)]
 pub struct CoreContext {
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -31,7 +31,7 @@ impl CoreContext {
 impl FromRef<AppState> for CoreContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -47,7 +47,7 @@ impl FromRef<AppState> for CoreContext {
 #[derive(Clone)]
 pub struct RoomContext {
     pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -92,7 +92,7 @@ impl FromRef<AppState> for RoomContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             room_service: state.services.rooms.room_service.clone(),
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -142,7 +142,7 @@ pub struct E2eeRoomContext {
     pub room_service: Arc<dyn synapse_services::RoomServiceApi>,
     pub e2ee_backup_service: synapse_e2ee::backup::KeyBackupService,
     pub secure_backup_service: synapse_e2ee::secure_backup::SecureBackupService,
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -156,7 +156,7 @@ impl FromRef<AppState> for E2eeRoomContext {
             room_service: state.services.rooms.room_service.clone(),
             e2ee_backup_service: state.services.e2ee.backup_service.clone(),
             secure_backup_service: state.services.e2ee.secure_backup_service.clone(),
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -171,7 +171,7 @@ impl FromRef<AppState> for E2eeRoomContext {
 #[derive(Clone)]
 pub struct SyncContext {
     pub sync_service: Arc<dyn synapse_services::sync_service::SyncServiceApi>,
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -189,7 +189,7 @@ impl FromRef<AppState> for SyncContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             sync_service: state.services.rooms.sync_service.clone(),
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -222,7 +222,7 @@ impl SyncContext {
 #[derive(Clone)]
 pub struct DeviceContext {
     pub device_storage: Arc<dyn synapse_storage::device::DeviceListStoreApi>,
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -252,7 +252,7 @@ impl FromRef<AppState> for DeviceContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             device_storage: state.services.account.device_storage.clone(),
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -284,7 +284,7 @@ impl FromRef<AppState> for DeviceContext {
 
 #[derive(Clone)]
 pub struct AuthContext {
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -314,7 +314,7 @@ pub struct AuthContext {
 impl FromRef<AppState> for AuthContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -348,7 +348,7 @@ impl FromRef<AppState> for AuthContext {
 #[derive(Clone)]
 pub struct AdminContext {
     // Core
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -430,7 +430,7 @@ pub struct AdminContext {
 impl FromRef<AppState> for AdminContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -507,7 +507,7 @@ impl FromRef<AppState> for AdminContext {
 
 #[derive(Clone)]
 pub struct FederationContext {
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -548,7 +548,7 @@ pub struct FederationContext {
 impl FromRef<AppState> for FederationContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -592,7 +592,7 @@ impl FromRef<AppState> for FederationContext {
 
 #[derive(Clone)]
 pub struct MediaContext {
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -612,7 +612,7 @@ pub struct MediaContext {
 impl FromRef<AppState> for MediaContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -635,7 +635,7 @@ impl FromRef<AppState> for MediaContext {
 
 #[derive(Clone)]
 pub struct SsoContext {
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -663,7 +663,7 @@ pub struct SsoContext {
 impl FromRef<AppState> for SsoContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),
@@ -695,7 +695,7 @@ impl FromRef<AppState> for SsoContext {
 #[derive(Clone)]
 pub struct FriendContext {
     pub friend_room_service: Arc<synapse_services::friend_room_service::models::FriendRoomService>,
-    pub auth_service: Arc<dyn synapse_services::auth::Auth>,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub token_auth: Arc<dyn synapse_services::auth::TokenAuth>,
     pub credential_auth: Arc<dyn synapse_services::auth::CredentialAuth>,
     pub room_auth: Arc<dyn synapse_services::auth::RoomAuth>,
@@ -713,7 +713,7 @@ impl FromRef<AppState> for FriendContext {
     fn from_ref(state: &AppState) -> Self {
         Self {
             friend_room_service: state.services.extensions.friend_room_service.clone(),
-            auth_service: state.services.core.auth_service.clone(),
+            validator: state.services.core.validator.clone(),
             token_auth: state.services.core.token_auth.clone(),
             credential_auth: state.services.core.credential_auth.clone(),
             room_auth: state.services.core.room_auth.clone(),

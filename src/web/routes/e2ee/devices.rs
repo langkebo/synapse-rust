@@ -207,7 +207,7 @@ pub(crate) async fn upload_device_signing(
     let auth = body.get("auth");
     if let Err(uia_response) = ctx
         .account_identity_service
-        .require_cross_signing_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.auth_service)
+        .require_cross_signing_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.token_auth, &ctx.credential_auth)
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());

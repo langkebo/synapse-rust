@@ -1,3 +1,4 @@
+use crate::auth::{CredentialAuth, TokenAuth};
 use crate::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
@@ -14,7 +15,9 @@ type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Clone)]
 pub struct AdminRegistrationService {
-    auth_service: Arc<dyn Auth>,
+    token_auth: Arc<dyn TokenAuth>,
+    credential_auth: Arc<dyn CredentialAuth>,
+    server_name: String,
     config: AdminRegistrationConfig,
     user_storage: Arc<dyn UserStore>,
     cache: Arc<CacheManager>,
@@ -49,13 +52,15 @@ pub struct AdminRegisterResponse {
 
 impl AdminRegistrationService {
     pub fn new(
-        auth_service: Arc<dyn Auth>,
+        token_auth: Arc<dyn TokenAuth>,
+        credential_auth: Arc<dyn CredentialAuth>,
+        server_name: String,
         config: AdminRegistrationConfig,
         user_storage: Arc<dyn UserStore>,
         cache: Arc<CacheManager>,
         metrics: Arc<MetricsCollector>,
     ) -> Self {
-        Self { auth_service, config, user_storage, cache, metrics }
+        Self { token_auth, credential_auth, server_name, config, user_storage, cache, metrics }
     }
 
     pub fn start_nonce_cleanup_task(self: Arc<Self>) {
@@ -144,7 +149,7 @@ impl AdminRegistrationService {
         let displayname = request.displayname.as_deref();
 
         let (user, access_token, refresh_token, device_id) =
-            self.auth_service.register(&request.username, &request.password, admin, displayname).await?;
+            self.credential_auth.register(&request.username, &request.password, admin, displayname).await?;
 
         if let Some(user_type) = request.user_type.as_deref() {
             self.user_storage
@@ -171,10 +176,10 @@ impl AdminRegistrationService {
         Ok(AdminRegisterResponse {
             access_token,
             refresh_token,
-            expires_in: self.auth_service.token_expiry(),
+            expires_in: self.token_auth.token_expiry(),
             device_id,
             user_id: user.user_id(),
-            home_server: self.auth_service.server_name().to_string(),
+            home_server: self.server_name.clone(),
         })
     }
 

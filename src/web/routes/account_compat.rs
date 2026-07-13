@@ -392,7 +392,13 @@ pub(crate) async fn deactivate_account(
     let auth = body.get("auth");
     if let Err(uia_response) = ctx
         .account_identity_service
-        .require_deactivate_account_uia(&ctx.uia_service, auth, &auth_user.user_id, &ctx.auth_service)
+        .require_deactivate_account_uia(
+            &ctx.uia_service,
+            auth,
+            &auth_user.user_id,
+            &ctx.token_auth,
+            &ctx.credential_auth,
+        )
         .await
     {
         return Ok((StatusCode::UNAUTHORIZED, Json(uia_response)).into_response());

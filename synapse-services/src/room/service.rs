@@ -1,3 +1,4 @@
+use crate::auth::RoomAuth;
 use crate::common::error::{ApiError, ApiResult};
 use crate::*;
 use serde_json::{json, Value};
@@ -50,7 +51,7 @@ pub struct RoomServiceConfig {
     pub event_storage: Arc<dyn EventStoreApi>,
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
-    pub auth_service: Arc<dyn Auth>,
+    pub room_auth: Arc<dyn RoomAuth>,
     pub room_summary_service: Arc<RoomSummaryService>,
     pub validator: Arc<Validator>,
     pub server_name: String,
@@ -111,7 +112,7 @@ impl RoomService {
             room_storage: config.room_storage.clone(),
             event_storage: config.event_storage.clone(),
             user_storage: config.user_storage.clone(),
-            auth_service: config.auth_service.clone(),
+            room_auth: config.room_auth.clone(),
             server_name: config.server_name.clone(),
             federation_client: infra.federation_client.clone(),
             key_rotation_manager: infra.key_rotation_manager.clone(),

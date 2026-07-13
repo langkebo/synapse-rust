@@ -33,7 +33,7 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        self.auth_service.can_invite_user(room_id, inviter_id).await?;
+        self.room_auth.can_invite_user(room_id, inviter_id).await?;
 
         // Validate membership transition: cannot invite banned or already-joined users.
         let target_state = self
@@ -178,7 +178,7 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        self.auth_service.can_ban_user(room_id, banned_by, user_id).await?;
+        self.room_auth.can_ban_user(room_id, banned_by, user_id).await?;
 
         // Validate membership transition: only join/invite/knock can be banned.
         let target_state = self
@@ -239,7 +239,7 @@ impl MembershipService {
     }
 
     pub async fn unban_user(&self, room_id: &str, user_id: &str, unbanned_by: &str) -> ApiResult<()> {
-        self.auth_service.can_unban_user(room_id, unbanned_by, user_id).await?;
+        self.room_auth.can_unban_user(room_id, unbanned_by, user_id).await?;
 
         // Validate membership transition: unban is ban→leave.
         let target_state = self
@@ -323,7 +323,7 @@ impl MembershipService {
             return Err(ApiError::not_found("User not found".to_string()));
         }
 
-        self.auth_service.can_kick_user(room_id, kicked_by, target_user_id).await?;
+        self.room_auth.can_kick_user(room_id, kicked_by, target_user_id).await?;
 
         // Validate membership transition: only joined members can be kicked.
         let target_state = self

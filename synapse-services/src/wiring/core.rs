@@ -10,12 +10,11 @@ use synapse_common::task_queue::RedisTaskQueue;
 use synapse_federation::event_broadcaster::EventBroadcaster;
 use synapse_storage::*;
 
-use crate::auth::{Auth, CredentialAuth, RoomAuth, TokenAuth};
+use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
 
 #[derive(Clone)]
 pub struct CoreServices {
-    pub auth_service: Arc<dyn Auth>,
     pub token_auth: Arc<dyn TokenAuth>,
     pub credential_auth: Arc<dyn CredentialAuth>,
     pub room_auth: Arc<dyn RoomAuth>,
@@ -28,6 +27,7 @@ pub struct CoreServices {
     pub server_metrics: Arc<ServerMetrics>,
     pub server_name: String,
     pub config: Config,
+    pub validator: Arc<synapse_common::validation::Validator>,
     pub key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage,
     pub event_broadcaster: Arc<EventBroadcaster>,
     pub event_notifier: crate::event_notifier::EventNotifier,
@@ -36,9 +36,10 @@ pub struct CoreServices {
 }
 
 impl CoreServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,
-        auth_service: &Arc<dyn Auth>,
+        validator: &Arc<synapse_common::validation::Validator>,
         token_auth: &Arc<dyn TokenAuth>,
         credential_auth: &Arc<dyn CredentialAuth>,
         room_auth: &Arc<dyn RoomAuth>,
@@ -77,7 +78,8 @@ impl CoreServices {
 
         let registration_service = Arc::new(crate::registration_service::RegistrationService::new(
             user_storage.clone(),
-            auth_service.clone(),
+            token_auth.clone(),
+            credential_auth.clone(),
             infra.metrics.clone(),
             &infra.config.server.name,
             infra.config.server.enable_registration,
@@ -101,7 +103,6 @@ impl CoreServices {
             Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, push_storage));
 
         Self {
-            auth_service: auth_service.clone(),
             token_auth: token_auth.clone(),
             credential_auth: credential_auth.clone(),
             room_auth: room_auth.clone(),
@@ -114,6 +115,7 @@ impl CoreServices {
             server_metrics: server_metrics.clone(),
             server_name: infra.config.server.name.clone(),
             config: infra.config.clone(),
+            validator: validator.clone(),
             key_rotation_storage: synapse_e2ee::key_rotation::KeyRotationStorage::new(infra.pool.clone()),
             event_broadcaster,
             event_notifier: crate::event_notifier::EventNotifier::new(),

@@ -341,7 +341,7 @@ fn create_room_service(
         event_storage,
         room_tag_storage: Arc::new(synapse_storage::room_tag::RoomTagStorage::new(pool.clone())),
         user_storage,
-        auth_service: Arc::new(synapse_services::auth::AuthService::new(
+        room_auth: Arc::new(synapse_services::auth::AuthService::new(
             pool,
             Arc::new(synapse_rust::cache::CacheManager::new(&synapse_rust::cache::CacheConfig::default())),
             Arc::new(synapse_rust::common::metrics::MetricsCollector::new()),

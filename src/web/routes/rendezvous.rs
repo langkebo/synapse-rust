@@ -207,7 +207,7 @@ async fn update_session(
             let device_id: String = session.device_id.clone().unwrap_or_else(|| "RENDEZVOUS".to_string());
 
             let token: String = ctx
-                .auth_service
+                .token_auth
                 .generate_access_token(user_id, &device_id, false)
                 .await
                 .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;

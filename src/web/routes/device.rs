@@ -59,7 +59,7 @@ async fn require_password_uia(
             match auth_type {
                 "m.login.password" => {
                     if let Err(e) =
-                        ctx.uia_service.verify_password_stage(auth_val, &auth_user.user_id, &ctx.auth_service).await
+                        ctx.uia_service.verify_password_stage(auth_val, &auth_user.user_id, &ctx.credential_auth).await
                     {
                         let session = ctx
                             .uia_service
@@ -77,7 +77,7 @@ async fn require_password_uia(
                 }
                 "m.login.token" => {
                     if let Err(e) =
-                        ctx.uia_service.verify_token_stage(auth_val, &auth_user.user_id, &ctx.auth_service).await
+                        ctx.uia_service.verify_token_stage(auth_val, &auth_user.user_id, &ctx.token_auth).await
                     {
                         let session = ctx
                             .uia_service

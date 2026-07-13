@@ -52,7 +52,7 @@ pub async fn upgrade_guest(
     let username = &body.username;
     let password = &body.password;
     let access_token = ctx
-        .auth_service
+        .credential_auth
         .upgrade_guest_account(&auth_user.user_id, auth_user.device_id.as_deref(), username, password)
         .await?;
 

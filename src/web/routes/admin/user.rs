@@ -458,7 +458,7 @@ pub async fn reset_user_password(
     Path(user_id): Path<String>,
     Json(body): Json<ResetPasswordBody>,
 ) -> Result<Json<Value>, ApiError> {
-    ctx.auth_service.validator().validate_password(&body.new_password)?;
+    ctx.validator.validate_password(&body.new_password)?;
 
     let user = resolve_user(&ctx, &user_id).await?;
 
@@ -588,7 +588,7 @@ pub async fn login_as_user(
     let is_admin = user.is_admin;
 
     let token = ctx
-        .auth_service
+        .token_auth
         .generate_access_token(&user.user_id, &device_id, is_admin)
         .await
         .map_err(|e| ApiError::internal_with_log("Failed to generate token", &e))?;

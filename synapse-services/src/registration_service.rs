@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 pub struct RegistrationService {
     user_storage: Arc<dyn synapse_storage::UserStore>,
-    auth_service: Arc<dyn crate::auth::Auth>,
+    token_auth: Arc<dyn crate::auth::TokenAuth>,
+    credential_auth: Arc<dyn crate::auth::CredentialAuth>,
     metrics: Arc<MetricsCollector>,
     // HP-2 FIX: Make base URL configurable instead of hardcoded
     base_url: String,
@@ -18,7 +19,8 @@ pub struct RegistrationService {
 impl RegistrationService {
     pub fn new(
         user_storage: Arc<dyn synapse_storage::UserStore>,
-        auth_service: Arc<dyn crate::auth::Auth>,
+        token_auth: Arc<dyn crate::auth::TokenAuth>,
+        credential_auth: Arc<dyn crate::auth::CredentialAuth>,
         metrics: Arc<MetricsCollector>,
         server_name: &str,
         enable_registration: bool,
@@ -28,7 +30,7 @@ impl RegistrationService {
         // Default to HTTPS for production, can be overridden via environment variable
         let base_url = std::env::var("HOMESERVER_BASE_URL").unwrap_or_else(|_| format!("https://{server_name}"));
 
-        Self { user_storage, auth_service, metrics, base_url, enable_registration, task_queue }
+        Self { user_storage, token_auth, credential_auth, metrics, base_url, enable_registration, task_queue }
     }
 
     #[::tracing::instrument(
@@ -52,7 +54,7 @@ impl RegistrationService {
 
         let start = std::time::Instant::now();
         let result = self
-            .auth_service
+            .credential_auth
             .register_with_device_name(username, password, false, displayname, initial_device_display_name)
             .await;
 
@@ -103,7 +105,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry(),
+            "expires_in": self.token_auth.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
@@ -130,7 +132,7 @@ impl RegistrationService {
         initial_display_name: Option<&str>,
     ) -> ApiResult<serde_json::Value> {
         let start = std::time::Instant::now();
-        let result = self.auth_service.login(username, password, device_id, initial_display_name).await;
+        let result = self.credential_auth.login(username, password, device_id, initial_display_name).await;
 
         let duration = start.elapsed().as_secs_f64();
         if let Some(hist) = self.metrics.get_histogram("login_duration_seconds") {
@@ -152,7 +154,7 @@ impl RegistrationService {
         Ok(serde_json::json!({
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "expires_in": self.auth_service.token_expiry(),
+            "expires_in": self.token_auth.token_expiry(),
             "device_id": device_id,
             "user_id": user.user_id(),
             "well_known": {
@@ -178,13 +180,13 @@ impl RegistrationService {
         new_password: &str,
         current_device_id: Option<&str>,
     ) -> ApiResult<()> {
-        self.auth_service.change_password(user_id, current_password, new_password, current_device_id).await?;
+        self.credential_auth.change_password(user_id, current_password, new_password, current_device_id).await?;
         Ok(())
     }
 
     #[::tracing::instrument(skip_all, fields(user_id = %user_id))]
     pub async fn deactivate_account(&self, user_id: &str) -> ApiResult<()> {
-        self.auth_service.deactivate_user(user_id).await?;
+        self.credential_auth.deactivate_user(user_id).await?;
         Ok(())
     }
 
@@ -284,7 +286,8 @@ mod tests {
         let services = ServiceContainer::new_test().await;
         let _registration_service = RegistrationService::new(
             services.account.user_storage.clone(),
-            services.core.auth_service.clone(),
+            services.core.token_auth.clone(),
+            services.core.credential_auth.clone(),
             services.core.metrics.clone(),
             &services.core.server_name,
             services.core.config.server.enable_registration,
@@ -318,7 +321,8 @@ mod tests {
         let services = ServiceContainer::new_test().await;
         let registration_service = RegistrationService::new(
             services.account.user_storage.clone(),
-            services.core.auth_service.clone(),
+            services.core.token_auth.clone(),
+            services.core.credential_auth.clone(),
             services.core.metrics.clone(),
             &services.core.server_name,
             false,

@@ -54,7 +54,7 @@ struct InfraPhase {
 
 /// Phase 2 output: auth service + core storages needed by domain assemblies.
 struct StoragePhase {
-    auth_service: Arc<dyn Auth>,
+    validator: Arc<synapse_common::validation::Validator>,
     token_auth: Arc<dyn TokenAuth>,
     credential_auth: Arc<dyn CredentialAuth>,
     room_auth: Arc<dyn RoomAuth>,
@@ -179,7 +179,6 @@ impl ServiceContainer {
             &config.server.name,
             config.access_token_lifetime_seconds(),
         ));
-        let auth_service: Arc<dyn Auth> = auth_concrete.clone();
         let token_auth: Arc<dyn TokenAuth> = auth_concrete.clone();
         let credential_auth: Arc<dyn CredentialAuth> = auth_concrete.clone();
         let room_auth: Arc<dyn RoomAuth> = auth_concrete.clone();
@@ -197,7 +196,7 @@ impl ServiceContainer {
         let sticky_event_storage: Arc<dyn StickyEventStoreApi> = Arc::new(StickyEventStorage::new(pool.clone()));
 
         StoragePhase {
-            auth_service,
+            validator: auth_concrete.validator.clone(),
             token_auth,
             credential_auth,
             room_auth,
@@ -237,7 +236,9 @@ impl ServiceContainer {
             config,
             &infra.infra.task_queue,
             &infra.infra.metrics,
-            &storage.auth_service,
+            &storage.token_auth,
+            &storage.credential_auth,
+            &storage.room_auth,
             &storage.user_storage,
         )
         .await;
@@ -265,7 +266,8 @@ impl ServiceContainer {
         // Rooms — receives member_storage + the 4 injected services directly
         let rooms = wiring::RoomSyncServices::new(
             &infra.infra,
-            &storage.auth_service,
+            &storage.room_auth,
+            &storage.validator,
             &storage.presence_storage,
             &e2ee.to_device_storage,
             member_storage.clone(),
@@ -283,7 +285,7 @@ impl ServiceContainer {
         // Core — needs infra, auth, user_storage, server_metrics + the pre-built broadcaster
         let core = wiring::CoreServices::new(
             &infra.infra,
-            &storage.auth_service,
+            &storage.validator,
             &storage.token_auth,
             &storage.credential_auth,
             &storage.room_auth,

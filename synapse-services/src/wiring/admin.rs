@@ -8,7 +8,7 @@ use synapse_common::metrics::MetricsCollector;
 use synapse_common::task_queue::RedisTaskQueue;
 use synapse_storage::*;
 
-use crate::auth::Auth;
+use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
@@ -88,17 +88,22 @@ pub struct AdminServices {
 }
 
 impl AdminServices {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         pool: &Arc<sqlx::PgPool>,
         cache: &Arc<CacheManager>,
         config: &Config,
         task_queue: &Option<Arc<RedisTaskQueue>>,
         metrics: &Arc<MetricsCollector>,
-        auth_service: &Arc<dyn Auth>,
+        token_auth: &Arc<dyn TokenAuth>,
+        credential_auth: &Arc<dyn CredentialAuth>,
+        _room_auth: &Arc<dyn RoomAuth>,
         user_storage: &Arc<dyn UserStore>,
     ) -> Self {
         let admin_registration_service = crate::admin_registration_service::AdminRegistrationService::new(
-            auth_service.clone(),
+            token_auth.clone(),
+            credential_auth.clone(),
+            config.server.name.clone(),
             config.admin_registration.clone(),
             user_storage.clone(),
             cache.clone(),

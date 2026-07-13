@@ -921,12 +921,12 @@ async fn oidc_callback(
 
                     let device_id: String = uuid::Uuid::new_v4().to_string()[..8].to_string();
                     let access_token: String = ctx
-                        .auth_service
+                        .token_auth
                         .generate_access_token(&user_id, &device_id, existing.is_admin)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate access token", &e))?;
                     let refresh_token: String = ctx
-                        .auth_service
+                        .token_auth
                         .generate_refresh_token(&user_id, &device_id)
                         .await
                         .map_err(|e| ApiError::internal_with_log("Failed to generate refresh token", &e))?;

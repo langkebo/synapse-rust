@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use synapse_storage::*;
 
-use crate::auth::Auth;
+use crate::auth::RoomAuth;
 use crate::container::SharedInfra;
 
 #[derive(Clone)]
@@ -33,7 +33,8 @@ impl RoomSyncServices {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
         infra: &SharedInfra,
-        auth_service: &Arc<dyn Auth>,
+        room_auth: &Arc<dyn RoomAuth>,
+        validator: &Arc<synapse_common::validation::Validator>,
         presence_storage: &Arc<dyn synapse_storage::presence::PresenceStoreApi>,
         to_device_storage: &synapse_e2ee::to_device::ToDeviceStorage,
         member_storage: Arc<dyn synapse_storage::membership::MemberStoreApi>,
@@ -72,9 +73,9 @@ impl RoomSyncServices {
             event_storage: event_storage.clone(),
             room_tag_storage: room_tag_storage.clone(),
             user_storage: Arc::new(UserStorage::new(&infra.pool, infra.cache.clone())),
-            auth_service: auth_service.clone(),
+            room_auth: room_auth.clone(),
             room_summary_service: room_summary_service.clone(),
-            validator: auth_service.validator().clone(),
+            validator: validator.clone(),
             server_name: infra.config.server.name.clone(),
             task_queue: infra.task_queue.clone(),
             relations_storage: relations_storage.clone(),
