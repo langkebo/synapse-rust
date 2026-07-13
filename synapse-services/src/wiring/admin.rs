@@ -12,6 +12,7 @@ use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::worker::topology_validator::{
     current_instance_worker_type, global_maintenance_owner, should_run_global_maintenance,
 };
+use crate::UserService;
 use synapse_storage::email_verification::EmailVerificationStorage;
 
 #[derive(Clone)]
@@ -86,6 +87,7 @@ pub struct AdminServices {
     pub media: AdminMediaServices,
     pub security: AdminSecurityServices,
     pub modules: AdminModuleServices,
+    pub user_service: Arc<UserService>,
 }
 
 impl AdminServices {
@@ -268,6 +270,8 @@ impl AdminServices {
             config.server.name.clone(),
         ));
 
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         Self {
             user: AdminUserServices {
                 admin_registration_service,
@@ -319,6 +323,7 @@ impl AdminServices {
                 worker_storage,
                 worker_manager,
             },
+            user_service,
         }
     }
 }

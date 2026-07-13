@@ -7,6 +7,7 @@ use crate::burn_after_read_service::BurnAfterReadService;
 use synapse_storage::UserStore;
 
 use crate::container::SharedInfra;
+use crate::UserService;
 
 #[derive(Clone)]
 pub struct ExtensionServices {
@@ -39,6 +40,7 @@ pub struct ExtensionServices {
     pub translation_service: Arc<crate::translation_service::TranslationService>,
     pub uia_service: Arc<crate::uia_service::UiaService>,
     pub user_lock_service: Arc<crate::user_lock_service::UserLockService>,
+    pub user_service: Arc<UserService>,
 }
 
 /// Dependency bundle for [`ExtensionServices::new`].
@@ -52,6 +54,7 @@ pub struct ExtensionServicesDeps<'a> {
     pub media_service: &'a crate::media_service::MediaService,
     pub media_domain_service: &'a Arc<crate::media::MediaDomainService>,
     pub ui_auth_session_timeout: i64,
+    pub user_service: Arc<UserService>,
 }
 
 impl ExtensionServices {
@@ -66,6 +69,7 @@ impl ExtensionServices {
             media_service,
             media_domain_service,
             ui_auth_session_timeout,
+            user_service,
         } = deps;
 
         #[cfg(feature = "friends")]
@@ -212,6 +216,7 @@ impl ExtensionServices {
             translation_service,
             uia_service,
             user_lock_service,
+            user_service,
         }
     }
 }

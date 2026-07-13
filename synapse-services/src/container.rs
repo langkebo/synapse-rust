@@ -1,4 +1,5 @@
 use crate::auth::*;
+use crate::UserService;
 use synapse_cache::*;
 use synapse_common::config::Config;
 use synapse_common::metrics::MetricsCollector;
@@ -66,6 +67,7 @@ struct StoragePhase {
     qr_login_storage: Arc<dyn QrLoginStoreApi>,
     invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
     sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    user_service: Arc<UserService>,
 }
 
 /// Phase 3 output: domain assemblies + media service.
@@ -195,6 +197,8 @@ impl ServiceContainer {
             Arc::new(InviteBlocklistStorage::new(pool.clone()));
         let sticky_event_storage: Arc<dyn StickyEventStoreApi> = Arc::new(StickyEventStorage::new(pool.clone()));
 
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         StoragePhase {
             validator: auth_concrete.validator.clone(),
             token_auth,
@@ -208,6 +212,7 @@ impl ServiceContainer {
             qr_login_storage,
             invite_blocklist_storage,
             sticky_event_storage,
+            user_service,
         }
     }
 
@@ -329,6 +334,7 @@ impl ServiceContainer {
             media_service: &core.media_service,
             media_domain_service: &media_domain_service,
             ui_auth_session_timeout: infra.ui_auth_session_timeout,
+            user_service: storage.user_service.clone(),
         })
         .await;
 
@@ -366,6 +372,7 @@ impl ServiceContainer {
                 sticky_event_storage: storage.sticky_event_storage.clone(),
                 account_device_list_service,
                 account_identity_service,
+                user_service: storage.user_service.clone(),
             }),
             sso,
             extensions,

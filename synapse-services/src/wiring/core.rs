@@ -12,6 +12,7 @@ use synapse_storage::*;
 
 use crate::auth::{CredentialAuth, RoomAuth, TokenAuth};
 use crate::container::SharedInfra;
+use crate::UserService;
 
 #[derive(Clone)]
 pub struct CoreServices {
@@ -33,6 +34,7 @@ pub struct CoreServices {
     pub event_notifier: crate::event_notifier::EventNotifier,
     pub account_data_service: Arc<crate::account_data_service::AccountDataService>,
     pub client_push_service: Arc<crate::client_push_service::ClientPushService>,
+    pub user_service: Arc<UserService>,
 }
 
 impl CoreServices {
@@ -102,6 +104,8 @@ impl CoreServices {
         let client_push_service =
             Arc::new(crate::client_push_service::ClientPushService::new(account_data_storage, push_storage));
 
+        let user_service = Arc::new(UserService::new(user_storage.clone()));
+
         Self {
             token_auth: token_auth.clone(),
             credential_auth: credential_auth.clone(),
@@ -121,6 +125,7 @@ impl CoreServices {
             event_notifier: crate::event_notifier::EventNotifier::new(),
             account_data_service,
             client_push_service,
+            user_service,
         }
     }
 }

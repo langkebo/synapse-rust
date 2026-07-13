@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use synapse_storage::*;
 
+use crate::UserService;
+
 #[derive(Clone)]
 pub struct AccountServices {
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
@@ -17,6 +19,7 @@ pub struct AccountServices {
     pub qr_login_storage: Arc<dyn QrLoginStoreApi>,
     pub invite_blocklist_storage: Arc<dyn InviteBlocklistStoreApi>,
     pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
+    pub user_service: Arc<UserService>,
 }
 
 /// Dependency bundle for [`AccountServices::new`].
@@ -32,6 +35,7 @@ pub struct AccountServicesDeps {
     pub sticky_event_storage: Arc<dyn StickyEventStoreApi>,
     pub account_device_list_service: Arc<crate::account_device_list_service::AccountDeviceListService>,
     pub account_identity_service: Arc<crate::account_identity_service::AccountIdentityService>,
+    pub user_service: Arc<UserService>,
 }
 
 impl AccountServices {
@@ -48,6 +52,7 @@ impl AccountServices {
             qr_login_storage: deps.qr_login_storage,
             invite_blocklist_storage: deps.invite_blocklist_storage,
             sticky_event_storage: deps.sticky_event_storage,
+            user_service: deps.user_service,
         }
     }
 }
