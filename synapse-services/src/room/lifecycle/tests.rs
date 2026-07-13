@@ -21,7 +21,6 @@ mod tests {
         LifecycleService::new(LifecycleServiceConfig {
             room_storage: Arc::new(room_store),
             member_storage: Arc::new(member_store),
-            event_storage: Arc::new(event_store),
             event_reader,
             event_writer,
             user_storage: user_store,

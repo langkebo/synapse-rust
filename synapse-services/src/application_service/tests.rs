@@ -19,7 +19,6 @@ fn test_manager() -> ApplicationServiceManager {
     ApplicationServiceManager::new(
         Arc::new(ApplicationServiceStorage::new(&pool)),
         Arc::new(EventStorage::new(&pool, "example.com".to_string())),
-        Arc::new(EventStorage::new(&pool, "example.com".to_string())),
         "example.com".to_string(),
     )
 }

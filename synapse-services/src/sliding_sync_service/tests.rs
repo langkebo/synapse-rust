@@ -85,7 +85,6 @@ fn create_test_service() -> SlidingSyncService {
     SlidingSyncService {
         storage: Arc::new(SlidingSyncStorage::new(pool.clone())),
         cache: Arc::new(CacheManager::new(&synapse_cache::CacheConfig::default())),
-        event_storage: event_storage.clone(),
         event_reader: event_storage,
         device_key_storage: DeviceKeyStorage::new(&pool),
         typing_service: Arc::new(crate::typing_service::TypingService::default()),

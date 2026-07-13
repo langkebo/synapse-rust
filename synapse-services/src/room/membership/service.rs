@@ -110,7 +110,7 @@ impl MembershipService {
             .ok_or_else(|| ApiError::internal("No signing key available".to_string()))
     }
 
-    /// Get state events by type — thin wrapper around `event_storage`.
+    /// Get state events by type — thin wrapper around `event_reader`.
     /// Returns JSON-formatted event list.
     pub(crate) async fn get_state_events_by_type(
         &self,
