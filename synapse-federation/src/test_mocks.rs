@@ -10,7 +10,7 @@
 //! With the [`FederationClientApi`] trait extracted (FED-1..3), production
 //! code accepts `Arc<dyn FederationClientApi>` and tests inject
 //! `MockFederationClient`. This is the same seam pattern used for storage
-//! traits (EventStoreApi, RoomStoreApi, etc.).
+//! traits (EventReader/EventWriter, RoomStoreApi, etc.).
 
 use std::collections::HashMap;
 use std::sync::Arc;

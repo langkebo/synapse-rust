@@ -476,8 +476,8 @@ impl crate::membership::api::MemberStoreApi for InMemoryMemberStore {
 // Phase 3 complete: all storage traits extracted
 // =============================================================================
 //
-// EventStoreApi (event/api.rs) — 14 methods covering single-event, bulk-read,
-//   state events, helpers, and mutation operations.
+// EventReader (event/reader.rs) + EventWriter (event/writer.rs) — 47 methods
+//   covering single-event, bulk-read, state events, helpers, and mutation operations.
 // RoomStoreApi (room/api.rs) — 11 methods covering room CRUD, aliases, join rules,
 //   and member counts.
 // MemberStoreApi (membership/api.rs) — 6 methods covering member queries, batches,

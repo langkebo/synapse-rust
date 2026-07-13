@@ -129,7 +129,7 @@ async fn event_redact_content_replaces_with_empty_json() {
     assert_eq!(redacted.content, serde_json::json!({}));
 }
 
-// ── EventStoreApi state event tests ─────────────────────────────
+// ── EventReader state event tests ────────────────────────────────
 
 #[tokio::test]
 async fn get_state_event_returns_matching_state_event() {
