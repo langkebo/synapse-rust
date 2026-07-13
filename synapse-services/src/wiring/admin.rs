@@ -217,6 +217,7 @@ impl AdminServices {
         let app_service_manager = Arc::new(crate::application_service::ApplicationServiceManager::new(
             app_service_storage.clone(),
             app_service_event_storage,
+            app_service_event_reader.clone(),
             config.server.get_server_name().to_owned(),
         ));
         let app_service_scheduler =

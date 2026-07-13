@@ -49,6 +49,7 @@ pub struct RoomServiceConfig {
     pub room_storage: Arc<dyn RoomStoreApi>,
     pub member_storage: Arc<dyn MemberStoreApi>,
     pub event_storage: Arc<dyn EventStoreApi>,
+    pub event_reader: Option<Arc<dyn synapse_storage::event::EventReader>>,
     pub room_tag_storage: Arc<dyn RoomTagStoreApi>,
     pub user_storage: Arc<dyn UserStore>,
     pub room_auth: Arc<dyn RoomAuth>,

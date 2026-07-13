@@ -22,6 +22,7 @@ pub use models::NamespacesInfo;
 pub struct ApplicationServiceManager {
     storage: Arc<dyn ApplicationServiceStoreApi>,
     event_storage: Arc<dyn EventStoreApi>,
+    event_reader: Arc<dyn synapse_storage::event::EventReader>,
     http_client: Client,
     server_name: String,
 }
@@ -30,6 +31,7 @@ impl ApplicationServiceManager {
     pub fn new(
         storage: Arc<dyn ApplicationServiceStoreApi>,
         event_storage: Arc<dyn EventStoreApi>,
+        event_reader: Arc<dyn synapse_storage::event::EventReader>,
         server_name: String,
     ) -> Self {
         let http_client = Client::builder()
@@ -48,7 +50,7 @@ impl ApplicationServiceManager {
                 Client::new()
             });
 
-        Self { storage, event_storage, http_client, server_name }
+        Self { storage, event_storage, event_reader, http_client, server_name }
     }
 
     #[instrument(skip(self, config_files))]

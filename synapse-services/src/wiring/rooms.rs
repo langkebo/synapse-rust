@@ -62,6 +62,7 @@ impl RoomSyncServices {
         let room_summary_service = Arc::new(crate::room_summary_service::RoomSummaryService::new(
             room_summary_storage.clone(),
             event_storage.clone(),
+            event_reader.clone(),
             Some(member_storage.clone()),
         ));
 
@@ -75,6 +76,7 @@ impl RoomSyncServices {
             room_storage: room_storage.clone(),
             member_storage: member_storage.clone(),
             event_storage: event_storage.clone(),
+            event_reader: Some(event_reader.clone()),
             room_tag_storage: room_tag_storage.clone(),
             user_storage: Arc::new(UserStorage::new(&infra.pool, infra.cache.clone())),
             room_auth: room_auth.clone(),
@@ -104,6 +106,7 @@ impl RoomSyncServices {
                 presence_storage: presence_storage.clone(),
                 member_storage: member_storage.clone(),
                 event_storage: event_storage.clone(),
+                event_reader: event_reader.clone(),
                 room_storage: room_storage.clone(),
                 room_account_data_storage: sync_room_account_data_storage,
                 account_data_storage: sync_account_data_storage,
@@ -123,6 +126,7 @@ impl RoomSyncServices {
             sliding_sync_storage,
             infra.cache.clone(),
             event_storage.clone(),
+            event_reader.clone(),
             sync_device_key_storage,
             typing_service.clone(),
             presence_storage.clone(),

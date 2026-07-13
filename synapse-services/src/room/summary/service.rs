@@ -16,6 +16,7 @@ use tracing::{debug, info, instrument};
 pub struct RoomSummaryService {
     pub(crate) storage: Arc<dyn RoomSummaryStoreApi>,
     pub(crate) event_storage: Arc<dyn EventStoreApi>,
+    pub(crate) event_reader: Arc<dyn synapse_storage::event::EventReader>,
     pub(crate) member_storage: Option<Arc<dyn MemberStoreApi>>,
 }
 
@@ -23,9 +24,10 @@ impl RoomSummaryService {
     pub fn new(
         storage: Arc<dyn RoomSummaryStoreApi>,
         event_storage: Arc<dyn EventStoreApi>,
+        event_reader: Arc<dyn synapse_storage::event::EventReader>,
         member_storage: Option<Arc<dyn MemberStoreApi>>,
     ) -> Self {
-        Self { storage, event_storage, member_storage }
+        Self { storage, event_storage, event_reader, member_storage }
     }
 
     #[instrument(skip(self))]
