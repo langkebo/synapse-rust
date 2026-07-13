@@ -11,10 +11,12 @@ pub(crate) mod redaction;
 pub(crate) mod search;
 pub(crate) mod signature;
 pub mod state;
+pub(crate) mod writer;
 
 pub use api::EventStoreApi;
 pub use models::*;
 pub use reader::EventReader;
+pub use writer::EventWriter;
 
 /// Canonical 15-column SELECT list for `RoomEvent` deserialization.
 ///
